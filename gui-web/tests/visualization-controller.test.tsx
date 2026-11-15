@@ -176,7 +176,10 @@ test("selection while an unrelated control has focus does not become a shape ori
   await screen.findByText(
     "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement?.getAttribute("aria-labelledby")).toBeTruthy();
+  expect(
+    document.activeElement?.getAttribute("aria-label") ??
+      document.activeElement?.getAttribute("aria-labelledby"),
+  ).toBeTruthy();
   expect(document.activeElement).not.toBe(external);
 });
 

@@ -12,8 +12,12 @@ const view = {
 const unwatched = "Changes made after the analysis aren't reflected";
 const generic = "The reason is unavailable";
 
-function showEvidence(reasonKey: string | null) {
+function showEvidence(
+  reasonKey: string | null,
+  completeness: "partial" | "complete" = "partial",
+) {
   const input = modelFixture();
+  input.frame.completeness = completeness;
   input.frame.model.staleness = { state: "unknown", reasonKey };
   render(
     <VisualizationModelPresenter
@@ -29,9 +33,12 @@ function showEvidence(reasonKey: string | null) {
   );
 }
 
-test("the unwatched freshness reason shows its wording and never the raw key", () => {
-  showEvidence("viz.staleness.unwatched");
-  expect(screen.getByText(unwatched)).toBeDefined();
+test("the unwatched freshness reason shows its wording once, as quiet text in the status line, and never the raw key", () => {
+  showEvidence("viz.staleness.unwatched", "complete");
+  const line = screen.getByText(unwatched);
+  expect(line.closest(".du-review-context")).not.toBeNull();
+  expect(line.closest(".du-notice")).toBeNull();
+  expect(screen.getAllByText(unwatched)).toHaveLength(1);
   expect(screen.queryByText("viz.staleness.unwatched")).toBeNull();
   expect(screen.queryByText(generic)).toBeNull();
 });

@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import {
   Action,
   DataTable,
@@ -7,7 +7,6 @@ import {
   Notice,
   Progress,
   Text,
-  Heading,
 } from "../../components";
 import type {
   ItemRef,
@@ -63,7 +62,6 @@ type ModelViewProps = {
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
   const visualizationRef = useRef<HTMLElement>(null);
-  const headingId = useId();
   const ChartRenderer = (props.resolveRenderer ?? defaultChartRenderer)(
     frame.model.representation.format,
   );
@@ -110,11 +108,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       }}
       className="du-review-stack"
       tabIndex={-1}
-      aria-labelledby={headingId}
+      aria-label={text.message("storageVisualization")}
     >
-      <Heading level={2} id={headingId}>
-        {text.message("storageVisualization")}
-      </Heading>
       <div className="du-review-context">
         <ModelStatus frame={frame} text={text} />
       </div>

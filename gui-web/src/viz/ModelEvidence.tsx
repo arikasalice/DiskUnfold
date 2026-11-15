@@ -96,9 +96,11 @@ export function ModelEvidence({
       {model.summary.reasonKeys.map((key) => (
         <Notice key={key}>{explainReason(key, text)}</Notice>
       ))}
-      {model.staleness.reasonKey && (
-        <Notice>{explainReason(model.staleness.reasonKey, text)}</Notice>
-      )}
+      {/* The unwatched freshness is said once in the status line, in quiet text. */}
+      {model.staleness.reasonKey &&
+        model.staleness.reasonKey !== "viz.staleness.unwatched" && (
+          <Notice>{explainReason(model.staleness.reasonKey, text)}</Notice>
+        )}
     </DetailDisclosure>
   );
 }
