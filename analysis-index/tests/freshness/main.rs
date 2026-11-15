@@ -1,4 +1,5 @@
 //! F33 FR3.HD1: the freshness ledger and its notices.
+mod limits;
 mod support;
 
 use du_analysis_index::SampleSessionKey;

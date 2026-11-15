@@ -6,6 +6,7 @@ mod directory_case;
 mod forest;
 pub mod freshness;
 mod freshness_ledger;
+mod freshness_outcomes;
 pub mod group;
 mod issues;
 mod physical;
@@ -95,6 +96,9 @@ pub struct ResultVersion {
         Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+    /// Per-root outcomes for the freshness ledger, computed at seal time outside the store
+    /// lock. `None` when the version was not sealed by a store that tracks freshness.
+    freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
 }
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
@@ -321,6 +325,16 @@ impl BuildHandle {
         let (observation_ranges, scope_observation_range) =
             observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
+        // Linear in items and gaps, so it runs here and never under the state lock below.
+        let freshness_outcomes = (finish && self.events.tracks_freshness()).then(|| {
+            freshness_outcomes::compute(
+                self.roots.len(),
+                result_completeness,
+                &built.items,
+                &built.root_indices,
+                &self.gaps,
+            )
+        });
         let result = Arc::new(ResultVersion {
             version_id,
             origin: self.origin,
@@ -353,6 +367,7 @@ impl BuildHandle {
             scope_total,
             volume_reports: self.volume_reports.clone(),
             observed_at,
+            freshness_outcomes,
         });
         let order = self
             .events
@@ -380,6 +395,7 @@ impl BuildHandle {
             self.finished = true;
         }
         let sequence = state.next_event_sequence(self.lineage.as_ref());
+        // Only O(roots) work may happen under this lock; query admissions wait on it.
         let freshness = if self.events.tracks_freshness() {
             state.freshness_published(&self.lineage, &result, !was_published, finish)
         } else {

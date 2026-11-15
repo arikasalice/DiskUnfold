@@ -1,10 +1,14 @@
 //! Freshness ledger changes made together with result-store state changes.
 use super::{Lineage, State};
-use crate::ResultVersion;
+use crate::{ResultVersion, freshness_ledger::LedgerVersion};
 use du_core_contracts::{Id, result_freshness::ResultFreshnessNotice};
 use std::{collections::HashSet, sync::Arc};
 
 impl State {
+    // Everything below runs under the result-store lock, which query admissions wait on.
+    // Only O(roots) work is allowed here; the ledger gets a `LedgerVersion` header that
+    // cannot reach items or gaps, and per-root outcomes are computed before the lock.
+
     /// Returns the lineage whose results keep a freshness ledger: a real, bound lineage.
     fn freshness_lineage(&self, lineage: &Lineage) -> Option<Id> {
         lineage
@@ -32,7 +36,7 @@ impl State {
         }
         let mut notices: Vec<_> = self
             .freshness
-            .publish(&id, result, first, finish)
+            .publish(&id, &result.ledger_version(), first, finish)
             .into_iter()
             .collect();
         notices.extend(self.prune_freshness());
@@ -51,7 +55,10 @@ impl State {
         };
         let mut notices: Vec<_> = baseline
             .filter(|base| base.data_source.is_real())
-            .and_then(|base| self.freshness.abort(&id, build_scope, base))
+            .and_then(|base| {
+                self.freshness
+                    .abort(&id, build_scope, &base.ledger_version())
+            })
             .into_iter()
             .collect();
         notices.extend(self.prune_freshness());
@@ -66,5 +73,18 @@ impl State {
             .map(|entry| &entry.result.scope_version_id)
             .collect();
         self.freshness.prune(&live)
+    }
+}
+
+impl ResultVersion {
+    /// Borrows what the freshness ledger reads; O(1), and no access to items or gaps.
+    fn ledger_version(&self) -> LedgerVersion<'_> {
+        LedgerVersion {
+            version_id: &self.version_id,
+            scope_version_id: &self.scope_version_id,
+            root_count: self.roots.len(),
+            observed_at: self.observed_at.as_ref(),
+            outcomes: self.freshness_outcomes.as_deref(),
+        }
     }
 }

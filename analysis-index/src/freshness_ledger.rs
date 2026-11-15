@@ -3,19 +3,41 @@
 //! A ledger changes under the result-store lock and returns the notices to publish after
 //! the lock is released. Row states reuse the transition rules in [`crate::freshness`].
 //! Nothing watches files yet, so a root observed in full settles as `unwatched`.
+//!
+//! # Work under the store lock
+//!
+//! Query admissions wait on the result-store lock, so everything in this module may do
+//! only O(number of roots) work. The ledger therefore never sees a result's items or gaps:
+//! it takes a [`LedgerVersion`], which carries the root count and the per-root outcomes
+//! that the result's builder computed outside the lock (see [`crate::freshness_outcomes`]).
+//! Do not add a path from here to the items, gaps or any other per-item data.
 use crate::{
-    ResultVersion,
     freshness::{Event, Reobservation, Settled, State, Summary, transition},
+    freshness_outcomes::RootOutcome,
 };
 use du_core_contracts::{
-    Id,
-    result::ResultCompleteness,
+    Id, Timestamp,
     result_freshness::{
         FreshnessChanged, FreshnessCounts, FreshnessRange, FreshnessState, FreshnessSummary,
         MAX_FRESHNESS_RANGES, ResultFreshnessChanged, ResultFreshnessNotice,
     },
 };
 use std::collections::{HashMap, HashSet, VecDeque};
+
+/// The part of a result version the ledger reads, borrowed from the version.
+///
+/// Building it costs O(1). The outcomes are present when the version was sealed by a
+/// store that tracks freshness. A version without them is settled as if no root was
+/// processed and none failed: each refreshing row returns to its earlier state, or becomes
+/// `unverifiable` without a reason key when it had none. The ledger never derives outcomes
+/// itself, because that needs a walk over the items.
+pub(crate) struct LedgerVersion<'a> {
+    pub(crate) version_id: &'a Id,
+    pub(crate) scope_version_id: &'a Id,
+    pub(crate) root_count: usize,
+    pub(crate) observed_at: Option<&'a Timestamp>,
+    pub(crate) outcomes: Option<&'a [RootOutcome]>,
+}
 
 /// How many sequences of removed ledgers are remembered.
 ///
@@ -27,6 +49,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// restart as a first event.
 const RETIRED_LIMIT: usize = 64;
 
+/// Sequences stay below 2^53 so that they are exact in a JSON number on the GUI side.
 const SEQUENCE_LIMIT: u64 = 1_u64 << 53;
 
 /// The representative state of a summary without rows. A receiver must not assume a
@@ -46,13 +69,6 @@ struct Rested {
 enum Row {
     Settled(Rested),
     Refreshing { before: Option<Rested> },
-}
-
-/// What a sealed result says about one root.
-struct Outcome {
-    /// The reason key of a gap that covers the whole root.
-    failed: Option<String>,
-    processed: bool,
 }
 
 impl Row {
@@ -112,7 +128,7 @@ impl Row {
     ///
     /// A root the observation did not process keeps its state before the refresh, and is
     /// `unverifiable` without a reason when it had none.
-    fn settle(&mut self, outcome: &Outcome) {
+    fn settle(&mut self, outcome: &RootOutcome) {
         let Self::Refreshing { before } = self else {
             return;
         };
@@ -187,11 +203,12 @@ impl Ledgers {
     /// Applies a publication of `result` by a build of `lineage`.
     ///
     /// The first publication of a build starts a refresh of every root; sealing settles
-    /// every root from the result. Other publications change nothing.
+    /// every root from the result's stored outcomes. Other publications change nothing.
+    /// Runs under the store lock: O(roots) only.
     pub(crate) fn publish(
         &mut self,
         lineage: &Id,
-        result: &ResultVersion,
+        result: &LedgerVersion<'_>,
         first: bool,
         finish: bool,
     ) -> Option<ResultFreshnessNotice> {
@@ -200,7 +217,7 @@ impl Ledgers {
                 rows.iter_mut().for_each(Row::begin_refresh);
             }
             if finish {
-                settle_all(rows, result);
+                settle_all(rows, result.outcomes);
             }
             finish
         })
@@ -210,14 +227,14 @@ impl Ledgers {
     ///
     /// `baseline` is the version the withdrawal made current again. A ledger that cannot be
     /// restored, such as one for a scope version the baseline had lost, is derived again
-    /// from the baseline's own evidence.
+    /// from the baseline's stored outcomes. Runs under the store lock: O(roots) only.
     pub(crate) fn abort(
         &mut self,
         lineage: &Id,
         build_scope: &Id,
-        baseline: &ResultVersion,
+        baseline: &LedgerVersion<'_>,
     ) -> Option<ResultFreshnessNotice> {
-        let scope = &baseline.scope_version_id;
+        let scope = baseline.scope_version_id;
         if self.by_scope.contains_key(scope) && scope != build_scope {
             return None;
         }
@@ -228,7 +245,7 @@ impl Ledgers {
                 return false;
             }
             rows.iter_mut().for_each(|row| *row = Row::new());
-            settle_all(rows, baseline);
+            settle_all(rows, baseline.outcomes);
             true
         })
     }
@@ -275,15 +292,16 @@ impl Ledgers {
 
     /// Edits the ledger of `current`'s scope version and reports what changed.
     ///
-    /// `edit` returns whether the change comes from an observation of `current`.
+    /// `edit` returns whether the change comes from an observation of `current`. Everything
+    /// here, including `edit`, must stay O(roots): the caller holds the store lock.
     fn update(
         &mut self,
         lineage: &Id,
-        current: &ResultVersion,
+        current: &LedgerVersion<'_>,
         edit: impl FnOnce(&mut Vec<Row>) -> bool,
     ) -> Option<ResultFreshnessNotice> {
-        let scope = &current.scope_version_id;
-        let count = current.roots.len();
+        let scope = current.scope_version_id;
+        let count = current.root_count;
         if count == 0 {
             return None;
         }
@@ -321,6 +339,12 @@ impl Ledgers {
         if changed.is_empty() && !shrunk {
             return None;
         }
+        // When the next sequence would reach the limit, the rows above already hold the
+        // change, but `?` returns no notice and the sequence does not move. The ledger then
+        // differs from what receivers last saw, and every later change of this scope version
+        // is applied the same way, silently, because the next diff starts from the changed
+        // rows. Only a removal still sends a notice, and it reuses the last sequence (see
+        // `prune`). Reaching this takes 2^53 changes; the behaviour is left as it is.
         let sequence = ledger
             .sequence
             .checked_add(1)
@@ -344,7 +368,7 @@ impl Ledgers {
                 sequence,
                 summary: ledger.summary(),
                 changed,
-                observed_at: observed.then(|| current.observed_at.clone()).flatten(),
+                observed_at: observed.then(|| current.observed_at.cloned()).flatten(),
             },
         })
     }
@@ -366,39 +390,13 @@ fn range(index: usize, row: &Row) -> Option<FreshnessRange> {
     })
 }
 
-fn settle_all(rows: &mut [Row], result: &ResultVersion) {
-    for (row, outcome) in rows.iter_mut().zip(outcomes(result)) {
-        row.settle(&outcome);
+/// Settles every refreshing row from stored outcomes, or as not processed without them.
+fn settle_all(rows: &mut [Row], stored: Option<&[RootOutcome]>) {
+    let idle = RootOutcome::default();
+    for (index, row) in rows.iter_mut().enumerate() {
+        row.settle(stored.and_then(|all| all.get(index)).unwrap_or(&idle));
     }
 }
 
-/// Reads each root's outcome from a result's gaps and items.
-///
-/// A complete result processed every root it has no whole-root gap for. For a partial or
-/// cancelled result a root counts as processed only when an item below the root exists.
-fn outcomes(result: &ResultVersion) -> Vec<Outcome> {
-    let count = result.roots.len();
-    let complete = matches!(
-        result.completeness,
-        ResultCompleteness::Complete | ResultCompleteness::Missing
-    );
-    let mut processed = vec![complete; count];
-    if !complete {
-        for (item, root) in result.items.iter().zip(&result.root_indices) {
-            if let Some(slot) = item.parent.and(processed.get_mut(*root as usize)) {
-                *slot = true;
-            }
-        }
-    }
-    let mut failed: Vec<Option<String>> = vec![None; count];
-    for gap in result.gaps.iter().filter(|gap| gap.path.is_empty()) {
-        if let Some(slot) = failed.get_mut(gap.root_index as usize) {
-            slot.get_or_insert_with(|| gap.reason_key.clone());
-        }
-    }
-    failed
-        .into_iter()
-        .zip(processed)
-        .map(|(failed, processed)| Outcome { failed, processed })
-        .collect()
-}
+#[cfg(test)]
+mod tests;

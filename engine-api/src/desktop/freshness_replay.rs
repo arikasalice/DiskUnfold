@@ -10,6 +10,13 @@
 //! hands the copy out assigns its own transport sequence, as it does for every event, so
 //! the copy leaves the desktop with a nonzero, rising envelope `seq` and the original body
 //! `sequence`.
+//!
+//! A replay can be skipped. It is queued after a `job.resync_required` and when a document
+//! becomes ready; if the queue is discarding events at that moment, nothing is queued and
+//! the pending resync notice triggers the replay when it is taken. If the queue is within
+//! one slot of its limit without discarding, only the copies that fit are queued and the
+//! rest are dropped for that call, with no resync of their own. The receiver then waits for
+//! the next resync or document generation; see `Pending::queue_freshness_replays`.
 use du_core_contracts::{
     EventEnvelope,
     result_freshness::{FreshnessChanged, RESULT_FRESHNESS_CHANGED, ResultFreshnessChanged},

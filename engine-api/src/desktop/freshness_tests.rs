@@ -326,3 +326,79 @@ fn an_event_without_a_current_version_drops_the_retained_copy() -> Check {
     assert!(pending.freshness.replays().len() == 1);
     Ok(())
 }
+
+/// Retains copies of `count` extra scope versions without queueing their events.
+fn retain_extra(pending: &mut Pending, count: u32) -> Check {
+    for scope in 0..count {
+        pending.freshness.record(&event(1_001 + scope, 1, true)?);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_replay_into_a_queue_near_its_limit_keeps_the_copies_that_fit_and_drops_the_rest() -> Check {
+    let now = Instant::now();
+    let mut pending = Pending::default();
+    // Scope 6 is retained by the fillers; five more scope versions are retained directly.
+    // Copies go out in scope version order, so scope 6 comes first.
+    retain_extra(&mut pending, 5)?;
+    for _ in 0..EVENT_LIMIT - 4 {
+        push(&mut pending, event(6, 1, true)?, now);
+    }
+    assert_eq!(pending.freshness.replays().len(), 6);
+    pending.mark_document_ready();
+    // The queue stops one slot below its limit: three of the six copies fit.
+    assert_eq!(pending.queue.len(), EVENT_LIMIT - 1);
+    assert!(pending.discarded_events.is_none());
+    assert!(pending.delivery_resync.is_none());
+    let delivered = take_all(&mut pending, now + EVENT_INTERVAL);
+    assert_eq!(delivered.len(), EVENT_LIMIT - 1);
+    assert!(
+        delivered
+            .iter()
+            .all(|event| event.topic != "job.resync_required"),
+        "skipping raises no resync notice"
+    );
+    let copies: Vec<_> = delivered
+        .iter()
+        .filter(|event| event.body["changed"]["kind"] == "requery")
+        .collect();
+    assert_eq!(copies.len(), 3);
+    let copied_scopes: Vec<_> = copies
+        .iter()
+        .map(|event| event.body["scopeVersionId"].clone())
+        .collect();
+    assert_eq!(
+        copied_scopes,
+        [id(6)?, id(1_001)?, id(1_002)?].map(|scope| serde_json::json!(scope.as_str())),
+    );
+    // Nothing retries the dropped copies, but they stay retained for the next replay.
+    assert!(take_all(&mut pending, now + EVENT_INTERVAL * 4).is_empty());
+    assert_eq!(pending.freshness.replays().len(), 6);
+    pending.begin_document_generation();
+    pending.mark_document_ready();
+    let next_window = take_all(&mut pending, now + EVENT_INTERVAL * 8);
+    assert_eq!(freshness_of(&next_window).len(), 6);
+    Ok(())
+}
+
+#[test]
+fn a_replay_while_the_queue_discards_waits_for_its_resync_notice() -> Check {
+    let now = Instant::now();
+    let mut pending = Pending::default();
+    retain_extra(&mut pending, 2)?;
+    for _ in 0..EVENT_LIMIT {
+        push(&mut pending, event(6, 1, true)?, now);
+    }
+    assert!(pending.discarded_events.is_some());
+    // The document becomes ready while the queue still discards: no copy is queued.
+    pending.mark_document_ready();
+    assert_eq!(pending.queue.len(), 1, "only the resync notice is queued");
+    let first = take_all(&mut pending, now + EVENT_INTERVAL);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].topic, "job.resync_required");
+    // Taking the notice queues every retained copy behind it.
+    let replay = take_all(&mut pending, now + EVENT_INTERVAL * 4);
+    assert_eq!(freshness_of(&replay).len(), 3);
+    Ok(())
+}

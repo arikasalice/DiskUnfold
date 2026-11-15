@@ -117,7 +117,18 @@ impl Pending {
 
     /// Queues requery copies of the retained freshness events behind the current queue.
     ///
-    /// A full or discarding queue skips them; its own resync notice triggers them later.
+    /// A replay can be skipped, wholly or in part, and nothing retries it by itself:
+    ///
+    /// - While the queue discards events (`discarded_events` is set) no copy is queued. The
+    ///   queued `job.resync_required` is still to come, and taking it runs this method again,
+    ///   so the receiver gets every copy after that notice.
+    /// - When the queue is within one slot of [`EVENT_LIMIT`] and is not discarding, copies
+    ///   are queued in scope version order until the limit is reached; the rest of this
+    ///   call's copies are dropped. No resync is raised for that, and no later call of this
+    ///   method retries them on its own. The receiver gets the other queued events and the
+    ///   copies that fit; the retained copies stay stored, and are sent again after the next
+    ///   `job.resync_required` (a push that reaches the limit raises one) or document
+    ///   generation. Live events of the skipped scope versions still arrive in the stream.
     fn queue_freshness_replays(&mut self, now: Instant) {
         for replay in self.freshness.replays() {
             if self.discarded_events.is_some() || self.queue.len() + 1 >= EVENT_LIMIT {
