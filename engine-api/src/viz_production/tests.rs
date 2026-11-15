@@ -136,7 +136,7 @@ fn path_and_match_keys_are_never_invented() -> TestResult {
         assert_eq!(evidence.presentation.path_compare_key, None);
         assert_eq!(
             evidence.presentation.legend_class_key,
-            policy::LEGEND_CLASS_NONE
+            policy::LEGEND_CLASS_UNCLASSIFIED
         );
         assert!(evidence.presentation.display_flags.is_empty());
         assert_eq!(
@@ -218,7 +218,11 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
         .ok_or("missing policy facts")?;
     assert_eq!(accepted.available_formats, ["treemap"]);
     assert_eq!(accepted.view_policy_revision, 1);
-    assert!(accepted.classes.contains_key(policy::LEGEND_CLASS_NONE));
+    assert!(
+        accepted
+            .classes
+            .contains_key(policy::LEGEND_CLASS_UNCLASSIFIED)
+    );
     Ok(())
 }
 
@@ -238,7 +242,19 @@ fn histogram_intervals_follow_the_selected_unit_table() -> TestResult {
             .iter()
             .map(|bin| bin.display_name.as_str())
             .collect();
-        assert_eq!(names, table.symbols());
+        let (low, high) = if table.base() == 1000 {
+            ("kB", "MB")
+        } else {
+            ("KiB", "MiB")
+        };
+        assert_eq!(names[0], format!("0 B\u{2013}1 {low}"));
+        assert_eq!(names[1], format!("1 {low}\u{2013}1 {high}"));
+        assert_eq!(names[5], format!("\u{2265} 1 {}", table.symbols()[5]));
+        assert!(
+            names
+                .iter()
+                .all(|name| !name.chars().any(|c| c.is_alphabetic() && !c.is_ascii()))
+        );
         let refs: std::collections::HashSet<_> = facts
             .bins
             .iter()

@@ -12,9 +12,9 @@ use crate::{
 
 /// Evidence for one actual child of the pinned folder.
 ///
-/// The path comparison key is absent because the pinned result retains none, and the
-/// match key is unknown for the same reason F05 browse rows report it: the result
-/// holds no per-item volume and file identity. Neither is built from names or paths.
+/// The path comparison key is not supplied; ordering does not use it. The match key is
+/// unknown for the same reason F05 browse rows report it: the result holds no per-item
+/// volume and file identity. Neither is built from names or paths.
 pub(super) fn child(
     source: &CurrentAnalysis,
     item: &ResultItem,
@@ -24,7 +24,7 @@ pub(super) fn child(
     ItemEvidence {
         presentation: ChildPolicyEvidence {
             path_compare_key: None,
-            legend_class_key: policy::LEGEND_CLASS_NONE.to_owned(),
+            legend_class_key: policy::LEGEND_CLASS_UNCLASSIFIED.to_owned(),
             display_flags: size_flags(size),
         },
         match_key: VizMatchKey::Unknown {

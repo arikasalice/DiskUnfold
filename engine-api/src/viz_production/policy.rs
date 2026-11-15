@@ -3,6 +3,7 @@
 //! Every wire string below is interim, pending standardization review: the F06
 //! HLD names these concepts (tables 22 and 32) but no published contract fixes
 //! their text yet. They live in this one module so a reviewed rename is one edit.
+//! Strings that the GUI translates are keys declared in the F13 locale bundles.
 use std::collections::HashMap;
 
 use du_core_contracts::visualization::model::{VizStaleness, VizStalenessState};
@@ -21,9 +22,12 @@ pub const DENOMINATOR_SCOPE: &str = "scope";
 /// It means that no classification is applied and every item shares one class.
 pub const COLOR_CRITERION_NONE: &str = "none";
 /// The legend class of every item while no classification rule exists.
-pub const LEGEND_CLASS_NONE: &str = "none";
+///
+/// It differs from [`COLOR_CRITERION_NONE`]: that names the absence of a color
+/// criterion, this names the items a criterion left without a class.
+pub const LEGEND_CLASS_UNCLASSIFIED: &str = "unclassified";
 /// Message key naming the class in the legend.
-pub const LEGEND_LABEL_NONE: &str = "viz.legend.none";
+pub const LEGEND_LABEL_UNCLASSIFIED: &str = "ui.visualization.legend.unclassified";
 /// Display flag for a size value whose amount or evidence is unknown.
 pub const FLAG_UNKNOWN: &str = "viz.flag.unknown";
 /// Display flag for a size value that is only a lower bound.
@@ -31,7 +35,10 @@ pub const FLAG_LOWER_BOUND: &str = "viz.flag.lower_bound";
 /// Display flag for a grouped (Other) shape.
 pub const FLAG_OTHER_GROUP: &str = "viz.flag.other_group";
 /// Message key carried as the display name of the Other group.
-pub const GROUP_OTHER_NAME_KEY: &str = "viz.group.other";
+///
+/// A consumer that does not know the row's label key shows this key itself rather
+/// than a blank name.
+pub const GROUP_OTHER_NAME_KEY: &str = "ui.visualization.group.other";
 /// Model-local reference of the Other group.
 pub const GROUP_OTHER_REF: &str = "viz.group.other";
 /// Prefix of the model-local reference of a histogram interval.
@@ -74,9 +81,9 @@ pub(super) fn source_policy(
         legend_revision: LEGEND_RULE_REVISION,
         view_policy_revision,
         classes: HashMap::from([(
-            LEGEND_CLASS_NONE.to_owned(),
+            LEGEND_CLASS_UNCLASSIFIED.to_owned(),
             LegendClass {
-                label_key: LEGEND_LABEL_NONE.to_owned(),
+                label_key: LEGEND_LABEL_UNCLASSIFIED.to_owned(),
                 condition: None,
             },
         )]),
