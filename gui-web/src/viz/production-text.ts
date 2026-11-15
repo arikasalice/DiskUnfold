@@ -8,6 +8,7 @@ import { displayTimestamp } from "../i18n/regional-format";
 import { createVizKeyText } from "./key-text";
 import { bindVizMessage } from "./use-viz-text";
 import type { VizText } from "./model-text";
+import { formatRatio } from "./ratio-text";
 
 const WHOLE_NUMBER = /^[0-9]+$/;
 
@@ -62,6 +63,9 @@ export function createProductionVizText(
     quantity,
     size,
     observedAt,
+    ratio: (value) =>
+      formatRatio(value, message, display.regional?.decimalSeparator) ??
+      unrecognized(),
     ...(scanReason ? { scanReason } : {}),
   };
 }

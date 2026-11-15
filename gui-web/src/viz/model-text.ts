@@ -24,6 +24,11 @@ export type VizText = {
    * such a key gets the general "reason unavailable" phrase.
    */
   scanReason?: (key: string) => string;
+  /**
+   * Words a canonical ratio string as a percentage. Optional: without it the
+   * ratio is shown as the engine wrote it.
+   */
+  ratio?: (value: string) => string;
 };
 
 /** Applies placeholders even for injected text functions that only accept keys. */
@@ -85,7 +90,9 @@ export function shapeLabels(
   const accessibleLabel = [
     name,
     value,
-    row?.ratio ?? text.message("ratioUnavailable"),
+    row?.ratio
+      ? (text.ratio?.(row.ratio) ?? row.ratio)
+      : text.message("ratioUnavailable"),
     text.quantity(denominator.value),
     text.key(denominator.basis),
     text.key(legend?.labelKey ?? shape.legendClassKey),

@@ -857,6 +857,8 @@
     ["ui.visualization.previousRange","Previous range",[]],
     ["ui.visualization.previousRows","Previous rows",[]],
     ["ui.visualization.ratio","Ratio",[]],
+    ["ui.visualization.ratioBelowMinimum","Less than {value}",[["value","name"]]],
+    ["ui.visualization.ratioPercent","{value}%",[["value","name"]]],
     ["ui.visualization.ratioUnavailable","Ratio unavailable",[]],
     ["ui.visualization.rawBytes","{count} bytes",[["count","count"]]],
     ["ui.visualization.rawBytesAtLeast","At least {count} bytes",[["count","count"]]],

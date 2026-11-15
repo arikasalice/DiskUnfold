@@ -312,7 +312,9 @@ export function ModelRows({
                   ]
                 : []),
               row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-              row.ratio ?? text.message("unavailableValue"),
+              row.ratio
+                ? (text.ratio?.(row.ratio) ?? row.ratio)
+                : text.message("unavailableValue"),
               `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
               text.key(
                 model?.legend.find((entry) => entry.key === row.legendClassKey)

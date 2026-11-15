@@ -840,6 +840,8 @@ ui.visualization.previousName
 ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
+ui.visualization.ratioBelowMinimum value:name
+ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count
 ui.visualization.rawBytesAtLeast count:count

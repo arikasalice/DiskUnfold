@@ -857,6 +857,8 @@
     ["ui.visualization.previousRange","이전 구간",[]],
     ["ui.visualization.previousRows","이전 행",[]],
     ["ui.visualization.ratio","비율",[]],
+    ["ui.visualization.ratioBelowMinimum","{value} 미만",[["value","name"]]],
+    ["ui.visualization.ratioPercent","{value}%",[["value","name"]]],
     ["ui.visualization.ratioUnavailable","비율을 사용할 수 없음",[]],
     ["ui.visualization.rawBytes","{count}바이트",[["count","count"]]],
     ["ui.visualization.rawBytesAtLeast","최소 {count}바이트",[["count","count"]]],
