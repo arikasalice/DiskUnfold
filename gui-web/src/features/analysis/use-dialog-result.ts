@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 type Pin = { version: string; updated: boolean; copy: boolean };
 type Refusal = { version: string; copy: boolean };
@@ -16,13 +16,22 @@ type Refusal = { version: string; copy: boolean };
  * A copy the user pressed that was refused because the result was replaced
  * moves the dialog the same way and leaves `copy` on, so the dialog copies
  * once more on the newest result without another press. The dialog item
- * must name the same item in every result (the scope root does).
+ * must name the same item in every result (the scope root does). When no
+ * newer result is known yet there is nowhere to continue, so the copy is
+ * left to report its failure and is not continued later; the dialog still
+ * moves once a newer result is known, as after any refused read.
  *
  * `latest` is the newest result version the caller knows about.
  */
 export function useDialogResult(latest: string) {
   const [pin, setPin] = useState<Pin>();
   const [staleAt, setStaleAt] = useState<Refusal>();
+  // A refusal arrives after the render that started its read; it is judged
+  // against the newest result known by then.
+  const newest = useRef(latest);
+  useLayoutEffect(() => {
+    newest.current = latest;
+  });
   // A refused read waits until a newer result is known, then moves there.
   if (pin && staleAt?.version === pin.version && latest !== staleAt.version) {
     setStaleAt(undefined);
@@ -62,9 +71,15 @@ export function useDialogResult(latest: string) {
     stale(version: string) {
       refuse(version, false);
     },
-    /** Like `stale`, for a copy the user pressed; the dialog then owes it. */
-    staleCopy(version: string) {
-      refuse(version, true);
+    /**
+     * Like `stale`, for a copy the user pressed. Returns whether the dialog
+     * owes the copy and will run it on a newer result; false when none is
+     * known, and then the refusal counts as one of a read.
+     */
+    staleCopy(version: string): boolean {
+      const owed = newest.current !== version;
+      refuse(version, owed);
+      return owed;
     },
     /** Records that the owed copy was tried, so it is never tried again. */
     copied() {

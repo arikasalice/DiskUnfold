@@ -22,8 +22,12 @@ import type {
 export type CopyContinuation = {
   /** Whether this item owes a copy that was refused on an earlier result. */
   pending: boolean;
-  /** Told when a pressed copy was refused because its result was replaced. */
-  refused: (resultVersion: string) => void;
+  /**
+   * Told when a pressed copy was refused because its result was replaced.
+   * Returns whether the owner continues the copy on a newer result; if not,
+   * the copy reports its failure here.
+   */
+  refused: (resultVersion: string) => boolean;
   /** Told when the owed copy is tried or cannot be tried; it never runs twice. */
   done: () => void;
 };
@@ -243,11 +247,9 @@ function CopyPathForItem({
         if (active.current !== generation) return;
         const replaced =
           failure instanceof AnalysisError && failure.code === "STALE_VERSION";
-        if (replaced && !continued && continuation) {
-          // The owner moves to the newest result and copies there once.
-          continuation.refused(item.resultVersion);
+        // The owner moves to the newest result and copies there once.
+        if (replaced && !continued && continuation?.refused(item.resultVersion))
           return;
-        }
         setStatus({
           kind: continued && isMissingItem(failure) ? "missing" : "failed",
         });

@@ -240,6 +240,65 @@ test.each(["browse.copy_path", "browse.detail"])(
   },
 );
 
+test("F02 FR3.HD1.gui-web.DD1: a copy refused while no newer result is known reports the failure and is not continued later", async () => {
+  const scan = await startPanel();
+  fireEvent.click(screen.getByRole("button", { name: "View folder details" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByText("100 bytes");
+  // The engine has replaced v1, but the panel has not learned of v2 yet.
+  scan.job.version = "v2";
+
+  fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
+  const failed = await dialog.findByText("Could not copy the path.");
+  expect(failed.closest('[role="status"]')).not.toBeNull();
+  expect(dialog.queryByText("Copying path…")).toBeNull();
+  expect(dialog.queryByText("Updated to the latest result")).toBeNull();
+  expect(dialog.getByText("100 bytes")).toBeDefined();
+  expect(scan.reads("browse.copy_path")).toEqual(["v1"]);
+
+  // Learning of v2 moves the dialog; the reported copy is not tried again.
+  passReflectInterval();
+  scan.publish("v2");
+  await dialog.findByText("Updated to the latest result");
+  await dialog.findByText("200 bytes");
+  await act(async () => {});
+  expect(scan.reads("browse.copy_path")).toEqual(["v1"]);
+  expect(dialog.queryByText(/^Copied/)).toBeNull();
+
+  // A new press copies on the result the dialog now shows.
+  fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
+  await dialog.findByText("Copied 1 path.");
+  expect(scan.reads("browse.copy_path")).toEqual(["v1", "v2"]);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: a copy refused after the newer result became known during it is continued", async () => {
+  const scan = await startPanel();
+  fireEvent.click(screen.getByRole("button", { name: "View folder details" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByText("100 bytes");
+  let refuse = () => {};
+  const call = scan.client.call;
+  scan.client.call = ((name: string, body: { resultVersion?: string }) =>
+    name === "browse.copy_path" && body.resultVersion === "v1"
+      ? new Promise((_, reject) => {
+          refuse = () =>
+            reject(
+              new AnalysisError("STALE_VERSION", "result.requery_required"),
+            );
+        })
+      : call(name as never, body as never)) as AnalysisClient["call"];
+
+  fireEvent.click(dialog.getByRole("button", { name: "Copy path" }));
+  passReflectInterval();
+  scan.publish("v2");
+  await waitFor(() => expect(scan.reads("space.total")).toEqual(["v1", "v2"]));
+  await act(async () => refuse());
+  await dialog.findByText("Updated to the latest result");
+  await dialog.findByText("Copied 1 path.");
+  expect(dialog.queryByText("Could not copy the path.")).toBeNull();
+  expect(scan.reads("browse.copy_path")).toEqual(["v2"]);
+});
+
 test("F02 NFR5.HD1.gui-web.DD1: newer results are read at most once per reflect interval", async () => {
   vi.useFakeTimers({
     toFake: [
