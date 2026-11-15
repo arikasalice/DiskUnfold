@@ -105,7 +105,7 @@ function scopeRows(
   if (exclusions?.length !== 0)
     rows.push({
       label: text("ui.analysis.exclusions", "Exclusions"),
-      value: <ExclusionRules rules={exclusions} />,
+      value: <ExclusionRules rules={exclusions} foldAfter={3} />,
       explanation: exclusions
         ? text(
             "ui.analysis.exclusions_explanation",

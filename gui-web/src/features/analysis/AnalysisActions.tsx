@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Ref, RefObject } from "react";
+import type { ReactNode, Ref, RefObject } from "react";
 import {
   Action,
   LiveStatus,
@@ -13,7 +13,7 @@ import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
-import { exclusionText } from "./scope-exclusion";
+import { ExclusionRules } from "./ExclusionRules";
 
 function ReviewNotices({
   review,
@@ -127,7 +127,7 @@ export function ScopeReviewFeedback({
 
 /** Presents the reviewed conditions that will govern the explicit scan. */
 function reviewRows(scope: ScopeDraft, text: LocaleText) {
-  const rows = [
+  const rows: { label: string; value: ReactNode }[] = [
     {
       label: text("ui.analysis.included_paths", "Included paths"),
       value: scope.includes.map((path) => path.display).join(", "),
@@ -149,7 +149,7 @@ function reviewRows(scope: ScopeDraft, text: LocaleText) {
   if (scope.exclusions.length > 0) {
     rows.push({
       label: text("ui.analysis.exclusions", "Exclusions"),
-      value: scope.exclusions.map(exclusionText).join(", "),
+      value: <ExclusionRules rules={scope.exclusions} />,
     });
   }
   return rows;

@@ -14,7 +14,6 @@ import type { ReactNode } from "react";
 import { afterEach, expect, test } from "vitest";
 import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
 import { PinnedResult } from "../src/features/analysis/ResultSummary";
-import { exclusionText } from "../src/features/analysis/scope-exclusion";
 import { useSummaryBatch } from "../src/features/analysis/summary-batch";
 import { LocaleTextContext, interpolate } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
@@ -145,6 +144,13 @@ function labelDescription(label: string) {
   return id ? document.getElementById(id)?.textContent : undefined;
 }
 
+/** The rules a list shows, one text for each line. */
+function ruleLines(container: HTMLElement) {
+  return within(container)
+    .getAllByRole("listitem")
+    .map((line) => line.textContent);
+}
+
 test("a scope without exclusion rules shows no exclusions row", () => {
   showSummary([]);
   expect(rowValue("Scanned paths").textContent).toBe(path.display);
@@ -157,69 +163,82 @@ test("one path rule follows the scanned paths and breaks after its separators", 
   expect(terms[0]).toBe(rowLabel("Scanned paths"));
   expect(terms[1]).toBe(rowLabel("Exclusions").closest("dt"));
   const value = rowValue("Exclusions");
-  expect(value.textContent).toBe("C:\\fixture\\cache");
+  expect(ruleLines(value)).toEqual(["C:\\fixture\\cache"]);
   expect(value.querySelector(".du-path")).not.toBeNull();
   expect(value.querySelectorAll("wbr")).toHaveLength(2);
   expect(within(value).queryByRole("button")).toBeNull();
 });
 
-test("three rules show in full without a toggle, patterns as written", () => {
+test("three rules show one on each line without a toggle, a name pattern marked as one", () => {
   showSummary([
-    pathRule("C:\\fixture\\a"),
+    pathRule("C:\\fixture\\a, b"),
     patternRule("*.tmp"),
     pathRule("C:\\fixture\\b"),
   ]);
   const value = rowValue("Exclusions");
-  expect(value.textContent).toBe("C:\\fixture\\a, *.tmp, C:\\fixture\\b");
+  expect(within(value).getAllByRole("list")).toHaveLength(1);
+  expect(ruleLines(value)).toEqual([
+    "C:\\fixture\\a, b",
+    "Name pattern *.tmp",
+    "C:\\fixture\\b",
+  ]);
+  // Only the pattern carries the mark, and the pattern reads as written.
+  expect(value.querySelectorAll(".du-exclusion-rules__kind")).toHaveLength(1);
+  expect(within(value).getByText("*.tmp")).toBeDefined();
   expect(within(value).queryByRole("button")).toBeNull();
 });
 
-test("a rule and its review row read the same", () => {
-  expect(exclusionText(pathRule("C:\\fixture\\a"))).toBe("C:\\fixture\\a");
-  expect(exclusionText(patternRule(" *.tmp"))).toBe(" *.tmp");
-});
-
-test("more than three rules fold behind a toggle that keeps the focus", () => {
+test("more than three rules fold behind a toggle below them that keeps the focus", () => {
   showSummary(rules(5));
   const value = rowValue("Exclusions");
   const toggle = within(value).getByRole("button", {
-    name: "2 more exclusions",
+    name: "Show 2 more exclusions",
   });
   expect(toggle.textContent).toBe("2 more");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(value.textContent).toBe(
-    "C:\\fixture\\excluded-1, C:\\fixture\\excluded-2, C:\\fixture\\excluded-3 2 more",
-  );
+  expect(ruleLines(value)).toEqual([
+    "C:\\fixture\\excluded-1",
+    "C:\\fixture\\excluded-2",
+    "C:\\fixture\\excluded-3",
+  ]);
+  // The toggle follows the list; it is not one of its lines.
+  expect(toggle.closest('[role="list"]')).toBeNull();
+  expect(toggle.previousElementSibling?.getAttribute("role")).toBe("list");
 
   toggle.focus();
   fireEvent.click(toggle);
   expect(document.activeElement).toBe(toggle);
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  expect(toggle.getAttribute("aria-label")).toBe("Show less of the exclusions");
+  expect(toggle.getAttribute("aria-label")).toBe("Show fewer exclusions");
   expect(toggle.textContent).toBe("Show less");
-  expect(value.textContent).toContain("C:\\fixture\\excluded-5 Show less");
+  expect(ruleLines(value)).toHaveLength(5);
+  expect(toggle.previousElementSibling?.getAttribute("role")).toBe("list");
 
   fireEvent.click(toggle);
   expect(document.activeElement).toBe(toggle);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(value.textContent).not.toContain("excluded-4");
+  expect(ruleLines(value)).toHaveLength(3);
 });
 
 test("one folded rule reads in the singular", () => {
   showSummary(rules(4));
-  const toggle = screen.getByRole("button", { name: "1 more exclusion" });
+  const toggle = screen.getByRole("button", {
+    name: "Show 1 more exclusion",
+  });
   expect(toggle.textContent).toBe("1 more");
 });
 
 test("the rules of another analysis start folded", () => {
   const view = showSummary(rules(5));
-  fireEvent.click(screen.getByRole("button", { name: "2 more exclusions" }));
-  expect(rowValue("Exclusions").textContent).toContain("excluded-5");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show 2 more exclusions" }),
+  );
+  expect(ruleLines(rowValue("Exclusions"))).toHaveLength(5);
   view.rerender(inLocale(english, <Summary exclusions={rules(6)} />));
   expect(
-    screen.getByRole("button", { name: "3 more exclusions" }),
+    screen.getByRole("button", { name: "Show 3 more exclusions" }),
   ).toBeDefined();
-  expect(rowValue("Exclusions").textContent).not.toContain("excluded-4");
+  expect(ruleLines(rowValue("Exclusions"))).toHaveLength(3);
 });
 
 test("an unknown scope keeps the row and reads as unavailable", () => {
@@ -236,6 +255,16 @@ test("the label explains the rules on focus, and no other label takes focus", as
   showSummary(rules(2));
   const label = rowLabel("Exclusions");
   expect(labelDescription("Exclusions")).toBe(explanation);
+  // The label's name is its own text; the explanation is only its description.
+  expect(
+    screen.getByRole("note", { name: "Exclusions", description: explanation }),
+  ).toBe(label);
+  // The only other content of the term is the description, which is not
+  // rendered and so adds nothing to what the term reads as.
+  const rest = Array.from(label.closest("dt")!.children).filter(
+    (child) => child !== label,
+  );
+  expect(rest.map((child) => (child as HTMLElement).hidden)).toEqual([true]);
   expect(rowLabel("Scanned paths").tagName).toBe("DT");
   expect(rowLabel("Scanned paths").querySelector("[tabindex]")).toBeNull();
   act(() => label.focus());
@@ -244,24 +273,25 @@ test("the label explains the rules on focus, and no other label takes focus", as
   expect(screen.queryByRole("tooltip")).toBeNull();
 });
 
-test("the row, its toggle and an unknown scope read in Korean", () => {
-  const view = showSummary(rules(5), korean);
+test("the row, its toggle, a name pattern and an unknown scope read in Korean", () => {
+  const view = showSummary([...rules(4), patternRule("*.tmp")], korean);
   const value = rowValue("제외 규칙");
   const toggle = within(value).getByRole("button", {
-    name: "제외 규칙 외 2개",
+    name: "제외 규칙 2개 더 보기",
   });
   expect(toggle.textContent).toBe("외 2개");
   fireEvent.click(toggle);
   expect(toggle.getAttribute("aria-label")).toBe("제외 규칙 접기");
   expect(toggle.textContent).toBe("접기");
+  expect(ruleLines(value)[4]).toBe("이름 패턴 *.tmp");
   expect(labelDescription("제외 규칙")).toBe(
-    "이 규칙에 걸린 폴더와 파일은 분석하지 않았습니다. 크기와 항목 수에 들어 있지 않습니다",
+    "이 규칙에 걸린 폴더와 파일은 분석하지 않았습니다. 크기와 항목 수에 들어 있지 않습니다.",
   );
   view.unmount();
   showSummary(undefined, korean);
   expect(rowValue("제외 규칙").textContent).toBe("확인 불가");
   expect(labelDescription("제외 규칙")).toBe(
-    "이 결과를 만든 분석 범위를 지금 확인할 수 없습니다",
+    "이 결과를 만든 분석 범위를 지금 확인할 수 없습니다.",
   );
 });
 
@@ -336,9 +366,11 @@ async function startSaved(number: number, replace: boolean) {
       name: "Review range " + String(number),
     }),
   );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Use this range" }),
+  const use = await screen.findByRole("button", { name: "Use this range" });
+  const saved = ruleLines(
+    screen.getByRole("region", { name: "Saved conditions" }),
   );
+  fireEvent.click(use);
   if (replace)
     fireEvent.click(
       screen.getByRole("button", { name: "Replace current scope" }),
@@ -347,12 +379,18 @@ async function startSaved(number: number, replace: boolean) {
     name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
+  const reviewed = ruleLines(
+    screen.getByRole("region", { name: "Reviewed scope" }),
+  );
   fireEvent.click(start);
+  return { saved, reviewed };
 }
 
 test("the summary keeps the started scope's rules until another analysis starts", async () => {
   const two = savedScope(["C:\\fixture\\Cache", "C:\\fixture\\Logs"]);
-  const five = savedScope(rules(5).map(exclusionText));
+  const five = savedScope(
+    [1, 2, 3, 4, 5].map((number) => "C:\\fixture\\excluded-" + String(number)),
+  );
   const scan = scanWithSavedScopes([two, five]);
   render(
     <AnalysisPanel
@@ -364,13 +402,18 @@ test("the summary keeps the started scope's rules until another analysis starts"
       }}
     />,
   );
-  await startSaved(1, false);
+  const shown = await startSaved(1, false);
+  // The saved conditions and the review table list the rules the same way,
+  // each showing all rules of its own scope.
+  expect(shown.saved).toEqual(["c:\\fixture\\cache", "c:\\fixture\\logs"]);
+  expect(shown.reviewed).toEqual(["C:\\fixture\\Cache", "C:\\fixture\\Logs"]);
   await screen.findByText("Result version: Interim");
   // The rules come from the review the scan was admitted with, as the
   // scanned paths do, not from the draft that was submitted.
-  expect(rowValue("Exclusions").textContent).toBe(
-    "C:\\fixture\\Cache, C:\\fixture\\Logs",
-  );
+  expect(ruleLines(rowValue("Exclusions"))).toEqual([
+    "C:\\fixture\\Cache",
+    "C:\\fixture\\Logs",
+  ]);
 
   scan.changeState("done");
   fireEvent.click(await screen.findByRole("button", { name: "Analyze again" }));
@@ -378,17 +421,17 @@ test("the summary keeps the started scope's rules until another analysis starts"
     screen.getByRole("textbox", { name: "Windows folder path" }),
     { target: { value: "C:\\elsewhere" } },
   );
-  expect(rowValue("Exclusions").textContent).toBe(
-    "C:\\fixture\\Cache, C:\\fixture\\Logs",
-  );
+  expect(ruleLines(rowValue("Exclusions"))).toEqual([
+    "C:\\fixture\\Cache",
+    "C:\\fixture\\Logs",
+  ]);
 
-  await startSaved(2, true);
+  // The review table shows all five rules; only the summary folds them.
+  expect((await startSaved(2, true)).reviewed).toHaveLength(5);
   await waitFor(() =>
     expect(
-      screen.getByRole("button", { name: "2 more exclusions" }),
+      screen.getByRole("button", { name: "Show 2 more exclusions" }),
     ).toBeDefined(),
   );
-  expect(rowValue("Exclusions").textContent).toContain(
-    "C:\\fixture\\excluded-3",
-  );
+  expect(ruleLines(rowValue("Exclusions"))[2]).toBe("C:\\fixture\\excluded-3");
 });

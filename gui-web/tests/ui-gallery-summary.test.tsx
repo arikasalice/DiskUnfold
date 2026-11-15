@@ -7,11 +7,15 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-/** The value of the summary's exclusions row. */
+/** The rules the summary's exclusions row shows, one text for each line. */
 function exclusions() {
-  return screen
+  const value = screen
     .getByText("제외 규칙", { selector: '[role="note"]' })
     .closest("dt")!.nextElementSibling!;
+  return Array.from(
+    value.querySelectorAll('[role="listitem"]'),
+    (rule) => rule.textContent,
+  );
 }
 
 test("the gallery shows the product's result summary with each state of the exclusions row", () => {
@@ -19,20 +23,23 @@ test("the gallery shows the product's result summary with each state of the excl
   fireEvent.change(screen.getByLabelText("검토할 화면"), {
     target: { value: "summary" },
   });
-  expect(exclusions().textContent).toBe(
-    "C:\\Users\\민서\\문서\\보관함, C:\\Users\\민서\\문서\\임시 파일",
-  );
+  expect(exclusions()).toEqual([
+    "C:\\Users\\민서\\문서\\보관함",
+    "C:\\Users\\민서\\문서\\임시 파일, 2026",
+  ]);
 
   fireEvent.change(screen.getByLabelText("제외 규칙 상태"), {
     target: { value: "five" },
   });
-  const toggle = screen.getByRole("button", { name: "제외 규칙 외 2개" });
+  expect(exclusions()[1]).toBe("이름 패턴 *.tmp");
+  const toggle = screen.getByRole("button", { name: "제외 규칙 2개 더 보기" });
   fireEvent.click(toggle);
-  expect(exclusions().textContent).toContain("*.tmp");
+  expect(exclusions()[4]).toBe("이름 패턴 node_modules");
   expect(toggle.getAttribute("aria-label")).toBe("제외 규칙 접기");
 
   fireEvent.change(screen.getByLabelText("제외 규칙 상태"), {
     target: { value: "unknown" },
   });
-  expect(exclusions().textContent).toBe("확인 불가");
+  expect(exclusions()).toEqual([]);
+  expect(screen.getByText("확인 불가")).toBeDefined();
 });

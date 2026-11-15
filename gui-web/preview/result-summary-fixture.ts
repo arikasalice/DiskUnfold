@@ -48,19 +48,23 @@ const pathRule = (path: string): ScopeExclusion => ({
   path: windowsPath(path),
 });
 
-const twoRules = [
-  pathRule("C:\\Users\\민서\\문서\\보관함"),
-  pathRule("C:\\Users\\민서\\문서\\임시 파일"),
-];
+const namePattern = (pattern: string): ScopeExclusion => ({
+  kind: "name_pattern",
+  pattern,
+});
 
 /** The states of the summary's exclusions row; undefined is an unknown scope. */
 export const exclusionStates = {
-  two: twoRules,
+  two: [
+    pathRule("C:\\Users\\민서\\문서\\보관함"),
+    pathRule("C:\\Users\\민서\\문서\\임시 파일, 2026"),
+  ],
   five: [
-    ...twoRules,
+    pathRule("C:\\Users\\민서\\문서\\보관함"),
+    namePattern("*.tmp"),
+    pathRule("C:\\Users\\민서\\문서\\임시 파일, 2026"),
     pathRule("C:\\Users\\민서\\문서\\프로젝트\\2026 보고서\\빌드 산출물"),
-    { kind: "name_pattern", pattern: "*.tmp" },
-    pathRule("C:\\Users\\민서\\문서\\내려받은 파일"),
+    namePattern("node_modules"),
   ],
   unknown: undefined,
 } satisfies Record<string, readonly ScopeExclusion[] | undefined>;

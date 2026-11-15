@@ -18,18 +18,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A toggle at the end of a value, such as "4 more" exclusions, sits on the
-   value's line as part of its text. The margin keeps its focus ring off the
-   text before it. */
-.du-analysis__result .du-readout dd > .du-action--quiet {
-  display: inline;
-  min-block-size: 0;
-  margin-inline-start: 4px;
-  padding: 0 2px;
-  font-weight: 620;
-  vertical-align: baseline;
-}
-
 .du-scan-progress {
   display: grid;
   gap: 6px;
