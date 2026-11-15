@@ -105,14 +105,31 @@ pub struct Detail {
     /// Reason keys the collector gave for unread ranges inside the scope, sorted.
     pub reason_keys: Vec<String>,
 }
-/// Exact byte totals for this unfiltered single-parent projection.
+/// The four byte totals of this unfiltered single-parent projection.
+///
+/// They have one definition for every consumer:
+/// - scope is the original F03 aggregate of the parent, never derived from geometry;
+/// - drawn adds the navigation-root siblings that have a shape of their own. A group
+///   shape is not in it, and nested shapes lie inside their folder's bytes, so they
+///   are never added again;
+/// - grouped adds the members of the navigation-root group, and nothing else. The
+///   members of a nested group lie inside the folder that holds them;
+/// - filtered is zero because this projection applies no filter.
+///
+/// Drawn and grouped add disjoint sets of root siblings, so with exact values
+/// drawn + grouped + filtered never exceeds scope. What none of them holds,
+/// scope − drawn − grouped − filtered, is made of two things: siblings left out because
+/// they are below the minimum area or lack coordinate precision, and the share of the
+/// scope that no single sibling can carry, for example a file contained by two
+/// siblings, which the scope counts once. The values of siblings without a provable
+/// area stay on their rows and are never added to a total.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Totals {
     /// Original F03 set aggregate, never derived from geometry.
     pub scope: SizeValue,
-    /// Outermost individually drawn siblings; nested shapes are not added again.
+    /// Outermost individually drawn siblings; group shapes and nested shapes are not in it.
     pub drawn_bytes: u64,
-    /// Navigation-root group; nested groups lie inside a drawn shape's bytes.
+    /// Navigation-root group members only; nested groups lie inside a drawn shape's bytes.
     pub grouped_bytes: u64,
     pub filtered_bytes: u64,
     /// True when a summed row is a lower bound, so the sum is one too.

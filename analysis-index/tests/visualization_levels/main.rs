@@ -4,6 +4,7 @@
 mod nested;
 mod reasons;
 mod scale;
+mod totals;
 
 use du_analysis_index::{
     FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence, SpaceObservation,

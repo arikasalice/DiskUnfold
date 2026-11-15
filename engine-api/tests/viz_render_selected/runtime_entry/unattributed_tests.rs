@@ -85,6 +85,19 @@ fn siblings_without_a_provable_area_are_counted_and_the_class_total_is_a_lower_b
     assert_eq!(totals["scope"]["quantity"]["value"], "20");
     assert_eq!(totals["drawn"]["quantity"]["value"], "10");
     assert_eq!(totals["grouped"]["quantity"]["value"], "0");
+    assert_eq!(totals["filteredOut"]["quantity"]["value"], "0");
+    // The 10 bytes in no total are the shared file, which the scope counts once. The two
+    // siblings that contain it list 10 each in the table, and those are never added.
+    let wire = |name: &str| -> Result<u64, String> {
+        totals[name]["quantity"]["value"]
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| format!("no {name} total"))
+    };
+    assert_eq!(
+        wire("scope")? - wire("drawn")? - wire("grouped")? - wire("filteredOut")?,
+        10
+    );
     // Counted but never added: the class has three items and only a lower-bound total.
     let legend = &model["legend"][0];
     assert_eq!(legend["itemCount"]["value"], "3");

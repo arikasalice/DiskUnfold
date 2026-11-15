@@ -147,6 +147,9 @@ pub(super) fn build(
             .filter(|skipped| skipped.reason == NoArea::CoordinatePrecision)
             .count() as u64;
     let unknown_items = level.unattributed.len() as u64;
+    // The totals are defined on [Totals]: drawn adds the shaped root siblings above and
+    // grouped adds this level's group below. No remainder is stored; it is the scope
+    // minus these, and a difference of lower bounds is not a value.
     let mut totals = Totals {
         scope: level.parent_value.clone(),
         drawn_bytes,
