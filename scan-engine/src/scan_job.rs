@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use du_analysis_index::{IngestSink, ScopeHeader};
+use du_analysis_index::{BoundSizeRule, IngestSink, ScopeHeader};
 use du_core_contracts::{
     Id,
     job::{
@@ -74,6 +74,7 @@ pub struct MetadataScan {
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
     shared_table_limit: Option<usize>,
+    size_rule: Option<BoundSizeRule>,
     diagnostics: Option<Arc<ScanDiagnostics>>,
     root_count: usize,
     control: Option<Arc<ScanControlSession>>,
@@ -126,6 +127,7 @@ impl MetadataScan {
             ids,
             filter: None,
             shared_table_limit: None,
+            size_rule: None,
             diagnostics: None,
             root_count,
             control: None,
@@ -149,6 +151,16 @@ impl MetadataScan {
     /// Freezes a caller-validated identity-table capacity for this scan.
     pub fn with_shared_table_limit(mut self, limit: usize) -> Self {
         self.shared_table_limit = Some(limit);
+        self
+    }
+
+    /// Binds the size aggregation rule every publication of this scan uses.
+    ///
+    /// The caller resolves the rule from its registry once, when the analysis
+    /// starts, so that the result version reports the rule the scan was admitted
+    /// with. Without it the build uses the crate's default rule.
+    pub fn with_size_rule(mut self, rule: BoundSizeRule) -> Self {
+        self.size_rule = Some(rule);
         self
     }
 
@@ -232,6 +244,9 @@ impl JobBody for MetadataScan {
                 let build = build.and_then(|mut build| {
                     if let Some(limit) = self.shared_table_limit {
                         build.set_shared_table_limit(limit)?;
+                    }
+                    if let Some(rule) = self.size_rule {
+                        build.set_size_rule(rule)?;
                     }
                     Ok(build)
                 });

@@ -21,6 +21,7 @@ import {
 import { ProgressBar } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
 import type { TimestampParts } from "../i18n/regional-format";
+import { ExplainedText } from "./explained-text";
 import { STATUS_TONES } from "./status-table";
 import type { StatusRow, StatusShape, StatusTone } from "./status-table";
 import "../theme/status-badge.css";
@@ -310,9 +311,13 @@ export function Readout({
   label: string;
   rows: {
     label: string;
+    /** Explains the label on pointer hover or keyboard focus (see `ExplainedText`). */
+    explanation?: string;
     value: ReactNode;
     identifier?: boolean;
     emphasized?: boolean;
+    /** Marks text that stands in for a value still to come; it takes the secondary text colour. */
+    pending?: boolean;
     notes?: readonly string[];
   }[];
 }) {
@@ -326,12 +331,21 @@ export function Readout({
             [
               row.identifier && "du-readout__identifier",
               row.emphasized && "du-readout__emphasized",
+              row.pending && "du-readout__pending",
             ]
               .filter(Boolean)
               .join(" ") || undefined
           }
         >
-          <dt>{row.label}</dt>
+          <dt>
+            {row.explanation ? (
+              <ExplainedText explanation={row.explanation}>
+                {row.label}
+              </ExplainedText>
+            ) : (
+              row.label
+            )}
+          </dt>
           <dd>
             {row.value}
             {row.notes?.map((note, index) => (
@@ -346,22 +360,29 @@ export function Readout({
   );
 }
 
-/** Groups a displayed value and its supporting evidence under one label. */
+/**
+ * Groups a displayed value and its supporting evidence under one label.
+ * `pending` marks text that stands in for a value still to come: it keeps
+ * the place and size of a value and takes the secondary text colour.
+ */
 export function Metric({
   label,
   children,
   detail,
   prominent = false,
+  pending = false,
 }: {
   label: string;
   children: ReactNode;
   detail?: string | undefined;
   prominent?: boolean;
+  pending?: boolean;
 }) {
   return (
     <div
       className="du-metric"
       data-prominent={prominent || undefined}
+      data-pending={pending || undefined}
       role="group"
       aria-label={label}
     >

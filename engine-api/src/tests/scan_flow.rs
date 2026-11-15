@@ -89,6 +89,7 @@ mod observation;
 mod priority;
 mod recent;
 mod settings;
+mod size_rule;
 mod terminal;
 mod unsupported;
 use fixture::scan_harness_with_gate;

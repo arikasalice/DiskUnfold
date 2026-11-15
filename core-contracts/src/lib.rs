@@ -31,6 +31,7 @@ pub mod settings_events;
 pub mod settings_ipc;
 pub mod share;
 pub mod shutdown_ipc;
+pub mod size_rule;
 pub mod size_units;
 pub mod snapshot_format;
 pub mod snapshot_spool;

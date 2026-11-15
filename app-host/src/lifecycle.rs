@@ -83,6 +83,11 @@ fn run_app(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // The launcher invokes this function on its UI thread; pre-window native dialogs
     // use that same thread before any platform webview is constructed.
+    // Cloud placeholders must look like ordinary entries before the first
+    // file-system observation below. A refused request does not stop startup:
+    // the scan then records the affected entries without entering them.
+    #[cfg(windows)]
+    let _ = du_platform_os::windows_placeholder_mode::disguise_placeholders();
     if let Err(error) = crate::startup_checks::validate(&crate::startup_checks::REGISTRATIONS) {
         let error = std::io::Error::other(format!("startup.check_table_invalid: {error:?}"));
         return Err(Box::new(crate::startup_checks::report_pre_window_error(

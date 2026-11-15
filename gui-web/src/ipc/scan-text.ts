@@ -32,7 +32,7 @@ export const SCAN_ISSUE_FILTERS = [
   {
     value: "unread_range",
     key: "ui.analysis.issues_unread_ranges",
-    fallback: "Unread ranges",
+    fallback: "Unread locations",
   },
   {
     value: "uncertain",
@@ -42,7 +42,7 @@ export const SCAN_ISSUE_FILTERS = [
   {
     value: "untraversed_link",
     key: "ui.analysis.issues_untraversed_links",
-    fallback: "Untraversed links",
+    fallback: "Links not followed",
   },
 ] as const;
 
@@ -98,7 +98,7 @@ const issueReasons = new Map<string, Message>([
     "scan.boundary_unverifiable",
     [
       "ui.analysis.issue_reason_range_unconfirmed",
-      "Could not confirm that this item is in the selected range",
+      "Could not confirm that this item is in the selected scope",
     ],
   ],
 ]);

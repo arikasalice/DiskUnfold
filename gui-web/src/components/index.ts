@@ -38,6 +38,7 @@ export { defineStatusRow, STATUS_TONES } from "./status-table";
 export type { StatusRow, StatusShape, StatusTone } from "./status-table";
 export { ClampedText, MiddleEllipsisText } from "./text-fit";
 export { NameText } from "./name-text";
+export { ExplainedText } from "./explained-text";
 export { NAME_SPACE_MARK, nameEdges, pathNameEdges } from "./name-edges";
 export type { NameEdges, PathNameEdges } from "./name-edges";
 export { DataTable } from "./data-table";
