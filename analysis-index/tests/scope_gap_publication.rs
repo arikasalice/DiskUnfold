@@ -107,7 +107,12 @@ fn pinned_scope_gaps_survive_partial_abort_and_replacement() -> Result<(), Strin
             .map_err(|error| format!("{error:?}"))?;
     }
     c_build
-        .record_gap_at(1, Vec::new(), "scan.path_denied".into(), None)
+        .record_gap_at(
+            1,
+            vec![b"missing".to_vec()],
+            "scan.path_denied".into(),
+            None,
+        )
         .map_err(|error| format!("{error:?}"))?;
     let c = c_build
         .seal(id(6)?, ResultCompleteness::Complete)
@@ -116,6 +121,7 @@ fn pinned_scope_gaps_survive_partial_abort_and_replacement() -> Result<(), Strin
     assert_eq!(c_gaps.len(), 1);
     assert_eq!(c_gaps[0].root_index, 1);
     assert_ne!(a_gaps, c_gaps);
+    assert_ne!(b_gaps, c_gaps);
     assert_eq!(a.scope_gaps(), a_gaps);
     assert_eq!(b.scope_gaps(), b_gaps);
     assert_eq!(c.scope_gaps(), c_gaps);
