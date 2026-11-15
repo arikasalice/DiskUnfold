@@ -60,6 +60,10 @@ function otherGroupName(
   model: Pick<VizModel, "shapes" | "summary">,
   text: MessageText,
 ): string {
+  // Only drawn group shapes are counted, on purpose: the row list is read in
+  // pages, so the rows alone cannot show that this is the model's only group, and
+  // summary.groupedItems sums every group. A group row without a group shape
+  // therefore gets no count until rows carry their own member count.
   const groups = new Set(
     model.shapes
       .filter((shape) => shape.itemRef === null && shape.groupRef !== null)

@@ -90,6 +90,9 @@ describe.each(["en", "ko"] as const)("row names (%s)", (language) => {
     expect(rowName(groupRow(), two, text)).toBe(unknownName);
     const other1 = modelWith(["g2"], items("exact", "9"));
     expect(rowName(groupRow(), other1, text)).toBe(unknownName);
+    // A group row whose model draws no group shape at all gets no count either.
+    const none = modelWith([], items("exact", "9"));
+    expect(rowName(groupRow(), none, text)).toBe(unknownName);
     const bytes = modelWith(["g1"], {
       unit: "bytes",
       state: "exact",
