@@ -17,6 +17,10 @@ mod result_read;
 mod sample_versions;
 mod scope_header;
 pub use scope_header::ScopeHeader;
+mod scope_observation;
+pub use scope_observation::{
+    ObservationSkip, ObservationStamp, SealedScanError, fingerprint_from_hex,
+};
 pub mod source_registry;
 mod space;
 pub mod space_detail;

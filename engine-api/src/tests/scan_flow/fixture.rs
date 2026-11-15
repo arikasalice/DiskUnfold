@@ -165,6 +165,7 @@ fn scan_harness_with_admissions(
         terminal,
         versions,
         completed_scans,
+        scan_events: events,
         recent_scope_admissions,
         priority_opened,
         priority_visit_entered,
