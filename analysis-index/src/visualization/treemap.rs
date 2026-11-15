@@ -3,20 +3,18 @@
 //! The current index computes physical totals per subtree. It does not retain a
 //! selectable attribution rule; this boundary only admits cases whose disjoint
 //! attribution is independently established by the retained observations.
+//!
+//! Siblings are ordered for display by attributed bytes, largest first, and
+//! then by the raw name bytes preserved by the index (see `before`). That order
+//! is a display order only: it never decides whether two items are the same
+//! item and never maps items between result versions.
 use super::{geometry::valid_bounds, reference, root_ref, squarify, value};
 use crate::{FileIdentity, ResultVersion, SharingEvidence};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
-use std::collections::{BTreeMap, HashMap};
-
-/// A comparison key produced by the caller using the pinned path comparison rule.
-#[derive(Clone, Debug)]
-pub struct ChildKey {
-    pub item: ItemRef,
-    pub path_compare_key: Vec<u8>,
-}
+use std::{cmp::Ordering, collections::BTreeMap};
 
 /// Original F03 value and item associated with an index in the resulting layout.
 #[derive(Clone, Debug)]
@@ -36,22 +34,18 @@ pub struct Partition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdmissionError {
     InvalidParent,
-    InvalidKeys,
     /// The operation was cancelled before a complete result was produced.
     Cancelled,
     /// `viz.unavailable.no_attribution`: the source does not establish a partition.
     NoAttribution,
-    /// Equal positive sizes require an ordering key for each tied item.
-    OrderingUnavailable,
     Layout(squarify::LayoutError),
 }
 
-/// One verified row and its exact attributed bytes, with its pinned ordering key.
+/// One verified row and its exact attributed bytes.
 #[derive(Clone, Debug)]
 pub(crate) struct AdmittedChild {
     pub(crate) child: Child,
     pub(crate) bytes: u64,
-    pub(crate) key: Option<Vec<u8>>,
 }
 
 /// A disjoint, ordered partition without geometry.
@@ -60,36 +54,20 @@ pub struct Admitted {
 }
 
 /// Validates and orders one pinned partition without performing layout.
-/// Ordering keys are required only for equal positive weights.
-/// Cancellation is checked while validating keys, walking gaps and descendant
-/// observations, and sorting rows. One key comparison and allocation are not
-/// interruptible. No partial result is returned.
+/// Rows of equal bytes follow their raw name bytes, so no caller-supplied
+/// ordering evidence is needed.
+/// Cancellation is checked while walking gaps and descendant observations, and
+/// sorting rows. One name comparison and allocation are not interruptible. No
+/// partial result is returned.
 pub fn admit_cancellable(
     version: &ResultVersion,
     parent: &ItemRef,
     basis: SizeBasis,
-    keys: &[ChildKey],
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Admitted, AdmissionError> {
     check(cancelled)?;
     let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
     let children = version.children(parent_no);
-    let mut lookup = HashMap::new();
-    for key in keys {
-        check(cancelled)?;
-        if key.item.result_version != *version.version_id()
-            || version
-                .items()
-                .get(key.item.item_no as usize)
-                .and_then(|item| item.parent)
-                != Some(parent_no)
-            || lookup
-                .insert(key.item.item_no, &key.path_compare_key)
-                .is_some()
-        {
-            return Err(AdmissionError::InvalidKeys);
-        }
-    }
     if gap_covers_parent(version, parent_no, cancelled)? {
         return Err(AdmissionError::NoAttribution);
     }
@@ -101,7 +79,6 @@ pub fn admit_cancellable(
         basis == SizeBasis::Logical && version.completeness() == ResultCompleteness::Partial;
     for child in children {
         check(cancelled)?;
-        let key = lookup.get(&child.item_no).map(|key| (*key).clone());
         let observed = inspect_subtree(version, child.item_no, &basis, &mut identities, cancelled)?;
         let raw =
             value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
@@ -118,7 +95,6 @@ pub fn admit_cancellable(
                 area_attributed: true,
             },
             bytes: observed,
-            key,
         });
     }
     let parent_value =
@@ -126,35 +102,23 @@ pub fn admit_cancellable(
     if partition_bytes(&parent_value, &basis, allow_lower_bound) != Some(total) {
         return Err(AdmissionError::NoAttribution);
     }
-    let rows = order(rows, cancelled)?;
-    for pair in rows.windows(2) {
-        check(cancelled)?;
-        if pair[0].bytes > 0
-            && pair[0].bytes == pair[1].bytes
-            && (pair[0].key.is_none() || pair[1].key.is_none())
-        {
-            return Err(AdmissionError::OrderingUnavailable);
-        }
-    }
+    let rows = order(version, rows, cancelled)?;
     check(cancelled)?;
     Ok(Admitted { rows })
 }
 
 /// Validates attribution and calculates the existing one-parent layout.
-/// Each supplied key must identify a distinct immediate child and come from
-/// the pinned path comparison rule. Equal positive weights need both keys.
 pub fn layout_parent(
     version: &ResultVersion,
     parent: &ItemRef,
     basis: SizeBasis,
     bounds: squarify::Rect,
-    keys: &[ChildKey],
 ) -> Result<Partition, AdmissionError> {
     root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
     if !valid_bounds(bounds) {
         return Err(AdmissionError::Layout(squarify::LayoutError::InvalidBounds));
     }
-    let admitted = admit_cancellable(version, parent, basis, keys, &mut || false)?;
+    let admitted = admit_cancellable(version, parent, basis, &mut || false)?;
     let weights: Vec<_> = admitted
         .rows
         .iter()
@@ -177,6 +141,7 @@ fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), AdmissionError> {
 
 // Stable merge of lightweight row indexes gives a cancellation check per output.
 fn order(
+    version: &ResultVersion,
     rows: Vec<AdmittedChild>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<AdmittedChild>, AdmissionError> {
@@ -192,7 +157,7 @@ fn order(
             for dest in &mut scratch[start..end] {
                 check(cancelled)?;
                 let take_left = right == end
-                    || (left < mid && before(&rows[indices[left]], &rows[indices[right]]));
+                    || (left < mid && before(version, &rows[indices[left]], &rows[indices[right]]));
                 if take_left {
                     *dest = indices[left];
                     left += 1;
@@ -214,12 +179,46 @@ fn order(
     }
     Ok(output)
 }
-fn before(a: &AdmittedChild, b: &AdmittedChild) -> bool {
+
+/// Display order of two admitted siblings: attributed bytes descending, then
+/// the raw name bytes preserved by the index, compared bytewise ascending
+/// (a proper prefix sorts first). Scope roots have no parent and sort by their
+/// scope-root number instead; the index numbers roots first, in root order, so
+/// that number equals their item number. The item number is the last
+/// tie-break only so that the order is total; names are unique among siblings.
+///
+/// The order is for display only. It does not decide whether two rows are the
+/// same item and does not map items between result versions. It uses no
+/// display name, locale or case folding.
+///
+/// Because the comparison is on raw bytes, a Windows name (UTF-16LE bytes) is
+/// not in human alphabetical order: U+0100 (bytes 00 01) sorts before "a"
+/// (bytes 61 00). The rule exists only to make the order deterministic.
+///
+/// Two siblings with equal bytes compare by their own names alone. While their
+/// sizes stay equal, a later version of the same build may insert new siblings
+/// between them without changing their relative order.
+fn before(version: &ResultVersion, a: &AdmittedChild, b: &AdmittedChild) -> bool {
+    let (left, right) = (a.child.item.item_no, b.child.item.item_no);
     b.bytes
         .cmp(&a.bytes)
-        .then_with(|| a.key.cmp(&b.key))
-        .then_with(|| a.child.item.item_no.cmp(&b.child.item.item_no))
+        .then_with(|| sibling_order(version, left, right))
+        .then_with(|| left.cmp(&right))
         .is_le()
+}
+
+fn sibling_order(version: &ResultVersion, left: u32, right: u32) -> Ordering {
+    match (
+        version.items().get(left as usize),
+        version.items().get(right as usize),
+    ) {
+        (Some(a), Some(b)) if a.parent.is_none() && b.parent.is_none() => version
+            .root_indices
+            .get(left as usize)
+            .cmp(&version.root_indices.get(right as usize)),
+        (Some(a), Some(b)) => a.name.cmp(&b.name),
+        _ => Ordering::Equal,
+    }
 }
 
 // A gap at an ancestor is not reflected in a descendant aggregate. In that
@@ -281,11 +280,10 @@ pub fn layout_nested_parent(
     parent: &ItemRef,
     basis: SizeBasis,
     bounds: squarify::Rect,
-    keys: &[ChildKey],
 ) -> Result<Partition, AdmissionError> {
-    match layout_parent(version, parent, basis.clone(), bounds, keys) {
+    match layout_parent(version, parent, basis.clone(), bounds) {
         Ok(partition) => Ok(partition),
-        Err(AdmissionError::NoAttribution | AdmissionError::OrderingUnavailable) => {
+        Err(AdmissionError::NoAttribution) => {
             let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
             let children = version
                 .children(parent_no)
@@ -418,3 +416,6 @@ pub(super) fn layout_weight(value: &SizeValue, bytes: u64) -> squarify::Weight {
         squarify::Weight::Exact(bytes)
     }
 }
+
+#[cfg(test)]
+mod order_tests;

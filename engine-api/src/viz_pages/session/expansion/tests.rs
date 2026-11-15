@@ -75,7 +75,6 @@ fn fixture() -> Result<(CurrentAnalysis, projection::Model, Dispatcher), String>
                 right: 1000000,
                 bottom: 1000000,
             },
-            keys: &[],
         },
         &dispatcher,
         Options {

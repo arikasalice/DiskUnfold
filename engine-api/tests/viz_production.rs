@@ -4,7 +4,6 @@ use du_analysis_index::{
         geometry::Rect,
         projection::{self, Options, Source},
         registry,
-        treemap::ChildKey,
         typed_layout::{self, Dispatcher, Strategy, Treemap},
     },
 };
@@ -73,15 +72,6 @@ fn fixture() -> Result<(IngestSink, Arc<ResultVersion>, projection::Model), Stri
         item_no: n,
     };
     let parent = item(0);
-    let keys: Vec<_> = version
-        .items()
-        .iter()
-        .filter(|i| i.parent == Some(0))
-        .map(|i| ChildKey {
-            item: item(i.item_no),
-            path_compare_key: i.name.clone(),
-        })
-        .collect();
     let desc = typed_layout::treemap_descriptor();
     let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
     builder
@@ -99,7 +89,6 @@ fn fixture() -> Result<(IngestSink, Arc<ResultVersion>, projection::Model), Stri
                 right: 1_000_000,
                 bottom: 1_000_000,
             },
-            keys: &keys,
         },
         &dispatcher,
         Options {

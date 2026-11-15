@@ -172,7 +172,7 @@ fn opt_in_unknown_evidence_fails_closed_before_job_submission() -> Result<(), St
 }
 
 #[test]
-fn available_facts_preserve_the_existing_same_revision_ordering_fallback() -> Result<(), String> {
+fn available_facts_with_equal_size_siblings_render_a_model_in_name_order() -> Result<(), String> {
     let fixture = Fixture::with_wait([50, 50], Duration::from_secs(2))?;
     fixture
         .producer
@@ -184,21 +184,29 @@ fn available_facts_preserve_the_existing_same_revision_ordering_fallback() -> Re
         .map_err(|error| error.to_string())?;
     let view = fixture.open()?;
     let response = fixture.render(&view, 1)?;
-    assert_eq!(response["kind"], "unavailable");
-    assert_eq!(response["reasonKey"], "viz.unavailable.no_attribution");
-    assert_eq!(response["availableFormats"], json!(["histogram"]));
-    let fallback = &response["fallback"];
+    // The producer supplies no comparison key; this tie used to leave only a table.
+    assert_eq!(response["kind"], "model");
+    assert_eq!(response["resultRevision"], json!(id(3)));
+    let model = &response["model"];
     let rows = fixture.ok(
         "viz.rows",
         json!({
-            "modelRef": fallback["modelRef"],
-            "resultRevision": fallback["resultRevision"],
+            "modelRef": model["modelRef"],
+            "resultRevision": response["resultRevision"],
             "start": 0,
             "count": 10
         }),
     )?;
     assert_eq!(rows["resultRevision"], json!(id(3)));
     assert_eq!(rows["totalCount"], 2);
+    let names: Vec<_> = rows["rows"]
+        .as_array()
+        .ok_or("missing rows")?
+        .iter()
+        .map(|row| row["displayName"].clone())
+        .collect();
+    assert_eq!(names, [json!("a"), json!("b")]);
+    assert_eq!(model["shapes"].as_array().map(Vec::len), Some(2));
     Ok(())
 }
 

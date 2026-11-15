@@ -169,6 +169,8 @@ fn rank(
             Weight::Exact(_) => known.push(*item),
         }
     }
+    // Ties follow the item number, which within one result version equals raw name
+    // byte order among siblings; the number is not stable across versions.
     let rank_order = |a: &Item, b: &Item| {
         amount(b.value)
             .cmp(&amount(a.value))
