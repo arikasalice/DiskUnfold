@@ -47,6 +47,11 @@ pub struct BrowseSortKey {
 /// A condition tree shared by search and folder browsing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+// Kept strict: `browse.open`, `viz.render`, `group.rules.save` and `group.classify`
+// requests and stored F36 group rules (`analysis_index_group_rule.condition_json`)
+// decode this tree. Adding a field needs a strict request type split from a response
+// type, and a decision on the stored `analysis_index_group_ruleset.format_version`
+// (`RULESET_FORMAT_VERSION`).
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum QueryCondition {
     All { children: Vec<QueryCondition> },
@@ -58,6 +63,8 @@ pub enum QueryCondition {
 /// Supported baseline condition operands; registered operands remain opaque.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+// Kept strict as part of `QueryCondition`: the same requests and the stored
+// `condition_json` decode it, so the note on `QueryCondition` applies.
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum QueryPredicate {
     Name {

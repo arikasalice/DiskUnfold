@@ -21,8 +21,7 @@ pub struct VizLocateRequest {
 #[serde(
     tag = "location",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
+    rename_all_fields = "camelCase"
 )]
 pub enum VizLocate {
     /// Zero-based index into the shape array of the requested model.

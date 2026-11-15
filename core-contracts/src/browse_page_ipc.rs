@@ -20,6 +20,10 @@ pub struct ResultOrigin(pub String);
 /// A selected strategy and its published revision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+// Kept strict: the `viz.render` request (`strategy`) and stored F36 group rules
+// (`analysis_index_group_rule.predicates_json`) decode this shape. Adding a field
+// needs a strict request type split from a response type, and a decision on the
+// stored `analysis_index_group_ruleset.format_version` (`RULESET_FORMAT_VERSION`).
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueryStrategy {
     pub id: String,

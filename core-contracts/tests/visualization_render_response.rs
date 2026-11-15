@@ -33,9 +33,6 @@ fn render_branches_reject_missing_fields_wrong_branch_and_mismatched_fallback() 
         }
         assert!(serde_json::from_value::<VizRenderNonModelResponse>(body).is_err());
     }
-    let mut mixed = base.clone();
-    mixed["jobRef"] = json!("018f0000-0000-7000-8000-000000000002");
-    assert!(serde_json::from_value::<VizRenderNonModelResponse>(mixed).is_err());
     let mut wrong = base.clone();
     wrong["fallback"] =
         json!({"modelRef":"model", "resultRevision":"018f0000-0000-7000-8000-000000000002"});
@@ -46,4 +43,31 @@ fn render_branches_reject_missing_fields_wrong_branch_and_mismatched_fallback() 
     let job = json!({"kind":"job", "requestSeq":1, "resultRevision":revision,
         "completeness":"partial", "jobRef":"018f0000-0000-7000-8000-000000000002"});
     assert!(serde_json::from_value::<VizRenderNonModelResponse>(job).is_err());
+}
+
+#[test]
+fn render_branches_accept_unknown_fields() -> Result<(), serde_json::Error> {
+    let revision = "018f0000-0000-7000-8000-000000000001";
+    let job = json!({"kind":"job", "requestSeq":1, "resultRevision":revision,
+        "observedAt":null, "completeness":"partial", "jobRef":"018f0000-0000-7000-8000-000000000002"});
+    let unavailable = json!({"kind":"unavailable", "requestSeq":2, "resultRevision":revision,
+        "observedAt":null, "completeness":"partial", "reasonKey":"viz.unavailable.no_attribution",
+        "availableFormats":["bar"], "fallback":{"modelRef":"model", "resultRevision":revision}});
+    let mut extended_job = job.clone();
+    extended_job["futureField"] = json!(true);
+    let mut extended_unavailable = unavailable.clone();
+    extended_unavailable["futureField"] = json!(true);
+    extended_unavailable["fallback"]["futureField"] = json!(true);
+    // The kind tag selects the branch; a job reference on an unavailable reply is unknown.
+    let mut mixed = unavailable.clone();
+    mixed["jobRef"] = json!("018f0000-0000-7000-8000-000000000002");
+    for (extended, body) in [
+        (extended_job, job),
+        (extended_unavailable, unavailable.clone()),
+        (mixed, unavailable),
+    ] {
+        let value: VizRenderNonModelResponse = serde_json::from_value(extended)?;
+        assert_eq!(serde_json::to_value(value)?, body);
+    }
+    Ok(())
 }

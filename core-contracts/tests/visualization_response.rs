@@ -48,20 +48,25 @@ fn model_response_preserves_the_empty_scope_and_its_original_size() -> Result<()
 }
 
 #[test]
-fn model_response_rejects_stale_references_and_branch_pollution() {
+fn model_response_rejects_stale_references_and_missing_fields() -> Result<(), serde_json::Error> {
     for field in ["aggregateScopeRef", "navigationScopeRef"] {
         let mut value = rendered_model();
         value["model"][field]["resultVersion"] = json!(OTHER);
         assert!(from_value::<VizRenderResponse>(value).is_err(), "{field}");
     }
+    // The kind tag selects the branch; a job reference sent with a model is an unknown field.
     let mut value = rendered_model();
     value["jobRef"] = json!(OTHER);
-    assert!(from_value::<VizRenderResponse>(value).is_err());
+    assert_eq!(
+        to_value(from_value::<VizRenderResponse>(value)?)?,
+        rendered_model()
+    );
     let mut value = rendered_model();
     if let Some(object) = value.as_object_mut() {
         object.remove("observedAt");
     }
     assert!(from_value::<VizRenderResponse>(value).is_err());
+    Ok(())
 }
 
 #[test]
