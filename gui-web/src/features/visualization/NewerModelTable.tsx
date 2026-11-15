@@ -8,6 +8,9 @@ import type {
 import type { VizRow } from "../../ipc";
 import type { VizText } from "../../viz";
 
+/** Rows read for the first table page; a model with more shapes reads one per shape. */
+const FIRST_ROWS = 100;
+
 export function useFirstRows(
   controller: VisualizationController,
   state: VisualizationSnapshot,
@@ -28,7 +31,7 @@ export function useFirstRows(
       modelRef: table.model.modelRef,
       resultRevision: table.resultRevision,
       start: 0,
-      count: 100,
+      count: Math.max(FIRST_ROWS, table.model.shapes.length),
     });
   }, [
     autoLoadRows,

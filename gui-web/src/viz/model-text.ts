@@ -89,8 +89,11 @@ export function shapeLabels(
   ].join(" · ");
   return {
     accessibleLabel,
-    displayLabel:
-      model.representation.labelMode === "name_only"
+    // A shape whose row has not arrived is named for assistive technology only;
+    // the drawing carries no label rather than a placeholder.
+    displayLabel: !row
+      ? ""
+      : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
   };

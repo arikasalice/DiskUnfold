@@ -9,6 +9,7 @@ import type {
 import {
   matchingRowsPage,
   plainRowName,
+  readRowsPages,
   sameItem,
   VizModelLoader,
 } from "../../viz";
@@ -407,7 +408,10 @@ export class VisualizationController {
     const seq = ++this.rowsSeq;
     this.update({ pendingRows: request, failedRows: null });
     try {
-      const response = await this.port.rows(request);
+      const response = await readRowsPages(
+        (page) => this.port.rows(page),
+        request,
+      );
       const page = { request, response };
       if (seq !== this.rowsSeq || this.state.table !== frame) return;
       if (!pageFor(frame, page)) {
