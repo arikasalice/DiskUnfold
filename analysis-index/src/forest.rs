@@ -2,8 +2,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    BuildError, BuildHandle, Observation, SpaceObservation, StoredObservation, space,
-    tree::BuiltItems,
+    BuildError, BuildHandle, Observation, SpaceObservation, StoredObservation,
+    observation_store::ObservationStore, space, tree::BuiltItems,
 };
 use du_core_contracts::{
     Timestamp,
@@ -13,35 +13,24 @@ use du_core_contracts::{
 /// Marks ancestors of unread ranges and indexes gaps with an exact observed item.
 pub(crate) fn mark_gaps(
     built: &BuiltItems,
+    store: &ObservationStore,
     gaps: &[ResultScopeGap],
     aggregates: &mut [SpaceAggregate],
 ) -> Result<BTreeMap<u32, Vec<usize>>, BuildError> {
     let mut exact = BTreeMap::<u32, Vec<usize>>::new();
-    if gaps.is_empty() {
-        return Ok(exact);
-    }
-    let key_indices: HashMap<_, _> = built
-        .keys
-        .iter()
-        .enumerate()
-        .map(|(index, (root, path))| ((*root, path.as_slice()), index))
-        .collect();
     let mut counts = HashMap::<usize, u64>::new();
     for (offset, gap) in gaps.iter().enumerate() {
-        let mut path = gap.path.as_slice();
-        let index = loop {
-            if let Some(&index) = key_indices.get(&(gap.root_index, path)) {
-                if path.len() == gap.path.len() {
-                    exact
-                        .entry(built.items[index].item_no)
-                        .or_default()
-                        .push(offset);
-                }
-                break index;
-            }
-            let (_, parent) = path.split_last().ok_or(BuildError::InvalidTree)?;
-            path = parent;
-        };
+        // The deepest observed item on the gap's path; the root always exists in a built forest.
+        let (node, whole_path) = store
+            .deepest(gap.root_index, &gap.path)
+            .ok_or(BuildError::InvalidTree)?;
+        let index = built.item_of_node[node as usize] as usize;
+        if whole_path {
+            exact
+                .entry(built.items[index].item_no)
+                .or_default()
+                .push(offset);
+        }
         let mut current = Some(index);
         while let Some(index) = current {
             let count = counts.entry(index).or_default();
@@ -69,7 +58,7 @@ impl BuildHandle {
         }
         let item = self
             .observations
-            .get_mut(&(root, path.to_vec()))
+            .get_mut(root, path)
             .ok_or(BuildError::InvalidTree)?;
         if item.kind != ResultItemKind::File {
             return Err(BuildError::InvalidTree);
@@ -94,7 +83,7 @@ impl BuildHandle {
         }
         let observation = self
             .observations
-            .get_mut(&(root, path.to_vec()))
+            .get_mut(root, path)
             .ok_or(BuildError::InvalidTree)?;
         if observation.kind != ResultItemKind::File {
             return Err(BuildError::InvalidTree);
@@ -130,7 +119,7 @@ impl BuildHandle {
         }
         let observation = self
             .observations
-            .get_mut(&(root, path.to_vec()))
+            .get_mut(root, path)
             .ok_or(BuildError::InvalidTree)?;
         if observation.kind != ResultItemKind::File {
             return Err(BuildError::InvalidTree);
@@ -170,7 +159,7 @@ impl BuildHandle {
         }
         let observation = self
             .observations
-            .get_mut(&(root, path.to_vec()))
+            .get_mut(root, path)
             .ok_or(BuildError::InvalidTree)?;
         observation.modified_at = Some(time);
         observation.native_modified_at = None;
@@ -188,7 +177,7 @@ impl BuildHandle {
         }
         let observation = self
             .observations
-            .get_mut(&(root, path.to_vec()))
+            .get_mut(root, path)
             .ok_or(BuildError::InvalidTree)?;
         observation.observed_at = Some(time);
         Ok(())

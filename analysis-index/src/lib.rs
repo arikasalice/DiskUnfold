@@ -52,6 +52,7 @@ mod volume_reports;
 pub use volume_reports::{VolumeReport, VolumeReportPoint};
 mod observation;
 mod observation_range;
+mod observation_store;
 mod origin;
 pub use observation::Observation;
 use observation::StoredObservation;
@@ -166,7 +167,7 @@ impl IngestSink {
             scope_fingerprint: None,
             roots,
             gaps: Vec::new(),
-            observations: BTreeMap::new(),
+            observations: observation_store::ObservationStore::default(),
             directory_case: BTreeMap::new(),
             issues: Vec::new(),
             volume_reports: Vec::new(),
@@ -191,9 +192,9 @@ pub struct BuildHandle {
     scope_fingerprint: Option<String>,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
-    observations: BTreeMap<(u32, Vec<Vec<u8>>), StoredObservation>,
-    directory_case:
-        BTreeMap<(u32, Vec<Vec<u8>>), du_core_contracts::scan_observation::DirectoryCaseEvidence>,
+    observations: observation_store::ObservationStore,
+    /// Case evidence by store node of the directory it was recorded for.
+    directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     volume_reports: Vec<VolumeReport>,
     finished: bool,
@@ -314,15 +315,16 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
-        if !self.valid_root(root_index)
-            || path.iter().any(Vec::is_empty)
-            || self.observations.contains_key(&(root_index, path.clone()))
-        {
+        if !self.valid_root(root_index) || path.iter().any(Vec::is_empty) {
             self.abort();
             return Err(BuildError::InvalidTree);
         }
-        self.observations.insert((root_index, path), observation);
-        Ok(())
+        self.observations
+            .insert(root_index, &path, observation)
+            .map_err(|error| {
+                self.abort();
+                error.into()
+            })
     }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
         self.publish_partial_at(version_id, None)
@@ -380,7 +382,8 @@ impl BuildHandle {
         let mut aggregates =
             self.size_rule
                 .aggregate(&built, completeness, self.shared_table_limit);
-        let exact_gaps = match forest::mark_gaps(&built, &self.gaps, &mut aggregates) {
+        let gaps = forest::mark_gaps(&built, &self.observations, &self.gaps, &mut aggregates);
+        let exact_gaps = match gaps {
             Ok(exact) => exact,
             Err(error) => {
                 self.abort();
@@ -432,7 +435,7 @@ impl BuildHandle {
             observation_ranges,
             scope_observation_range,
             roots: self.roots.clone(),
-            root_indices: built.keys.into_iter().map(|(root, _)| root).collect(),
+            root_indices: built.root_indices,
             gaps: self.gaps.clone(),
             exact_gaps,
             directory_case,
