@@ -356,8 +356,9 @@ fn inspect_subtree(
 /// adds to that sibling.
 ///
 /// The file must carry the OS-reported allocation, a file identity and a link count.
-/// A file reachable from two siblings, or whose links are not all seen inside one
-/// sibling, is refused for both siblings, so no byte is used twice.
+/// A file reachable from two siblings is refused for both, so no byte is used twice.
+/// Links that lie outside the scope do not refuse the file: the link count is the
+/// observed total, and the allocation is counted once inside the scope (F03).
 ///
 /// Extent-sharing evidence ([`SharingEvidence`]) matters only when the basis is
 /// `UniquePhysical`. F03 sums allocated sizes exactly whatever the sharing evidence is
