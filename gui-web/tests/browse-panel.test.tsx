@@ -1527,7 +1527,9 @@ test("row menus use the invoked namesake item and keep copy status after closing
   const secondRow = triggers[1]!.closest<HTMLElement>('[role="row"]')!;
   fireEvent.contextMenu(secondRow);
   const menu = await screen.findByRole("menu", { name: "Actions for Same" });
-  expect(within(menu).getByRole("menuitem", { name: "Inspect" })).toBeDefined();
+  expect(
+    within(menu).getByRole("menuitem", { name: "View details" }),
+  ).toBeDefined();
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy path" }));
   await waitFor(() => expect(copyPath).toHaveBeenCalledWith(ref(2)));
   expect(screen.getByRole("status").textContent).toBe("Copying path for Same…");
@@ -1587,7 +1589,7 @@ test("folder row inspection uses its pinned reference without navigating", async
   const folder = triggers[1]!.closest<HTMLElement>('[role="row"]')!;
   fireEvent.contextMenu(folder);
   const menu = await screen.findByRole("menu", { name: "Actions for Folder" });
-  fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "View details" }));
   const dialog = await screen.findByRole("dialog", {
     name: "Folder details",
   });
@@ -1883,7 +1885,9 @@ test.each(["sequence", "version", "job version"])(
     const menu = await screen.findByRole("menu", {
       name: "Actions for Original",
     });
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "View details" }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "Folder details",
     });

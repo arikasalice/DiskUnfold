@@ -404,7 +404,9 @@ test.each([
     const menu = await screen.findByRole("menu", {
       name: "Actions for Opener B",
     });
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Inspect" }));
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "View details" }),
+    );
     const dialog = await screen.findByRole("dialog", {
       name: "Folder details",
     });
