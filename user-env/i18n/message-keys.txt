@@ -634,11 +634,9 @@ ui.settings.using_default
 ui.settings.default_size_basis
 ui.browse.additional_items_ready
 ui.browse.at_least
-ui.browse.availability_unknown
 ui.browse.clipboard_failed_for name:name
 ui.browse.clipboard_unsupported_for name:name
 ui.browse.column_allocated_size
-ui.browse.column_availability
 ui.browse.column_logical_size
 ui.browse.column_modified
 ui.browse.column_name
@@ -650,7 +648,6 @@ ui.browse.copied_one_path_for name:name
 ui.browse.copy_path
 ui.browse.copy_path_failed_for name:name
 ui.browse.copying_path_for name:name
-ui.browse.excluded
 ui.browse.file_details
 ui.browse.folder_details
 ui.browse.folder_items
@@ -699,9 +696,7 @@ ui.browse.location_hierarchy
 ui.browse.no_confirmed_items_end_unknown
 ui.browse.no_items
 ui.browse.no_more_items
-ui.browse.not_enumerated
 ui.browse.not_recorded
-ui.browse.not_reported
 ui.browse.observation_details
 ui.browse.observed
 ui.browse.open_folder_failed
