@@ -53,7 +53,7 @@ fn recent_scope_setting_is_registered_and_persists_without_erasing_other_setting
                 &SharedDatabase::new(db, None),
                 timestamp,
                 &["en", "ko"],
-                &size_rule::registered_ids()?,
+                &size_rule::registered_ids(&size_rule::assemble()?),
             )?)
         };
     let db = Connection::open(&path)?;

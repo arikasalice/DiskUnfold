@@ -139,9 +139,11 @@ fn current_schema_restores_while_another_connection_holds_write_lock()
     let path = dir.path().join("locked-current.db");
     seed(&path, 200_000)?;
     let database = test_database(&path)?;
+    let size_rules = size_rule::assemble()?;
+    let size_rule_ids = size_rule::registered_ids(&size_rules);
     let lock = Connection::open(&path)?;
     lock.execute_batch("BEGIN IMMEDIATE;")?;
-    let service = restore_settings(&database, 100, &["en", "ko"], &size_rule::registered_ids()?)?;
+    let service = restore_settings(&database, 100, &["en", "ko"], &size_rule_ids)?;
     assert!(!service.restore_status().write_locked);
     assert!(!service.restore_status().migrated);
     assert_eq!(
@@ -154,7 +156,7 @@ fn current_schema_restores_while_another_connection_holds_write_lock()
         [SETTINGS_SCHEMA_VERSION + 1],
     )?;
     lock.execute_batch("BEGIN IMMEDIATE;")?;
-    let newer = restore_settings(&database, 100, &["en", "ko"], &size_rule::registered_ids()?)?;
+    let newer = restore_settings(&database, 100, &["en", "ko"], &size_rule_ids)?;
     assert!(newer.restore_status().write_locked);
     assert_eq!(
         newer.restore_status().failure_reason,

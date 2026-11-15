@@ -8,21 +8,21 @@ use serde_json::Value;
 
 use super::StartupSettings;
 
-/// Lists the rule IDs of the registry the desktop analysis flow assembles.
-///
-/// The IDs come from the same default bundle that `lifecycle::analysis` registers, so
-/// the setting accepts exactly the rules an analysis can start with. A bundle that
-/// cannot be assembled stops startup with the `startup.registration_failed` convention.
-pub(super) fn registered_ids() -> Result<Vec<String>, io::Error> {
-    let rules = SizeRules::default_bundle(default_size_rule_source())
-        .map_err(|error| io::Error::other(format!("startup.registration_failed: {error}")))?;
+/// Assembles the registry shared by settings validation and desktop scans.
+pub(super) fn assemble() -> Result<SizeRules, io::Error> {
+    SizeRules::default_bundle(default_size_rule_source())
+        .map_err(|error| io::Error::other(format!("startup.registration_failed: {error}")))
+}
+
+/// Lists the IDs from the already assembled registry that settings may accept.
+pub(super) fn registered_ids(rules: &SizeRules) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for identity in rules.identities() {
         if !ids.iter().any(|id| id == identity.id) {
             ids.push(identity.id.to_owned());
         }
     }
-    Ok(ids)
+    ids
 }
 
 /// Names the rule an analysis uses: the stored ID when the registry has it, else the default.
@@ -39,6 +39,12 @@ fn resolve(stored: Option<&Value>, registered: &[String]) -> String {
 }
 
 impl StartupSettings {
+    /// Shares the startup registry with scan execution and reads the setting at admission.
+    pub(crate) fn size_rules(self: Arc<Self>) -> SizeRules {
+        let source = self.clone().size_rule_source();
+        self.size_rules.with_source(source)
+    }
+
     /// Supplies the size aggregation rule ID when an analysis is admitted.
     ///
     /// The source reads the current `space.aggregation_rule` value on every call, so a
@@ -95,8 +101,12 @@ mod tests {
     }
 
     #[test]
-    fn the_registered_ids_are_the_assembled_default_bundle() -> Result<(), io::Error> {
-        assert_eq!(registered_ids()?, vec![DEFAULT_SIZE_RULE_ID.to_owned()]);
+    fn registered_ids_come_from_the_assembled_default_bundle() -> Result<(), io::Error> {
+        let rules = assemble()?;
+        assert_eq!(
+            registered_ids(&rules),
+            vec![DEFAULT_SIZE_RULE_ID.to_owned()]
+        );
         Ok(())
     }
 }

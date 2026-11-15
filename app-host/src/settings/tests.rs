@@ -36,7 +36,7 @@ fn open_settings(
         &test_database(path)?,
         timestamp_ms,
         &["en", "ko"],
-        &size_rule::registered_ids()?,
+        &size_rule::registered_ids(&size_rule::assemble()?),
     )
 }
 

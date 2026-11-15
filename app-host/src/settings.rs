@@ -7,7 +7,9 @@ use std::{
 };
 
 use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
-use du_engine_api::{desktop::SharedTableLimitSource, viz_production::UnitTableSource};
+use du_engine_api::{
+    desktop::SharedTableLimitSource, size_rule::SizeRules, viz_production::UnitTableSource,
+};
 use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
@@ -28,8 +30,9 @@ pub(super) use locale_ipc::LocaleRuntime;
 pub(super) struct StartupSettings {
     service: Mutex<SettingsService<SharedSettings>>,
     status: RestoreStatus,
-    /// Size rule IDs of the assembled registry; the only values the rule setting accepts.
+    /// Rule IDs and scan execution share this assembled size rule registry.
     size_rule_ids: Vec<String>,
+    size_rules: SizeRules,
 }
 
 impl StartupSettings {
@@ -52,16 +55,41 @@ impl StartupSettings {
         timestamp_ms: i64,
         configured_languages: &[&str],
     ) -> Result<Self, io::Error> {
-        let size_rule_ids = size_rule::registered_ids()?;
-        Self::open_with_size_rule_ids(database, timestamp_ms, configured_languages, size_rule_ids)
+        let size_rules = size_rule::assemble()?;
+        let size_rule_ids = size_rule::registered_ids(&size_rules);
+        Self::open_with_registration(
+            database,
+            timestamp_ms,
+            configured_languages,
+            size_rule_ids,
+            size_rules,
+        )
     }
 
     /// Opens the settings with the size rule IDs the composition root registered.
+    #[cfg(test)]
     pub(super) fn open_with_size_rule_ids(
         database: &SharedDatabase,
         timestamp_ms: i64,
         configured_languages: &[&str],
         size_rule_ids: Vec<String>,
+    ) -> Result<Self, io::Error> {
+        let size_rules = size_rule::assemble()?;
+        Self::open_with_registration(
+            database,
+            timestamp_ms,
+            configured_languages,
+            size_rule_ids,
+            size_rules,
+        )
+    }
+
+    fn open_with_registration(
+        database: &SharedDatabase,
+        timestamp_ms: i64,
+        configured_languages: &[&str],
+        size_rule_ids: Vec<String>,
+        size_rules: SizeRules,
     ) -> Result<Self, io::Error> {
         let service =
             restore_settings(database, timestamp_ms, configured_languages, &size_rule_ids)?;
@@ -70,6 +98,7 @@ impl StartupSettings {
             service: Mutex::new(service),
             status,
             size_rule_ids,
+            size_rules,
         })
     }
 

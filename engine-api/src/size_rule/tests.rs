@@ -52,6 +52,21 @@ fn pin_reads_the_source_once_and_resolves_the_latest_revision()
 }
 
 #[test]
+fn changing_the_source_keeps_the_assembled_registry() -> Result<(), Box<dyn std::error::Error>> {
+    let rules = SizeRules::default_bundle(default_size_rule_source())?;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let rebound = rules.with_source(source_of("size.agg.nope", reads.clone()));
+    assert!(Arc::ptr_eq(&rules.registry, &rebound.registry));
+    assert_eq!(rebound.identities(), rules.identities());
+    assert_eq!(
+        rebound.bind_latest().err(),
+        Some(EngineError::reason("space.rule_unknown"))
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test]
 fn pin_rejects_an_unregistered_id_with_the_published_reason()
 -> Result<(), Box<dyn std::error::Error>> {
     let reads = Arc::new(AtomicUsize::new(0));
