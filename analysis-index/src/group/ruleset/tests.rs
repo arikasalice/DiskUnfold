@@ -163,6 +163,80 @@ fn condition_child_order_does_not_change_the_fingerprint() {
     assert_eq!(fingerprint(&[a]), fingerprint(&[b]));
 }
 
+/// Two fixed rules as a save stores them; the second pins a registered predicate.
+fn golden_rules() -> Vec<Rule> {
+    let video = name(".mp4");
+    let tagged = Condition::All(vec![file(), unknown()]).normalize();
+    vec![
+        Rule {
+            group_id: id(1),
+            display_name: "Video".into(),
+            predicates: strategies(&video),
+            condition: video,
+        },
+        Rule {
+            group_id: id(2),
+            display_name: "Tagged files".into(),
+            predicates: strategies(&tagged),
+            condition: tagged,
+        },
+    ]
+}
+
+fn hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Stored rulesets keep this digest, and a save with the same content is recognized
+/// by it. The value changes only when the hashed layout (the domain tag,
+/// `RULESET_FORMAT_VERSION` or the order and framing of the hashed fields), the
+/// condition model version or the canonical condition bytes change. Such a change
+/// makes every stored ruleset differ from its own content, so decide that first and
+/// update this value second.
+const GOLDEN_FINGERPRINT: &str = "9e00b5021e13798cd9af9be2666d2da38b83e2ac140d017e3039dc3390b1612f";
+
+#[test]
+fn the_fingerprint_of_a_fixed_ruleset_is_a_fixed_value() {
+    let rules = golden_rules();
+    assert_eq!(
+        rules[1].predicates,
+        vec![("pred.tag".into(), 1), ("pred.type".into(), 1)]
+    );
+    assert_eq!(hex(&fingerprint(&rules)), GOLDEN_FINGERPRINT);
+}
+
+/// One change to the fixed ruleset.
+type Change = fn(&mut Vec<Rule>);
+
+#[test]
+fn the_fingerprint_covers_rule_content_and_order_and_leaves_out_group_ids() {
+    let golden = fingerprint(&golden_rules());
+    let changed = |change: Change| {
+        let mut rules = golden_rules();
+        change(&mut rules);
+        fingerprint(&rules)
+    };
+    let variants: [(&str, Change); 4] = [
+        ("display name", |rules| {
+            rules[0].display_name = "Videos".into()
+        }),
+        ("condition", |rules| rules[0].condition = name(".mkv")),
+        ("predicate revision", |rules| rules[1].predicates[0].1 = 2),
+        ("order", |rules| rules.reverse()),
+    ];
+    let mut seen = vec![golden];
+    for (label, change) in variants {
+        let value = changed(change);
+        assert!(!seen.contains(&value), "{label}");
+        seen.push(value);
+    }
+    let regrouped = changed(|rules| {
+        rules[0].group_id = id(8);
+        rules[1].group_id = id(9);
+    });
+    assert_eq!(regrouped, golden);
+}
+
 #[test]
 fn review_reports_the_first_failure_of_each_rule() {
     let registry = Registry::baseline();
