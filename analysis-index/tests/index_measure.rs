@@ -21,14 +21,16 @@
 //! tree and seals the build while that partial result is still held. It
 //! prints one `F03_MEASURE_RESULT` line; each peak is the process peak since
 //! start (Windows `PeakWorkingSet64`, Linux `VmHWM`), so it includes the
-//! earlier phases.
+//! earlier phases. `record_s` is the whole recording phase, most of which is
+//! this test building path vectors; `index_s` is the part spent inside the
+//! index calls.
 use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
     SpaceObservation,
 };
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use du_core_contracts::{ByteSize, Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -55,12 +57,18 @@ struct Recorder {
     items: u64,
     components: u64,
     max_depth: usize,
+    /// Time spent inside the index calls, without building their arguments.
+    index: Duration,
 }
 
 impl Recorder {
     fn directory(&mut self, path: &[Vec<u8>]) -> TestResult {
         self.count(path.len());
-        self.build.add_directory(path.to_vec()).map_err(err)?;
+        let path = path.to_vec();
+        let started = Instant::now();
+        let added = self.build.add_directory(path);
+        self.index += started.elapsed();
+        added.map_err(err)?;
         Ok(())
     }
 
@@ -73,7 +81,10 @@ impl Recorder {
             size: Some(size(SizeBasis::Logical, SizeEvidence::Measured, 1)),
         };
         let Some(time) = &self.evidence else {
-            self.build.add_file(observation).map_err(err)?;
+            let started = Instant::now();
+            let added = self.build.add_file(observation);
+            self.index += started.elapsed();
+            added.map_err(err)?;
             return Ok(());
         };
         let space = SpaceObservation {
@@ -85,10 +96,14 @@ impl Recorder {
             link_count: Some(1),
             sharing: SharingEvidence::Unknown,
         };
-        self.build.add_with_space(observation, space).map_err(err)?;
-        self.build
-            .set_item_observed_at(0, &path, time.clone())
-            .map_err(err)?;
+        let time = time.clone();
+        let started = Instant::now();
+        let added = self
+            .build
+            .add_with_space(observation, space)
+            .and_then(|()| self.build.set_item_observed_at(0, &path, time));
+        self.index += started.elapsed();
+        added.map_err(err)?;
         Ok(())
     }
 
@@ -219,6 +234,7 @@ fn index_measure() -> TestResult {
         items: 0,
         components: 0,
         max_depth: 0,
+        index: Duration::ZERO,
     };
     let start_peak = peak();
 
@@ -249,13 +265,14 @@ fn index_measure() -> TestResult {
     assert_eq!(sealed.items().len() as u64, recorder.items);
     println!(
         "F03_MEASURE_RESULT tree={tree} evidence={} items={} components={} max_depth={} \
-         start_peak={start_peak} record_s={:.3} record_peak={record_peak} publish_s={:.3} \
-         publish_peak={publish_peak} seal_s={:.3} seal_peak={seal_peak}",
+         start_peak={start_peak} record_s={:.3} index_s={:.3} record_peak={record_peak} \
+         publish_s={:.3} publish_peak={publish_peak} seal_s={:.3} seal_peak={seal_peak}",
         u8::from(with_evidence),
         recorder.items,
         recorder.components,
         recorder.max_depth,
         record.as_secs_f64(),
+        recorder.index.as_secs_f64(),
         publish.as_secs_f64(),
         seal.as_secs_f64(),
     );
