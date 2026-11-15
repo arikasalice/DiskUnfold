@@ -45,6 +45,7 @@
 //! Gaps use the existing item index. Boundary issues are resolved to item numbers once per
 //! publication outside the store lock (see `FolderMarks::bind`). Each lookup is O(log n)
 //! and performs no allocation; reason keys are borrowed from the version.
+pub use crate::folder_marks::{UnreadFolderCounts, UnreadReason};
 use crate::{QueryError, ResultVersion, result_read::ensure_directory};
 use du_core_contracts::{
     ItemRef,
@@ -115,15 +116,6 @@ pub enum FolderCollection<'a> {
     },
 }
 
-/// Why the collector left a folder's entries unread without recording an unread range.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UnreadReason {
-    /// The scan was cancelled before the folder was read.
-    Cancelled,
-    /// The volume disconnected before the folder was read.
-    Disconnected,
-}
-
 impl UnreadReason {
     /// The reason key a query reports for this reason.
     pub fn reason_key(self) -> &'static str {
@@ -132,16 +124,6 @@ impl UnreadReason {
             Self::Disconnected => REASON_DISCONNECTED,
         }
     }
-}
-
-/// How many folders of a version carry each [`UnreadReason`] mark.
-///
-/// Counts marks as recorded, including a folder that also has a gap. They are separate from
-/// the inaccessible ranges of the aggregates and from the scan issues.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct UnreadFolderCounts {
-    pub cancelled: u32,
-    pub disconnected: u32,
 }
 
 /// Direct children dropped by exclusion rules in one folder.

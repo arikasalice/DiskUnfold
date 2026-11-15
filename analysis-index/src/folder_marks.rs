@@ -4,12 +4,7 @@
 //! excluded-child record holds no memory. Both tables are sorted by item number
 //! and read by binary search, so a lookup is O(log n) in the number of marked
 //! folders.
-use crate::{
-    BuildError, BuildHandle,
-    folder_collection::{UnreadFolderCounts, UnreadReason},
-    observation_store::ObservationStore,
-    tree::BuiltItems,
-};
+use crate::{BuildError, BuildHandle, observation_store::ObservationStore, tree::BuiltItems};
 use du_core_contracts::{
     result::ResultItemKind,
     scan_failures::{ScanIssue, unentered_reason},
@@ -21,6 +16,25 @@ use std::collections::BTreeMap;
 pub(crate) enum BoundaryKind {
     OtherVolume,
     AlreadyCounted,
+}
+
+/// Why the collector left a folder's entries unread without recording an unread range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnreadReason {
+    /// The scan was cancelled before the folder was read.
+    Cancelled,
+    /// The volume disconnected before the folder was read.
+    Disconnected,
+}
+
+/// How many folders of a version carry each [`UnreadReason`] mark.
+///
+/// Counts marks as recorded, including a folder that also has a gap. They are separate from
+/// the inaccessible ranges of the aggregates and from the scan issues.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UnreadFolderCounts {
+    pub cancelled: u32,
+    pub disconnected: u32,
 }
 
 /// The excluded direct children the collector reported for one folder.
