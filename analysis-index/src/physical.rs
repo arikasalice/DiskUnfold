@@ -303,11 +303,7 @@ pub(crate) fn selected_scope(
     let mut per_path = 0u128;
     for (index, item) in result.items.iter().enumerate() {
         if roots.binary_search(&result.root_indices[index]).is_ok()
-            && !matches!(
-                item.kind,
-                du_core_contracts::result::ResultItemKind::Directory
-                    | du_core_contracts::result::ResultItemKind::UnknownStructure
-            )
+            && !is_structure(item.kind)
             && let Some(bytes) = sum.observe_pinned(result, index)
         {
             per_path += u128::from(bytes);
