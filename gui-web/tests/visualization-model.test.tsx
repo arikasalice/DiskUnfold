@@ -244,9 +244,7 @@ test("a valid empty model shows its state without inventing zero-area shapes", (
     />,
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
-  expect(
-    screen.getByText("There are no items to draw in this scope"),
-  ).toBeDefined();
+  expect(screen.getByText("This folder is empty")).toBeDefined();
 });
 
 test("rows only expose Actions when this page has a group and an open handler", () => {
@@ -261,7 +259,7 @@ test("rows only expose Actions when this page has a group and an open handler", 
       text={fixtureText}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
@@ -309,7 +307,7 @@ test("rows omit Actions when the displayed page has no valid group row", () => {
       onOpenGroup={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   const table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
@@ -347,7 +345,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
 
   let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(

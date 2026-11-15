@@ -106,6 +106,11 @@ export function ModelStatus({
         ))}
       </LiveStatus>
       <Text>{text.observedAt(frame.observedAt)}</Text>
+      <Text>
+        {text.message("scopeTotalLine", {
+          value: text.quantity(model.totals.scope.quantity),
+        })}
+      </Text>
       {unwatched && !scanRunning && (
         <Text kind="muted">{visualizationReason(UNWATCHED, text.message)}</Text>
       )}

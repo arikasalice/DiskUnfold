@@ -170,7 +170,13 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             resultRevision: frame.resultRevision,
             content:
               frame.model.shapes.length === 0 ? (
-                <EmptyResult frame={frame} text={text} />
+                <EmptyResult
+                  frame={frame}
+                  text={text}
+                  rowsTotal={
+                    adapted.rowsMatch && page ? page.response.totalCount : null
+                  }
+                />
               ) : (
                 rows
               ),

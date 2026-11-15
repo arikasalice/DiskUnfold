@@ -2,7 +2,11 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { modelFixture } from "../preview/model-fixture";
 import { ModelRows } from "../src/features/visualization/ModelRows";
-import { createProductionVizText, visualizationMessage } from "../src/viz";
+import {
+  createProductionVizText,
+  rowRatioText,
+  visualizationMessage,
+} from "../src/viz";
 
 afterEach(cleanup);
 
@@ -61,9 +65,18 @@ test("the notes column appears only when a row or a shape of the graph has a not
   expect(headers()).not.toContain("Notes");
   cleanup();
   show((input) => {
-    input.page.response.rows[0]!.displayFlags = ["viz.flag.lower_bound"];
+    input.page.response.rows[0]!.displayFlags = ["viz.flag.other_group"];
   });
   expect(headers()).toContain("Notes");
+  cleanup();
+  // Flags already shown in the value column are not repeated as notes.
+  show((input) => {
+    input.page.response.rows[0]!.displayFlags = [
+      "viz.flag.lower_bound",
+      "viz.flag.unknown",
+    ];
+  });
+  expect(headers()).not.toContain("Notes");
 });
 
 test("a denominator every row shares is said once above the table", () => {
@@ -105,4 +118,46 @@ test("the page buttons show only when there is more than one page", () => {
   expect(
     within(next.parentElement!).getByRole("button", { name: "Previous rows" }),
   ).toBeTruthy();
+});
+
+test.each(["lower_bound", "unknown"] as const)(
+  "a row whose value is %s shows the unavailable word and no percentage",
+  (state) => {
+    show((input) => {
+      const row = input.page.response.rows[0]!;
+      const value = { state, value: "100", bytes: "100" };
+      row.quantity = { unit: "bytes", ...value } as never;
+      row.size = { ...row.size, ...value } as never;
+      row.ratio = "0.5";
+    });
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getByRole("table").textContent).not.toContain("50.0%");
+  },
+);
+
+test("the ratio of an exact row is a percentage and a missing ratio is unavailable", () => {
+  const exact = { ...modelFixture().page.response.rows[0]!, ratio: "0.5" };
+  expect(rowRatioText(exact, text)).toBe("50.0%");
+  expect(rowRatioText({ ...exact, ratio: null }, text)).toBe("Unavailable");
+});
+
+test("one page says how many items there are and several pages keep the range", () => {
+  show(
+    (input) => {
+      input.page.response.totalCount = input.page.response.rows.length;
+      input.page.request.start = 0;
+    },
+    { expanded: true, onPage: () => {} },
+  );
+  expect(
+    screen.getByText(`${modelFixture().page.response.rows.length} items`),
+  ).toBeTruthy();
+  cleanup();
+  show(
+    (input) => {
+      input.page.response.totalCount = input.page.response.rows.length + 5;
+    },
+    { expanded: true, onPage: () => {} },
+  );
+  expect(screen.getByText(/^Rows 1–\d+ of \d+$/)).toBeTruthy();
 });

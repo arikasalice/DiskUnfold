@@ -46,7 +46,6 @@ export function FallbackTable({
         <ModelRows
           expanded
           page={state.fallbackPage}
-          title={text.message("newerTitle")}
           text={text}
           onPage={(request) => {
             void controller.rows(request);

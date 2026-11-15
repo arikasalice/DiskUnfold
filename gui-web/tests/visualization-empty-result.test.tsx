@@ -42,25 +42,14 @@ function presenter(
 }
 
 test.each([
-  [
-    "en",
-    "There are no items to draw in this scope",
-    "Scope total: 0 items",
-    "12 items unavailable",
-  ],
-  [
-    "ko",
-    "이 범위에는 그릴 항목이 없습니다",
-    "범위 합계: 0개",
-    "확인 불가 12개",
-  ],
+  ["en", "There are no items to draw in this scope", "12 items unavailable"],
+  ["ko", "이 범위에는 그릴 항목이 없습니다", "확인 불가 12개"],
 ] as const)(
-  "a model with no shapes says so with its total and unavailable count (%s)",
-  (language, title, total, unknown) => {
+  "a model with items but no shapes says there is nothing to draw, with the unavailable count (%s)",
+  (language, title, unknown) => {
     const { container } = presenter((input) => {
       input.frame.model.shapes = [];
-      input.page.response.rows = [];
-      input.page.response.totalCount = 0;
+      input.page.response.totalCount = 3;
       input.frame.model.totals.scope.quantity = {
         state: "exact",
         unit: "items",
@@ -74,7 +63,6 @@ test.each([
     }, language);
     expect(chart(container)).toBeNull();
     expect(screen.getByText(title)).toBeTruthy();
-    expect(screen.getByText(total)).toBeTruthy();
     expect(screen.getByText(unknown)).toBeTruthy();
     expect(
       screen.queryByText(visualizationMessage(language, "rowsNotRetrieved")),
@@ -90,6 +78,7 @@ test.each([
 test("an empty model with no unavailable items shows no count", () => {
   presenter((input) => {
     input.frame.model.shapes = [];
+    input.page.response.totalCount = 3;
     input.frame.model.summary.unknownItems = {
       state: "exact",
       unit: "items",
@@ -99,11 +88,38 @@ test("an empty model with no unavailable items shows no count", () => {
   expect(screen.queryByText(/^\d+ items unavailable$/)).toBeNull();
 });
 
-test("the empty result alone does not depend on loaded rows", () => {
+test.each([
+  ["en", "This folder is empty", "Scope total 0 items"],
+  ["ko", "이 폴더는 비어 있습니다", "범위 합계 0개"],
+] as const)(
+  "a folder with no items at all says it is empty, and the scope total is in the status line (%s)",
+  (language, title, total) => {
+    presenter((input) => {
+      input.frame.model.shapes = [];
+      input.page.response.rows = [];
+      input.page.response.totalCount = 0;
+      input.frame.model.totals.scope.quantity = {
+        state: "exact",
+        unit: "items",
+        value: "0",
+      };
+    }, language);
+    expect(screen.getByText(title)).toBeTruthy();
+    expect(
+      screen.queryByText(visualizationMessage(language, "emptyResultTitle")),
+    ).toBeNull();
+    expect(screen.getByText(total)).toBeTruthy();
+  },
+);
+
+test("before the rows are read neither sentence is said", () => {
   const input = modelFixture();
   input.frame.model.shapes = [];
-  render(<EmptyResult frame={input.frame} text={textFor("en")} />);
+  render(
+    <EmptyResult frame={input.frame} text={textFor("en")} rowsTotal={null} />,
+  );
+  expect(screen.queryByText("This folder is empty")).toBeNull();
   expect(
-    screen.getByText("There are no items to draw in this scope"),
-  ).toBeTruthy();
+    screen.queryByText("There are no items to draw in this scope"),
+  ).toBeNull();
 });

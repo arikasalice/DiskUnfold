@@ -2,7 +2,13 @@ import { useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Action, DataTable, DetailDisclosure, Text } from "../../components";
 import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
-import { RowName, plainRowName, rowName, vizMessage } from "../../viz";
+import {
+  RowName,
+  plainRowName,
+  rowName,
+  rowRatioText,
+  vizMessage,
+} from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
 
 /** Class keys that mean a row has no classification. */
@@ -12,6 +18,10 @@ const UNCLASSIFIED = new Set([
 ]);
 /** A row of the table: one fixed height, so the table is as tall as its rows. */
 const ROW_HEIGHT = 48;
+/** Notes the value column already shows (unconfirmed, lower bound); they are not written again. */
+const SHOWN_IN_VALUE = new Set(["viz.flag.unknown", "viz.flag.lower_bound"]);
+const notesOf = (flags: readonly string[]) =>
+  flags.filter((flag) => !SHOWN_IN_VALUE.has(flag));
 
 type Column = { header: string; cell: (row: VizRow) => ReactNode };
 
@@ -64,8 +74,9 @@ export function ModelRows({
     (row) => !UNCLASSIFIED.has(row.legendClassKey),
   );
   const showNotes =
-    rows.some((row) => row.displayFlags.length > 0) ||
-    (model?.shapes.some((shape) => shape.displayFlags.length > 0) ?? false);
+    rows.some((row) => notesOf(row.displayFlags).length > 0) ||
+    (model?.shapes.some((shape) => notesOf(shape.displayFlags).length > 0) ??
+      false);
   const sharedDenominator =
     rows.length > 0 &&
     rows.every(
@@ -118,10 +129,7 @@ export function ModelRows({
     },
     {
       header: text.message("ratio"),
-      cell: (row) =>
-        row.ratio
-          ? (text.ratio?.(row.ratio) ?? row.ratio)
-          : text.message("unavailableValue"),
+      cell: (row) => rowRatioText(row, text),
     },
     ...(sharedDenominator === null
       ? [
@@ -147,7 +155,8 @@ export function ModelRows({
       ? [
           {
             header: text.message("rowNotes"),
-            cell: (row: VizRow) => row.displayFlags.map(text.key).join(" · "),
+            cell: (row: VizRow) =>
+              notesOf(row.displayFlags).map(text.key).join(" · "),
           },
         ]
       : []),
@@ -172,15 +181,7 @@ export function ModelRows({
             {vizMessage(text, "ratioDenominator", { value: sharedDenominator })}
           </Text>
         )}
-        <Text>
-          {rows.length === 0
-            ? text.message("noRowsInPage")
-            : vizMessage(text, "rowRange", {
-                start: String(request.start + 1),
-                end: String(next),
-                total: String(response.totalCount),
-              })}
-        </Text>
+        <Text>{pageWords(page, paged, text)}</Text>
         <DataTable
           label={text.message("loadedGraphRows")}
           density="compact"
@@ -215,6 +216,21 @@ export function ModelRows({
       </DetailDisclosure>
     </div>
   );
+}
+
+/** The line above the table: how many items, or which of them this page shows. */
+function pageWords(page: ModelRowsPage, paged: boolean, text: VizText) {
+  const { request, response } = page;
+  if (response.rows.length === 0) return text.message("noRowsInPage");
+  if (!paged)
+    return vizMessage(text, "rowsOnePage", {
+      count: String(response.totalCount),
+    });
+  return vizMessage(text, "rowRange", {
+    start: String(request.start + 1),
+    end: String(request.start + response.rows.length),
+    total: String(response.totalCount),
+  });
 }
 
 /** The button that opens the combined items of a group row. */

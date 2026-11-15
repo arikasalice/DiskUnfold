@@ -322,7 +322,7 @@ test("a removed graph group row returns to its rows title with an explanation", 
     "The original combined items are no longer available. Return to the chart.",
   );
   expect(document.activeElement).toBe(
-    screen.getByRole("group", { name: "Rows from this chart" }),
+    screen.getByRole("group", { name: "Items in this folder" }),
   );
 });
 

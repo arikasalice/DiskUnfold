@@ -14,7 +14,12 @@ export type {
   ModelRowsPage,
   VizSelection,
 } from "./model-adapter";
-export { rawSourceSize, shapeLabels, vizMessage } from "./model-text";
+export {
+  rawSourceSize,
+  rowRatioText,
+  shapeLabels,
+  vizMessage,
+} from "./model-text";
 export { plainRowName, rowName } from "./row-text";
 export { explainReason } from "./reason-text";
 export { MAX_ROWS_PER_READ, readRowsPages } from "./rows-pages";

@@ -83,7 +83,7 @@ function setup(renders: VizRenderResponse[], rows = vi.fn()) {
   return { controller, rows, ...shown };
 }
 const tableButton = () =>
-  screen.queryByRole("button", { name: "Items in this result" });
+  screen.queryByRole("button", { name: "Items in this folder" });
 
 test("an unavailable answer with a fallback shows the notice and the fallback rows", async () => {
   const rows = vi.fn().mockResolvedValue(fallbackRows());

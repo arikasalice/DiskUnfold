@@ -70,7 +70,7 @@ test("F02: graph rows mark the edge spaces of item names only", () => {
       onOpenGroup={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   const table = screen.getByRole("table", { name: "Loaded chart rows" });
   expectMarked(nameCells(table));
   // The members action of the group keeps the label it was given.
