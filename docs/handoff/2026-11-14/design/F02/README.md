@@ -752,6 +752,27 @@ F02가 용어 사전 등록안을 만들다가 물었다. "분석"이 사용자�
 19번의 1차 표에서 바꾼 것 가운데 다섯 개(스캔 대상, 스캔하기 전에 두 개, 스캔 범위 밖, 이 스캔 범위 밖)가 다시 바뀐다. 1차 표를 낼 때 "분석"과의 관계까지 보지 못했다.
 
 상태 (2026-11-15, 총괄 채택): PR #73은 이미 병합됐고, F02가 20개 키를 바꾸는 소형 PR을 낸다(시험과 스모크 문자열 확인, VM 캡처 검수). 이 README의 다른 절과 Penpot 보드에 적힌 "스캔 시작", "스캔 범위"는 그 PR이 병합될 때 디자인팀이 맞춘다.
+PR #82 검수 (2026-11-15, 초안, 머리 c5df6671): 디자인 동의. VM 캡처 다섯 장(1280×820, Light, 한국어 넷과 영어 하나)을 봤다. 시작 화면의 "분석 범위 검토"와 "분석 시작", 누른 뒤의 "스캔 중"·"스캔 일시 중지"·"스캔 취소"·"스캔한 경로", 다시 분석 편집기의 "분석 대상", 설정 복원의 "최근 분석 범위 기억", 영어 "Start analysis"가 모두 한 줄이고 한 화면 안에서 어긋나지 않는다. Dark와 오류·대기 상태의 문구는 보지 않았다.
+
+F02가 표 밖에서 찾은 섞인 문구에 대한 판단:
+
+| 키 | 지금 | 바꿀 문구 (한국어 / 영어) |
+| --- | --- | --- |
+| ui.analysis.priority_ended | 분석이 끝났습니다 | 스캔이 이미 끝났습니다 / The scan has already finished. |
+| ui.analysis.priority_no_effect | 이미 분석을 마쳤거나 먼저 분석하고 있습니다 | 이미 스캔을 마쳤거나 먼저 분석하고 있습니다 / This folder is already scanned or is already being analyzed first. |
+| ui.browse.analyze_first_collected | 이미 분석을 마친 폴더입니다 | 이미 스캔을 마친 폴더입니다 / This folder is already fully scanned |
+| ui.analysis.result_not_found | 이 스캔 또는 결과를 더 이상 사용할 수 없습니다. | 이 분석 결과를 더 이상 사용할 수 없습니다. / This analysis result is no longer available. |
+| ui.analysis.totals_mismatch | 공간 합계가 이 스캔의 결과와 일치하지 않습니다. | 공간 합계가 이 분석 결과와 일치하지 않습니다. / The space totals do not match this analysis result. |
+| ui.analysis.volume_scan_unavailable | 이 스캔 결과를 더 이상 사용할 수 없습니다. … | 이 분석 결과를 더 이상 사용할 수 없습니다. 볼륨 사용량을 확인하려면 다시 분석하세요. / This analysis result is no longer available. Run the analysis again to explain its volume usage. |
+| ui.analysis.volume_response_mismatch | 응답이 이 스캔 결과와 일치하지 않습니다. | 응답이 이 분석 결과와 일치하지 않습니다. / The response does not match this analysis result. |
+
+그대로 두는 것: "먼저 분석" 계열과 "스캔을 계속하면 … 먼저 분석합니다", 영역 이름 "스캔 및 결과", "선택한 스캔 폴더", 꾸밈말 없는 "범위".
+
+함께 알린 것:
+
+- 영어의 scope와 range: 분석 범위는 scope 하나로 쓴다. "최근 분석 범위" 계열 영어 문구 21개가 대상이고 한국어는 바꾸지 않는다. 후속으로 둔다.
+- 결함: features/analysis/space-format.ts의 displaySpaceReason과 displayMeasurementLimit이 문구 키를 거치지 않고 영어 글자를 돌려준다. 한국어 문구(ui.analysis.space_… 12개)는 이미 있다. 쓰는 곳은 파일 조사, 항목 공간 상세, 결과 요약의 측정 설명이다. 한국어 화면에 영어 사유가 나온다. 따로 고치도록 F02에 알렸다.
+- 캡처에서 본 것 두 가지를 F02에 물었다. "분석 시작"을 누른 뒤 "스캔 중" 표지에 초점 테두리가 그려진다(공통 초점 규칙과 다르다). 스캔 시작 1.1초 뒤 할당 크기가 "확인 불가 · 일부만 측정됨"으로 크게 보인다(스캔 내내 그런지 확인 필요).
 
 ## PR #69 검수 (2026-11-15, 초안, 분석 화면 요약의 자동 반영)
 
