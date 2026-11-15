@@ -26,10 +26,12 @@ export function UnavailablePanel({
   return (
     <section className="du-review-stack" aria-labelledby={headingId}>
       <LiveStatus>
-        <Heading level={3} id={headingId}>
-          {title}
-        </Heading>
-        <Text>{body}</Text>
+        <div className="du-viz-notice-text">
+          <Heading level={3} id={headingId}>
+            {title}
+          </Heading>
+          <Text>{body}</Text>
+        </div>
       </LiveStatus>
       {backAction && (
         <div className="du-review-actions">

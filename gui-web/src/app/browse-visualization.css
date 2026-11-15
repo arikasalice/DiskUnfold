@@ -40,6 +40,12 @@
   overflow: auto;
 }
 
+/* Title and explanation of an unavailable notice, apart by one step of the scale. */
+.du-viz-notice-text {
+  display: grid;
+  gap: var(--du-space-2);
+}
+
 @media (max-height: 350px) {
   .du-app[data-browse-open][data-visualization-open] {
     block-size: 100dvh;
