@@ -1,11 +1,11 @@
 //! F02 cancellation and sealing through the platform's real directory adapter.
 //!
-//! The probe counts wrapper read-start observations only after the test gate is released, which
-//! happens after `job.cancel` responds. It cannot observe calls between runtime flag-setting and
-//! that response.
+//! The probe sequences wrapper entry, the delegate-call marker, and return independently of
+//! the gate-state mutex. It marks the synchronous `job.cancel` dispatch response and later gate
+//! release, but cannot observe calls between runtime flag-setting and that response.
 //! Filtered enumeration is not instrumented, and the test does not launch the GUI.
 //! Follow-up completion tasks:
-//! - Observe the runtime flag transition and cover read starts through the `job.cancel` reply.
+//! - Observe the runtime flag transition to cover the remaining pre-response interval.
 //! - Instrument filtered enumeration and verify its read-start behavior independently.
 mod fixture;
 mod gate;
@@ -88,15 +88,16 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
     )?)?;
 
     probe.wait_for_two_workers()?;
-    let cancel: AnalysisJobControl = serde_json::from_value(request(
+    let cancel: AnalysisJobControl = serde_json::from_value(request_with_response_hook(
         &engine,
         "job.cancel",
         json!({"jobRef": start.job_ref}),
+        || probe.mark_cancel_response(),
     )?)?;
     assert_eq!(cancel.outcome, JobControlOutcome::Accepted);
     assert_eq!(cancel.state, JobState::CancelRequested);
-    // The IPC reply follows the runtime flag update; the interval before this marker is unmeasured.
-    probe.release_test_gate();
+    // The remaining interval starts before the response marker; adapter events use a shared sequence.
+    probe.release_test_gate()?;
 
     let status = wait_for_cancelled(&engine, &start.job_ref)?;
     assert_eq!(status.state, JobState::Cancelled);
@@ -106,32 +107,61 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
     let region =
         request(&engine, "query.region.open", json!({"kind": "browse_list"}))?["regionRef"].clone();
     let actual = browse_returned_paths(&engine, &region, &sealed_version)?;
-    let (started, returned, post_release_read_starts, native_entries) = probe.snapshot()?;
-    assert_eq!(started, returned, "a platform adapter call did not return");
-    assert_eq!(
-        post_release_read_starts, 0,
-        "a wrapper read-start observation occurred after the test gate was released"
+    let snapshot = probe.snapshot()?;
+    eprintln!(
+        "F02_CANCEL_TRACE lock_observations_after_release={} wrapper_entries_after_reply={} adapter_dispatches_after_reply={} wrapper_entries_after_release={} adapter_dispatches_after_release={} workers_last_event_at_reply={:?}",
+        snapshot.post_release_read_start_observations,
+        snapshot.post_reply_wrapper_entries,
+        snapshot.post_reply_adapter_dispatches,
+        snapshot.post_release_wrapper_entries,
+        snapshot.post_release_adapter_dispatches,
+        snapshot.workers_last_event_at_cancel_reply,
     );
-    assert!(native_entries.values().all(|count| *count == 1));
+    for event in &snapshot.trace {
+        eprintln!("F02_CANCEL_TRACE {event}");
+    }
+    assert_eq!(
+        snapshot.started, snapshot.returned,
+        "a platform adapter call did not return"
+    );
+    assert_eq!(
+        snapshot.post_release_wrapper_entries, 0,
+        "a wrapper method entered after gate release; trace: {:?}",
+        snapshot.trace
+    );
+    assert!(snapshot.native_entries.values().all(|count| *count == 1));
     assert!(actual.values().all(|count| *count == 1));
     assert_eq!(
-        actual, native_entries,
+        actual, snapshot.native_entries,
         "sealed result differs from returned batches"
     );
     assert!(actual.len() >= 2 * FILES_PER_DIRECTORY);
 
     eprintln!(
-        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} post_release_read_starts={} observation=after_test_gate_release cancel_reply_gap=unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
+        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} post_release_wrapper_entries={} post_release_adapter_dispatches={} post_reply_wrapper_entries={} post_reply_adapter_dispatches={} lock_observations_after_release={} observation=sequenced cancel_reply_gap=before_response_unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
         std::env::consts::OS,
         std::env::consts::ARCH,
-        returned,
+        snapshot.returned,
         actual.len(),
-        post_release_read_starts,
+        snapshot.post_release_wrapper_entries,
+        snapshot.post_release_adapter_dispatches,
+        snapshot.post_reply_wrapper_entries,
+        snapshot.post_reply_adapter_dispatches,
+        snapshot.post_release_read_start_observations,
     );
     Ok(())
 }
 
 fn request(engine: &Engine, name: &str, body: Value) -> Result<Value, Box<dyn std::error::Error>> {
+    request_with_response_hook(engine, name, body, || Ok(()))
+}
+
+fn request_with_response_hook(
+    engine: &Engine,
+    name: &str,
+    body: Value,
+    after_response: impl FnOnce() -> Result<(), String>,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let correlation_id = Id::from_v7_bytes([42; 16]);
     let message = json!({
         "command": "du_call",
@@ -143,6 +173,7 @@ fn request(engine: &Engine, name: &str, body: Value) -> Result<Value, Box<dyn st
         }}
     });
     let response = crate::ipc::dispatch(engine, &message.to_string()).ok_or("no IPC response")?;
+    after_response().map_err(std::io::Error::other)?;
     let envelope: ResultEnvelope = serde_json::from_str(&response)?;
     if let Some(error) = envelope.error {
         return Err(format!("{name}: {error:?}").into());
