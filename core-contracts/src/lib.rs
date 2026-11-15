@@ -24,6 +24,7 @@ pub mod sample_ipc;
 pub mod scan_failures;
 pub mod scan_observation;
 pub mod scan_priority;
+pub mod scope_observation_log;
 pub mod settings;
 pub mod settings_events;
 pub mod settings_ipc;

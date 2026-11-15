@@ -46,27 +46,19 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
             .content_valid,
         3
     );
-    let outcome =
-        apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(outcome.revision, 5);
-    assert_eq!(state(&path)?, (5, 7, "\"ko\"".into()));
-    assert_eq!(
-        state(&root.join("backup-00000000000000000004").join(COPY))?,
-        (4, 7, "\"ko\"".into())
-    );
-    let outcome =
-        apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(outcome.revision, 6);
-    assert_eq!(state(&path)?, (6, 7, "\"ko\"".into()));
-    assert_eq!(
-        state(&root.join("backup-00000000000000000005").join(COPY))?,
-        (5, 7, "\"ko\"".into())
-    );
+    for (revision, previous) in [(5, 4), (6, 5), (7, 6)] {
+        let outcome =
+            apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
+        assert_eq!(outcome.revision, revision);
+        assert_eq!(state(&path)?, (revision, 7, "\"ko\"".into()));
+        let backup = root.join(format!("backup-{previous:020}")).join(COPY);
+        assert_eq!(state(&backup)?, (previous, 7, "\"ko\"".into()));
+    }
     drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
     let report = inspect_retention(&root).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(report.content_valid, 5);
+    assert_eq!(report.content_valid, 6);
     assert!(report.cleanup_unavailable);
-    for sequence in 1..=5 {
+    for sequence in 1..=6 {
         assert!(root.join(format!("backup-{sequence:020}")).is_dir());
     }
     Ok(())
