@@ -1,4 +1,6 @@
 mod cancel;
+#[path = "pause/cancel_multilane.rs"]
+mod cancel_multilane;
 use super::*;
 use std::sync::mpsc;
 use std::time::Duration;
