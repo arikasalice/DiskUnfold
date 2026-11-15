@@ -997,6 +997,7 @@ ui.analysis.volume_scanned_folder
 ui.analysis.volume_hide
 ui.analysis.volume_explain
 ui.analysis.volume_reading
+ui.analysis.volume_updating
 ui.analysis.volume_summary
 ui.analysis.volume_compared_scope
 ui.analysis.volume_all_scanned_folders

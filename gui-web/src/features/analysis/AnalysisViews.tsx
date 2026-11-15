@@ -8,7 +8,8 @@ import type { AnalysisClient, JobState, OsPath } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import { PinnedResult, RootPaths } from "./ResultSummary";
 import { ScanOutputHeader } from "./ScanOutputHeader";
-import { useHeldValue, useSelectionHold } from "./use-selection-hold";
+import { useSelectionHold } from "./use-selection-hold";
+import { useSummaryBatch } from "./summary-batch";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import "../../theme/analysis-results.css";
@@ -20,6 +21,8 @@ import "../../theme/analysis-results.css";
  * in the summary, the whole summary keeps the result it showed when the
  * selection began; the hook keeps reading, so releasing the selection shows
  * the newest totals at once. No older result is held by the engine.
+ * An open volume part changes together with the totals (see
+ * `useSummaryBatch`), so the summary never shows values from two results.
  */
 export function ScanOutput({
   client,
@@ -53,7 +56,8 @@ export function ScanOutput({
   const body = useRef<HTMLElement>(null);
   const versionSummary = useRef<HTMLDivElement>(null);
   const holding = useSelectionHold([body, versionSummary]);
-  const total = useHeldValue(scan.total, holding);
+  const summary = useSummaryBatch(client, scan.total, holding, running);
+  const total = summary.total;
   const pathsLabel = running
     ? text("ui.analysis.scanning_paths", "Scanning paths")
     : text("ui.analysis.selected_paths", "Selected paths");
@@ -95,7 +99,7 @@ export function ScanOutput({
             client={client}
             total={total}
             latestVersion={scan.currentVersion ?? total.resultVersion}
-            holding={holding}
+            volume={summary.volume}
             roots={roots}
             preferences={preferences}
             displayChoice={displayChoice}

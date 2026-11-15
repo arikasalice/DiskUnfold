@@ -1014,6 +1014,7 @@
     ["ui.analysis.volume_hide","볼륨 설명 숨기기",[]],
     ["ui.analysis.volume_explain","볼륨 사용량 설명",[]],
     ["ui.analysis.volume_reading","볼륨 관측 정보를 읽는 중",[]],
+    ["ui.analysis.volume_updating","다시 읽는 중…",[]],
     ["ui.analysis.volume_summary","볼륨 사용량 요약",[]],
     ["ui.analysis.volume_compared_scope","비교 범위",[]],
     ["ui.analysis.volume_all_scanned_folders","이 볼륨에서 검사한 모든 폴더",[]],

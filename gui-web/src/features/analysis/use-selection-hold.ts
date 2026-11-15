@@ -35,13 +35,3 @@ export function useSelectionHold(
   }, []);
   return holding;
 }
-
-/**
- * Returns `value`, except that while `hold` is true it keeps returning the
- * value it returned when the hold began.
- */
-export function useHeldValue<T>(value: T, hold: boolean): T {
-  const [held, setHeld] = useState(value);
-  if (!hold && held !== value) setHeld(value);
-  return hold ? held : value;
-}
