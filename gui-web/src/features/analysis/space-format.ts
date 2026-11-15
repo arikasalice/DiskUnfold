@@ -139,6 +139,66 @@ export function displayMeasurementLimit(key: string, text: LocaleText): string {
   );
 }
 
+/** How the scan stands that is still to supply a size without a value. */
+export type SizeWait = "running" | "paused";
+
+/**
+ * Reasons that leave a size without a value for good. Every other reason on
+ * an unknown size also comes with the first result of a scan, before a file
+ * was read, so it does not tell whether the value is still to come.
+ */
+const lastingUnknownReasons = new Set([
+  "space.aggregation_overflow",
+  "space.dedup_capacity",
+]);
+
+/**
+ * Tells whether a size without a value is still expected from the scan, given
+ * how the scan stands (nothing once it ended). Only the logical and the
+ * allocated size are awaited: they get a value as soon as the scan has read
+ * a file, while the unique physical size can stay unknown for a whole scan.
+ */
+export function awaitedSize(
+  size: SizeValue,
+  measurementLimits: readonly string[],
+  wait: SizeWait | undefined,
+): SizeWait | undefined {
+  if (size.state !== "unknown" || size.basis === "unique_physical")
+    return undefined;
+  return measurementLimits.some((key) => lastingUnknownReasons.has(key))
+    ? undefined
+    : wait;
+}
+
+const awaitedSizeMessages: Record<
+  SizeWait,
+  { value: Message; detail: Message }
+> = {
+  running: {
+    value: ["ui.analysis.size_calculating", "Calculating…"],
+    detail: [
+      "ui.analysis.size_calculating_detail",
+      "The value appears as the scan runs",
+    ],
+  },
+  paused: {
+    value: ["ui.analysis.size_no_value_yet", "No value yet"],
+    detail: [
+      "ui.analysis.size_no_value_yet_detail",
+      "It appears when the scan continues",
+    ],
+  },
+};
+
+/** What stands in the place of an awaited size, and the line below it. */
+export function displayAwaitedSize(
+  wait: SizeWait,
+  text: LocaleText,
+): { value: string; detail: string } {
+  const { value, detail } = awaitedSizeMessages[wait];
+  return { value: text(...value), detail: text(...detail) };
+}
+
 /** Separates measurement completeness and evidence from the result version. */
 export function displayMeasurement(
   value: SizeValue,

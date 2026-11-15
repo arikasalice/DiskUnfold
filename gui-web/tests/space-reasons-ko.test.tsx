@@ -145,6 +145,7 @@ function Summary({ client }: { client: AnalysisClient }) {
       total={total}
       latestVersion={total.resultVersion}
       volume={summary.volume}
+      wait={undefined}
       roots={[path]}
       preferences={{
         display: { system: "iec", unit: "auto" },

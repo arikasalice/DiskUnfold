@@ -296,6 +296,10 @@ ui.analysis.display_options
 ui.analysis.folder_details
 ui.analysis.view_folder_details
 ui.analysis.size_lower_bound value:name
+ui.analysis.size_calculating
+ui.analysis.size_calculating_detail
+ui.analysis.size_no_value_yet
+ui.analysis.size_no_value_yet_detail
 ui.analysis.scope_overlap
 ui.analysis.scope_alias
 ui.analysis.scope_descendant

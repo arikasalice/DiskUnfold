@@ -10,7 +10,7 @@ import { PinnedResult, RootPaths } from "./ResultSummary";
 import { ScanOutputHeader } from "./ScanOutputHeader";
 import { useSelectionHold } from "./use-selection-hold";
 import { useSummaryBatch } from "./summary-batch";
-import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import "../../theme/analysis-results.css";
 
@@ -56,7 +56,8 @@ export function ScanOutput({
   const body = useRef<HTMLElement>(null);
   const versionSummary = useRef<HTMLDivElement>(null);
   const holding = useSelectionHold([body, versionSummary]);
-  const publishing = running && scan.status?.state !== "paused";
+  const state = scan.status?.state;
+  const publishing = running && state !== "paused";
   const summary = useSummaryBatch(client, scan.total, holding, publishing);
   const total = summary.total;
   const pathsLabel = running
@@ -100,6 +101,7 @@ export function ScanOutput({
             total={total}
             latestVersion={scan.currentVersion ?? total.resultVersion}
             volume={summary.volume}
+            wait={sizeWait(running, state)}
             roots={roots}
             preferences={preferences}
             displayChoice={displayChoice}
@@ -109,7 +111,7 @@ export function ScanOutput({
           />
         ) : running ? (
           <Text kind="muted">
-            {scan.status?.state === "paused"
+            {state === "paused"
               ? text(
                   "ui.analysis.paused_hint",
                   "The scan is paused. Resume to continue collecting file metadata.",
@@ -120,13 +122,23 @@ export function ScanOutput({
                 )}
           </Text>
         ) : !awaitingTotals && !error ? (
-          <Text kind="muted">
-            {emptyResultMessage(scan.status?.state, text)}
-          </Text>
+          <Text kind="muted">{emptyResultMessage(state, text)}</Text>
         ) : null}
       </section>
     </>
   );
+}
+
+/**
+ * How the shown scan stands for a size it has not supplied yet. A scan being
+ * cancelled, like one that ended, supplies nothing further.
+ */
+function sizeWait(
+  running: boolean,
+  state: JobState | undefined,
+): SizeWait | undefined {
+  if (!running || state === "cancel_requested") return undefined;
+  return state === "paused" ? "paused" : "running";
 }
 
 function scanErrorText(
