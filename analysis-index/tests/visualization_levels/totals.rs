@@ -264,46 +264,56 @@ fn is_lower_bound(size: &SizeValue) -> bool {
     matches!(size.amount, SizeAmount::LowerBound { .. })
 }
 
-// Every F03 value above an untraversed link is a lower bound (F03 FR5.HD1). The level
-// draws such a sibling by its lower bound (HLD table 22), so lower bounds add as they
-// are: drawn plus nothing left over, whatever the completeness of the result.
+// F03 values the folders above an untraversed link as lower bounds today, and keeps them
+// exact once FR5.HD1 counts a link without lowering the value; a partial result is a lower
+// bound everywhere either way. The level draws a sibling by its value, so the totals add
+// up as they are, and the state of the scope and of the drawn total is the state of the
+// values: these tests read the value from F03 and hold for both.
 #[test]
-fn lower_bounds_are_drawn_and_add_up_in_complete_and_partial_results() {
+fn a_scope_above_a_link_is_drawn_by_its_values_in_complete_and_partial_results() {
     for completeness in [ResultCompleteness::Complete, ResultCompleteness::Partial] {
         let version = with_link(completeness);
+        let lower = is_lower_bound(&version.space(0).unwrap().logical);
+        assert!(lower || completeness == ResultCompleteness::Complete);
         let model = project(&version, SizeBasis::Logical, 16).unwrap();
-        // x holds a link; a and b are lower bounds too in a partial result.
+        // x holds a link; the link is inside x, so nothing at this level has no value.
         assert_eq!(model.shapes.len(), 3, "{completeness:?}");
         assert_eq!(model.detail.unknown_items, 0, "{completeness:?}");
         assert_eq!(model.detail.omitted_items, 0, "{completeness:?}");
-        assert!(is_lower_bound(&model.totals.scope), "{completeness:?}");
-        assert!(model.totals.drawn_lower_bound, "{completeness:?}");
+        assert_eq!(
+            is_lower_bound(&model.totals.scope),
+            lower,
+            "{completeness:?}"
+        );
+        assert_eq!(model.totals.drawn_lower_bound, lower, "{completeness:?}");
         assert_eq!(model.totals.drawn_bytes, 170, "{completeness:?}");
         assert_eq!(bytes_of(&model.totals.scope), 170, "{completeness:?}");
         assert_eq!(remainder(&model), 0, "{completeness:?}");
         let x = find(&version, "x");
         let row = model.rows.iter().find(|row| row.item == x).unwrap();
-        assert!(is_lower_bound(&row.size) && row.lod == Lod::Drawn);
+        assert_eq!(row.lod, Lod::Drawn);
         assert_eq!(bytes_of(&row.size), 20);
     }
 }
 
-// The state of a total follows its own members: the scope of x is a lower bound
+// The state of a total follows its own members: the scope of x has the state of its value
 // because of the link, and what is drawn in it is an exact file.
 #[test]
-fn a_lower_bound_scope_can_hold_an_exact_drawn_total_and_counts_the_link() {
+fn a_scope_above_a_link_keeps_the_state_of_its_value_and_an_exact_drawn_total() {
     let version = with_link(ResultCompleteness::Complete);
     let space = |name: &str| {
         let folder = find(&version, name);
         version.space(folder.item_no).unwrap().logical.clone()
     };
-    assert!(is_lower_bound(&version.space(0).unwrap().logical));
-    assert!(is_lower_bound(&space("x")));
+    let lower = is_lower_bound(&space("x"));
+    assert_eq!(is_lower_bound(&version.space(0).unwrap().logical), lower);
     assert_eq!(space("a").amount, logical(100).amount);
     let model = project_in(&version, &find(&version, "x")).unwrap();
     assert_eq!(model.shapes.len(), 1);
-    assert_eq!(model.detail.unknown_items, 1);
-    assert!(is_lower_bound(&model.totals.scope));
+    // The link has no shape: it is an item without a value, or an exact zero.
+    let link_has_no_value = space("link").amount == SizeAmount::Unknown;
+    assert_eq!(model.detail.unknown_items, u64::from(link_has_no_value));
+    assert_eq!(is_lower_bound(&model.totals.scope), lower);
     assert!(!model.totals.drawn_lower_bound);
     assert_eq!(model.totals.drawn_bytes, 20);
     assert_eq!(bytes_of(&model.totals.scope), 20);

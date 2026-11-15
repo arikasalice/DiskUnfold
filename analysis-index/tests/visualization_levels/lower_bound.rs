@@ -12,7 +12,7 @@ use du_core_contracts::{
     result::{ResultNativePath, ResultScopeRoot},
 };
 
-enum Entry<'a> {
+pub(super) enum Entry<'a> {
     Dir(&'a str),
     /// A file with its own identity; its allocated size equals its logical size.
     File(&'a str, u64),
@@ -24,7 +24,7 @@ enum Entry<'a> {
     Unread(&'a str),
 }
 
-fn scan(
+pub(super) fn scan(
     entries: &[Entry<'_>],
     completeness: ResultCompleteness,
     gaps: &[&str],
@@ -96,7 +96,7 @@ fn scan(
     build.seal(id(2), completeness).unwrap()
 }
 
-fn project_at(
+pub(super) fn project_at(
     version: &ResultVersion,
     folder: &str,
     basis: SizeBasis,
@@ -125,19 +125,19 @@ fn project_at(
     )
 }
 
-fn is_lower_bound(size: &SizeValue) -> bool {
+pub(super) fn is_lower_bound(size: &SizeValue) -> bool {
     matches!(size.amount, SizeAmount::LowerBound { .. })
 }
 
 /// Whether a row that has a shape of its own carries a lower-bound value.
-fn drawn_has_a_lower_bound(model: &Model) -> bool {
+pub(super) fn drawn_has_a_lower_bound(model: &Model) -> bool {
     model
         .shapes
         .iter()
         .any(|shape| is_lower_bound(&model.rows[shape.row_index].size))
 }
 
-fn row_of<'a>(model: &'a Model, version: &ResultVersion, name: &str) -> &'a Row {
+pub(super) fn row_of<'a>(model: &'a Model, version: &ResultVersion, name: &str) -> &'a Row {
     let wanted = find(version, name);
     model.rows.iter().find(|row| row.item == wanted).unwrap()
 }
@@ -176,72 +176,133 @@ fn link_two_levels_down() -> Vec<Entry<'static>> {
     ]
 }
 
+/// The F03 value of an item on a basis.
+pub(super) fn value_of(version: &ResultVersion, name: &str, basis: &SizeBasis) -> SizeValue {
+    let item = if name.is_empty() {
+        0
+    } else {
+        find(version, name).item_no
+    };
+    let space = version.space(item).unwrap();
+    match basis {
+        SizeBasis::Logical => space.logical.clone(),
+        SizeBasis::Allocated => space.allocated.clone(),
+        SizeBasis::UniquePhysical => space.unique_physical.clone(),
+    }
+}
+
+pub(super) fn has_no_value(value: &SizeValue) -> bool {
+    value.amount == SizeAmount::Unknown
+}
+
+// How F03 values what a link touches is being revised (FR5.HD1). Today a folder above a
+// link is a lower bound and the link beside its siblings has no value; once a link is
+// counted without lowering anything, the folder is exact and the link is an exact zero.
+// Each test below reads the value from F03 and checks what the treemap does with it, so
+// it holds for both.
+
 #[test]
-fn a_complete_result_draws_a_folder_with_a_link_by_its_lower_bound_on_both_bases() {
+fn a_complete_result_draws_a_folder_with_a_link_by_its_value_on_both_bases() {
     let version = scan(&one_folder_with_a_link(), ResultCompleteness::Complete, &[]);
     for basis in [SizeBasis::Logical, SizeBasis::Allocated] {
-        let space = version.space(find(&version, "x").item_no).unwrap();
-        let value = if basis == SizeBasis::Logical {
-            &space.logical
-        } else {
-            &space.allocated
-        };
-        assert!(is_lower_bound(value), "{basis:?}");
+        let lower = is_lower_bound(&value_of(&version, "x", &basis));
+        assert_eq!(is_lower_bound(&value_of(&version, "", &basis)), lower);
         let model = project_at(&version, "", basis.clone(), 16).unwrap();
         assert_eq!(model.shapes.len(), 3, "{basis:?}");
         assert_eq!(model.detail.unknown_items, 0, "{basis:?}");
         let x = row_of(&model, &version, "x");
-        assert!(is_lower_bound(&x.size) && x.lod == Lod::Drawn, "{basis:?}");
+        assert_eq!(x.lod, Lod::Drawn, "{basis:?}");
+        assert_eq!(is_lower_bound(&x.size), lower, "{basis:?}");
         assert!(!is_lower_bound(&row_of(&model, &version, "a").size));
-        // The area is proportional to the lower bound: 20 of 170.
+        // The area follows the value, the lower bound or the exact bytes: 20 of 170.
         let share = share_of(&model, &version, "x");
         assert!((share - 20.0 / 170.0).abs() < 1e-3, "{basis:?} {share}");
-        // The scope and what is drawn are lower bounds, and they add up as they are.
-        assert!(is_lower_bound(&model.totals.scope), "{basis:?}");
-        assert!(model.totals.drawn_lower_bound, "{basis:?}");
+        // The scope and what is drawn carry the state of the values, and add up as they are.
+        assert_eq!(is_lower_bound(&model.totals.scope), lower, "{basis:?}");
+        assert_eq!(model.totals.drawn_lower_bound, lower, "{basis:?}");
         assert_eq!(model.totals.drawn_bytes, 170, "{basis:?}");
         assert_eq!(bytes_of(&model.totals.scope), 170, "{basis:?}");
-        // A lower-bound parent is no denominator, so no row has a ratio.
-        assert!(
+        // A lower-bound parent is no denominator, so no row has a ratio; an exact one is.
+        assert_eq!(
             model.rows.iter().all(|row| row.ratio.is_none()),
+            lower,
+            "{basis:?}"
+        );
+        assert_eq!(
+            model.rows.iter().all(|row| row.ratio.is_some()),
+            !lower,
             "{basis:?}"
         );
     }
 }
 
+/// The link row has no shape and no value of its own that could give it one: it is an
+/// item without a value, which the summary counts, or an exact zero.
+fn assert_the_link_has_no_area(
+    model: &Model,
+    version: &ResultVersion,
+    name: &str,
+    basis: &SizeBasis,
+) {
+    let link = row_of(model, version, name);
+    let without_value = has_no_value(&value_of(version, name, basis));
+    assert_eq!(model.detail.unknown_items, u64::from(without_value));
+    let expected = if without_value {
+        NoArea::Unknown
+    } else {
+        NoArea::ExactZero
+    };
+    assert_eq!(link.omission, Some(expected));
+    assert!(
+        model
+            .shapes
+            .iter()
+            .all(|shape| model.rows[shape.row_index].item != link.item)
+    );
+}
+
 #[test]
-fn a_link_two_levels_down_makes_each_ancestor_a_lower_bound_and_every_level_draws() {
+fn a_link_two_levels_down_is_drawn_at_every_level_by_the_value_above_it() {
     let version = scan(&link_two_levels_down(), ResultCompleteness::Complete, &[]);
-    let root = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
+    let basis = SizeBasis::Logical;
+    let lower = is_lower_bound(&value_of(&version, "deep", &basis));
+    let root = project_at(&version, "", basis.clone(), 16).unwrap();
     assert_eq!(root.shapes.len(), 2);
-    assert!(is_lower_bound(&row_of(&root, &version, "deep").size));
+    assert_eq!(is_lower_bound(&row_of(&root, &version, "deep").size), lower);
     assert!(!is_lower_bound(&row_of(&root, &version, "c").size));
     assert_eq!(bytes_of(&root.totals.scope), 170);
-    assert!(root.totals.drawn_lower_bound);
+    assert_eq!(root.totals.drawn_lower_bound, lower);
 
-    let deep = project_at(&version, "deep", SizeBasis::Logical, 16).unwrap();
+    let deep = project_at(&version, "deep", basis.clone(), 16).unwrap();
     assert_eq!(deep.shapes.len(), 2);
-    assert!(is_lower_bound(&row_of(&deep, &version, "inner").size));
-    assert!(deep.totals.drawn_lower_bound && is_lower_bound(&deep.totals.scope));
+    assert_eq!(
+        is_lower_bound(&row_of(&deep, &version, "inner").size),
+        lower
+    );
+    assert_eq!(deep.totals.drawn_lower_bound, lower);
+    assert_eq!(is_lower_bound(&deep.totals.scope), lower);
     assert_eq!(deep.totals.drawn_bytes, 70);
 
-    // Inside the folder that holds the link, the file is exact and the link is counted.
-    let inner = project_at(&version, "inner", SizeBasis::Logical, 16).unwrap();
+    // Inside the folder that holds the link the file is drawn, exact, and the link has no
+    // shape: it is an item without a value, or an exact zero.
+    let inner = project_at(&version, "inner", basis.clone(), 16).unwrap();
     assert_eq!(inner.shapes.len(), 1);
-    assert_eq!(inner.detail.unknown_items, 1);
-    assert!(is_lower_bound(&inner.totals.scope) && !inner.totals.drawn_lower_bound);
+    assert_the_link_has_no_area(&inner, &version, "l", &basis);
+    assert_eq!(is_lower_bound(&inner.totals.scope), lower);
+    assert!(!inner.totals.drawn_lower_bound);
     assert_eq!(inner.totals.drawn_bytes, 30);
-    assert!(inner.rows.iter().all(|row| row.ratio.is_none()));
+    assert_eq!(inner.rows.iter().all(|row| row.ratio.is_none()), lower);
 
     // A folder without a link keeps an exact scope, and its rows keep their ratios.
-    let clean = project_at(&version, "c", SizeBasis::Logical, 16).unwrap();
+    let clean = project_at(&version, "c", basis, 16).unwrap();
     assert!(!is_lower_bound(&clean.totals.scope));
     assert!(clean.rows.iter().all(|row| row.ratio.is_some()));
 }
 
 #[test]
-fn an_expanded_lower_bound_folder_draws_its_own_lower_bound_children() {
+fn an_expanded_folder_above_a_link_draws_its_own_children_by_their_values() {
     let version = scan(&link_two_levels_down(), ResultCompleteness::Complete, &[]);
+    let lower = is_lower_bound(&value_of(&version, "deep", &SizeBasis::Logical));
     let mut model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
     let before = model.totals.clone();
     let deep = find(&version, "deep");
@@ -254,20 +315,21 @@ fn an_expanded_lower_bound_folder_draws_its_own_lower_bound_children() {
         false
     })
     .unwrap();
-    // inner (a lower bound) and d (exact) get shapes inside deep; the totals stay.
+    // inner and d get shapes inside deep, and the totals stay.
     assert_eq!(model.descendants.len(), 2);
-    assert!(
+    assert_eq!(
         model
             .descendants
             .iter()
-            .any(|shape| is_lower_bound(&shape.size))
+            .any(|shape| is_lower_bound(&shape.size)),
+        lower
     );
     assert_eq!(model.totals, before);
     assert!(model.shape_count() <= 16);
 }
 
 #[test]
-fn an_entry_without_a_value_is_counted_without_an_area_and_a_folder_of_only_links_is_no_scope() {
+fn a_link_beside_its_siblings_and_a_folder_of_only_links_get_no_area() {
     let version = scan(
         &[
             Entry::Dir("c"),
@@ -279,84 +341,88 @@ fn an_entry_without_a_value_is_counted_without_an_area_and_a_folder_of_only_link
         ResultCompleteness::Complete,
         &[],
     );
-    let model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
-    // c is drawn; the folder with only a link and the link beside it have no value.
+    let basis = SizeBasis::Logical;
+    let model = project_at(&version, "", basis.clone(), 16).unwrap();
+    // c is drawn; the link and the folder that holds only a link get no shape.
     assert_eq!(model.shapes.len(), 1);
-    assert_eq!(model.detail.unknown_items, 2);
+    let none = ["holder", "toplink"]
+        .iter()
+        .filter(|name| has_no_value(&value_of(&version, name, &basis)))
+        .count();
+    assert_eq!(model.detail.unknown_items, none as u64);
     for name in ["holder", "toplink"] {
         let row = row_of(&model, &version, name);
-        assert_eq!(row.omission, Some(NoArea::Unknown), "{name}");
-        assert_eq!(row.size.amount, SizeAmount::Unknown, "{name}");
+        let unknown = has_no_value(&value_of(&version, name, &basis));
+        assert_eq!(
+            row.omission,
+            Some(if unknown {
+                NoArea::Unknown
+            } else {
+                NoArea::ExactZero
+            }),
+            "{name}"
+        );
     }
-    assert!(is_lower_bound(&model.totals.scope));
+    assert_eq!(
+        is_lower_bound(&model.totals.scope),
+        is_lower_bound(&value_of(&version, "", &basis))
+    );
     assert_eq!(model.totals.drawn_bytes, 100);
-    // A scope with no value of its own cannot be partitioned.
-    assert_eq!(
-        project_at(&version, "holder", SizeBasis::Logical, 16).err(),
-        Some(projection::Error::UnavailableAttribution)
-    );
+    // A scope with no value of its own cannot be partitioned; an exact zero scope holds
+    // only the link, which has no area.
+    let holder = project_at(&version, "holder", basis.clone(), 16);
+    if has_no_value(&value_of(&version, "holder", &basis)) {
+        assert_eq!(
+            holder.err(),
+            Some(projection::Error::UnavailableAttribution)
+        );
+    } else {
+        let holder = holder.unwrap();
+        assert!(holder.shapes.is_empty());
+        assert_eq!(holder.totals.drawn_bytes, 0);
+    }
 }
 
+// What is left over beside a link is nothing: the link has no bytes, so the rest of the
+// scope is drawn whole. Whether the link is also counted as an item without a value
+// depends on F03's value for it, so the summary may count one unknown item while the
+// remainder is zero, or none.
 #[test]
-fn an_unread_entry_leaves_a_lower_bound_and_the_gap_reason_in_the_summary() {
+fn the_rest_of_a_scope_is_drawn_whole_beside_a_link() {
     let version = scan(
         &[
-            Entry::Dir("a"),
-            Entry::File("a/fa", 100),
-            Entry::File("top", 50),
-            Entry::Unread("locked"),
+            Entry::Dir("c"),
+            Entry::File("c/f", 100),
+            Entry::File("g", 40),
+            Entry::Link("toplink"),
         ],
-        ResultCompleteness::Missing,
-        &["locked"],
+        ResultCompleteness::Complete,
+        &[],
     );
-    let model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
-    // The unread entry has no value and no area; the rest is drawn by its own values.
-    assert_eq!(model.shapes.len(), 2);
-    assert_eq!(model.detail.unknown_items, 1);
-    assert_eq!(model.detail.reason_keys, ["scan.path_denied"]);
-    // The unread entry is directly under the scope, so the scope is a lower bound.
-    assert!(is_lower_bound(&model.totals.scope));
-    assert_eq!(model.totals.drawn_bytes, 150);
-    // Whether a folder that was read completely is a lower bound depends on how F03
-    // treats a result with unread ranges (the whole result today; only the folders
-    // above an unread range once FR5.HD1 is applied per folder). This test holds for
-    // both, so it checks that the state of each total follows the rows it adds.
-    assert_eq!(
-        model.totals.drawn_lower_bound,
-        drawn_has_a_lower_bound(&model)
-    );
-    let folder = project_at(&version, "a", SizeBasis::Logical, 16).unwrap();
-    assert_eq!(folder.shapes.len(), 1);
-    assert_eq!(
-        folder.totals.drawn_lower_bound,
-        drawn_has_a_lower_bound(&folder)
-    );
-    assert!(folder.detail.reason_keys.is_empty());
+    for basis in [SizeBasis::Logical, SizeBasis::Allocated] {
+        let model = project_at(&version, "", basis.clone(), 16).unwrap();
+        assert_eq!(model.shapes.len(), 2, "{basis:?}");
+        let totals = &model.totals;
+        assert_eq!(
+            bytes_of(&totals.scope) - totals.drawn_bytes - totals.grouped_bytes,
+            0,
+            "{basis:?}"
+        );
+        assert_eq!(model.detail.omitted_items, 0, "{basis:?}");
+        let unknown = has_no_value(&value_of(&version, "toplink", &basis));
+        assert_eq!(model.detail.unknown_items, u64::from(unknown), "{basis:?}");
+        let link = row_of(&model, &version, "toplink");
+        assert!(
+            model
+                .shapes
+                .iter()
+                .all(|shape| model.rows[shape.row_index].item != link.item)
+        );
+    }
 }
 
 #[test]
-fn a_scope_inside_an_unread_range_is_still_refused() {
-    let version = scan(
-        &[
-            Entry::Dir("a"),
-            Entry::File("a/fa", 100),
-            Entry::File("top", 50),
-        ],
-        ResultCompleteness::Missing,
-        &["a"],
-    );
-    // The range at a covers a, so nothing inside it can be partitioned; the scope above
-    // it can, and reports the range.
-    assert_eq!(
-        project_at(&version, "a", SizeBasis::Logical, 16).err(),
-        Some(projection::Error::UnavailableAttribution)
-    );
-    let root = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
-    assert_eq!(root.detail.reason_keys, ["scan.path_denied"]);
-}
-
-#[test]
-fn a_shared_file_stays_unattributed_beside_a_lower_bound_sibling() {
+fn a_shared_file_stays_unattributed_beside_a_sibling_above_a_link() {
     // a and c contain one 10-byte file (two links); b has a file and a link.
     let version = scan(
         &[
@@ -371,8 +437,7 @@ fn a_shared_file_stays_unattributed_beside_a_lower_bound_sibling() {
         ResultCompleteness::Complete,
         &[],
     );
-    let space = version.space(find(&version, "b").item_no).unwrap();
-    assert!(is_lower_bound(&space.allocated));
+    let lower = is_lower_bound(&value_of(&version, "b", &SizeBasis::Allocated));
     let model = project_at(&version, "", SizeBasis::Allocated, 16).unwrap();
     assert_eq!(model.shapes.len(), 1);
     assert_eq!(model.detail.unknown_items, 2);
@@ -383,14 +448,14 @@ fn a_shared_file_stays_unattributed_beside_a_lower_bound_sibling() {
             "{name}"
         );
     }
-    assert!(is_lower_bound(&row_of(&model, &version, "b").size));
+    assert_eq!(is_lower_bound(&row_of(&model, &version, "b").size), lower);
     // The shared file is in the scope once, and in no total.
     assert_eq!(bytes_of(&model.totals.scope), 30);
     assert_eq!(model.totals.drawn_bytes, 20);
 }
 
 #[test]
-fn a_tail_of_lower_bound_folders_becomes_a_lower_bound_group_with_an_unknown_range() {
+fn a_tail_of_folders_above_links_becomes_a_group_with_the_state_of_its_members() {
     let mut entries = vec![Entry::Dir("big"), Entry::File("big/f", 100_000)];
     let names: Vec<String> = (0..40).map(|i| format!("s{i:02}")).collect();
     for name in &names {
@@ -403,22 +468,15 @@ fn a_tail_of_lower_bound_folders_becomes_a_lower_bound_group_with_an_unknown_ran
         entries.push(Entry::Link(link));
     }
     let version = scan(&entries, ResultCompleteness::Complete, &[]);
+    let lower = is_lower_bound(&value_of(&version, "s00", &SizeBasis::Logical));
     let model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
     assert_eq!(model.shapes.len(), 1);
     let group = &model.detail.groups[0];
     assert_eq!(group.members.len(), 40);
-    assert!(is_lower_bound(&group.total));
+    assert_eq!(is_lower_bound(&group.total), lower);
     assert_eq!(bytes_of(&group.total), 8_000);
-    assert_eq!(group.size_range, SizeRange::Unknown);
-    assert!(model.totals.grouped_lower_bound);
+    // The size range is known only when every member is exact.
+    assert_eq!(matches!(group.size_range, SizeRange::Known { .. }), !lower);
+    assert_eq!(model.totals.grouped_lower_bound, lower);
     assert_eq!(model.totals.grouped_bytes, 8_000);
-}
-
-#[test]
-fn unique_physical_size_keeps_its_exact_only_rule() {
-    let version = scan(&one_folder_with_a_link(), ResultCompleteness::Complete, &[]);
-    assert_eq!(
-        project_at(&version, "", SizeBasis::UniquePhysical, 16).err(),
-        Some(projection::Error::UnavailableAttribution)
-    );
 }

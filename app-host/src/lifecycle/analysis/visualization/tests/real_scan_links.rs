@@ -179,12 +179,13 @@ fn junction(link: &Path, target: &Path) -> Result<bool, Failure> {
 }
 
 // F03 lowers the value above a link that was not followed to a lower bound today, and
-// FR5.HD1 is to be revised so that it stays exact. This test holds for both: it asserts
-// what the treemap does with a link and never the value state of the folder above it,
-// except that the mark on a shape agrees with the state of its own row.
+// FR5.HD1 is to be revised so that it stays exact and the link is an exact zero. This test
+// holds for both: it asserts what the treemap does with a link and never the value state
+// of the folder above it, except that the mark on a shape agrees with the state of its
+// own row.
 #[test]
-fn a_real_scan_with_junctions_draws_the_siblings_and_counts_each_link_without_an_area()
--> Result<(), Failure> {
+fn a_real_scan_with_junctions_draws_the_siblings_and_gives_each_link_no_area() -> Result<(), Failure>
+{
     let root = tempfile::tempdir()?;
     let elsewhere = tempfile::tempdir()?;
     fs::create_dir(elsewhere.path().join("target"))?;
@@ -206,13 +207,17 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_counts_each_link_without_an
     let answer = render(&assembled, &revision, 0)?;
     assert_eq!(answer["kind"], "model", "{answer}");
     let model = &answer["model"];
-    // The three siblings that have bytes are drawn; the link beside them has no area
-    // and is counted.
+    // The three siblings that have bytes are drawn; the link beside them has no area. It
+    // is an item without a value, which the summary counts, or an exact zero (FR5.HD1
+    // revised), which has no area either.
     assert_eq!(model["shapes"].as_array().map(Vec::len), Some(3), "{model}");
-    assert_eq!(count(model, "unknownItems")?, 1);
     let rows = rows_of(&assembled, &answer)?;
     assert_eq!(rows["totalCount"], 4);
-    assert_eq!(row(&rows, "toplink")?["size"]["state"], "unknown");
+    let link = row(&rows, "toplink")?;
+    let without_value = link["size"]["state"] == "unknown";
+    assert!(without_value || (link["size"]["state"] == "exact" && link["size"]["bytes"] == "0"));
+    assert_eq!(count(model, "unknownItems")?, u64::from(without_value));
+    assert!(shape_of(model, &link["itemRef"]["itemNo"]).is_err());
     for name in ["clean", "plain.bin", "holder"] {
         assert_ne!(row(&rows, name)?["size"]["state"], "unknown", "{name}");
     }
@@ -241,7 +246,7 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_counts_each_link_without_an
         }
     );
 
-    // Inside the folder that holds a link, the file is drawn and the link is counted.
+    // Inside the folder that holds a link, the file is drawn and the link has no shape.
     let inner = render(
         &assembled,
         &revision,
@@ -249,7 +254,16 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_counts_each_link_without_an
     )?;
     assert_eq!(inner["kind"], "model", "{inner}");
     assert_eq!(inner["model"]["shapes"].as_array().map(Vec::len), Some(1));
-    assert_eq!(count(&inner["model"], "unknownItems")?, 1);
+    let inner_rows = rows_of(&assembled, &inner)?;
+    let without_value = inner_rows["rows"].as_array().map_or(0, |rows| {
+        rows.iter()
+            .filter(|row| row["size"]["state"] == "unknown")
+            .count()
+    });
+    assert_eq!(
+        count(&inner["model"], "unknownItems")?,
+        without_value as u64
+    );
     Ok(())
 }
 
