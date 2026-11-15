@@ -38,6 +38,17 @@ fn obs(volume: u8, file: u8, count: Option<u64>) -> SpaceObservation {
         sharing: SharingEvidence::None,
     }
 }
+fn obs_sharing(
+    volume: u8,
+    file: u8,
+    count: Option<u64>,
+    sharing: SharingEvidence,
+) -> SpaceObservation {
+    SpaceObservation {
+        sharing,
+        ..obs(volume, file, count)
+    }
+}
 fn build(
     a: Option<SpaceObservation>,
     b: Option<SpaceObservation>,
@@ -122,13 +133,10 @@ fn uncertain_physical_observations_and_partial_physical_totals_are_rejected() {
     no_identity.identity = None;
     let mut no_bytes = obs(1, 8, Some(1));
     no_bytes.allocated = None;
-    let mut shared = obs(1, 8, Some(1));
-    shared.sharing = SharingEvidence::Unknown;
     for other in [
         None,
         Some(no_identity),
         Some(no_bytes),
-        Some(shared),
         Some(obs(1, 8, None)),
         Some(obs(1, 8, Some(0))),
     ] {
@@ -156,6 +164,89 @@ fn uncertain_physical_observations_and_partial_physical_totals_are_rejected() {
         layout(&v, SizeBasis::Logical).unwrap().layout.shapes.len(),
         2
     );
+}
+
+/// The bytes of every child an allocated partition attributes, as F03 reports them.
+fn child_bytes(partition: &treemap::Partition) -> u64 {
+    partition
+        .children
+        .iter()
+        .map(|child| match &child.value.amount {
+            SizeAmount::Exact { bytes } => Some(bytes.get()),
+            _ => None,
+        })
+        .sum::<Option<u64>>()
+        .unwrap()
+}
+
+// A scan records `SharingEvidence::Unknown` for every file: it never establishes that
+// extents are unshared. This used to be refused on every basis, which left every real
+// allocated partition unattributed. F03 sums allocated sizes exactly whatever the sharing
+// evidence is and makes only the unique-physical value unknown (physical/finish.rs), so
+// the allocated partition needs identity and link evidence, not sharing evidence. The
+// unique-physical basis keeps refusing it.
+#[test]
+fn unknown_sharing_evidence_blocks_only_the_unique_physical_basis() {
+    let v = build(
+        Some(obs(1, 7, Some(1))),
+        Some(obs_sharing(1, 8, Some(1), SharingEvidence::Unknown)),
+        ResultCompleteness::Complete,
+    );
+    let partition = layout(&v, SizeBasis::Allocated).unwrap();
+    assert_eq!(partition.layout.shapes.len(), 2);
+    assert!(partition.children.iter().all(|child| child.area_attributed));
+    assert_eq!(
+        layout(&v, SizeBasis::UniquePhysical).unwrap_err(),
+        AdmissionError::NoAttribution
+    );
+    assert_eq!(
+        layout(&v, SizeBasis::Logical).unwrap().layout.shapes.len(),
+        2
+    );
+}
+
+#[test]
+fn files_recorded_with_unknown_sharing_draw_an_allocated_partition_that_adds_up_to_f03() {
+    let v = build(
+        Some(obs_sharing(1, 7, Some(1), SharingEvidence::Unknown)),
+        Some(obs_sharing(1, 8, Some(1), SharingEvidence::Unknown)),
+        ResultCompleteness::Complete,
+    );
+    let partition = layout(&v, SizeBasis::Allocated).unwrap();
+    assert_eq!(partition.layout.shapes.len(), 2);
+    assert_eq!(
+        SizeAmount::Exact {
+            bytes: child_bytes(&partition).into()
+        },
+        v.space(0).unwrap().allocated.amount
+    );
+    assert_eq!(
+        layout(&v, SizeBasis::UniquePhysical).unwrap_err(),
+        AdmissionError::NoAttribution
+    );
+}
+
+#[test]
+fn a_file_linked_from_two_siblings_is_refused_whatever_the_sharing_evidence() {
+    for sharing in [SharingEvidence::None, SharingEvidence::Unknown] {
+        let v = build(
+            Some(obs_sharing(1, 7, Some(2), sharing)),
+            Some(obs_sharing(1, 7, Some(2), sharing)),
+            ResultCompleteness::Complete,
+        );
+        for basis in [SizeBasis::Allocated, SizeBasis::UniquePhysical] {
+            assert_eq!(
+                layout(&v, basis).unwrap_err(),
+                AdmissionError::NoAttribution,
+                "{sharing:?}"
+            );
+        }
+        // Logical bytes are disjoint by path, so the links are no overlap there.
+        assert_eq!(
+            layout(&v, SizeBasis::Logical).unwrap().layout.shapes.len(),
+            2
+        );
+    }
 }
 
 #[test]
@@ -340,4 +431,39 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
     assert_eq!(branch.children.len(), 2);
     assert!(branch.children.iter().all(|child| !child.area_attributed
         && child.value.amount == size(SizeBasis::Allocated, 10).amount));
+}
+// The link count is the observed total, links outside the scope included. A file whose
+// other links lie outside the scope is seen fewer times than its count, and F03 still
+// adds it once to the folder, so it is attributed.
+#[test]
+fn links_outside_the_scope_do_not_refuse_the_file() {
+    for inside in [1_usize, 2] {
+        let sink = IngestSink::default();
+        let mut b = sink.open(id(1)).unwrap();
+        b.add_directory(vec![]).unwrap();
+        b.add_directory(vec![b"a".to_vec()]).unwrap();
+        for name in [b"one".as_slice(), b"two".as_slice()]
+            .into_iter()
+            .take(inside)
+        {
+            b.add_with_space(
+                Observation {
+                    path: vec![b"a".to_vec(), name.to_vec()],
+                    size: Some(size(SizeBasis::Logical, 10)),
+                },
+                obs(1, 7, Some(3)),
+            )
+            .unwrap();
+        }
+        let v = b.seal(id(2), ResultCompleteness::Complete).unwrap();
+        let partition = layout(&v, SizeBasis::Allocated).unwrap();
+        assert_eq!(partition.layout.shapes.len(), 1, "{inside} links inside");
+        assert_eq!(
+            SizeAmount::Exact {
+                bytes: child_bytes(&partition).into()
+            },
+            v.space(0).unwrap().allocated.amount,
+            "{inside} links inside"
+        );
+    }
 }

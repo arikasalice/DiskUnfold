@@ -17,11 +17,15 @@ const POLICY_REVISION: u32 = 1;
 const MAX_SCALE: f64 = 4.0;
 /// The GUI draws one DOM element and one button per shape, so the cap starts low.
 const MAX_SHAPES: usize = 2000;
-const MAX_CHANNELS: NonZeroUsize = NonZeroUsize::new(8).unwrap();
-const MAX_WORK: NonZeroUsize = NonZeroUsize::new(8).unwrap();
+// A count of n is written NonZeroUsize::MIN.saturating_add(n - 1), which cannot be zero.
+/// 8 open view channels.
+const MAX_CHANNELS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(7);
+/// 8 concurrent computations.
+const MAX_WORK: NonZeroUsize = NonZeroUsize::MIN.saturating_add(7);
 /// Matches the wait the folder browse commands use before they return a job.
 const SYNCHRONOUS_WAIT: Duration = Duration::from_millis(300);
-const MODEL_CAPACITY: NonZeroUsize = NonZeroUsize::new(16).unwrap();
+/// 16 retained models.
+const MODEL_CAPACITY: NonZeroUsize = NonZeroUsize::MIN.saturating_add(15);
 
 fn options(unit_table: UnitTableSource) -> DefaultVisualization {
     DefaultVisualization {

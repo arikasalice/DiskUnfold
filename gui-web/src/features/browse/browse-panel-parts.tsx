@@ -22,7 +22,7 @@ export type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 function originText(origin: string, text: LocaleText): string {
   switch (origin) {
     case "scan":
-      return text("ui.browse.origin_scan", "Scan");
+      return text("ui.browse.origin_scan", "Current analysis");
     case "incremental":
       return text("ui.browse.origin_incremental", "Incremental update");
     default:

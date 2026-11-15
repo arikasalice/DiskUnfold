@@ -21,6 +21,10 @@ pub const DENOMINATOR_SCOPE: &str = "scope";
 ///
 /// It means that no classification is applied and every item shares one class.
 pub const COLOR_CRITERION_NONE: &str = "none";
+/// The one classification criterion served until the F06 legend rule table (FR6) exists.
+///
+/// It means that no classification rule applies, so every item has the same legend class.
+pub const CLASSIFICATION_CRITERION_NONE: &str = "none";
 /// The legend class of every item while no classification rule exists.
 ///
 /// It differs from [`COLOR_CRITERION_NONE`]: that names the absence of a color

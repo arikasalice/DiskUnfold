@@ -351,7 +351,7 @@ export function AnalysisPanel({
     setReviewProblem(
       text(
         "ui.analysis.choose_path_or_reopen",
-        "Choose a path or reopen the saved range before analyzing.",
+        "Choose a path or reopen the saved scope before analyzing.",
       ),
     );
   }
@@ -566,7 +566,7 @@ export function AnalysisPanel({
           setReviewProblem(
             text(
               "ui.analysis.reopen_saved_or_select",
-              "Reopen the saved range or select its paths again before analyzing.",
+              "Reopen the saved scope or select its paths again before analyzing.",
             ),
           );
         }

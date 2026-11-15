@@ -1,4 +1,5 @@
-//! Deleting history: a full purge takes observations with it; cutoff cleanup does not.
+//! Deleting history: a full purge and the deletion of one job take observations with
+//! them; cutoff cleanup does not.
 
 use super::*;
 use du_core_contracts::job::{HistoryAppend, JobState, JobSummary};
@@ -100,5 +101,92 @@ fn the_helper_cannot_delete_while_the_gate_is_closed() -> TestResult {
     assert!(delete_all_scope_observations(&tx).is_err());
     drop(tx);
     assert_eq!(count(&db)?, 2);
+    Ok(())
+}
+
+fn observed_jobs(db: &AppDb) -> rusqlite::Result<Vec<Vec<u8>>> {
+    let mut statement = db
+        .connection
+        .prepare("SELECT job_id FROM analysis_index_scope_observation ORDER BY job_id")?;
+    let rows = statement.query_map([], |row| row.get(0))?;
+    rows.collect()
+}
+
+#[test]
+fn deleting_one_jobs_history_removes_only_that_jobs_observation() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = seeded(&dir)?;
+    let job = id(1);
+    let key = job.v7_bytes().ok_or("job id")?;
+    let delete = |db: &mut AppDb, commit: bool| -> rusqlite::Result<usize> {
+        let tx = db.connection.transaction()?;
+        tx.execute("UPDATE app_db_purge_gate SET open = 1", [])?;
+        for table in ["job_runtime_job_record", "job_runtime_job_link"] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE job_id = ?1"),
+                [key.as_slice()],
+            )?;
+        }
+        let removed = delete_scope_observation_of_job(&tx, &job)?;
+        tx.execute("UPDATE app_db_purge_gate SET open = 0", [])?;
+        if commit {
+            tx.commit()?;
+        }
+        Ok(removed)
+    };
+    // A deletion that does not commit changes nothing.
+    assert_eq!(delete(&mut db, false)?, 1);
+    assert_eq!((history_rows(&db)?, count(&db)?), (4, 2));
+    assert_eq!(delete(&mut db, true)?, 1);
+    assert_eq!((history_rows(&db)?, count(&db)?), (2, 1));
+    let other = id(2).v7_bytes().ok_or("job id")?;
+    assert_eq!(observed_jobs(&db)?, vec![other.to_vec()]);
+    // The job has no observation any more: deleting again removes nothing.
+    assert_eq!(delete(&mut db, true)?, 0);
+    assert_eq!(count(&db)?, 1);
+    Ok(())
+}
+
+#[test]
+fn a_job_without_an_observation_deletes_nothing() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = seeded(&dir)?;
+    let tx = db.connection.transaction()?;
+    tx.execute("UPDATE app_db_purge_gate SET open = 1", [])?;
+    assert_eq!(delete_scope_observation_of_job(&tx, &id(9))?, 0);
+    tx.execute("UPDATE app_db_purge_gate SET open = 0", [])?;
+    tx.commit()?;
+    assert_eq!(count(&db)?, 2);
+    Ok(())
+}
+
+#[test]
+fn the_job_helper_cannot_delete_while_the_gate_is_closed() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = seeded(&dir)?;
+    let tx = db.connection.transaction()?;
+    assert!(delete_scope_observation_of_job(&tx, &id(1)).is_err());
+    drop(tx);
+    assert_eq!(count(&db)?, 2);
+    Ok(())
+}
+
+#[test]
+fn the_job_deletion_reads_the_unique_job_index_and_not_the_table() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let db = seeded(&dir)?;
+    let key = id(1).v7_bytes().ok_or("job id")?;
+    let mut statement = db.connection.prepare(
+        "EXPLAIN QUERY PLAN DELETE FROM analysis_index_scope_observation WHERE job_id = ?1",
+    )?;
+    let plan: Vec<String> = statement
+        .query_map([key.as_slice()], |row| row.get(3))?
+        .collect::<rusqlite::Result<_>>()?;
+    assert!(
+        plan.iter()
+            .any(|step| step.contains("SEARCH") && step.contains("job_id")),
+        "{plan:?}"
+    );
+    assert!(plan.iter().all(|step| !step.contains("SCAN")), "{plan:?}");
     Ok(())
 }

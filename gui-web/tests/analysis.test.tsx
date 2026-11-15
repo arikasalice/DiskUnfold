@@ -1043,7 +1043,8 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     coverage.getByText("Links not followed").nextElementSibling?.textContent,
   ).toBe("2");
   expect(
-    coverage.getByText("Inaccessible ranges").nextElementSibling?.textContent,
+    coverage.getByText("Inaccessible locations").nextElementSibling
+      ?.textContent,
   ).toBe("Not recorded");
   expect(calls.find((call) => call.name === "scan.start")?.body).toMatchObject({
     reviewFingerprint: "verified",

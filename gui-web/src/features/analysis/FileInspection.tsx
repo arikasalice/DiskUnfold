@@ -208,7 +208,7 @@ function attributes(
         <>
           {detail.observationOnly
             ? text("ui.inspection.scan_record", "Scan record")
-            : text("ui.inspection.scan", "Scan")}
+            : text("ui.inspection.scan", "Analysis result")}
           {isSampleSource(detail.dataSource) && (
             <>
               {" "}

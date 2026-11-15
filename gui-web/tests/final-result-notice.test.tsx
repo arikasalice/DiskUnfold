@@ -118,6 +118,23 @@ test("a final result that arrives within 0.3 s shows no notice", () => {
   expect(screen.queryByText(notice)).toBeNull();
 });
 
+test("restarting the same final result waits again after an interruption", () => {
+  vi.useFakeTimers();
+  const { rerender } = render(<Header />);
+  pass(FINAL_RESULT_NOTICE_MS);
+  expect(screen.getByText(notice)).toBeDefined();
+
+  rerender(<Header holding />);
+  expect(screen.queryByText(notice)).toBeNull();
+  rerender(<Header />);
+  expect(screen.queryByText(notice)).toBeNull();
+
+  pass(FINAL_RESULT_NOTICE_MS - 1);
+  expect(screen.queryByText(notice)).toBeNull();
+  pass(1);
+  expect(screen.getByText(notice)).toBeDefined();
+});
+
 test("the arriving final result replaces the notice and the result version at once", () => {
   vi.useFakeTimers();
   const { rerender } = render(<Header />);
