@@ -280,7 +280,7 @@ pub enum VizSizeRange {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct SizeRangeWire {
     kind: String,
     #[serde(default, deserialize_with = "deserialize_range_bound")]

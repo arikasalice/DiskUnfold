@@ -1,4 +1,7 @@
 //! GUI query region lifetime and exact-target cancellation.
+//!
+//! Requests reject unknown fields. Acknowledgements accept them so that a later
+//! contract revision can add optional values without breaking an older reader.
 
 use crate::Id;
 use serde::{Deserialize, Serialize};
@@ -25,7 +28,7 @@ pub struct QueryRegionOpenRequest {
 /// The server-issued reference to a single region lifetime.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct QueryRegionOpened {
     pub region_ref: Id,
 }
@@ -45,7 +48,6 @@ pub struct QueryRegionCloseRequest {
     derive(ts_rs::TS),
     ts(type = "Record<string, never>")
 )]
-#[serde(deny_unknown_fields)]
 pub struct QueryRegionClosed {}
 
 /// Exactly one selector within the supplied region lifetime.
@@ -84,7 +86,6 @@ pub enum QueryCancelOutcome {
 /// A control acknowledgement. Job status supplies the eventual terminal state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(deny_unknown_fields)]
 pub struct QueryCancelled {
     pub outcome: QueryCancelOutcome,
 }
@@ -120,7 +121,6 @@ mod tests {
         round_trip::<QueryRegionCloseRequest>(json!({"regionRef": REGION}))?;
         round_trip::<QueryRegionClosed>(json!({}))?;
         assert!(serde_json::from_value::<QueryRegionClosed>(Value::Null).is_err());
-        assert!(serde_json::from_value::<QueryRegionClosed>(json!({"closed": true})).is_err());
         assert!(
             serde_json::from_value::<QueryRegionOpenRequest>(
                 json!({"kind": "search", "regionRef": REGION})
@@ -173,12 +173,34 @@ mod tests {
         assert!(
             serde_json::from_value::<QueryCancelled>(json!({"outcome": "unsupported"})).is_err()
         );
-        assert!(
-            serde_json::from_value::<QueryCancelled>(
-                json!({"outcome": "accepted", "state": "cancelled"})
-            )
-            .is_err()
+        Ok(())
+    }
+
+    #[test]
+    fn acknowledgements_accept_unknown_fields() -> Result<(), serde_json::Error> {
+        let opened: QueryRegionOpened =
+            serde_json::from_value(json!({"regionRef": REGION, "futureField": true}))?;
+        assert_eq!(serde_json::to_value(opened)?, json!({"regionRef": REGION}));
+        let closed: QueryRegionClosed = serde_json::from_value(json!({"futureField": true}))?;
+        assert_eq!(serde_json::to_value(closed)?, json!({}));
+        let cancelled: QueryCancelled =
+            serde_json::from_value(json!({"outcome": "accepted", "state": "cancelled"}))?;
+        assert_eq!(
+            serde_json::to_value(cancelled)?,
+            json!({"outcome": "accepted"})
         );
         Ok(())
+    }
+
+    #[test]
+    fn requests_reject_unknown_fields_at_every_level() {
+        let close = json!({"regionRef": REGION, "futureField": true});
+        assert!(serde_json::from_value::<QueryRegionCloseRequest>(close).is_err());
+        for cancel in [
+            json!({"regionRef": REGION, "target": {"kind": "job", "jobRef": JOB}, "futureField": true}),
+            json!({"regionRef": REGION, "target": {"kind": "job", "jobRef": JOB, "futureField": true}}),
+        ] {
+            assert!(serde_json::from_value::<QueryCancelRequest>(cancel).is_err());
+        }
     }
 }

@@ -108,6 +108,9 @@ fn pages_check_ranges_and_revision_but_leave_model_membership_to_engine()
         v["count"] = json!(count);
         assert!(serde_json::from_value::<VizRowsRequest>(v).is_err());
     }
+    let mut extended = request.clone();
+    extended["futureField"] = json!(true);
+    assert!(serde_json::from_value::<VizRowsRequest>(extended).is_err());
     let page = json!({"rows":[row()],"totalCount":1,"resultRevision":ID,"observedAt":null,"completeness":"complete"});
     let parsed: VizRows = serde_json::from_value(page.clone())?;
     parsed.validate()?;
@@ -180,6 +183,16 @@ fn group_rows_response_round_trips_required_evidence_and_rejects_invalid_pages()
             "completeness":"complete"
         })
     };
+
+    // The page and its size range accept fields added by a later revision.
+    let mut extended = make_page(known_range.clone());
+    extended["futureField"] = json!(true);
+    extended["sizeRange"]["futureField"] = json!(true);
+    let parsed: VizGroupRows = serde_json::from_value(extended)?;
+    assert_eq!(
+        serde_json::to_value(parsed)?,
+        make_page(known_range.clone())
+    );
 
     for range in [known_range, json!({"kind":"unknown"})] {
         let value = make_page(range);

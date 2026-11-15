@@ -35,7 +35,7 @@ pub enum VizCancelTarget {
 /// Acknowledges control admission without claiming physical job completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct VizCancelResponse {
     pub control_result: VizControlResult,
 }
@@ -116,5 +116,23 @@ mod tests {
         for value in invalid {
             assert!(serde_json::from_value::<VizCancelRequest>(value).is_err());
         }
+    }
+
+    #[test]
+    fn response_accepts_and_request_rejects_unknown_fields() -> Result<(), serde_json::Error> {
+        let response = json!({"controlResult":"accepted","futureField":true});
+        let parsed: VizCancelResponse = serde_json::from_value(response)?;
+        assert_eq!(
+            serde_json::to_value(parsed)?,
+            json!({"controlResult":"accepted"})
+        );
+        let reference = Id::from_v7_bytes([4; 16]);
+        for request in [
+            json!({"target":{"kind":"job", "jobRef":reference}, "futureField":true}),
+            json!({"target":{"kind":"job", "jobRef":reference, "futureField":true}}),
+        ] {
+            assert!(serde_json::from_value::<VizCancelRequest>(request).is_err());
+        }
+        Ok(())
     }
 }

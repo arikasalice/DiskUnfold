@@ -15,12 +15,16 @@ use std::num::NonZeroU32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[cfg_attr(feature = "typescript", ts(type = "Record<string, never>"))]
+// Kept strict: `viz.view.open` decodes this as its request body and `viz.view.close`
+// returns it. A new field needs a strict request type split from the response type.
 #[serde(deny_unknown_fields)]
 pub struct VizViewOpenRequest {}
 
 /// The opaque channel allocated to the caller.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+// Kept strict: `viz.view.close` decodes this as its request body and `viz.view.open`
+// returns it. A new field needs a strict request type split from the response type.
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VizViewChannel {
     pub view_channel: Id,
