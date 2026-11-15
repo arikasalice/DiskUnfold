@@ -52,13 +52,71 @@ pub struct CorrespondenceKey {
     pub identity_capability: IdentityCapability,
 }
 
-/// Independent evidence for unenumerated and excluded entries.
+/// Why a folder was not entered under the scope rules, an open set of snake_case
+/// strings.
+///
+/// Known names are `other_volume` and `already_counted`. A later contract version may
+/// add names. Deserialization accepts any string, and a receiver must never treat a
+/// name it does not know as a folder that was read; it shows the folder as not
+/// entered.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "typescript", ts(type = "string"))]
+#[serde(transparent)]
+pub struct FolderBoundary(String);
+
+impl FolderBoundary {
+    /// The folder is on another volume than its parent and the scope does not cross
+    /// that boundary.
+    pub const OTHER_VOLUME: &'static str = "other_volume";
+    /// The folder was already collected at another place of the same result.
+    pub const ALREADY_COUNTED: &'static str = "already_counted";
+
+    /// Wraps a boundary name without checking it against the known names.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// Returns the boundary name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Independent facts about a folder-query row, each with its own evidence.
+///
+/// The reason key of an unknown value says why the fact is not decided.
+/// `scan.in_progress` means the scan that produced this result version has not ended
+/// (also while it is paused), so the value is not decided yet; a screen leaves the
+/// cell empty. `space.data_insufficient` means this result version does not hold the
+/// information. These keys travel inside values only: `scan.in_progress` is not an
+/// error-envelope reason.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FolderFlags {
+    /// Present with `true` when the contents of this folder should have been read but
+    /// could not be: its open or a read failed, its boundary could not be decided, or
+    /// the scan was cancelled or its volume was disconnected first. A boundary that
+    /// could not be decided marks the row of the folder that was not entered, not its
+    /// parent. A table shows only this flag; the cause is read in the scan issue list.
+    ///
+    /// A row never has `unenumerated` present with `true` together with a present
+    /// `boundary`.
     pub unenumerated: BrowseValue<bool>,
+    /// Whether an exclusion rule left this entry out. The collector does not keep
+    /// excluded entries, so a row of a scan-lineage result is never an excluded entry
+    /// and a producer may send present with `false`.
     pub excluded: BrowseValue<bool>,
+    /// The scope rule that kept this folder from being entered.
+    ///
+    /// Present: the folder was not entered because of the scope rules. Absent: the
+    /// folder is confirmed not to be a boundary. Unknown: it cannot be decided yet.
+    /// Omitted: the source does not supply this fact, as for a source that is not
+    /// scan lineage and for file rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub boundary: Option<BrowseValue<FolderBoundary>>,
 }
 
 /// One observed folder-query row.
@@ -99,7 +157,8 @@ pub struct SearchQueryRow {
     pub reason_keys: Vec<String>,
 }
 
-/// Exact or lower-bound number of rows in a pinned query.
+/// A count that is exact or a lower bound: the rows of a pinned query, or the
+/// excluded entries directly under a folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -207,6 +266,16 @@ pub struct BrowseContext {
     pub current_correspondence: bool,
     pub sort_strategies: Vec<QueryStrategy>,
     pub predicate_strategies: Vec<QueryStrategy>,
+    /// Entries directly under the opened folder that an exclusion rule left out.
+    ///
+    /// Exact zero means confirmed none. A lower bound means the folder's listing was
+    /// cut short. Names an exclusion rule could not decide are not counted. Omitted
+    /// when the source does not supply this fact, when it cannot be decided yet (a
+    /// result of a scan in progress where it is not known that the folder's listing
+    /// has ended), and for the virtual top level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub excluded_children: Option<QueryTotal>,
 }
 
 /// Immediate browse result or the job evaluating the request.
@@ -233,6 +302,11 @@ pub enum BrowseOpenResponse {
         page: Box<FolderQueryPage>,
         sort_strategies: Vec<QueryStrategy>,
         predicate_strategies: Vec<QueryStrategy>,
+        /// Entries directly under the opened folder that an exclusion rule left out;
+        /// see `BrowseContext::excluded_children`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "typescript", ts(optional))]
+        excluded_children: Option<QueryTotal>,
     },
     Job {
         request_seq: u32,
