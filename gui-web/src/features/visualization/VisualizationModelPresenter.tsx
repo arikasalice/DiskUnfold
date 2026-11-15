@@ -121,13 +121,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           {text.key(frame.completeness)}
         </StatusBadge>
         <StatusBadge>{text.key(frame.model.origin)}</StatusBadge>
-        <StatusBadge
-          tone={
-            frame.model.staleness.state === "current" ? "neutral" : "warning"
-          }
-        >
-          {text.key(frame.model.staleness.state)}
-        </StatusBadge>
+        {/* Every product model is unwatched today, and a permanent warning badge reads as "do not trust this result". */}
+        {frame.model.staleness.state === "stale" && (
+          <StatusBadge tone="warning">
+            {text.key(frame.model.staleness.state)}
+          </StatusBadge>
+        )}
         <Text>{text.observedAt(frame.observedAt)}</Text>
       </div>
       {frame.model.shapes.length === 0 && (
