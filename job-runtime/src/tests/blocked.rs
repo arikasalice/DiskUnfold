@@ -72,7 +72,7 @@ fn cancellation_returns_while_event_sink_is_blocked() -> Result<(), Box<dyn std:
             JobEvent::StateChanged { sequence, .. }
             | JobEvent::ItemResult { sequence, .. }
             | JobEvent::Finished { sequence, .. } => Some(*sequence),
-            JobEvent::ResultVersionChanged(_) => None,
+            JobEvent::ResultVersionChanged(_) | JobEvent::ResultFreshnessChanged(_) => None,
         })
         .collect();
     assert_eq!(sequences, vec![2, 3, 4, 5]);
