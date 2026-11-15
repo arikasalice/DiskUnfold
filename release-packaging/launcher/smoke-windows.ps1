@@ -142,7 +142,7 @@ function Wait-VisibleAction($actionName) {
 }
 # Inspect the UIA viewport before invoking a button, since Invoke can reach clipped controls.
 function Wait-ScopeActionsVisible {
-  foreach ($name in @('Cancel selection', 'Review scope', 'Start scan')) {
+  foreach ($name in @('Cancel selection', 'Review scope', 'Start analysis')) {
     $null = Wait-UI "$name in view" {
       $item = Find-UI $name $button
       if ($item -and -not $item.Current.IsOffscreen) { $item }
@@ -438,7 +438,7 @@ function Test-ScaledFileInspection {
   Invoke-UI (Wait-Enabled 'Cancel selection' $true)
   Set-Scope $scaledScope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '1.1 KiB'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   Test-FileInspection 'scaled.bin' '1.1 KiB · 1,100 bytes'
@@ -499,7 +499,7 @@ function Test-PhysicalAccounting {
     Invoke-UI (Wait-Enabled 'Cancel selection' $true)
     Set-Scope $accounting
     Invoke-UI (Wait-Enabled 'Review scope' $true)
-    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
     $null = Wait-FinalLogicalSize $expected
     if ($expected -eq '1.0 MiB') {
       $singleAllocated = Read-CompleteSize 'Allocated size'
@@ -560,7 +560,7 @@ function Set-Scope($path, $fieldName = 'Windows folder path') {
 function Test-AutomaticScopeReview {
   Set-Scope $child
   $null = Wait-UI 'automatically reviewed scope' { Find-UI 'Reviewed scope' $null }
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '7 bytes'
   'F01 native automatic review: folder edit enabled scan without invoking Review scope; pinned logical size 7 bytes'
 }
@@ -591,10 +591,10 @@ function Test-RecentScopeReopen {
   } finally {
     $transform.Resize($original.Width, $original.Height)
   }
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   if (-not (Find-LogicalSize '18 bytes')) { throw 'Applying the saved range replaced the pinned result' }
   [IO.File]::WriteAllBytes((Join-Path $scanRoot 'root.bin'), [byte[]]::new(16))
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '23 bytes'
   'F01 native recent scope: matched saved volume, preserved pinned 18-byte result until explicit scan, then read 23 bytes'
 
@@ -602,14 +602,14 @@ function Test-RecentScopeReopen {
   Set-Scope $child
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '18 bytes'
 }
 # The operator performs the OLE gesture; UIA only observes its result.
 function Test-NativeFolderDrop {
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   Write-Host "Within 120 seconds, drag this isolated folder from Explorer onto the Windows folder path field: $child"
   $deadline = [DateTime]::UtcNow.AddSeconds(120)
   $received = $false
@@ -626,9 +626,9 @@ function Test-NativeFolderDrop {
     Start-Sleep -Milliseconds 100
   } while ([DateTime]::UtcNow -lt $deadline)
   if (-not $received) { throw 'Native folder drop was not observed with the expected isolated path and drop notice' }
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   'F01 native folder drop: isolated folder received, prior review invalidated, fresh review required'
 }
 # Verify the scope editor and paging in a small native window with real NTFS data.
@@ -660,9 +660,9 @@ function Test-PopulatedWorkspace {
     Wait-ScopeActionsVisible
   }
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   Wait-ScopeActionsVisible
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   try {
     $null = Wait-FinalLogicalSize '245 bytes'
   } catch {
@@ -727,7 +727,7 @@ function Test-PopulatedWorkspace {
 function Test-ScanCancellation($path) {
   Set-Scope $path
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   Invoke-UI (Wait-Enabled 'Cancel scan' $true)
   $null = Wait-UI 'cancelled scan state' { Find-UI 'Scan cancelled' $textType }
   $available = Wait-UI 'cancelled result or user-controlled result switch' {
@@ -752,7 +752,7 @@ function Test-ScanCancellation($path) {
 function Test-ScanSuspension($path) {
   Set-Scope $path
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   Invoke-UI (Wait-VisibleAction 'Pause scan')
   $null = Wait-UI 'confirmed paused scan' { Find-UI 'Scan paused' $textType }
   $null = Wait-VisibleAction 'Cancel scan'
@@ -783,11 +783,11 @@ function Test-InitialDrive {
       $field = Find-UI 'Windows folder path' $edit
       $field -and $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq $drive
     }
-    $null = Wait-Enabled 'Start scan' $false
+    $null = Wait-Enabled 'Start analysis' $false
     Invoke-UI (Wait-VisibleAction 'Review scope')
-    $null = Wait-VisibleAction 'Start scan'
+    $null = Wait-VisibleAction 'Start analysis'
     Invoke-UI (Wait-VisibleAction 'Cancel selection')
-    $null = Wait-Enabled 'Start scan' $false
+    $null = Wait-Enabled 'Start analysis' $false
     'F01 initial drive: native drive selected and reviewed in the small window; scan not started'
   } finally { $transform.Resize($original.Width, $original.Height) }
 }
@@ -806,7 +806,7 @@ function Test-DeniedSubtree {
     Set-Acl -LiteralPath $denied -AclObject $acl
     Set-Scope $scope
     Invoke-UI (Wait-Enabled 'Review scope' $true)
-    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
     $null = Wait-FinalLogicalSize 'At least 13 bytes' 'Final with scan gaps'
     Invoke-UI (Wait-Enabled 'View scan issues' $true)
     $null = Wait-UI 'access denied evidence' {
@@ -840,7 +840,7 @@ function Test-JunctionBoundary {
   try {
     Set-Scope $scope
     Invoke-UI (Wait-Enabled 'Review scope' $true)
-    Invoke-UI (Wait-Enabled 'Start scan' $true)
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
     # The scan is final even though the link limits measurement completeness.
     $null = Wait-FinalLogicalSize 'At least 19 bytes'
     Invoke-UI (Wait-Enabled 'View scan issues' $true)
@@ -869,20 +869,20 @@ function Test-ReplacedScopeRoot {
   [IO.File]::WriteAllBytes((Join-Path $scope 'original.bin'), [byte[]]::new(23))
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
 
   [IO.Directory]::Move($scope, $original)
   [IO.Directory]::CreateDirectory($scope) | Out-Null
   [IO.File]::WriteAllBytes((Join-Path $scope 'replacement.bin'), [byte[]]::new(71))
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'replaced directory rejection' {
     Find-UI 'The target or result changed. Review the scope again.' $textType
   }
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   if (Find-UI 'Cancel scan' $button) { throw 'The unreviewed replacement started a scan' }
 
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-FinalLogicalSize '71 bytes'
   'F01 native NTFS scope replacement: changed identity rejected; fresh review admitted the new 71-byte directory'
 }
@@ -1091,12 +1091,12 @@ function Open-VirtualGroups($path, $total) {
   Set-Scope $path
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   # A busy WebView can fail the UIA invoke of a large scan's start although the scan began.
-  try { Invoke-UI (Wait-Enabled 'Start scan' $true) }
+  try { Invoke-UI (Wait-Enabled 'Start analysis' $true) }
   catch {
     $failure = $_
     try { $null = Wait-UI 'scan running after a failed start invoke' { Find-UI 'Pause scan' $button } 30 }
     catch { throw $failure }
-    Write-Warning "Start scan reported '$($failure.Exception.Message)' but the scan is running"
+    Write-Warning "Start analysis reported '$($failure.Exception.Message)' but the scan is running"
   }
   if ($total) { $null = Wait-FinalLogicalSize $total }
   else {
@@ -1350,7 +1350,7 @@ function Test-VirtualGroups {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   if ($VerifyInitialDrive) { Test-InitialDrive }
   if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
   if ($VerifySettingsRestoration) {
@@ -1395,8 +1395,8 @@ function Test-VirtualGroups {
       if ($notice) { $notice; break }
     }
   }
-  $null = Wait-Enabled 'Start scan' $false
-  'F01 invalid folder: rejected, Start scan disabled'
+  $null = Wait-Enabled 'Start analysis' $false
+  'F01 invalid folder: rejected, Start analysis disabled'
   Set-Scope $scanRoot
   if ($VerifyWorkspaceLayout) {
     Invoke-UI (Wait-Enabled 'Add path' $true)
@@ -1407,14 +1407,14 @@ function Test-VirtualGroups {
     'F01 workspace: both actions remain in view after adding a path'
   }
   Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   Set-Scope $child
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   Set-Scope $scanRoot
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   'F01 changing a reviewed path: new review required'
-  Invoke-UI (Wait-Enabled 'Start scan' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
   $null = Wait-UI 'Result version: Final' { Find-ResultVersionLabel 'Final' }
   $null = Wait-UI 'allocated size as the default result metric' {
@@ -1439,7 +1439,7 @@ function Test-VirtualGroups {
   $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
   Set-Scope $child
   Invoke-UI (Wait-VisibleAction 'Review scope')
-  $null = Wait-Enabled 'Start scan' $true
+  $null = Wait-Enabled 'Start analysis' $true
   Invoke-UI (Wait-VisibleAction 'Cancel selection')
   $null = Wait-UI 'discarded scope and retained final total' {
     $field = Find-UI 'Windows folder path' $edit
@@ -1448,7 +1448,7 @@ function Test-VirtualGroups {
       Find-LogicalSize '18 bytes'
     }
   }
-  $null = Wait-Enabled 'Start scan' $false
+  $null = Wait-Enabled 'Start analysis' $false
   'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
   Invoke-UI (Wait-VisibleAction 'Close target editor')
   $null = Wait-UI 'target editor closed with the result still visible' {

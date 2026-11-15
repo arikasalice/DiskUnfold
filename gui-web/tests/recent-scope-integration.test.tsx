@@ -89,7 +89,7 @@ async function applySavedRange() {
   fireEvent.click(
     await screen.findByRole("button", { name: "Use this range" }),
   );
-  return screen.getByRole("button", { name: "Start scan" });
+  return screen.getByRole("button", { name: "Start analysis" });
 }
 
 test("explicit scan uses the restored native paths, conditions and review", async () => {
@@ -154,11 +154,14 @@ test("a stale restored scope cannot be re-reviewed as ordinary path input", asyn
   render(<App analysis={client} />);
   fireEvent.click(await applySavedRange());
   await screen.findByText(
-    "Reopen the saved range or select its paths again before scanning.",
+    "Reopen the saved range or select its paths again before analyzing.",
   );
   expect(
-    (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
-      .disabled,
+    (
+      screen.getByRole("button", {
+        name: "Start analysis",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
   const review = screen.getByRole("button", { name: "Review scope" });
   expect((review as HTMLButtonElement).disabled).toBe(true);

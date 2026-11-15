@@ -31,7 +31,7 @@ const names = new Map<string, readonly [string, string]>([
   ],
   [
     "scope.remember_recent",
-    ["ui.settings.remember_recent_scopes", "Remember recent scan scopes"],
+    ["ui.settings.remember_recent_scopes", "Remember recent scopes"],
   ],
   [
     "scope.recent_limit",

@@ -8,7 +8,7 @@ export type Message = readonly [key: string, fallback: string];
 export const factorLabels: Readonly<Record<string, Message>> = {
   "gap.out_of_scope": [
     "ui.analysis.volume_factor_out_of_scope",
-    "Outside the scan scope",
+    "Outside the analysis scope",
   ],
   "gap.excluded": [
     "ui.analysis.volume_factor_excluded",
@@ -156,7 +156,7 @@ export function lookupProblem(failure: unknown): Message {
         if (failure.reasonKey === "space.target_out_of_scope")
           return [
             "ui.analysis.volume_target_outside_scan",
-            "The selected target is outside this scan. Choose a folder or volume included in the scan.",
+            "The selected target is outside this analysis scope. Choose a folder or volume included in the scope.",
           ];
     }
   }

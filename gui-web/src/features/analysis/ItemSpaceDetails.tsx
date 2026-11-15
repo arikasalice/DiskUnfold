@@ -56,7 +56,7 @@ function spaceReason(key: string, text: LocaleText): string | undefined {
     case "space.out_of_range_links":
       return text(
         "ui.analysis.space_out_of_range_links",
-        "Links outside the scan were reported",
+        "Links outside the analysis scope were reported",
       );
     case "space.shared_reported":
       return text(

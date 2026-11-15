@@ -245,7 +245,7 @@ export function ScopeActions({
         <Progress label={text("ui.analysis.reviewing", "Reviewing scope")} />
       )}
       {starting && (
-        <Progress label={text("ui.analysis.starting", "Starting scan")} />
+        <Progress label={text("ui.analysis.starting", "Starting analysis")} />
       )}
       <div className="du-target-editor__actions">
         <Action isDisabled={working || running} onPress={onCancel}>
@@ -271,8 +271,8 @@ export function ScopeActions({
           onPress={onStart}
         >
           {starting
-            ? text("ui.analysis.starting_pending", "Starting scan…")
-            : (startLabel ?? text("ui.analysis.start", "Start scan"))}
+            ? text("ui.analysis.starting_pending", "Starting analysis…")
+            : (startLabel ?? text("ui.analysis.start", "Start analysis"))}
         </Action>
       </div>
     </footer>

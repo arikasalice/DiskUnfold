@@ -299,7 +299,7 @@ const scopeNotices = new Map<string, Message>([
     "scope.excluded",
     [
       "ui.analysis.scope_excluded",
-      "An exclusion removed a selected folder from the scan.",
+      "An exclusion removed a selected folder from the analysis scope.",
     ],
   ],
   [
@@ -371,7 +371,7 @@ const jobReasons = new Map<string, Message>([
     "job.queue_full",
     [
       "ui.analysis.scan_reason_queue_full",
-      "Too many jobs are waiting. Try the scan again later.",
+      "Too many jobs are waiting. Try the analysis again later.",
     ],
   ],
 ]);

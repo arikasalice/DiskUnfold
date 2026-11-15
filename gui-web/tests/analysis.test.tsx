@@ -722,7 +722,7 @@ test("F01 FR4.HD1.gui-web.DD1: a review response must match its draft sequence b
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   const reviewButton = screen.getByRole("button", { name: "Review scope" });
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
 
   fireEvent.click(reviewButton);
@@ -762,7 +762,7 @@ test("F01 FR4.HD1.gui-web.DD1: a failed repeat review preserves the admitted dra
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   const reviewButton = screen.getByRole("button", { name: "Review scope" });
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   fireEvent.click(reviewButton);
   await waitFor(() => expect(start.disabled).toBe(false));
@@ -816,7 +816,7 @@ test("F01 FR4.HD1.gui-web.DD1: settled path edits auto-review without moving foc
       draft: { includes: [windowsPath("C:\\漢字")] },
     });
     const start = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Start scan",
+      name: "Start analysis",
     });
     await waitFor(() => expect(start.disabled).toBe(false));
 
@@ -874,8 +874,9 @@ test.each(["manual review", "path edit"])(
     await waitFor(() => expect(reviewCount).toBe(2));
     await waitFor(() =>
       expect(
-        screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
-          .disabled,
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: "Start analysis",
+        }).disabled,
       ).toBe(false),
     );
     expect(calls.filter(({ name }) => name === "scope.review")).toHaveLength(2);
@@ -934,7 +935,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
     ?.body as { draft: unknown };
   await waitFor(() =>
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
         .disabled,
     ).toBe(false),
   );
@@ -942,7 +943,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await waitFor(() => expect(reviewCount).toBe(2));
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(
@@ -959,7 +960,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
   await waitFor(() => expect(reviewCount).toBe(3));
   await waitFor(() =>
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
         .disabled,
     ).toBe(false),
   );
@@ -969,7 +970,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
   });
   fireEvent.change(input, { target: { value: "D:\\Denied" } });
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   await waitFor(() => expect(reviewCount).toBe(4), { timeout: 2000 });
@@ -983,24 +984,24 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
     ),
   ).toBeDefined();
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
 
   fireEvent.change(input, { target: { value: path.display } });
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   await waitFor(() => expect(reviewCount).toBe(5), { timeout: 2000 });
   await waitFor(() =>
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
         .disabled,
     ).toBe(false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   await screen.findByText("At least 42 bytes");
   expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
     draft: firstReview.draft,
@@ -1013,7 +1014,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   render(<App analysis={client} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   const start = screen.getByRole("button", {
-    name: "Start scan",
+    name: "Start analysis",
   }) as HTMLButtonElement;
   expect(start.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
@@ -1135,7 +1136,7 @@ test("F03: changing size display does not request another result", async () => {
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1204,7 +1205,7 @@ test("F03 IF-18: new preferences change presentation without replacing the pinne
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1249,7 +1250,7 @@ test("F01: stale scope disables start and requires review again", async () => {
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole("button", {
-    name: "Start scan",
+    name: "Start analysis",
   }) as HTMLButtonElement;
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1275,7 +1276,7 @@ test("F03 IF-01: a pinned result shows loading before reading totals", async () 
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1296,7 +1297,7 @@ test("F03 IF-01: a totals response for a different result version is rejected", 
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1313,7 +1314,7 @@ test("F24: an expired job releases the scan controls without inventing a result"
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole("button", {
-    name: "Start scan",
+    name: "Start analysis",
   }) as HTMLButtonElement;
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1336,7 +1337,7 @@ async function startFixtureScan(
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -1744,11 +1745,11 @@ test("F02: starting progress hands off to the scan receipt and its cancel action
   });
   await startFixtureScan(client);
   expect(
-    screen.getByRole("progressbar", { name: "Starting scan" }),
+    screen.getByRole("progressbar", { name: "Starting analysis" }),
   ).toBeDefined();
   expect(
     screen
-      .getByRole("button", { name: "Starting scan…" })
+      .getByRole("button", { name: "Starting analysis…" })
       .getAttribute("aria-disabled"),
   ).toBe("true");
   expect(
@@ -1763,7 +1764,7 @@ test("F02: starting progress hands off to the scan receipt and its cancel action
     Node.DOCUMENT_POSITION_FOLLOWING,
   );
   expect(
-    screen.queryByRole("progressbar", { name: "Starting scan" }),
+    screen.queryByRole("progressbar", { name: "Starting analysis" }),
   ).toBeNull();
 });
 
@@ -1787,7 +1788,8 @@ test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and r
       if (starts !== 2) return;
       atTransportBoundary = {
         startingFeedback:
-          screen.queryByRole("progressbar", { name: "Starting scan" }) !== null,
+          screen.queryByRole("progressbar", { name: "Starting analysis" }) !==
+          null,
         pinnedTotal: screen.queryByText("At least 42 bytes") !== null,
         pinnedVersion:
           screen.queryByText("Result version: Final with scan gaps") !== null,
@@ -1805,7 +1807,7 @@ test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and r
   ).length;
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
 
@@ -1813,7 +1815,7 @@ test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and r
   const observedBoundary = atTransportBoundary;
   fireEvent.click(start);
   const pendingFeedback = screen.queryByRole("progressbar", {
-    name: "Starting scan",
+    name: "Starting analysis",
   });
   const pinnedTotalWhileWaiting = screen.queryByText("At least 42 bytes");
   const pinnedVersionWhileWaiting = screen.queryByText(
@@ -1825,7 +1827,7 @@ test("F02 NFR4.HD1.gui-web.DD1: commits pending feedback before scan.start and r
   releaseSecondStart();
   await waitFor(() =>
     expect(
-      screen.queryByRole("progressbar", { name: "Starting scan" }),
+      screen.queryByRole("progressbar", { name: "Starting analysis" }),
     ).toBeNull(),
   );
 
@@ -1853,7 +1855,7 @@ test("F02 NFR4.HD1.gui-web.DD1: repeated immediate activation starts one scan", 
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
 
@@ -2547,7 +2549,7 @@ test("F02: the measurement under the summary total uses the active language", as
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -2620,7 +2622,7 @@ test("F02 FR8.HD1: the panel withdraws the scan it reported when it goes away", 
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -2925,7 +2927,7 @@ test("F02 F24: an old resume failure cannot affect a replacement scan", async ()
   notifyResult(listeners, "job.resync_required", {});
   await screen.findByText("Scan finished");
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   await screen.findByText("Scanning");
   await act(async () => failResume?.(new Error("Late resume failure")));
   expect(screen.queryByRole("alert")).toBeNull();
@@ -2984,10 +2986,10 @@ test.each(["starting", "cancelling"] as const)(
     notifyResult(listeners, "job.resync_required", {});
     await screen.findByText("Scan finished");
     fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-    fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
     if (phase === "starting") {
       expect(
-        screen.getByRole("progressbar", { name: "Starting scan" }),
+        screen.getByRole("progressbar", { name: "Starting analysis" }),
       ).toBeDefined();
     } else {
       await screen.findByText("Scanning");
@@ -3781,8 +3783,11 @@ test("F01: cancelling selection discards late review and drop while cancelling o
     ).value,
   ).toBe("");
   expect(
-    (screen.getByRole("button", { name: "Start scan" }) as HTMLButtonElement)
-      .disabled,
+    (
+      screen.getByRole("button", {
+        name: "Start analysis",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
   expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(0);
   expect(
@@ -3875,7 +3880,7 @@ test.each([
     fireEvent.click(await screen.findByRole("radio", { name: path.display }));
     const review = screen.getByRole("button", { name: "Review scope" });
     const start = screen.getByRole("button", {
-      name: "Start scan",
+      name: "Start analysis",
     }) as HTMLButtonElement;
     fireEvent.click(review);
     await waitFor(() => expect(start.disabled).toBe(false));
@@ -3956,7 +3961,7 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
 
 test.each([
   ["Review scope", "scope.review", 1],
-  ["Start scan", "scan.start", 0],
+  ["Start analysis", "scan.start", 0],
 ] as const)(
   "F01: a pending folder verification blocks %s without losing focus",
   async (label, command, previousCalls) => {
@@ -3967,7 +3972,7 @@ test.each([
     fireEvent.click(await screen.findByRole("radio", { name: path.display }));
     fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
     const start = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Start scan",
+      name: "Start analysis",
     });
     await waitFor(() => expect(start.disabled).toBe(false));
     const action = screen.getByRole("button", { name: label });
@@ -4061,7 +4066,7 @@ test.each(["finished", "rejected"] as const)(
     fireEvent.click(await screen.findByRole("radio", { name: path.display }));
     fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
     const start = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Start scan",
+      name: "Start analysis",
     });
     await waitFor(() => expect(start.disabled).toBe(false));
 
@@ -4070,7 +4075,7 @@ test.each(["finished", "rejected"] as const)(
       folderDrop({ seq: 1, pending: true });
     });
     expect(
-      screen.getByRole("progressbar", { name: "Starting scan" }),
+      screen.getByRole("progressbar", { name: "Starting analysis" }),
     ).toBeDefined();
     folderDrop({ seq: 1, path: "D:\\During start" });
     settleStart();
@@ -4090,7 +4095,7 @@ test.each(["finished", "rejected"] as const)(
       fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
     }
     const nextStart = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Start scan",
+      name: "Start analysis",
     });
     expect(nextStart.disabled).toBe(false);
     expect(nextStart.hasAttribute("aria-disabled")).toBe(false);
@@ -4168,7 +4173,7 @@ test("F01 FR3: multiple paths are reviewed together and the exact reviewed input
   );
   fireEvent.click(reviewButton);
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   const reviewRequest = calls.find((call) => call.name === "scope.review")
@@ -4236,7 +4241,7 @@ test("F01 FR3: normalized review preserves original selections for scan admissio
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   expect(
@@ -4268,7 +4273,7 @@ test("F01 FR3: canonical Windows review paths do not replace the original reques
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);
@@ -4315,7 +4320,7 @@ test("F01 FR3: editing or removing a path rejects a late review and requires ano
   if (!release || !captured) throw new Error("Review was not started");
   await act(async () => release?.(captured as ScopeReview));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   expect(start.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
@@ -4353,7 +4358,7 @@ test("F01 FR3: rejected or incomplete reviews cannot start a partial scan", asyn
     "One or more selected paths could not be verified.",
   );
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
@@ -4382,7 +4387,7 @@ test("F01 FR3: an unavailable selection prevents the whole scope from starting",
     "Access to a selected folder was denied.",
   );
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
@@ -4418,7 +4423,7 @@ test("F01 FR3: failed multi-path review retains input and rejects start", async 
     }).value,
   ).toBe("D:\\Denied");
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
@@ -4516,7 +4521,7 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await screen.findByLabelText("Reviewed scope");
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   start.focus();
   fireEvent.click(start);
@@ -4530,7 +4535,7 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   expect(document.activeElement).toBe(
     screen.getByText("Scan ended with gaps").parentElement,
   );
-  expect(screen.queryByRole("button", { name: "Start scan" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Start analysis" })).toBeNull();
 });
 
 test("F01: adding and removing a path restores focus to the appropriate field", async () => {
@@ -4573,7 +4578,7 @@ test("F01: result editor opens and closes with focus while keeping the result sc
   const beforeEdit = reviews().length;
   fireEvent.change(input, { target: { value: "D:\\new" } });
   expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Start scan" })
+    screen.getByRole<HTMLButtonElement>("button", { name: "Start analysis" })
       .disabled,
   ).toBe(true);
   expect(screen.getByText("At least 42 bytes")).toBeDefined();
@@ -4610,7 +4615,7 @@ test("F01: failed start keeps the editor and returns focus to scope review", asy
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await screen.findByLabelText("Reviewed scope");
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   await screen.findByText(
     "The target or result changed. Review the scope again.",
   );
@@ -4636,7 +4641,7 @@ test("F01: pending reanalysis keeps its editor open until start settles", async 
   await startFixtureScan(client);
   await screen.findByText("At least 42 bytes");
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   expect(
     screen.getByRole<HTMLButtonElement>("button", {
       name: "Close target editor",
@@ -4907,7 +4912,7 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
     totalsBefore,
   );
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   await waitFor(() =>
     expect(
       screen.queryByRole("button", { name: "Close target editor" }),
@@ -4943,7 +4948,7 @@ test("F03: reusing the same existing scan keeps its temporary unit choice", asyn
     target: { value: "si" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  fireEvent.click(screen.getByRole("button", { name: "Start scan" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
   await waitFor(() =>
     expect(
       screen.queryByRole("button", { name: "Close target editor" }),
