@@ -5,6 +5,7 @@ use std::{
 };
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(20);
+const PROGRESS_TIMEOUT: Duration = Duration::from_secs(60);
 const LANE_COUNT: usize = 2;
 const FIRST_BATCH_ITEMS: usize = BUFFERED_OBSERVATIONS / LANE_COUNT - 1;
 const CANCEL_BATCH_ITEMS: usize = 2;
@@ -16,13 +17,15 @@ struct GateState {
     release_reads: bool,
     progress_entered: bool,
     release_progress: bool,
+    progress_wait_timed_out: bool,
     reader_threads: [Option<ThreadId>; LANE_COUNT],
     second_reads: [bool; LANE_COUNT],
     returned_cancel_batches: [bool; LANE_COUNT],
     parked_after_return: [bool; LANE_COUNT],
     cancel_boundaries: [bool; LANE_COUNT],
     allow_root_zero_item: bool,
-    root_zero_item_returned: bool,
+    root_zero_item_sent: bool,
+    progress_released_after_boundaries: bool,
     calls: [usize; LANE_COUNT],
     calls_after_cancel: [usize; LANE_COUNT],
     worker_finishes: usize,
@@ -63,6 +66,8 @@ impl Gate {
 
     fn release_progress(&self) {
         if let Ok(mut state) = self.state.lock() {
+            state.progress_released_after_boundaries =
+                state.root_zero_item_sent && state.cancel_boundaries.iter().all(|crossed| *crossed);
             state.release_progress = true;
             self.changed.notify_all();
         }
@@ -133,11 +138,18 @@ impl JobContext for MultiContext {
         }
         state.progress_entered = true;
         self.gate.changed.notify_all();
-        while !state.release_progress && !state.cancelled {
-            state = match self.gate.changed.wait(state) {
-                Ok(state) => state,
+        while !state.release_progress && !state.aborted {
+            let (next, timeout) = match self.gate.changed.wait_timeout(state, PROGRESS_TIMEOUT) {
+                Ok(waited) => waited,
                 Err(_) => return,
             };
+            state = next;
+            if timeout.timed_out() && !state.release_progress && !state.aborted {
+                state.progress_wait_timed_out = true;
+                state.aborted = true;
+                self.gate.changed.notify_all();
+                return;
+            }
         }
     }
 
@@ -175,8 +187,8 @@ impl JobFlow for MultiFlow {
                     if !state.cancelled && !state.aborted {
                         return Checkpoint::Continue;
                     }
-                } else if root == 0 && !state.root_zero_item_returned {
-                    state.root_zero_item_returned = true;
+                } else if root == 0 && !state.root_zero_item_sent {
+                    state.root_zero_item_sent = true;
                     self.gate.changed.notify_all();
                 }
                 while !state.cancelled && !state.aborted {
@@ -300,6 +312,11 @@ fn fail() -> PortError {
 #[test]
 fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    assert_eq!(
+        LANE_COUNT * (FIRST_BATCH_ITEMS + 1),
+        BUFFERED_OBSERVATIONS,
+        "two first batches and root reports must leave exactly one slot after one receive"
+    );
     // The two fake adapters never call the OS. Their read barrier proves two
     // actual worker threads were inside adapter calls at the same time.
     let gate = Arc::new(Gate::default());
@@ -354,7 +371,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
         let _ = done_tx.send(result);
     });
 
-    let coordinated = (|| -> Result<bool, String> {
+    let coordinated = (|| -> Result<(bool, bool), String> {
         gate.wait_for(|state| state.progress_entered, "publisher did not pause")?;
         gate.wait_for(
             |state| state.second_reads.iter().all(|entered| *entered),
@@ -376,7 +393,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
         // One more item from root zero fills the final slot before cancellation.
         gate.allow_root_zero_item();
         gate.wait_for(
-            |state| state.root_zero_item_returned,
+            |state| state.root_zero_item_sent,
             "root zero did not fill the final publisher slot",
         )?;
         gate.cancel();
@@ -384,7 +401,18 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
             |state| state.cancel_boundaries.iter().all(|crossed| *crossed),
             "both workers did not cross the cancellation boundary",
         )?;
-        Ok(distinct_workers)
+        let pressure_held_until_both_boundaries = gate
+            .state
+            .lock()
+            .map_err(|_| "gate lock")
+            .is_ok_and(|state| {
+                state.root_zero_item_sent
+                    && state.progress_entered
+                    && !state.release_progress
+                    && !state.aborted
+                    && state.cancel_boundaries.iter().all(|crossed| *crossed)
+            });
+        Ok((distinct_workers, pressure_held_until_both_boundaries))
     })();
 
     // On every assertion, timeout, or early return, unblock both fake reads
@@ -408,11 +436,12 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
         }
     };
     collector.join().map_err(|_| "collector panicked")?;
-    let distinct_workers = coordinated?;
+    let (distinct_workers, pressure_held_until_both_boundaries) = coordinated?;
     assert!(
         distinct_workers,
         "both roots must be read by distinct workers"
     );
+    assert!(pressure_held_until_both_boundaries);
     let (sealed_id, cancelled, _) = result?;
     assert!(cancelled);
     assert_eq!(context.flow_id.load(Ordering::SeqCst), 3); // prep plus two workers
@@ -421,6 +450,8 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
     assert_eq!(state.calls, [2, 2]);
     assert_eq!(state.calls_after_cancel, [0, 0]);
     assert_eq!(state.cancel_boundaries, [true, true]);
+    assert!(!state.progress_wait_timed_out);
+    assert!(state.progress_released_after_boundaries);
     assert_eq!(state.worker_finishes, LANE_COUNT);
     drop(state);
 
