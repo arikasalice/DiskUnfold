@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
+    path::Path,
     sync::Arc,
     thread,
     time::{Duration, Instant},
@@ -92,11 +93,11 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
         &engine,
         "job.cancel",
         json!({"jobRef": start.job_ref}),
-        || probe.mark_cancel_response(),
+        || probe.mark_cancel_dispatch_return(),
     )?)?;
     assert_eq!(cancel.outcome, JobControlOutcome::Accepted);
     assert_eq!(cancel.state, JobState::CancelRequested);
-    // The remaining interval starts before the response marker; adapter events use a shared sequence.
+    // The flag-to-dispatch-return interval is unmeasured; this marker observes only dispatch return.
     probe.release_test_gate()?;
 
     let status = wait_for_cancelled(&engine, &start.job_ref)?;
@@ -108,18 +109,23 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
         request(&engine, "query.region.open", json!({"kind": "browse_list"}))?["regionRef"].clone();
     let actual = browse_returned_paths(&engine, &region, &sealed_version)?;
     let snapshot = probe.snapshot()?;
-    eprintln!(
-        "F02_CANCEL_TRACE lock_observations_after_release={} wrapper_entries_after_reply={} adapter_dispatches_after_reply={} wrapper_entries_after_release={} adapter_dispatches_after_release={} workers_last_event_at_reply={:?}",
+    let trace_log = format!(
+        "F02_CANCEL_TRACE lock_observations_after_release={} wrapper_entries_after_dispatch_return={} adapter_dispatch_markers_after_dispatch_return={} wrapper_entries_after_release={} adapter_dispatch_markers_after_release={} workers_last_event_before_dispatch_return={:?} adapter_dispatch_semantics=marker_before_delegate_not_internal_entry assertion=sequenced_observation_original_lock_assertion_not_replayed\n{}",
         snapshot.post_release_read_start_observations,
-        snapshot.post_reply_wrapper_entries,
-        snapshot.post_reply_adapter_dispatches,
+        snapshot.post_dispatch_return_wrapper_entries,
+        snapshot.post_dispatch_return_adapter_dispatch_markers,
         snapshot.post_release_wrapper_entries,
-        snapshot.post_release_adapter_dispatches,
-        snapshot.workers_last_event_at_cancel_reply,
+        snapshot.post_release_adapter_dispatch_markers,
+        snapshot.workers_last_event_before_dispatch_return,
+        snapshot
+            .trace
+            .iter()
+            .map(|event| format!("F02_CANCEL_TRACE {event}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
-    for event in &snapshot.trace {
-        eprintln!("F02_CANCEL_TRACE {event}");
-    }
+    eprintln!("{trace_log}");
+    persist_ci_trace(&trace_log)?;
     assert_eq!(
         snapshot.started, snapshot.returned,
         "a platform adapter call did not return"
@@ -138,15 +144,15 @@ fn native_adapter_multiworker_cancel_seals_returned_entries_once_after_gate_rele
     assert!(actual.len() >= 2 * FILES_PER_DIRECTORY);
 
     eprintln!(
-        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 adapter_reads={} returned_entries={} post_release_wrapper_entries={} post_release_adapter_dispatches={} post_reply_wrapper_entries={} post_reply_adapter_dispatches={} lock_observations_after_release={} observation=sequenced cancel_reply_gap=before_response_unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
+        "F02_NATIVE_CANCEL_SEAL os={} arch={} workers>=2 completed_adapter_calls={} returned_entries={} post_release_wrapper_entries={} post_release_adapter_dispatch_markers={} post_dispatch_return_wrapper_entries={} post_dispatch_return_adapter_dispatch_markers={} lock_observations_after_release={} observation=sequenced assertion=original_lock_assertion_not_replayed cancel_dispatch_gap=before_dispatch_return_unmeasured filtered_enumeration=unmeasured gui=not_launched state=cancelled seal={sealed_version:?}",
         std::env::consts::OS,
         std::env::consts::ARCH,
         snapshot.returned,
         actual.len(),
         snapshot.post_release_wrapper_entries,
-        snapshot.post_release_adapter_dispatches,
-        snapshot.post_reply_wrapper_entries,
-        snapshot.post_reply_adapter_dispatches,
+        snapshot.post_release_adapter_dispatch_markers,
+        snapshot.post_dispatch_return_wrapper_entries,
+        snapshot.post_dispatch_return_adapter_dispatch_markers,
         snapshot.post_release_read_start_observations,
     );
     Ok(())
@@ -179,6 +185,24 @@ fn request_with_response_hook(
         return Err(format!("{name}: {error:?}").into());
     }
     Ok(envelope.body)
+}
+
+fn persist_ci_trace(trace: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("GITHUB_ACTIONS").ok().as_deref() != Some("true") {
+        return Ok(());
+    }
+    let run_id = std::env::var("GITHUB_RUN_ID").unwrap_or_else(|_| "unknown".into());
+    let attempt = std::env::var("GITHUB_RUN_ATTEMPT").unwrap_or_else(|_| "unknown".into());
+    let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or("app-host manifest directory has no parent")?;
+    let output_dir = repository_root.join("quality-output");
+    fs::create_dir_all(&output_dir)?;
+    fs::write(
+        output_dir.join(format!("f02-cancel-seal-{run_id}-attempt-{attempt}.log")),
+        trace,
+    )?;
+    Ok(())
 }
 
 fn wait_for_cancelled(

@@ -30,7 +30,7 @@ struct State {
     returned: Vec<(RelativePath, ThreadId)>,
     parked: Vec<(RelativePath, ThreadId)>,
     entries: BTreeMap<RelativePath, usize>,
-    cancel_response_sequence: Option<usize>,
+    cancel_dispatch_return_sequence: Option<usize>,
     gate_release_sequence: Option<usize>,
     events: Vec<TraceEvent>,
 }
@@ -55,11 +55,11 @@ pub(super) struct Snapshot {
     pub(super) returned: usize,
     pub(super) post_release_read_start_observations: usize,
     pub(super) post_release_wrapper_entries: usize,
-    pub(super) post_release_adapter_dispatches: usize,
-    pub(super) post_reply_wrapper_entries: usize,
-    pub(super) post_reply_adapter_dispatches: usize,
+    pub(super) post_release_adapter_dispatch_markers: usize,
+    pub(super) post_dispatch_return_wrapper_entries: usize,
+    pub(super) post_dispatch_return_adapter_dispatch_markers: usize,
     pub(super) native_entries: BTreeMap<RelativePath, usize>,
-    pub(super) workers_last_event_at_cancel_reply: Vec<String>,
+    pub(super) workers_last_event_before_dispatch_return: Vec<String>,
     pub(super) trace: Vec<String>,
 }
 
@@ -186,14 +186,14 @@ impl Probe {
 
     /// Releases parked wrappers. The main test calls this after the `job.cancel` reply, so reads
     /// between the runtime flag update and that reply are outside this observation window.
-    pub(super) fn mark_cancel_response(&self) -> Result<(), String> {
+    pub(super) fn mark_cancel_dispatch_return(&self) -> Result<(), String> {
         let sequence = self.next_sequence();
         let worker = thread::current().id();
         let mut state = self.state.lock().map_err(|_| "probe lock")?;
-        state.cancel_response_sequence = Some(sequence);
+        state.cancel_dispatch_return_sequence = Some(sequence);
         state.events.push(TraceEvent {
             sequence,
-            name: "cancel-response-returned",
+            name: "cancel-dispatch-response-returned",
             path: Vec::new(),
             worker,
         });
@@ -221,9 +221,9 @@ impl Probe {
 
     pub(super) fn snapshot(&self) -> Result<Snapshot, String> {
         let state = self.state.lock().map_err(|_| "probe lock")?;
-        let cancel_sequence = state
-            .cancel_response_sequence
-            .ok_or("missing cancel-response trace marker")?;
+        let cancel_dispatch_return_sequence = state
+            .cancel_dispatch_return_sequence
+            .ok_or("missing cancel-dispatch-return trace marker")?;
         let gate_sequence = state
             .gate_release_sequence
             .ok_or("missing gate-release trace marker")?;
@@ -235,7 +235,8 @@ impl Probe {
                 .filter(|event| event.name == name && event.sequence > after)
                 .count()
         };
-        let workers_last_event_at_cancel_reply = worker_states(&events, cancel_sequence);
+        let workers_last_event_before_dispatch_return =
+            worker_states(&events, cancel_dispatch_return_sequence);
         let trace = events
             .iter()
             .map(|event| {
@@ -250,11 +251,17 @@ impl Probe {
             returned: state.returned.len(),
             post_release_read_start_observations: state.post_release_read_start_observations,
             post_release_wrapper_entries: count("wrapper-entry", gate_sequence),
-            post_release_adapter_dispatches: count("adapter-dispatch-marker", gate_sequence),
-            post_reply_wrapper_entries: count("wrapper-entry", cancel_sequence),
-            post_reply_adapter_dispatches: count("adapter-dispatch-marker", cancel_sequence),
+            post_release_adapter_dispatch_markers: count("adapter-dispatch-marker", gate_sequence),
+            post_dispatch_return_wrapper_entries: count(
+                "wrapper-entry",
+                cancel_dispatch_return_sequence,
+            ),
+            post_dispatch_return_adapter_dispatch_markers: count(
+                "adapter-dispatch-marker",
+                cancel_dispatch_return_sequence,
+            ),
             native_entries: state.entries.clone(),
-            workers_last_event_at_cancel_reply,
+            workers_last_event_before_dispatch_return,
             trace,
         })
     }
