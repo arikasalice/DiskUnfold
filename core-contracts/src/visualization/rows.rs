@@ -109,7 +109,9 @@ pub struct VizRow {
     /// is required and carries the same key string, as a fallback for a consumer that
     /// does not know this field. Item rows, and group rows whose name the supplier
     /// gave (for example a histogram bin), omit it. An empty string is invalid; the
-    /// field is omitted rather than null.
+    /// field is omitted rather than null. A row that has a label key must be a group
+    /// row, with a group reference and no item reference; an item row that carries
+    /// one is invalid.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub label_key: Option<String>,
@@ -151,6 +153,11 @@ impl VizRow {
         }
         if self.label_key.as_ref().is_some_and(String::is_empty) {
             return Err("invalid label key");
+        }
+        // An item row shows a real file name. A message key there would let a
+        // consumer replace that name with message text.
+        if self.label_key.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
+            return Err("label key on an item row");
         }
         Ok(())
     }

@@ -874,7 +874,9 @@ displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | 
  * is required and carries the same key string, as a fallback for a consumer that
  * does not know this field. Item rows, and group rows whose name the supplier
  * gave (for example a histogram bin), omit it. An empty string is invalid; the
- * field is omitted rather than null.
+ * field is omitted rather than null. A row that has a label key must be a group
+ * row, with a group reference and no item reference; an item row that carries
+ * one is invalid.
  */
 labelKey?: string, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
