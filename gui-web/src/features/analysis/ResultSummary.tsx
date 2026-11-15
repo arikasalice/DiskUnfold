@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import { displayInteger, useRegionalFormat } from "../../i18n/regional-format";
 import {
@@ -87,13 +88,15 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
  * The scanned paths and, below them, the exclusion rules they were scanned
  * with. A scope known to have no rules shows no exclusions row; an unknown
  * scope shows the row as unavailable, so its absence never reads as none.
+ * The row's label explains what the rules mean for the totals, or that the
+ * scope is not known.
  */
 function scopeRows(
   roots: readonly OsPath[],
   exclusions: readonly ScopeExclusion[] | undefined,
   text: LocaleText,
 ) {
-  const rows = [
+  const rows: { label: string; value: ReactNode; explanation?: string }[] = [
     {
       label: text("ui.analysis.scanned_paths", "Scanned paths"),
       value: <RootPaths roots={roots} />,
@@ -103,6 +106,15 @@ function scopeRows(
     rows.push({
       label: text("ui.analysis.exclusions", "Exclusions"),
       value: <ExclusionRules rules={exclusions} />,
+      explanation: exclusions
+        ? text(
+            "ui.analysis.exclusions_explanation",
+            "These weren't analyzed. They aren't included in the size or the item count.",
+          )
+        : text(
+            "ui.analysis.exclusions_unknown_explanation",
+            "The scope used for this result isn't available now.",
+          ),
     });
   return rows;
 }

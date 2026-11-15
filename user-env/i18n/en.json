@@ -346,6 +346,8 @@
     ["ui.analysis.exclusions_more_label",{"kind":"plural","parameter":"count","variants":{"one":"{count} more exclusion","other":"{count} more exclusions"}},[["count","count"]]],
     ["ui.analysis.exclusions_less", "Show less", []],
     ["ui.analysis.exclusions_less_label", "Show less of the exclusions", []],
+    ["ui.analysis.exclusions_explanation", "These weren't analyzed. They aren't included in the size or the item count.", []],
+    ["ui.analysis.exclusions_unknown_explanation", "The scope used for this result isn't available now.", []],
     ["ui.analysis.size_basis", "Size basis", []],
     ["ui.analysis.unit_system", "Unit system", []],
     ["ui.analysis.unit_system_binary", "Binary units (KiB, MiB)", []],

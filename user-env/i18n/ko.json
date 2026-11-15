@@ -346,6 +346,8 @@
     ["ui.analysis.exclusions_more_label",{"kind":"plural","parameter":"count","variants":{"other":"제외 항목 외 {count}개"}},[["count","count"]]],
     ["ui.analysis.exclusions_less", "접기", []],
     ["ui.analysis.exclusions_less_label", "제외 항목 접기", []],
+    ["ui.analysis.exclusions_explanation", "분석하지 않은 항목입니다. 크기와 항목 수에 들어 있지 않습니다", []],
+    ["ui.analysis.exclusions_unknown_explanation", "이 결과를 만든 분석 범위를 지금 확인할 수 없습니다", []],
     ["ui.analysis.size_basis", "크기 기준", []],
     ["ui.analysis.unit_system", "단위 체계", []],
     ["ui.analysis.unit_system_binary", "이진 단위(KiB, MiB)", []],

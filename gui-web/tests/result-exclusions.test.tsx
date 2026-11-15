@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -125,23 +126,36 @@ function showSummary(
   return render(inLocale(text, <Summary exclusions={exclusions} />));
 }
 
+const LABEL = 'dt, dt [role="note"]';
+
+/** The label element of a result summary row. */
+function rowLabel(label: string) {
+  const summary = document.querySelector<HTMLElement>(".du-results")!;
+  return within(summary).getByText(label, { selector: LABEL });
+}
+
 /** The value of a result summary row, found by its label. */
 function rowValue(label: string) {
-  const summary = document.querySelector<HTMLElement>(".du-results")!;
-  const term = within(summary).getByText(label, { selector: "dt" });
-  return term.nextElementSibling as HTMLElement;
+  return rowLabel(label).closest("dt")!.nextElementSibling as HTMLElement;
+}
+
+/** The accessible description of a row's label. */
+function labelDescription(label: string) {
+  const id = rowLabel(label).getAttribute("aria-describedby");
+  return id ? document.getElementById(id)?.textContent : undefined;
 }
 
 test("a scope without exclusion rules shows no exclusions row", () => {
   showSummary([]);
   expect(rowValue("Scanned paths").textContent).toBe(path.display);
-  expect(screen.queryByText("Exclusions", { selector: "dt" })).toBeNull();
+  expect(screen.queryByText("Exclusions", { selector: LABEL })).toBeNull();
 });
 
 test("one path rule follows the scanned paths and breaks after its separators", () => {
   showSummary([pathRule("C:\\fixture\\cache")]);
-  const terms = screen.getAllByRole("term").map((term) => term.textContent);
-  expect(terms.slice(0, 2)).toEqual(["Scanned paths", "Exclusions"]);
+  const terms = screen.getAllByRole("term");
+  expect(terms[0]).toBe(rowLabel("Scanned paths"));
+  expect(terms[1]).toBe(rowLabel("Exclusions").closest("dt"));
   const value = rowValue("Exclusions");
   expect(value.textContent).toBe("C:\\fixture\\cache");
   expect(value.querySelector(".du-path")).not.toBeNull();
@@ -211,6 +225,23 @@ test("the rules of another analysis start folded", () => {
 test("an unknown scope keeps the row and reads as unavailable", () => {
   showSummary(undefined);
   expect(rowValue("Exclusions").textContent).toBe("Unavailable");
+  expect(labelDescription("Exclusions")).toBe(
+    "The scope used for this result isn't available now.",
+  );
+});
+
+test("the label explains the rules on focus, and no other label takes focus", async () => {
+  const explanation =
+    "These weren't analyzed. They aren't included in the size or the item count.";
+  showSummary(rules(2));
+  const label = rowLabel("Exclusions");
+  expect(labelDescription("Exclusions")).toBe(explanation);
+  expect(rowLabel("Scanned paths").tagName).toBe("DT");
+  expect(rowLabel("Scanned paths").querySelector("[tabindex]")).toBeNull();
+  act(() => label.focus());
+  expect((await screen.findByRole("tooltip")).textContent).toBe(explanation);
+  fireEvent.keyDown(label, { key: "Escape" });
+  expect(screen.queryByRole("tooltip")).toBeNull();
 });
 
 test("the row, its toggle and an unknown scope read in Korean", () => {
@@ -223,9 +254,15 @@ test("the row, its toggle and an unknown scope read in Korean", () => {
   fireEvent.click(toggle);
   expect(toggle.getAttribute("aria-label")).toBe("제외 항목 접기");
   expect(toggle.textContent).toBe("접기");
+  expect(labelDescription("제외 항목")).toBe(
+    "분석하지 않은 항목입니다. 크기와 항목 수에 들어 있지 않습니다",
+  );
   view.unmount();
   showSummary(undefined, korean);
   expect(rowValue("제외 항목").textContent).toBe("확인 불가");
+  expect(labelDescription("제외 항목")).toBe(
+    "이 결과를 만든 분석 범위를 지금 확인할 수 없습니다",
+  );
 });
 
 const timestamp = "2026-11-15T00:00:00.000Z";

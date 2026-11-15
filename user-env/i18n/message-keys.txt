@@ -329,6 +329,8 @@ ui.analysis.exclusions_more count:count
 ui.analysis.exclusions_more_label count:count
 ui.analysis.exclusions_less
 ui.analysis.exclusions_less_label
+ui.analysis.exclusions_explanation
+ui.analysis.exclusions_unknown_explanation
 ui.analysis.size_basis
 ui.analysis.unit_system
 ui.analysis.unit_system_binary
