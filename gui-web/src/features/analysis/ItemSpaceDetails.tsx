@@ -20,86 +20,12 @@ import {
   displayEvidence,
   displayMeasurementLimit,
   displaySizeWithBytes,
+  displaySpaceReason,
 } from "./space-format";
 import type { SizeDisplay } from "./space-format";
 
 type LocaleText = ReturnType<typeof useLocaleText>;
 type Message = readonly [key: string, fallback: string];
-
-function spaceReason(key: string, text: LocaleText): string | undefined {
-  switch (key) {
-    case "space.aux_not_included":
-      return text(
-        "ui.analysis.space_aux_not_included",
-        "Auxiliary data was not collected",
-      );
-    case "space.dedup_capacity":
-      return text(
-        "ui.analysis.space_dedup_capacity",
-        "The file identity limit was reached",
-      );
-    case "space.sharing_not_collected":
-      return text(
-        "ui.analysis.space_sharing_not_collected",
-        "Sharing evidence was not collected",
-      );
-    case "space.sharing_unknown":
-      return text(
-        "ui.analysis.space_sharing_unknown",
-        "Sharing could not be verified",
-      );
-    case "space.identity_unsupported":
-      return text(
-        "ui.analysis.space_identity_unsupported",
-        "File identity could not be verified",
-      );
-    case "space.out_of_range_links":
-      return text(
-        "ui.analysis.space_out_of_range_links",
-        "Links outside the analysis scope were reported",
-      );
-    case "space.shared_reported":
-      return text(
-        "ui.analysis.space_shared_reported",
-        "The file system reported shared space",
-      );
-    default:
-      return undefined;
-  }
-}
-
-function measurementLimit(key: string, text: LocaleText): string {
-  switch (key) {
-    case "space.data_insufficient":
-      return text(
-        "ui.analysis.space_data_insufficient",
-        "Some space data could not be verified",
-      );
-    case "space.aggregation_overflow":
-      return text(
-        "ui.analysis.space_aggregation_overflow",
-        "The space total exceeded the supported range",
-      );
-    case "space.allocated_not_collected":
-      return text(
-        "ui.analysis.space_allocated_not_collected",
-        "Allocation data was not collected",
-      );
-    case "space.observation_detail_insufficient":
-      return text(
-        "ui.analysis.space_observation_detail_insufficient",
-        "Some observation details are unavailable",
-      );
-    default:
-      return (
-        spaceReason(key, text) ??
-        text(
-          "ui.analysis.space_measurement_limit_reported",
-          displayMeasurementLimit(key),
-        )
-      );
-  }
-}
 
 function describe<T>(
   field: BrowseValue<T>,
@@ -113,7 +39,7 @@ function describe<T>(
       return text("ui.analysis.space_not_applicable", "Not applicable");
     case "unknown":
       return (
-        spaceReason(field.reasonKey, text) ??
+        displaySpaceReason(field.reasonKey, text) ??
         text("ui.inspection.unavailable_in_scan", "Unavailable in this scan")
       );
   }
@@ -127,7 +53,7 @@ function sizeText(
   return [
     displaySizeWithBytes(value.size, display, text),
     displayEvidence(value.size.evidence, text),
-    ...value.measurementLimits.map((key) => measurementLimit(key, text)),
+    ...value.measurementLimits.map((key) => displayMeasurementLimit(key, text)),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -175,7 +101,7 @@ function rows(
       ),
       value: decision.confirmed
         ? text("ui.analysis.space_confirmed", "Confirmed")
-        : (spaceReason(decision.reasonKey ?? "", text) ??
+        : (displaySpaceReason(decision.reasonKey ?? "", text) ??
           text("ui.analysis.space_not_confirmed", "Not confirmed")),
     },
     {

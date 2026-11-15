@@ -169,7 +169,9 @@ export function PinnedResult({
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),
-                ...measurementLimits.map(displayMeasurementLimit),
+                ...measurementLimits.map((key) =>
+                  displayMeasurementLimit(key, text),
+                ),
               ],
             };
           })}

@@ -25,50 +25,117 @@ const measurementLabels = {
 } satisfies Record<SpaceTotal["completeness"], string>;
 
 /** Human-readable evidence labels shared by the two space views. */
-export const evidenceLabels = {
+const evidenceLabels = {
   measured: "Measured",
   os_reported: "Reported by the file system",
   estimated: "Estimated",
   unknown: undefined,
 } satisfies Record<SizeValue["evidence"], string | undefined>;
 
-const spaceReasonLabels = new Map([
-  ["space.aux_not_included", "Auxiliary data was not collected"],
-  ["space.dedup_capacity", "The file identity limit was reached"],
-  ["space.sharing_not_collected", "Sharing evidence was not collected"],
-  ["space.sharing_unknown", "Sharing could not be verified"],
-  ["space.identity_unsupported", "File identity could not be verified"],
+type Message = readonly [key: string, fallback: string];
+
+/** The message of each item-space reason, by its reason key. */
+const spaceReasonMessages = new Map<string, Message>([
+  [
+    "space.aux_not_included",
+    ["ui.analysis.space_aux_not_included", "Auxiliary data was not collected"],
+  ],
+  [
+    "space.dedup_capacity",
+    ["ui.analysis.space_dedup_capacity", "The file identity limit was reached"],
+  ],
+  [
+    "space.sharing_not_collected",
+    [
+      "ui.analysis.space_sharing_not_collected",
+      "Sharing evidence was not collected",
+    ],
+  ],
+  [
+    "space.sharing_unknown",
+    ["ui.analysis.space_sharing_unknown", "Sharing could not be verified"],
+  ],
+  [
+    "space.identity_unsupported",
+    [
+      "ui.analysis.space_identity_unsupported",
+      "File identity could not be verified",
+    ],
+  ],
   [
     "space.out_of_range_links",
-    "Links outside the analysis scope were reported",
+    [
+      "ui.analysis.space_out_of_range_links",
+      "Links outside the analysis scope were reported",
+    ],
   ],
-  ["space.shared_reported", "The file system reported shared space"],
+  [
+    "space.shared_reported",
+    [
+      "ui.analysis.space_shared_reported",
+      "The file system reported shared space",
+    ],
+  ],
 ]);
 
-const measurementLimitLabels = new Map([
-  ["space.data_insufficient", "Some space data could not be verified"],
+/** The message of each reason that only limits a measurement. */
+const measurementLimitMessages = new Map<string, Message>([
+  [
+    "space.data_insufficient",
+    [
+      "ui.analysis.space_data_insufficient",
+      "Some space data could not be verified",
+    ],
+  ],
   [
     "space.aggregation_overflow",
-    "The space total exceeded the supported range",
+    [
+      "ui.analysis.space_aggregation_overflow",
+      "The space total exceeded the supported range",
+    ],
   ],
-  ["space.allocated_not_collected", "Allocation data was not collected"],
+  [
+    "space.allocated_not_collected",
+    [
+      "ui.analysis.space_allocated_not_collected",
+      "Allocation data was not collected",
+    ],
+  ],
   [
     "space.observation_detail_insufficient",
-    "Some observation details are unavailable",
+    [
+      "ui.analysis.space_observation_detail_insufficient",
+      "Some observation details are unavailable",
+    ],
   ],
 ]);
 
-/** Returns the explanation for a recognized item-space reason. */
-export function displaySpaceReason(key: string): string | undefined {
-  return spaceReasonLabels.get(key);
+const unrecognizedLimit: Message = [
+  "ui.analysis.space_measurement_limit_reported",
+  "A measurement limitation was reported",
+];
+
+/**
+ * Explains a recognized item-space reason in the active language. An
+ * unrecognized key gives no text, so the caller decides what it shows then.
+ */
+export function displaySpaceReason(
+  key: string,
+  text: LocaleText,
+): string | undefined {
+  const message = spaceReasonMessages.get(key);
+  return message && text(...message);
 }
 
-/** Preserves a visible limitation even when its reason is not recognized. */
-export function displayMeasurementLimit(key: string): string {
-  return (
-    displaySpaceReason(key) ??
-    measurementLimitLabels.get(key) ??
-    "A measurement limitation was reported"
+/**
+ * Explains a measurement limit in the active language. An unrecognized key
+ * still shows that a limitation was reported, without naming it.
+ */
+export function displayMeasurementLimit(key: string, text: LocaleText): string {
+  return text(
+    ...(spaceReasonMessages.get(key) ??
+      measurementLimitMessages.get(key) ??
+      unrecognizedLimit),
   );
 }
 

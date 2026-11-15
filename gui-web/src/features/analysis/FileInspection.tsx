@@ -26,9 +26,9 @@ import type { CopyContinuation } from "./CopyPath";
 import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
+  displayEvidence,
   displaySizeParts,
   displaySpaceReason,
-  evidenceLabels,
   windowsSizeDisplay,
 } from "./space-format";
 import "./file-inspection.css";
@@ -36,16 +36,15 @@ import type { SizeDisplay } from "./space-format";
 
 function attribute<T>(
   field: BrowseValue<T>,
-  format: (value: T) => ReactNode = String,
-  text?: LocaleText,
+  format: (value: T) => ReactNode,
+  text: LocaleText,
 ): ReactNode {
   if (field.state === "present") return format(field.value);
   if (field.state === "absent")
-    return text?.("ui.analysis.not_recorded", "Not recorded") ?? "Not recorded";
+    return text("ui.analysis.not_recorded", "Not recorded");
   return (
-    displaySpaceReason(field.reasonKey) ??
-    text?.("ui.inspection.unavailable_in_scan", "Unavailable in this scan") ??
-    "Unavailable in this scan"
+    displaySpaceReason(field.reasonKey, text) ??
+    text("ui.inspection.unavailable_in_scan", "Unavailable in this scan")
   );
 }
 
@@ -87,7 +86,7 @@ function sizeRow(
     field.value.state === "exact"
       ? text("ui.inspection.exact", "Exact")
       : undefined;
-  const evidence = evidenceLabels[field.value.evidence];
+  const evidence = displayEvidence(field.value.evidence, text);
   return {
     label,
     emphasized: true,
