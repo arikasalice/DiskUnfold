@@ -61,13 +61,9 @@ impl ModelPages {
                 &mut deferred.cleanup,
             )
             .map_err(registration_error)?;
-        if let Some(reason) = candidate.fallback_reason {
+        if candidate.fallback_reason.is_some() {
             return Ok(CommittedRender::Fallback {
-                reason: if reason == projection::Error::OrderingUnavailable {
-                    FallbackReason::OrderingUnavailable
-                } else {
-                    FallbackReason::NoAttribution
-                },
+                reason: FallbackReason::NoAttribution,
                 fallback: VizFallback {
                     model_ref,
                     result_revision: revision,
