@@ -47,7 +47,19 @@ impl Error for LinuxInstanceLockError {
 /// All GUI writers must use this same sentinel before opening or migrating the database.
 pub struct LinuxInstanceLock {
     directory: File,
-    _sentinel: File,
+    sentinel: File,
+}
+
+impl Drop for LinuxInstanceLock {
+    /// Releases the lock explicitly before the sentinel descriptor closes.
+    ///
+    /// `flock` belongs to the open file description. A child forked by another
+    /// thread holds a copy of the descriptor until it executes, so closing alone
+    /// would leave the lock held for that moment and a new acquirer would see
+    /// `Busy`. Unlocking releases it for every copy.
+    fn drop(&mut self) {
+        let _ = flock(&self.sentinel, FlockOperation::Unlock);
+    }
 }
 
 impl LinuxInstanceLock {
@@ -77,7 +89,7 @@ impl LinuxInstanceLock {
         })?;
         Ok(Self {
             directory,
-            _sentinel: sentinel,
+            sentinel,
         })
     }
 
@@ -142,7 +154,16 @@ fn single_link_regular_file(file: &File) -> Result<bool, LinuxInstanceLockError>
 #[cfg(test)]
 mod tests {
     use super::{LinuxInstanceLock, LinuxInstanceLockError};
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::PathBuf,
+        process::Command,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+    };
 
     use tempfile::TempDir;
 
@@ -163,6 +184,48 @@ mod tests {
         ));
         drop(first);
         assert!(LinuxInstanceLock::acquire(&data).is_ok());
+        Ok(())
+    }
+
+    // A forked child keeps a copy of the sentinel descriptor until it executes. The
+    // lock must still be free as soon as the guard is dropped.
+    #[test]
+    fn lock_is_free_after_drop_while_other_threads_spawn_children()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_temp, data) = data_dir()?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let spawners: Vec<_> = (0..4)
+            .map(|_| {
+                let stop = Arc::clone(&stop);
+                thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        let _ = Command::new("true").status();
+                    }
+                })
+            })
+            .collect();
+        let mut busy_round = None;
+        for round in 0..2_000 {
+            match LinuxInstanceLock::acquire(&data) {
+                Ok(lock) => drop(lock),
+                Err(LinuxInstanceLockError::Busy) => {
+                    busy_round = Some(round);
+                    break;
+                }
+                Err(error) => {
+                    stop.store(true, Ordering::Relaxed);
+                    return Err(error.into());
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for spawner in spawners {
+            spawner.join().map_err(|_| "a spawner thread panicked")?;
+        }
+        assert_eq!(
+            busy_round, None,
+            "the lock was still held after its guard was dropped"
+        );
         Ok(())
     }
 

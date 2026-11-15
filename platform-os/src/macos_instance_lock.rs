@@ -69,7 +69,19 @@ impl Error for MacOsInstanceLockError {
 /// and unrelated filesystem mutation is outside its exclusion guarantee.
 pub struct MacOsInstanceLock {
     directory: File,
-    _sentinel: File,
+    sentinel: File,
+}
+
+impl Drop for MacOsInstanceLock {
+    /// Releases the lock explicitly before the sentinel descriptor closes.
+    ///
+    /// `flock` belongs to the open file description. A child forked by another
+    /// thread holds a copy of the descriptor until it executes, so closing alone
+    /// would leave the lock held for that moment and a new acquirer would see
+    /// `Busy`. Unlocking releases it for every copy.
+    fn drop(&mut self) {
+        let _ = flock(&self.sentinel, FlockOperation::Unlock);
+    }
 }
 
 impl MacOsInstanceLock {
@@ -133,7 +145,7 @@ impl MacOsInstanceLock {
 
         Ok(Self {
             directory,
-            _sentinel: sentinel,
+            sentinel,
         })
     }
 
@@ -205,7 +217,7 @@ impl MacOsInstanceLock {
         let current = File::from(current);
         let current_metadata = current.metadata().map_err(MacOsInstanceLockError::Io)?;
         let held_metadata = self
-            ._sentinel
+            .sentinel
             .metadata()
             .map_err(MacOsInstanceLockError::Io)?;
         if !current_metadata.is_file()
