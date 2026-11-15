@@ -123,7 +123,7 @@ pub fn hierarchy(
         result_version: version.version_id().clone(),
         scope_item_no: scope_no,
         navigation_item_no: root_no,
-        completeness: crate::space::folder_completeness(version, root_no),
+        completeness: version.completeness(),
         rows: Vec::new(),
         active_expansions: Vec::new(),
     };

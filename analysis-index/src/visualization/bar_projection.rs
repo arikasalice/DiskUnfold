@@ -282,12 +282,7 @@ impl Prepared<'_> {
             &self.input,
             self.top,
             self.scale,
-            match &self.scope_total.target {
-                AggregateTarget::Folder(scope) => {
-                    crate::space::folder_completeness(self.version, scope.item_no)
-                }
-                AggregateTarget::Analysis => self.version.completeness(),
-            },
+            self.version.completeness(),
             cancelled,
         )
         .map_err(|error| {
