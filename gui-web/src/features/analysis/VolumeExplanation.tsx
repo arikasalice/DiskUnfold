@@ -8,9 +8,10 @@ import {
   SelectField,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
-import { useTimestampText } from "../../i18n/regional-format";
 import { AnalysisError } from "../../ipc";
 import type { AnalysisClient, OsPath, VolumeGapResponse } from "../../ipc";
+import { createReflectCadence } from "../../state/result-cadence";
+import type { ReflectCadence } from "../../state/result-cadence";
 import {
   displayMeasurement,
   displaySizeWithBytes,
@@ -25,8 +26,14 @@ import {
   volumeBytes,
 } from "./volume-format";
 import type { Message } from "./volume-format";
-import { useDialogResult } from "./use-dialog-result";
-import { DialogUpdateStatus } from "./DialogUpdateStatus";
+import { useHeldValue } from "./use-selection-hold";
+
+/**
+ * The shortest spacing between two reads of the whole-volume comparison
+ * while it stays open (F02 design review of PR #69, item 1). The comparison
+ * is read on its own, so it follows the summary at half its pace.
+ */
+export const VOLUME_COMPARE_REREAD_MS = 2000;
 
 type Target = { root: number } | { volumeId: string };
 
@@ -34,60 +41,58 @@ function isWholeVolume(target: Target | undefined): boolean {
   return target !== undefined && "volumeId" in target;
 }
 
+/** What was read for one target from one result version. */
 type Outcome = {
-  key: string;
+  target: string;
+  version: string;
   response?: VolumeGapResponse;
-  published?: string | undefined;
   problem?: Message;
 };
 
-/** Reads the result's publication time; a failure leaves it unknown. */
-function readPublished(
-  client: AnalysisClient,
-  resultVersion: string,
-  itemNo: number,
-): Promise<string | undefined> {
-  return client
-    .call("browse.detail", {
-      resultVersion,
-      item: { resultVersion, itemNo },
-    })
-    .then(({ observedAt }) =>
-      observedAt.state === "present" ? observedAt.value : undefined,
-    )
-    .catch(() => undefined);
-}
-
 /**
- * Reads the explanation of `target` from `version` and its publication time.
- * A read refused because the result was replaced is reported to `stale`.
+ * Keeps the explanation of `target` on `version`, the result the summary
+ * shows.
+ *
+ * Reads never overlap: a version that arrives while a read is in flight is
+ * read when that read ends, and only the newest one is read. While a newer
+ * read is in flight the previous explanation stays in place, so the section
+ * keeps its height and expanded parts. The whole-volume comparison is read
+ * at most once per `VOLUME_COMPARE_REREAD_MS`. A reread refused because the
+ * result was replaced keeps what is shown until the summary moves on.
  */
 function useVolumeReport(
   client: AnalysisClient,
-  version: string | undefined,
+  version: string,
   target: Target | undefined,
-  rootIndex: number,
-  stale: (version: string) => void,
 ) {
   const [outcome, setOutcome] = useState<Outcome>();
+  const [reading, setReading] = useState(false);
+  const [wake, setWake] = useState(0);
   const sequence = useRef(0);
-  const key =
-    target && version !== undefined
-      ? JSON.stringify([version, target])
-      : undefined;
+  const refusedAt = useRef<string>(undefined);
+  const pace = useRef<ReflectCadence>(undefined);
+  const key = target && JSON.stringify(target);
+  const current = outcome && outcome.target === key ? outcome : undefined;
+  useEffect(() => () => pace.current?.dispose(), []);
   useEffect(() => {
-    if (key === undefined || !target || version === undefined) return;
-    let active = true;
+    if (!target || key === undefined || reading) return;
+    const shown = current !== undefined;
+    if (current?.version === version) return;
+    if (shown && refusedAt.current === version) return;
+    if (isWholeVolume(target)) {
+      pace.current ??= createReflectCadence(VOLUME_COMPARE_REREAD_MS);
+      if (shown && pace.current.remaining() > 0) {
+        pace.current.defer(() => setWake((count) => count + 1));
+        return;
+      }
+      pace.current.mark();
+    }
     const requestSeq = ++sequence.current;
     const selection =
       "root" in target
         ? { root: { resultVersion: version, itemNo: target.root } }
         : { volumeId: target.volumeId };
-    const published = readPublished(
-      client,
-      version,
-      "root" in target ? target.root : rootIndex,
-    );
+    setReading(true);
     client
       .call("space.volume_gap", {
         resultVersion: version,
@@ -95,93 +100,91 @@ function useVolumeReport(
         target: selection,
       })
       .then(
-        async (response) => {
-          const publishedAt = await published;
-          if (!active) return;
+        (response) => {
           setOutcome(
             response.resultVersion !== version ||
               response.requestSeq !== requestSeq
               ? {
-                  key,
+                  target: key,
+                  version,
                   problem: [
                     "ui.analysis.volume_response_mismatch",
                     "The response does not match this scan result.",
                   ],
                 }
-              : { key, response, published: publishedAt },
+              : { target: key, version, response },
           );
         },
         (failure: unknown) => {
-          if (!active) return;
-          setOutcome({ key, problem: lookupProblem(failure) });
           if (
+            shown &&
             failure instanceof AnalysisError &&
             failure.code === "STALE_VERSION"
-          )
-            stale(version);
+          ) {
+            refusedAt.current = version;
+            return;
+          }
+          setOutcome({ target: key, version, problem: lookupProblem(failure) });
         },
-      );
-    return () => {
-      active = false;
-    };
-    // The key names the version and target; the rest only describes them.
-  }, [key]);
-  const current = outcome && outcome.key === key ? outcome : undefined;
-  return { current, pending: key !== undefined && current === undefined };
-}
-
-function publishedRow(
-  outcome: Outcome | undefined,
-  text: ReturnType<typeof useLocaleText>,
-  timestamp: ReturnType<typeof useTimestampText>,
-) {
-  const published = outcome?.published;
+      )
+      .finally(() => setReading(false));
+    // The key names the target; the client and target are read with it.
+  }, [key, version, current, reading, wake]);
   return {
-    label: text("ui.inspection.published", "Result published"),
-    value: published
-      ? timestamp(Date.parse(published), () => published)
-      : text("ui.analysis.volume_time_unavailable", "Time unavailable"),
+    current,
+    pending: key !== undefined && current === undefined,
+    /** Forgets what was read so the next open reads again. */
+    reset: () => setOutcome(undefined),
   };
 }
 
 /**
- * Explains volume usage for one result, like a dialog: it keeps what it read
- * when it opened and shows when that result was published. Comparing all
- * folders on the volume reads the newest result again when the opened one
- * has been replaced, and says so once. `resultVersion` is the newest result
- * known for the scan.
+ * Returns what to show for `current`: while `hold` is on, what was shown
+ * when it began. Closing or changing the target is never held back.
+ */
+function useShownReport(current: Outcome | undefined, hold: boolean) {
+  const held = useHeldValue(current, hold);
+  const shown = held && held.target === current?.target ? held : current;
+  return { report: shown?.response, problem: shown?.problem };
+}
+
+/**
+ * Explains volume usage as an expanded part of the summary.
+ *
+ * `resultVersion` is the result the summary shows. While open, the
+ * explanation follows it, so the summary never shows values from two results
+ * one above the other; the summary already paces its versions and holds them
+ * while text is selected. `hold` is that selection hold: an explanation
+ * read while it is on is shown once the hold ends.
  */
 export function VolumeExplanation({
   client,
   resultVersion,
   roots,
   display,
+  hold = false,
 }: {
   client: AnalysisClient;
   resultVersion: string;
   roots: readonly OsPath[];
   display: SizeDisplay;
+  hold?: boolean;
 }) {
   const text = useLocaleText();
-  const timestamp = useTimestampText();
-  const dialog = useDialogResult(resultVersion);
   const [root, setRoot] = useState("0");
   const [target, setTarget] = useState<Target>();
   const rootIndex = Number(root);
-  const { current, pending } = useVolumeReport(
+  const { current, pending, reset } = useVolumeReport(
     client,
-    dialog.version,
+    resultVersion,
     target,
-    rootIndex,
-    dialog.stale,
   );
-  const report = current?.response;
-  const problem = current?.problem;
+  const { report, problem } = useShownReport(current, hold);
   const wholeVolume = isWholeVolume(target);
 
   function close() {
     setTarget(undefined);
-    dialog.close();
+    reset();
   }
 
   if (roots.length === 0) return null;
@@ -212,8 +215,8 @@ export function VolumeExplanation({
           if (report) {
             close();
           } else {
+            reset();
             setTarget({ root: rootIndex });
-            dialog.open();
           }
         }}
       >
@@ -230,13 +233,11 @@ export function VolumeExplanation({
         />
       )}
       {problem && <Notice tone="error">{text(...problem)}</Notice>}
-      <DialogUpdateStatus updated={dialog.updated && report !== undefined} />
       {report && (
         <>
           <Readout
             label={text("ui.analysis.volume_summary", "Volume usage summary")}
             rows={[
-              publishedRow(current, text, timestamp),
               {
                 label: text(
                   "ui.analysis.volume_compared_scope",
@@ -389,7 +390,6 @@ export function VolumeExplanation({
               onPress={() => {
                 if (!report.volumeId) return;
                 setTarget({ volumeId: report.volumeId });
-                dialog.advance();
               }}
             >
               {text(

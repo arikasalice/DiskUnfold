@@ -95,6 +95,7 @@ export function ScanOutput({
             client={client}
             total={total}
             latestVersion={scan.currentVersion ?? total.resultVersion}
+            holding={holding}
             roots={roots}
             preferences={preferences}
             displayChoice={displayChoice}

@@ -74,13 +74,15 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
 /**
  * Displays the given totals in place. A newer `total` changes the values
  * without remounting the parts around them, so expanded sections, focus and
- * open dialogs stay as they are. Dialogs open on `latestVersion`, the newest
- * result known for the scan.
+ * open dialogs stay as they are. Expanded parts follow `total`; dialogs open
+ * on `latestVersion`, the newest result known for the scan. `holding` is
+ * on while the user selects text in the summary.
  */
 export function PinnedResult({
   client,
   total,
   latestVersion,
+  holding = false,
   roots,
   preferences,
   displayChoice,
@@ -91,6 +93,7 @@ export function PinnedResult({
   client: AnalysisClient;
   total: SpaceTotal;
   latestVersion: string;
+  holding?: boolean;
   roots: readonly OsPath[];
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
@@ -194,9 +197,10 @@ export function PinnedResult({
       </DetailDisclosure>
       <VolumeExplanation
         client={client}
-        resultVersion={latestVersion}
+        resultVersion={total.resultVersion}
         roots={roots}
         display={display}
+        hold={holding}
       />
       <ScanIssues
         client={client}

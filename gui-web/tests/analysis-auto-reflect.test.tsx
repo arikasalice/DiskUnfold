@@ -10,7 +10,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
-import { VolumeExplanation } from "../src/features/analysis/VolumeExplanation";
+import {
+  VOLUME_COMPARE_REREAD_MS,
+  VolumeExplanation,
+} from "../src/features/analysis/VolumeExplanation";
 import { AnalysisError, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
@@ -201,6 +204,11 @@ function liveScan() {
         case "browse.copy_path":
           current(body.resultVersion);
           return { outcome: "copied", count: 1 };
+        case "space.volume_gap": {
+          current(body.resultVersion);
+          const { requestSeq } = body as unknown as { requestSeq: number };
+          return { ...volumeReport(job.version), requestSeq };
+        }
         default:
           throw new Error("Unexpected " + name);
       }
@@ -533,23 +541,26 @@ function volumeReport(version: string): VolumeGapResponse {
   };
 }
 
-test("F02 FR3.HD1.gui-web.DD1: the volume explanation keeps its result and rereads the newest one to compare the whole volume", async () => {
-  const requests: VolumeGapRequest[] = [];
-  const details: string[] = [];
+function volumeClient() {
+  const requests: { version: string; at: number; volume: boolean }[] = [];
+  const replies: (() => void)[] = [];
   const client = {
-    call: (async (name: string, body: never) => {
-      if (name === "browse.detail") {
-        const { resultVersion } = body as { resultVersion: string };
-        details.push(resultVersion);
-        return folderDetail(resultVersion);
-      }
+    call: ((name: string, body: never) => {
       if (name !== "space.volume_gap") throw new Error("Unexpected " + name);
       const request = body as VolumeGapRequest;
-      requests.push(request);
-      return {
-        ...volumeReport(request.resultVersion),
-        requestSeq: request.requestSeq,
-      };
+      requests.push({
+        version: request.resultVersion,
+        at: Date.now(),
+        volume: request.target.volumeId != null,
+      });
+      return new Promise<VolumeGapResponse>((resolve) =>
+        replies.push(() =>
+          resolve({
+            ...volumeReport(request.resultVersion),
+            requestSeq: request.requestSeq,
+          }),
+        ),
+      );
     }) as AnalysisClient["call"],
     subscribe: () => () => {},
   } satisfies AnalysisClient;
@@ -558,38 +569,145 @@ test("F02 FR3.HD1.gui-web.DD1: the volume explanation keeps its result and rerea
     roots: [windowsPath("C:\\one"), windowsPath("C:\\two")],
     display: { system: "iec", unit: "auto" } as const,
   };
-  const view = render(<VolumeExplanation {...props} resultVersion="v1" />);
+  return { props, requests, replies };
+}
+
+const reading = () =>
+  screen.queryByRole("progressbar", { name: "Reading volume observations" });
+
+test("F02 FR3.HD1.gui-web.DD1: the open volume explanation changes with the summary and keeps its expanded part and focus", async () => {
+  const scan = await startPanel();
   fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
   const summary = within(await screen.findByLabelText("Volume usage summary"));
-  expect(summary.getByText("Result published")).toBeDefined();
-  expect(summary.getByText(/100 bytes/)).toBeDefined();
+  expect(summary.getByText(/^100 bytes/)).toBeDefined();
+  expect(screen.queryByText("Result published")).toBeNull();
+  const details = screen.getByRole("button", {
+    name: "Observation and difference details",
+  });
+  fireEvent.click(details);
+  details.focus();
 
+  passReflectInterval();
+  scan.publish("v2");
+  await waitFor(() => expect(summary.getByText(/^200 bytes/)).toBeDefined());
+  expect(logical().getByText("200 bytes")).toBeDefined();
+  expect(
+    screen.getByRole("button", { name: "Observation and difference details" }),
+  ).toBe(details);
+  expect(details.getAttribute("aria-expanded")).toBe("true");
+  expect(document.activeElement).toBe(details);
+  expect(
+    screen.getByRole("button", { name: "Hide volume explanation" }),
+  ).toBeDefined();
+  // No publication time of its own, and no read beyond the explanation.
+  expect(screen.queryByText("Result published")).toBeNull();
+  expect(screen.queryByText("Updated to the latest result")).toBeNull();
+  expect(scan.reads("space.volume_gap")).toEqual(["v1", "v2"]);
+  expect(scan.reads("browse.detail")).toEqual([]);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: selecting text holds the volume explanation with the rest of the summary", async () => {
+  const scan = await startPanel();
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  const summary = within(await screen.findByLabelText("Volume usage summary"));
+  select(summary.getByText(/^100 bytes/));
+  passReflectInterval();
+  scan.publish("v2");
+  await waitFor(() => expect(scan.reads("space.total")).toEqual(["v1", "v2"]));
+  await act(async () => {});
+  expect(summary.getByText(/^100 bytes/)).toBeDefined();
+  expect(logical().getByText("100 bytes")).toBeDefined();
+  expect(scan.reads("space.volume_gap")).toEqual(["v1"]);
+
+  clearSelection();
+  await waitFor(() => expect(summary.getByText(/^200 bytes/)).toBeDefined());
+  expect(logical().getByText("200 bytes")).toBeDefined();
+});
+
+test("F02 FR3.HD1.gui-web.DD1: the volume explanation never overlaps its reads and keeps its content while it reads the newest result", async () => {
+  const { props, requests, replies } = volumeClient();
+  const view = render(<VolumeExplanation {...props} resultVersion="v1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
   view.rerender(<VolumeExplanation {...props} resultVersion="v2" />);
-  expect(summary.getByText(/100 bytes/)).toBeDefined();
-  expect(requests.map(({ resultVersion }) => resultVersion)).toEqual(["v1"]);
+  view.rerender(<VolumeExplanation {...props} resultVersion="v3" />);
+  expect(requests.map(({ version }) => version)).toEqual(["v1"]);
 
+  await act(async () => replies.shift()!());
+  const section = screen.getByLabelText("Volume usage summary");
+  expect(within(section).getByText(/^100 bytes/)).toBeDefined();
+  // The versions that arrived meanwhile lead to one read of the newest.
+  expect(requests.map(({ version }) => version)).toEqual(["v1", "v3"]);
+  expect(reading()).toBeNull();
+
+  await act(async () => replies.shift()!());
+  expect(screen.getByLabelText("Volume usage summary")).toBe(section);
+  expect(within(section).getByText(/^300 bytes/)).toBeDefined();
+  expect(requests).toHaveLength(2);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: an open whole-volume comparison rereads a newer result at most every two seconds and keeps its content meanwhile", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const { props, requests, replies } = volumeClient();
+  const settle = async (ms = 0) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  };
+  const answer = async () => {
+    await act(async () => {
+      replies.shift()!();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+  const view = render(<VolumeExplanation {...props} resultVersion="v1" />);
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  await answer();
   fireEvent.click(
     screen.getByRole("button", {
       name: "Compare all scanned folders on this volume",
     }),
   );
-  await screen.findByText("Updated to the latest result");
+  await answer();
+  const section = screen.getByLabelText("Volume usage summary");
+  const compared = within(section);
   expect(
-    within(screen.getByLabelText("Volume usage summary")).getByText(
-      /200 bytes/,
-    ),
+    compared.getByText("All scanned folders on this volume"),
   ).toBeDefined();
-  expect(requests.at(-1)).toMatchObject({
-    resultVersion: "v2",
-    target: { volumeId: "AQ" },
-  });
-  expect(details).toEqual(["v1", "v2"]);
+  expect(compared.getByText(/^100 bytes/)).toBeDefined();
+  const volumeReads = () => requests.filter(({ volume }) => volume);
+  expect(volumeReads().map(({ version }) => version)).toEqual(["v1"]);
 
-  fireEvent.click(
-    screen.getByRole("button", { name: "Hide volume explanation" }),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
-  await screen.findByLabelText("Volume usage summary");
-  expect(screen.queryByText("Updated to the latest result")).toBeNull();
-  expect(requests.at(-1)).toMatchObject({ resultVersion: "v2" });
+  view.rerender(<VolumeExplanation {...props} resultVersion="v2" />);
+  await settle(500);
+  expect(volumeReads()).toHaveLength(1);
+  expect(compared.getByText(/^100 bytes/)).toBeDefined();
+
+  await settle(VOLUME_COMPARE_REREAD_MS - 500);
+  expect(volumeReads().map(({ version }) => version)).toEqual(["v1", "v2"]);
+  // While the newer comparison is read the shown one stays in place.
+  expect(screen.getByLabelText("Volume usage summary")).toBe(section);
+  expect(compared.getByText(/^100 bytes/)).toBeDefined();
+  expect(reading()).toBeNull();
+  await answer();
+  expect(compared.getByText(/^200 bytes/)).toBeDefined();
+
+  view.rerender(<VolumeExplanation {...props} resultVersion="v3" />);
+  await settle(300);
+  view.rerender(<VolumeExplanation {...props} resultVersion="v4" />);
+  await settle(VOLUME_COMPARE_REREAD_MS);
+  expect(volumeReads().map(({ version }) => version)).toEqual([
+    "v1",
+    "v2",
+    "v4",
+  ]);
+  await answer();
+  expect(compared.getByText(/^400 bytes/)).toBeDefined();
+  expect(
+    compared.getByText("All scanned folders on this volume"),
+  ).toBeDefined();
+  const times = volumeReads().map(({ at }) => at);
+  for (let index = 1; index < times.length; index += 1)
+    expect(times[index]! - times[index - 1]!).toBeGreaterThanOrEqual(
+      VOLUME_COMPARE_REREAD_MS,
+    );
 });

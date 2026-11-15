@@ -14,15 +14,6 @@ import type { CallEnvelope, VolumeGapResponse } from "../src/ipc";
 
 afterEach(cleanup);
 
-/** Counts volume reads; the explanation also reads its result's publication time. */
-function volumeReads(transport: { mock: { calls: unknown[][] } }) {
-  return transport.mock.calls.filter(
-    ([, request]) =>
-      (request as { envelope: CallEnvelope }).envelope.name ===
-      "space.volume_gap",
-  ).length;
-}
-
 const englishText: LocaleText = (_key, fallback) => fallback;
 const localizedText: LocaleText = (key, fallback) =>
   key === "ui.analysis.volume_stale_result"
@@ -63,7 +54,7 @@ test("volume problems use the active locale after the request finishes", async (
       "Abre el resultado más reciente para explicar el uso del volumen.",
     ),
   ).toBeTruthy();
-  expect(volumeReads(transport)).toBe(1);
+  expect(transport).toHaveBeenCalledTimes(1);
 });
 
 test.each([
@@ -89,7 +80,7 @@ test.each([
       screen.getByRole("button", { name: "Explain volume usage" }),
     );
     expect(await screen.findByText(message)).toBeTruthy();
-    expect(volumeReads(transport)).toBe(1);
+    expect(transport).toHaveBeenCalledTimes(1);
     expect(transport).toHaveBeenCalledWith(
       "du_call",
       expect.objectContaining({
@@ -196,6 +187,6 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   expect(observations.getByText("2,500 bytes")).toBeTruthy();
   expect(differences.getByText("2,500 bytes · Estimated")).toBeTruthy();
   expect(differences.getByText("Unavailable")).toBeTruthy();
-  expect(volumeReads(transport)).toBe(1);
+  expect(transport).toHaveBeenCalledTimes(1);
   expect(report.start.totalBytes).toBe("7500");
 });
