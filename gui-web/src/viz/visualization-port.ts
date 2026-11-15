@@ -1,13 +1,37 @@
 import type {
   AnalysisClient,
+  AnalysisJobStatus,
   VizAvailabilityRequest,
   VizAvailabilityResponse,
+  VizCancelRequest,
+  VizCancelResponse,
   VizCatalog,
   VizGroupRows,
   VizGroupRowsRequest,
+  VizRenderRequest,
+  VizRenderResponse,
+  VizRows,
+  VizRowsRequest,
   VizViewChannel,
-} from "../../ipc";
-import type { VisualizationController, VisualizationPort } from "./controller";
+} from "../ipc";
+import type { ModelResponse } from "./model-adapter";
+
+/** Transport calls and the renderer capability check that one visualization view needs. */
+export type VisualizationPort = {
+  render(request: VizRenderRequest): Promise<VizRenderResponse>;
+  cancel(request: VizCancelRequest): Promise<VizCancelResponse>;
+  rows(request: VizRowsRequest): Promise<VizRows>;
+  /** True only when the whole model is supported by the chosen renderer. */
+  canDisplay(frame: ModelResponse): boolean;
+};
+
+/** The part of a view controller that the job observer reads and drives. */
+export type JobObserverTarget = {
+  getSnapshot(): { phase: string; job: { jobRef: string } | null };
+  subscribe(listener: () => void): () => void;
+  completeJob(status: AnalysisJobStatus): Promise<void>;
+  recheckVisibleModels(alive: () => boolean): Promise<void>;
+};
 
 /** Typed client adapter. The host must register the published commands first. */
 export function createVisualizationPort(
@@ -40,7 +64,7 @@ export function createVisualizationPort(
 
 /** Re-reads F24 status after events and polls so a lost event cannot strand the view. */
 export function observeVisualizationJob(
-  controller: VisualizationController,
+  controller: JobObserverTarget,
   client: AnalysisClient,
 ): () => void {
   let closed = false;

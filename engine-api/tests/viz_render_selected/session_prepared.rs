@@ -132,7 +132,30 @@ fn session_candidate_rejects_other_owner_cancel_and_replacement() -> Result<(), 
 #[test]
 fn session_fallback_commit_is_success_and_rows_match_sync() -> Result<(), String> {
     let sink = IngestSink::default();
-    publish_sizes(&sink, id(2), id(3), [25, 25])?;
+    let lineage = sink
+        .bind_current_analysis("scope", id(1))
+        .map_err(|e| format!("{e:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut scan = sink
+        .open_forest_in_lineage(id(2), vec![root], lineage)
+        .map_err(|e| format!("{e:?}"))?;
+    scan.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    // Files without a size cannot be attributed, so only the table remains.
+    for name in [b"a", b"b"] {
+        scan.add_file(Observation {
+            path: vec![name.to_vec()],
+            size: None,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    }
+    scan.publish_partial(id(3)).map_err(|e| format!("{e:?}"))?;
     let session = Arc::new(Session::new(
         sink,
         NonZeroUsize::MIN,
@@ -145,16 +168,12 @@ fn session_fallback_commit_is_success_and_rows_match_sync() -> Result<(), String
     };
     let evidence = |_: &du_engine_api::current_analysis::CurrentAnalysis,
                     item: &du_core_contracts::result::ResultItem,
-                    _: &mut dyn FnMut() -> bool| {
-        let mut value = policy(item);
-        value.path_compare_key = None;
-        Ok(value)
-    };
+                    _: &mut dyn FnMut() -> bool| { Ok(policy(item)) };
     let candidate = session
         .prepare_selected(request(&parent, 1000), evidence, &mut || false)
         .map_err(|e| format!("{e:?}"))?;
     let CommittedRender::Fallback {
-        reason: FallbackReason::OrderingUnavailable,
+        reason: FallbackReason::NoAttribution,
         fallback,
     } = session
         .commit_prepared(candidate, &mut || false)
@@ -163,7 +182,7 @@ fn session_fallback_commit_is_success_and_rows_match_sync() -> Result<(), String
         return Err("expected fallback".into());
     };
     let sync = match session.render_selected(request(&parent, 1000), evidence, &mut || false) {
-        Err(Error::OrderingUnavailable(value)) => value,
+        Err(Error::NoAttribution(value)) => value,
         _ => return Err("expected sync fallback".into()),
     };
     assert_eq!(fallback, sync);

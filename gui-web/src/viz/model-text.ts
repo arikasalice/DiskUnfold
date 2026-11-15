@@ -1,12 +1,12 @@
 import type { VisualizationMessageKey } from "./messages";
-import { interpolate } from "../../i18n/presentation";
+import { interpolate } from "../i18n/presentation";
 import type {
   SizeValue,
   VizModel,
   VizQuantity,
   VizRow,
   VizShape,
-} from "../../ipc";
+} from "../ipc";
 
 /** Localization belongs to the caller; unknown keys must retain a visible limit. */
 export type VizText = {

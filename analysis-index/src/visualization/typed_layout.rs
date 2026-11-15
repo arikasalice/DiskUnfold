@@ -30,17 +30,12 @@ use du_core_contracts::{
 #[derive(Clone, Debug)]
 pub struct NumericRow {
     item: ItemRef,
-    path_compare_key: Option<Vec<u8>>,
     value: SizeValue,
     bytes: u64,
 }
 impl NumericRow {
     pub fn item(&self) -> &ItemRef {
         &self.item
-    }
-    /// The pinned comparison key, when available for this row.
-    pub fn path_compare_key(&self) -> Option<&[u8]> {
-        self.path_compare_key.as_deref()
     }
     pub fn value(&self) -> &SizeValue {
         &self.value
@@ -57,15 +52,14 @@ pub struct Input {
     bounds: Rect,
 }
 impl Input {
-    /// Validates attribution and keeps the original source values and keys.
+    /// Validates attribution and keeps the original source values.
     pub fn admit(
         version: &ResultVersion,
         parent: &ItemRef,
         basis: SizeBasis,
         bounds: Rect,
-        keys: &[treemap::ChildKey],
     ) -> Result<Self, treemap::AdmissionError> {
-        Self::admit_cancellable(version, parent, basis, bounds, keys, &mut || false)
+        Self::admit_cancellable(version, parent, basis, bounds, &mut || false)
     }
     /// Admits rows without layout, checking cancellation throughout traversal.
     pub fn admit_cancellable(
@@ -73,7 +67,6 @@ impl Input {
         parent: &ItemRef,
         basis: SizeBasis,
         bounds: Rect,
-        keys: &[treemap::ChildKey],
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Self, treemap::AdmissionError> {
         if cancelled() {
@@ -85,7 +78,7 @@ impl Input {
                 squarify::LayoutError::InvalidBounds,
             ));
         }
-        let admitted = treemap::admit_cancellable(version, parent, basis, keys, cancelled)?;
+        let admitted = treemap::admit_cancellable(version, parent, basis, cancelled)?;
         let mut rows = Vec::with_capacity(admitted.rows.len());
         for row in admitted.rows {
             if cancelled() {
@@ -93,7 +86,6 @@ impl Input {
             }
             rows.push(NumericRow {
                 item: row.child.item,
-                path_compare_key: row.key,
                 value: row.child.value,
                 bytes: row.bytes,
             });

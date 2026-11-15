@@ -1,6 +1,6 @@
 import { createChartRenderers } from "../src/components";
 import type { GeometryRendererProps } from "../src/components";
-import { visualizationMessage } from "../src/features/visualization/messages";
+import { visualizationMessage } from "../src/viz";
 import {
   act,
   cleanup,

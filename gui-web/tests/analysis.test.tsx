@@ -20,7 +20,7 @@ import { AnalysisError, createAnalysisClient, windowsPath } from "../src/ipc";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
-import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
+import type { VisualizationViewRequest } from "../src/viz";
 import { RESULT_REFLECT_INTERVAL_MS } from "../src/state/result-cadence";
 import type {
   AnalysisClient,

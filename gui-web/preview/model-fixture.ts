@@ -1,12 +1,9 @@
 import type { SizeValue, VizQuantity, VizShape } from "../src/ipc";
-import { visualizationMessage } from "../src/features/visualization/messages";
+import { visualizationMessage } from "../src/viz";
 import { SIZE_UNIT_RULES } from "../src/ipc";
 import { formatByteUnit } from "../src/i18n/bytes";
-import type {
-  ModelResponse,
-  ModelRowsPage,
-} from "../src/features/visualization/model-adapter";
-import type { VizText } from "../src/features/visualization/model-text";
+import type { ModelResponse, ModelRowsPage } from "../src/viz";
+import type { VizText } from "../src/viz";
 import { fixtures } from "./surface-fixtures";
 
 const revision = "018f0000-0000-7000-8000-000000000001";
