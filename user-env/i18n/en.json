@@ -678,7 +678,7 @@
     ["ui.browse.folders_and_files","Folders and files",[]],
     ["ui.browse.full_location_observation","Full folder location and observation",[]],
     ["ui.browse.incomplete","Incomplete",[]],
-    ["ui.browse.inspect","Inspect",[]],
+    ["ui.browse.inspect","View details",[]],
     ["ui.browse.analyze_first","Analyze first",[]],
     ["ui.browse.priority_requested","Analyze first requested",[]],
     ["ui.browse.priority_analyzing","Analyzing first",[]],

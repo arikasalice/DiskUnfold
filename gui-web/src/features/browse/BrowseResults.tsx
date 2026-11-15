@@ -458,7 +458,7 @@ export function BrowseResults({
                 ? [
                     {
                       id: "inspect",
-                      label: text("ui.browse.inspect", "Inspect"),
+                      label: text("ui.browse.inspect", "View details"),
                       onAction: (trigger: HTMLElement | null) =>
                         openItem(row, trigger),
                       ...(busy
