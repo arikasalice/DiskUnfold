@@ -30,10 +30,12 @@ pub(super) fn histogram_facts(table: &'static UnitTable) -> HistogramFacts {
     HistogramFacts {
         unit_table: table,
         unit_table_revision: du_core_contracts::size_units::UNIT_TABLE_REVISION,
-        bins: (0..symbols.len())
-            .map(|index| BinPresentation {
+        bins: symbols
+            .iter()
+            .enumerate()
+            .map(|(index, symbol)| BinPresentation {
                 group_ref: format!("{}{index}", policy::GROUP_BIN_REF_PREFIX),
-                display_name: interval_name(symbols, index),
+                display_name: interval_name(index, symbol, symbols.get(index + 1).copied()),
                 legend_class_key: policy::LEGEND_CLASS_UNCLASSIFIED.to_owned(),
                 display_flags: Vec::new(),
             })
@@ -42,14 +44,15 @@ pub(super) fn histogram_facts(table: &'static UnitTable) -> HistogramFacts {
     }
 }
 
-/// Name of the interval that starts at unit `index` (the first starts at zero).
-fn interval_name(symbols: &[&str], index: usize) -> String {
-    let lower = match (index, symbols.get(index)) {
-        (0, Some(symbol)) => format!("0 {symbol}"),
-        (_, Some(symbol)) => format!("1 {symbol}"),
-        (_, None) => String::new(),
+/// Name of the interval that starts at unit `symbol` (the first starts at zero) and
+/// ends where the next unit `next` starts; the last interval has no end.
+fn interval_name(index: usize, symbol: &str, next: Option<&str>) -> String {
+    let lower = if index == 0 {
+        format!("0 {symbol}")
+    } else {
+        format!("1 {symbol}")
     };
-    match symbols.get(index + 1) {
+    match next {
         Some(next) => format!("{lower}\u{2013}1 {next}"),
         None => format!("\u{2265} {lower}"),
     }
