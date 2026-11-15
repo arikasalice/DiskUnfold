@@ -238,6 +238,28 @@ fn unavailable_format_list_is_recomputed_from_the_same_pinned_facts() {
     );
 }
 
+#[test]
+fn the_five_published_unavailable_reason_keys_keep_their_spelling() {
+    let keys = [
+        Reason::NoBaseline,
+        Reason::SingleObservation,
+        Reason::NoAttribution,
+        Reason::NoItemSizes,
+        Reason::NegativeFlow,
+    ]
+    .map(Reason::key);
+    assert_eq!(
+        keys,
+        [
+            "viz.unavailable.no_baseline",
+            "viz.unavailable.single_observation",
+            "viz.unavailable.no_attribution",
+            "viz.unavailable.no_item_sizes",
+            "viz.unavailable.negative_flow",
+        ]
+    );
+}
+
 fn expected_reason_key(reason: Reason) -> &'static str {
     match reason {
         Reason::NoBaseline => "viz.unavailable.no_baseline",

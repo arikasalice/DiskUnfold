@@ -5,14 +5,12 @@
 //! `GroupRulesStore` port, called by the engine use case.
 use std::collections::BTreeSet;
 
-use du_core_contracts::Id;
+use du_core_contracts::{Id, group_ipc::GROUP_CONDITION_MODEL_VERSION};
 
 use crate::query::{self, Condition, Predicate, Registry};
 
 /// Version of the stored ruleset layout covered by the fingerprint.
 pub const RULESET_FORMAT_VERSION: u32 = 1;
-/// Revision of the F04 condition model used by stored conditions.
-pub const CONDITION_MODEL_VERSION: u32 = 1;
 const DOMAIN: &[u8] = b"diskunfold.group.ruleset.v1\0";
 
 /// Provisional review limits (F36 DLD Q3), kept in one place until measured.
@@ -250,6 +248,10 @@ fn collect(condition: &Condition, found: &mut BTreeSet<(String, u32)>) {
 /// BLAKE3 digest of the format version and, in display order, each rule's
 /// name, canonical condition bytes, condition model version and predicates.
 /// Group IDs are excluded so that identical content has the same fingerprint.
+///
+/// The condition model version is the one stored with every rule
+/// (`GROUP_CONDITION_MODEL_VERSION`); the hash layout itself is versioned by the
+/// domain tag and `RULESET_FORMAT_VERSION`.
 pub fn fingerprint(rules: &[Rule]) -> [u8; 32] {
     let mut hash = blake3::Hasher::new();
     hash.update(DOMAIN);
@@ -261,7 +263,7 @@ pub fn fingerprint(rules: &[Rule]) -> [u8; 32] {
             &mut hash,
             &canonical_bytes(&rule.condition.clone().normalize()),
         );
-        hash.update(&CONDITION_MODEL_VERSION.to_le_bytes());
+        hash.update(&GROUP_CONDITION_MODEL_VERSION.to_le_bytes());
         hash.update(&(rule.predicates.len() as u64).to_le_bytes());
         for (id, revision) in &rule.predicates {
             field(&mut hash, id.as_bytes());
