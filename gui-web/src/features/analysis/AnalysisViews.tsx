@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import { Notice, Readout, Text } from "../../components";
@@ -36,7 +36,6 @@ export function ScanOutput({
   started,
   running,
   problem,
-  statusFocus,
   roots,
   actions,
 }: {
@@ -50,7 +49,6 @@ export function ScanOutput({
   started: boolean;
   running: boolean;
   problem: string | undefined;
-  statusFocus: Ref<HTMLDivElement>;
   roots: readonly OsPath[];
   actions: ReactNode;
 }) {
@@ -76,7 +74,6 @@ export function ScanOutput({
         started={started}
         running={running}
         awaitingTotals={awaitingTotals}
-        statusFocus={statusFocus}
         actions={actions}
       />
       <section

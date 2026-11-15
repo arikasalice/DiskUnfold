@@ -50,7 +50,6 @@ export function ScanOutputHeader({
   started,
   running,
   awaitingTotals,
-  statusFocus,
   actions,
 }: {
   scan: ReturnType<typeof useScanResult>;
@@ -60,7 +59,6 @@ export function ScanOutputHeader({
   started: boolean;
   running: boolean;
   awaitingTotals: boolean;
-  statusFocus: Ref<HTMLDivElement>;
   actions: ReactNode;
 }) {
   const text = useLocaleText();
@@ -78,7 +76,6 @@ export function ScanOutputHeader({
           <ScanStatus
             state={scan.unavailable ? "unavailable" : scan.status?.state}
             pending={running ? scan.control : undefined}
-            focusTarget={statusFocus}
           />
         )}
       </div>
@@ -184,14 +181,16 @@ function progressText(progress: AnalysisJobProgress, text: LocaleText) {
   );
 }
 
+/**
+ * The scan state as a badge inside a status region, which announces each
+ * change once. The badge is not a focus stop: it cannot be pressed.
+ */
 function ScanStatus({
   state = "queued",
   pending,
-  focusTarget,
 }: {
   state: JobState | "unavailable" | undefined;
   pending: ScanControl | undefined;
-  focusTarget: Ref<HTMLDivElement>;
 }) {
   const text = useLocaleText();
   const labels: Record<JobState | "unavailable", string> = {
@@ -221,7 +220,7 @@ function ScanStatus({
           ? labels.pause_requested
           : labels[state];
   return (
-    <LiveStatus ref={focusTarget} focusTarget>
+    <LiveStatus>
       <StatusBadge tone={state === "done" ? "good" : "info"}>
         {statusText}
       </StatusBadge>

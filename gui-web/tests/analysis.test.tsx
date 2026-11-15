@@ -2716,15 +2716,18 @@ test.each(["keep focus", "move focus"] as const)(
       screen.queryByRole("progressbar", { name: "Scanning folder" }),
     ).toBeNull();
     expect(calls.filter(({ name }) => name === "job.cancel")).toHaveLength(1);
-    if (intent === "move focus") browse.focus();
+    const details = screen.getByRole("region", { name: "Result details" });
+    if (intent === "move focus") details.focus();
 
     state = "cancelled";
     sequence = 5;
     notifyResult(listeners, "job.resync_required", {});
-    const status = await screen.findByText("Scan cancelled");
+    await screen.findByText("Scan cancelled");
     expect(screen.queryByRole("button", { name: "Cancel scan" })).toBeNull();
+    // The removed control hands its focus to "Browse folders" in the same
+    // row; focus the user moved elsewhere stays there.
     expect(document.activeElement).toBe(
-      intent === "move focus" ? browse : status.closest('[role="status"]'),
+      intent === "move focus" ? details : browse,
     );
   },
 );
@@ -4534,9 +4537,15 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   if (!release) throw new Error("Scan did not start");
   await act(async () => release?.());
   await screen.findByText("At least 42 bytes");
+  // A started analysis leaves the focus on the screen title, not the badge.
   expect(document.activeElement).toBe(
-    screen.getByText("Scan ended with gaps").parentElement,
+    screen.getByRole("heading", { level: 2, name: "Disk space results" }),
   );
+  expect(
+    screen
+      .getByText("Scan ended with gaps")
+      .parentElement?.hasAttribute("tabindex"),
+  ).toBe(false);
   expect(screen.queryByRole("button", { name: "Start analysis" })).toBeNull();
 });
 
