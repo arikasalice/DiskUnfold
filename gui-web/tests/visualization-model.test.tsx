@@ -237,7 +237,9 @@ test("a valid empty model shows its state without inventing zero-area shapes", (
     />,
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
-  expect(screen.getByText(/No drawable items/)).toBeDefined();
+  expect(
+    screen.getByText("There are no items to draw in this scope"),
+  ).toBeDefined();
 });
 
 test("rows only expose Actions when this page has a group and an open handler", () => {

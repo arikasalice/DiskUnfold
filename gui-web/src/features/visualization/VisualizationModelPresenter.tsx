@@ -21,6 +21,7 @@ import { RowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
 import type { VizText } from "../../viz";
+import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
 
 const defaultChartRenderer = createChartRenderers([]);
@@ -117,9 +118,6 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       <div className="du-review-context">
         <ModelStatus frame={frame} text={text} />
       </div>
-      {frame.model.shapes.length === 0 && (
-        <Notice>{text.message("noDrawableItems")}</Notice>
-      )}
       <ChartRenderer
         modelRef={frame.model.modelRef}
         resultRevision={frame.resultRevision}
@@ -176,7 +174,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         fallback={{
           modelRef: frame.model.modelRef,
           resultRevision: frame.resultRevision,
-          content: rows,
+          content:
+            frame.model.shapes.length === 0 ? (
+              <EmptyResult frame={frame} text={text} />
+            ) : (
+              rows
+            ),
         }}
       />
       <ModelEvidence frame={frame} text={text} />

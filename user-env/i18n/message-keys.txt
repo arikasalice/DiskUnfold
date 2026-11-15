@@ -755,6 +755,9 @@ ui.visualization.denominatorParentFolder
 ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
+ui.visualization.emptyResultScopeTotal value:name
+ui.visualization.emptyResultTitle
+ui.visualization.emptyResultUnknownItems count:name
 ui.visualization.estimatedEvidence
 ui.visualization.evidenceCompleteness
 ui.visualization.evidenceFreshness
