@@ -779,8 +779,9 @@ ui.visualization.graphFallback
 ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
 ui.visualization.graphUpdated
-ui.visualization.group.other count:count
+ui.visualization.group.other
 ui.visualization.group.other_at_least count:count
+ui.visualization.group.other_count count:count
 ui.visualization.group.other_unknown
 ui.visualization.groupMeasurementContext
 ui.visualization.groupMembers
