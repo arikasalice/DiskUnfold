@@ -74,7 +74,7 @@ pub struct ResultVersion {
     aggregates: Vec<SpaceAggregate>,
     observation_ranges: Vec<observation_range::RangeIndices>,
     scope_observation_range: observation_range::RangeIndices,
-    physical: Option<Vec<Option<SpaceObservation>>>,
+    physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
     identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
     shared_table_limit: usize,
     roots: Vec<ResultScopeRoot>,
@@ -246,7 +246,7 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: Some(Box::new(space)),
+                physical: Some(Arc::new(space)),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,

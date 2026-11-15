@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 pub(crate) const IDENTITY_LIMIT: usize =
     du_core_contracts::settings::SharedTableLimit::DEFAULT_ENTRIES;
@@ -134,7 +135,7 @@ impl Physical {
         let observed = result
             .physical
             .as_ref()
-            .and_then(|values| values[index].as_ref());
+            .and_then(|values| values[index].as_deref());
         let root = result.roots.get(result.root_indices[index] as usize);
         let consistent = observed.is_none_or(|value| {
             value.identity.as_ref().is_none_or(|identity| {
@@ -375,7 +376,7 @@ fn amount(
 pub(crate) fn scope_total(
     items: &[ResultItem],
     structures: &[bool],
-    observations: Option<&[Option<SpaceObservation>]>,
+    observations: Option<&[Option<Arc<SpaceObservation>>]>,
     completeness: ResultCompleteness,
     limit: usize,
     output: &mut SpaceAggregate,
@@ -384,7 +385,7 @@ pub(crate) fn scope_total(
     for item in items {
         let index = item.item_no as usize;
         if !structures[index] {
-            let _ = sum.observe(observations.and_then(|values| values[index].as_ref()));
+            let _ = sum.observe(observations.and_then(|values| values[index].as_deref()));
         }
     }
     sum.finish(completeness, output);
@@ -422,7 +423,7 @@ pub(crate) fn selected_scope(
 pub(crate) fn apply(
     items: &[ResultItem],
     structures: &[bool],
-    observations: Option<&[Option<SpaceObservation>]>,
+    observations: Option<&[Option<Arc<SpaceObservation>>]>,
     completeness: ResultCompleteness,
     limit: usize,
     output: &mut [SpaceAggregate],
@@ -449,7 +450,7 @@ pub(crate) fn apply(
         if !structures[index] {
             let _ = sums[index]
                 .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
-                .observe(observations[index].as_ref());
+                .observe(observations[index].as_deref());
         }
         sums[index]
             .as_deref()
