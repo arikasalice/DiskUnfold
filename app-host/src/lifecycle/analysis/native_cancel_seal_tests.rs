@@ -4,6 +4,8 @@
 //! happens after `job.cancel` responds. It cannot observe calls between runtime flag-setting and
 //! that response.
 //! Filtered enumeration is not instrumented, and the test does not launch the GUI.
+//! Poll deadlines are checked between synchronous IPC calls and cannot interrupt an in-flight IPC
+//! call or operating-system adapter call.
 //! Follow-up completion tasks:
 //! - Observe the runtime flag transition and cover read starts through the `job.cancel` reply.
 //! - Instrument filtered enumeration and verify its read-start behavior independently.
@@ -34,6 +36,7 @@ use std::{
 type RelativePath = Vec<Vec<u8>>;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const GATE_TIMEOUT: Duration = Duration::from_secs(60);
+const JOB_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const WORKER_COUNT: usize = 4;
 const DIRECTORY_COUNT: usize = 16;
 const FILES_PER_DIRECTORY: usize = 4;
@@ -185,7 +188,9 @@ fn wait_for_terminal_before(
         if Instant::now() >= deadline {
             return Err(format!("scan did not reach a terminal state: {:?}", status.state).into());
         }
-        thread::yield_now();
+        thread::sleep(
+            JOB_STATUS_POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())),
+        );
     }
 }
 

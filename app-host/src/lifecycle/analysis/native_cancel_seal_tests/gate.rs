@@ -110,7 +110,7 @@ impl Probe {
 
     pub(super) fn wait_for_four_workers(&self) -> Result<(), String> {
         let state = self.state.lock().map_err(|_| "probe lock")?;
-        let (state, timeout) = self
+        let (state, _) = self
             .changed
             .wait_timeout_while(state, GATE_TIMEOUT, |state| {
                 !state.gate_released && active_workers(state).len() < WORKER_COUNT
@@ -118,7 +118,7 @@ impl Probe {
             .map_err(|_| "probe wait")?;
         let active = active_parked(&state);
         let workers = distinct_workers(&active);
-        if timeout.timed_out() || state.gate_released || workers.len() < WORKER_COUNT {
+        if !worker_barrier_is_ready(workers.len(), state.gate_released) {
             return Err(format!(
                 "four-worker evidence is insufficient: {} distinct workers remained actively parked at the barrier timeout or release",
                 workers.len(),
@@ -289,6 +289,10 @@ fn active_workers(state: &State) -> HashSet<ThreadId> {
     distinct_workers(&active_parked(state))
 }
 
+fn worker_barrier_is_ready(active_worker_count: usize, gate_released: bool) -> bool {
+    !gate_released && active_worker_count >= WORKER_COUNT
+}
+
 /// Wraps the platform's ScopeRootPort while preserving its native directory handles.
 pub(super) struct ObservedRoots {
     pub(super) native: Arc<dyn ScopeRootPort>,
@@ -410,5 +414,25 @@ fn gate_error() -> PortError {
         kind: PortErrorKind::Io,
         reason_key: "scan.unclassified".into(),
         os_code: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::worker_barrier_is_ready;
+
+    #[test]
+    fn timeout_boundary_accepts_four_active_workers_before_release() {
+        assert!(worker_barrier_is_ready(4, false));
+    }
+
+    #[test]
+    fn timeout_boundary_rejects_fewer_than_four_active_workers() {
+        assert!(!worker_barrier_is_ready(3, false));
+    }
+
+    #[test]
+    fn early_release_rejects_four_active_workers() {
+        assert!(!worker_barrier_is_ready(4, true));
     }
 }
