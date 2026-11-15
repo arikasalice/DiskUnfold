@@ -678,7 +678,7 @@
     ["ui.browse.folders_and_files","폴더 및 파일",[]],
     ["ui.browse.full_location_observation","전체 폴더 위치 및 관측",[]],
     ["ui.browse.incomplete","불완전",[]],
-    ["ui.browse.inspect","검사",[]],
+    ["ui.browse.inspect","상세 보기",[]],
     ["ui.browse.analyze_first","먼저 분석",[]],
     ["ui.browse.priority_requested","먼저 분석 요청됨",[]],
     ["ui.browse.priority_analyzing","먼저 분석하는 중",[]],
