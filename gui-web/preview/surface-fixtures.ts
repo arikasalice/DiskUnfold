@@ -280,6 +280,28 @@ export const fixtures = {
     notice:
       "이력은 파일 백업이 아닙니다. 기존 실제 이력 화면은 별도로 제품에 연결되어 있습니다.",
   },
+  summary: {
+    title: "분석 결과 요약",
+    query: "항목 찾기",
+    description:
+      "제품의 결과 요약 부품을 고정 샘플 결과로 보입니다. 제외 규칙의 상태를 바꿔 볼 수 있습니다.",
+    rows: [
+      ["규칙 2개", "제외 항목 줄과 값", "분석 범위를 아는 결과"],
+      [
+        "규칙 5개",
+        "세 개까지 보이고 「외 2개」",
+        "펼치면 전부 보이고 「접기」",
+      ],
+      ["범위를 모름", "제외 항목: 확인 불가", "줄을 빼지 않음"],
+    ],
+    facts: [
+      ["부품", "features/analysis/ResultSummary의 PinnedResult"],
+      ["문구", "제품 한국어 번들"],
+      ["자료", "UI 검토용 고정 샘플 · 엔진 연결 없음"],
+    ],
+    notice:
+      "실제 스캔과 연결되지 않은 요약입니다. 제품에서는 이 창에서 시작한 분석의 범위를 씁니다.",
+  },
 } as const;
 
 export type SurfaceId = keyof typeof fixtures;
