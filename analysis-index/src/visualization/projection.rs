@@ -104,6 +104,23 @@ pub struct Detail {
     pub omitted_items: u64,
     /// Reason keys the collector gave for unread ranges inside the scope, sorted.
     pub reason_keys: Vec<String>,
+    /// What the remainder of [Totals] holds.
+    pub remainder_causes: RemainderCauses,
+}
+/// What the remainder of [Totals] holds, as facts about the navigation-root siblings.
+///
+/// The flags say what the remainder can be made of, not how much: a producer reads them
+/// only when the remainder is not zero. Nested levels are not in them, because what a
+/// folder's own level leaves out lies inside the folder's value, which a total adds once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RemainderCauses {
+    /// A sibling with bytes has neither a shape nor a group, because it is below the
+    /// minimum area or lacks coordinate precision.
+    pub too_small: bool,
+    /// A sibling has no provable area: its value stays on its row and is not added to a
+    /// total, because it shares a file with another sibling or has no value of its own.
+    /// The scope counts what siblings share once, so no sibling carries that share.
+    pub unattributed: bool,
 }
 /// The four byte totals of this unfiltered single-parent projection.
 ///
