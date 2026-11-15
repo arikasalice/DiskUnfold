@@ -47,6 +47,12 @@ const names = new Map<string, readonly [string, string]>([
   ],
 ]);
 
+/**
+ * Settings the application registers and stores but never lists. The host does not report
+ * them either; this keeps a future report from showing one as an unrecognized setting.
+ */
+const hiddenSettings: ReadonlySet<string> = new Set(["space.aggregation_rule"]);
+
 const reasons = new Map<string, readonly [string, string]>([
   [
     "settings.value_invalid",
@@ -77,9 +83,10 @@ const reasons = new Map<string, readonly [string, string]>([
 
 function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
   const text = useLocaleText();
-  const restored = report.items.some((item) => item.source === "restored");
-  const defaults = report.items.some((item) => item.source === "default");
-  const issues = report.items.some((item) => Boolean(item.reasonKey));
+  const items = report.items.filter((item) => !hiddenSettings.has(item.key));
+  const restored = items.some((item) => item.source === "restored");
+  const defaults = items.some((item) => item.source === "default");
+  const issues = items.some((item) => Boolean(item.reasonKey));
   let unknownSetting = 0;
   return (
     <div className="du-settings-restore">
@@ -131,7 +138,7 @@ function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
             </StatusBadge>
           )}
         </div>
-        {report.items.length === 0 && (
+        {items.length === 0 && (
           <Text>
             {text(
               "ui.settings.no_individual_settings",
@@ -140,7 +147,7 @@ function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
           </Text>
         )}
       </section>
-      {report.items.length > 0 && (
+      {items.length > 0 && (
         <section
           className="du-settings-restore__items"
           aria-label={text(
@@ -153,7 +160,7 @@ function RestoreReport({ report }: { report: SettingsRestoreStatus }) {
           </Heading>
           <Readout
             label={text("ui.settings.restored_settings", "Restored settings")}
-            rows={report.items.map(({ key, source, reasonKey }) => {
+            rows={items.map(({ key, source, reasonKey }) => {
               const name = names.get(key);
               const reason = reasonKey ? reasons.get(reasonKey) : undefined;
               return {

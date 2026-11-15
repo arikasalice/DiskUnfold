@@ -5,7 +5,10 @@
 //! ends failed even when it counted items before it failed. A cancelled scan
 //! publishes a cancelled result and ends cancelled; a scan that reads its
 //! whole scope ends done.
-use du_analysis_index::IngestSink;
+use du_analysis_index::{
+    BoundSizeRule, IngestSink,
+    size_rule_registry::{DEFAULT_SIZE_RULE_ID, SizeRuleRegistryBuilder},
+};
 use du_core_contracts::{
     Id, OsPath, PathBytes, PathEncoding,
     job::{HistoryAppend, JobHistory, JobState, JobSummary},
@@ -210,6 +213,15 @@ fn run_scan(
     root: Dir,
     options: Options,
 ) -> Result<(JobSummary, IngestSink), Box<dyn std::error::Error>> {
+    run_scan_with_rule(root, options, None)
+}
+
+/// Like [`run_scan`], binding `rule` to the job when one is given.
+fn run_scan_with_rule(
+    root: Dir,
+    options: Options,
+    rule: Option<BoundSizeRule>,
+) -> Result<(JobSummary, IngestSink), Box<dyn std::error::Error>> {
     let sink = IngestSink::default();
     let mut previous = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
     previous
@@ -238,7 +250,10 @@ fn run_scan(
     )?);
     runtime.register(descriptor())?;
     let hook = Arc::clone(&root.hook);
-    let scan = MetadataScan::new_roots(vec![opened(root)], sink.clone(), id(3), ids);
+    let mut scan = MetadataScan::new_roots(vec![opened(root)], sink.clone(), id(3), ids);
+    if let Some(rule) = rule {
+        scan = scan.with_size_rule(rule);
+    }
     let created = runtime.submit(Submission {
         kind_id: "scan.metadata".into(),
         deduplication_key: None,
@@ -338,5 +353,26 @@ fn a_scan_that_reads_its_whole_scope_ends_done() -> TestResult {
     assert_eq!(result.completeness(), ResultCompleteness::Complete);
     // The root, two files, the folder and its file.
     assert_eq!(counts(&summary), (5, 0, 0));
+    Ok(())
+}
+
+#[test]
+fn a_bound_size_rule_is_reported_by_the_sealed_result() -> TestResult {
+    let mut registry = SizeRuleRegistryBuilder::new();
+    registry.register_defaults().map_err(|e| format!("{e:?}"))?;
+    let registry = registry.build().map_err(|e| format!("{e:?}"))?;
+    let rule = registry
+        .latest(DEFAULT_SIZE_RULE_ID)
+        .ok_or("default rule missing")?;
+    let options = Options {
+        reuse: false,
+        cancel_in_folder: false,
+    };
+    let (summary, sink) = run_scan_with_rule(Dir::root(files_and_folder()), options, Some(rule))?;
+    // A fresh build accepts the rule, so the job is not failed by the binding.
+    assert_eq!(summary.state, JobState::Done);
+    let version = summary.result_version_id.as_ref().ok_or("missing result")?;
+    let result = sink.pin_current(version).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.size_rule(), rule.identity());
     Ok(())
 }
