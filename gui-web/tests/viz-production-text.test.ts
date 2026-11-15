@@ -33,8 +33,8 @@ const wireWords = [
   "viz.flag.lower_bound",
   "viz.flag.other_group",
   "unclassified",
-  "ui.visualization.legend.unclassified",
   "ui.visualization.group.other",
+  "ui.visualization.legend.unclassified",
 ];
 
 function productionText(locale: RealLocale, unit: number | "auto" = "auto") {
@@ -98,6 +98,9 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
       expect(value, wireWords[index]).not.toContain("viz.flag");
       expect(value, wireWords[index]).not.toBe(general);
     }
+    expect(text.key("ui.visualization.group.other")).toBe(
+      language === "en" ? "Other items" : "기타 항목",
+    );
   });
 
   test("F06 FR9.HD1.gui-web.DD1: a key outside the table gets the general phrase", () => {
