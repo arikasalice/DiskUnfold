@@ -1475,15 +1475,20 @@ test("the sparse grid exposes valid row, header and selection semantics", async 
     "Logical size",
     "Allocated size",
     "Modified",
-    "Availability",
   ]);
   await screen.findByText("Entry 0");
   const first = gridRow("Entry 0");
   act(() => first.focus());
   fireEvent.keyDown(first, { key: " " });
   expect(first.getAttribute("aria-selected")).toBe("true");
-  expect(first.querySelectorAll("[aria-colindex]")).toHaveLength(6);
-  expect(first.querySelectorAll('span[aria-hidden="true"]')).toHaveLength(6);
+  expect(first.querySelectorAll("[aria-colindex]")).toHaveLength(5);
+  // The card layout's cell labels follow the same five columns.
+  expect(
+    [...first.querySelectorAll(".du-browse-grid__label")].map(
+      (label) => label.textContent,
+    ),
+  ).toEqual(["Name", "Type", "Logical size", "Allocated size", "Modified"]);
+  expect(first.querySelectorAll('span[aria-hidden="true"]')).toHaveLength(5);
   const result = await axe.run(grid, {
     runOnly: {
       type: "rule",
