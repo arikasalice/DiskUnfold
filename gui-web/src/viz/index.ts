@@ -27,6 +27,14 @@ export type {
   VisualizationMessageKey,
 } from "./messages";
 export { ModelEvidence } from "./ModelEvidence";
+export { sameItem } from "./item-ref";
+export { VizModelLoader } from "./model-loader";
+export type {
+  VizJobResponse,
+  VizLoadPhase,
+  VizLoaderSink,
+  VizLoadState,
+} from "./model-loader";
 export { RowName } from "./RowName";
 export {
   createVisualizationPort,
