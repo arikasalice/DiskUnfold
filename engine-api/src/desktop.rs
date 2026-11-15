@@ -38,6 +38,7 @@ pub use du_scan_engine::scan_job::ScanDiagnostics;
 pub use scan_completion::CompletedScanSource;
 pub use visualization::{VisualizationPreview, VisualizationServices};
 
+mod freshness_replay;
 mod locale_events;
 mod pending;
 #[cfg(test)]
