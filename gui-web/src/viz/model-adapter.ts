@@ -6,8 +6,8 @@ import type {
   VizRows,
   VizRowsRequest,
   VizShape,
-} from "../../ipc";
-import type { GeometryRendererProps } from "../../components";
+} from "../ipc";
+import type { GeometryRendererProps } from "../components";
 
 export type ModelResponse = Extract<VizRenderResponse, { kind: "model" }>;
 

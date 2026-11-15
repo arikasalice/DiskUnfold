@@ -10,7 +10,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import { GroupController } from "../src/features/visualization/group-controller";
 import { GroupView } from "../src/features/visualization/GroupView";
-import { createVisualizationPort } from "../src/features/visualization/visualization-port";
+import { createVisualizationPort } from "../src/viz";
 import {
   createAnalysisClient,
   type ResultEnvelope,
