@@ -62,7 +62,7 @@ export type {
 } from "./charts/geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
-export { RowAction } from "./row-action";
+export { RowAction, RowSlot } from "./row-action";
 export { SelectionActions } from "./selection-actions";
 export type { SelectionNotice } from "./selection-actions";
 export { Band } from "./band";

@@ -99,10 +99,14 @@ test("an origin without copy reads as unknown and is not shown", async () => {
   expect(screen.queryByText(/imported/)).toBeNull();
 });
 
-test("an availability that could not be read says only that it is unknown", async () => {
+test("the folder table has no availability column in Korean, neither as a header nor in a row", async () => {
   await browse("scan");
   const row = screen.getByText("Photos").closest<HTMLElement>('[role="row"]')!;
-  expect(within(row).getByText("알 수 없음")).toBeDefined();
+  expect(screen.queryByText("사용 가능 여부")).toBeNull();
+  expect(within(row).queryByText("알 수 없음")).toBeNull();
+  expect(
+    row.querySelectorAll('[role="gridcell"], [role="rowheader"]'),
+  ).toHaveLength(5);
 });
 
 test("a kind that was not decided reads 확인 불가; a kind without a name reads 알 수 없음", async () => {
