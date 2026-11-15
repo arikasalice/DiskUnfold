@@ -142,7 +142,15 @@ impl RunningChangeJob {
         let workers = Arc::new(Workers::start(runtime.clone()).map_err(|error| error.to_string())?);
         let mut builder = EngineBuilder::default();
         crate::jobs::register(&mut builder, runtime.clone());
-        builder.on_shutdown_hooks(super::shutdown::hooks(runtime.clone(), workers.clone()));
+        // No observation log is bound, as for a desktop that records nothing.
+        let scan_events = Arc::new(super::scan_completion::ScanEvents::new(Arc::new(
+            super::DesktopEvents::default(),
+        )));
+        builder.on_shutdown_hooks(super::shutdown::hooks(
+            runtime.clone(),
+            workers.clone(),
+            scan_events,
+        ));
         let retired = Arc::new(AtomicUsize::new(0));
         let retire_count = retired.clone();
         builder.on_session_retire(move || {

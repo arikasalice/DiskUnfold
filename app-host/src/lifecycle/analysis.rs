@@ -122,6 +122,10 @@ pub(super) fn register_desktop(
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
+    services
+        .bind_scope_observation_log(Arc::new(database.scope_observations()))
+        .map_err(std::io::Error::other)
+        .map_err(|error| report_pre_window_error(capabilities, error))?;
     visualization::register(
         &services.visualization,
         builder,
