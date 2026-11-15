@@ -39,6 +39,11 @@ mod recent_scope_worker;
     feature = "gui",
     any(windows, target_os = "linux", target_os = "macos")
 ))]
+mod scope_observation_log;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
 mod settings;
 #[cfg(all(
     feature = "gui",
