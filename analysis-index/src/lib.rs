@@ -5,6 +5,7 @@ mod current_pin;
 mod directory_case;
 mod forest;
 pub mod freshness;
+mod freshness_ledger;
 pub mod group;
 mod issues;
 mod physical;
@@ -105,7 +106,7 @@ impl IngestSink {
     pub fn with_version_publisher(publisher: Arc<dyn ResultVersionPublisher>) -> Self {
         Self {
             state: Arc::default(),
-            events: Arc::new(PublicationEvents::new(publisher)),
+            events: Arc::new(PublicationEvents::new(publisher, None)),
         }
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
@@ -469,6 +470,11 @@ impl BuildHandle {
             self.finished = true;
         }
         let sequence = state.next_event_sequence(self.lineage.as_ref());
+        let freshness = if self.events.tracks_freshness() {
+            state.freshness_published(&self.lineage, &result, !was_published, finish)
+        } else {
+            Vec::new()
+        };
         drop(state);
         self.events.notify(
             self.lineage.as_ref(),
@@ -477,6 +483,7 @@ impl BuildHandle {
             previous.as_ref().map(|entry| entry.result.as_ref()),
             Some(&result),
         );
+        self.events.notify_freshness(freshness);
         drop(order);
         // Retiring raises no notification and the replaced version is already not current,
         // so registrations of it fail as stale; it needs no place in the publication order.

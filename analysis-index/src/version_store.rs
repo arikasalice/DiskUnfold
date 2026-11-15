@@ -11,6 +11,7 @@ use std::{
 
 type Lineage = Option<Id>;
 
+mod freshness;
 mod sample;
 
 #[derive(Clone)]
@@ -34,6 +35,8 @@ pub(super) struct State {
     next_sample: u64,
     /// The most recently released sample sessions; see `sample::RELEASED_SESSION_LIMIT`.
     released_samples: VecDeque<SampleSessionKey>,
+    /// Freshness ledgers; they change under this lock, see `freshness`.
+    freshness: crate::freshness_ledger::Ledgers,
 }
 impl State {
     pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
