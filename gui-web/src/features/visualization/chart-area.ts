@@ -27,6 +27,26 @@ export function chartHeight(
   );
 }
 
+/**
+ * The size of the part of `box` a chart can use: its border box less the
+ * scrollbars it shows. A chart as wide as the border box would run under a
+ * vertical scrollbar, and one as tall would hide behind a horizontal one.
+ */
+export function usableSize(
+  rect: { width: number; height: number },
+  box: {
+    offsetWidth: number;
+    clientWidth: number;
+    offsetHeight: number;
+    clientHeight: number;
+  },
+) {
+  return {
+    width: rect.width - Math.max(0, box.offsetWidth - box.clientWidth),
+    height: rect.height - Math.max(0, box.offsetHeight - box.clientHeight),
+  };
+}
+
 /** The scroll area that holds the chart and the way the chart reports where it starts in it. */
 export type ChartArea = {
   element: RefObject<HTMLElement | null>;

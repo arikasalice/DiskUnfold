@@ -17,6 +17,7 @@ import { VisualizationSession } from "../features/visualization/VisualizationSes
 import {
   ChartAreaContext,
   chartHeight,
+  usableSize,
   DEFAULT_BUTTON_ROW_HEIGHT,
 } from "../features/visualization/chart-area";
 import { useProductionVizText } from "../viz";
@@ -306,8 +307,11 @@ export function BrowseVisualizationView({
       );
     };
     const measure = () => {
-      const rect = element.getBoundingClientRect();
-      update(rect.width, rect.height);
+      const { width, height } = usableSize(
+        element.getBoundingClientRect(),
+        element,
+      );
+      update(width, height);
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
