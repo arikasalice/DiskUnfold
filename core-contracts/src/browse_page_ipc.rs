@@ -100,6 +100,8 @@ pub struct FolderFlags {
     /// the scan was cancelled or its volume was disconnected first. A boundary that
     /// could not be decided marks the row of the folder that was not entered, not its
     /// parent. A table shows only this flag; the cause is read in the scan issue list.
+    /// A folder left unread by a cancellation has no row of its own in that list; the
+    /// completeness of the result version (cancelled) tells the cause.
     ///
     /// A row never has `unenumerated` present with `true` together with a present
     /// `boundary`.

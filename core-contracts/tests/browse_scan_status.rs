@@ -126,6 +126,31 @@ fn boundary_names_are_the_published_strings() {
 }
 
 #[test]
+fn a_null_field_reads_like_an_omitted_one() -> TestResult {
+    let mut page = earlier_page();
+    page["rows"][0]["flags"]["boundary"] = Value::Null;
+    assert_eq!(boundary_of(&page)?, None);
+
+    let mut opened = earlier_opened();
+    opened["excludedChildren"] = Value::Null;
+    let BrowseOpenResponse::Opened {
+        excluded_children, ..
+    } = from_value(opened)?
+    else {
+        return Err("expected an opened response".into());
+    };
+    assert_eq!(excluded_children, None);
+
+    let mut with_context = earlier_page();
+    with_context["browseContext"] = earlier_context();
+    with_context["browseContext"]["excludedChildren"] = Value::Null;
+    let decoded = folder(from_value(with_context)?)?;
+    let context = decoded.browse_context.as_ref().ok_or("missing context")?;
+    assert_eq!(context.excluded_children, None);
+    Ok(())
+}
+
+#[test]
 fn a_row_boundary_round_trips_in_every_state() -> TestResult {
     let cases = [
         (
