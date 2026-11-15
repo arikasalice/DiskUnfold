@@ -6,13 +6,17 @@
 //! on the stack were already being read and are read to their end without
 //! opening anything, and every enumerated directory left unread is a gap of
 //! its own, as in the parallel collector. A cancellation records the entries
-//! already returned without opening any directory.
+//! already returned without opening any directory, and marks every directory
+//! it leaves unopened or partly read as unread once.
+//!
+//! Each directory reports the entries an exclusion rule dropped directly
+//! below it once, when its listing ends or stops, as in the parallel collector.
 use super::{
     ResultIds,
     admission::{self, Admission, Boundary, Parent, RootStart, Visited},
     issues, record,
 };
-use du_analysis_index::{BuildError, BuildHandle, IngestSink};
+use du_analysis_index::{BuildError, BuildHandle, IngestSink, folder_collection::UnreadReason};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobCounts},
@@ -49,6 +53,8 @@ struct Frame {
     /// Entered directories of the first root batch, recorded and not yet opened.
     recorded_directories: VecDeque<ObservedEntry>,
     boundary: Boundary,
+    /// Entries an exclusion rule dropped directly below this directory so far.
+    excluded: u64,
 }
 
 impl Frame {
@@ -59,6 +65,7 @@ impl Frame {
             entries: VecDeque::new(),
             recorded_directories: VecDeque::new(),
             boundary,
+            excluded: 0,
         }
     }
 
@@ -84,6 +91,7 @@ pub(super) fn run(
     let mut build = sink.open(scope)?;
     build.add_directory(Vec::new())?;
     let stop = if checkpoint() == Checkpoint::Cancel {
+        build.set_directory_unread(0, &[], UnreadReason::Cancelled)?;
         Stop::Cancelled
     } else {
         let mut root = Frame::new(Vec::new(), root, Boundary::Unknown);
@@ -171,7 +179,7 @@ impl Walk<'_> {
                 return self.cancel(vec![root]);
             }
             let path = root.child_path(&entry);
-            let (row, entry) = self.record(root.boundary, entry, path, true)?;
+            let (row, entry) = self.record(&mut root, entry, path, true)?;
             if row == Admission::Enter {
                 root.recorded_directories.push_back(entry);
             }
@@ -210,14 +218,17 @@ impl Walk<'_> {
             let path = frame.child_path(&entry);
             // After a disconnection no directory is entered, so none is reserved.
             let reserve = !self.closed;
-            let (row, entry) = self.record(frame.boundary, entry, path.clone(), reserve)?;
+            let (row, entry) = self.record(frame, entry, path.clone(), reserve)?;
             if row == Admission::Enter {
                 return self.open(frame, &entry, path);
             }
             return Ok(Step::Continue);
         }
         match frame.dir.next_batch() {
-            Ok(batch) if batch.is_empty() => Ok(Step::Pop),
+            Ok(batch) if batch.is_empty() => {
+                self.report_excluded(frame, true)?;
+                Ok(Step::Pop)
+            }
             Ok(batch) if batch.len() <= MAX_BATCH => {
                 let disconnected = batch.iter().any(issues::disconnected_entry);
                 frame.entries = batch.into();
@@ -230,6 +241,7 @@ impl Walk<'_> {
             failure => {
                 let reason = failure_reason(&failure);
                 self.fail(frame.path.clone(), Stage::Enumerate, reason)?;
+                self.report_excluded(frame, false)?;
                 self.closed |= reason == issues::DISCONNECTED;
                 Ok(Step::Pop)
             }
@@ -269,29 +281,47 @@ impl Walk<'_> {
     }
 
     /// Applies the admission table to one entry and records it unless excluded.
+    /// An excluded entry is counted in `frame`.
     ///
     /// `reserve` is false for an entry that will not be opened, so that no
     /// directory identity is reserved without being entered.
     fn record(
         &mut self,
-        boundary: Boundary,
+        frame: &mut Frame,
         entry: ObservedEntry,
         path: Vec<Vec<u8>>,
         reserve: bool,
     ) -> Result<(Admission, ObservedEntry), BuildError> {
         let excluded = !(self.include)(&path);
-        let parent = Parent { root: 0, boundary };
+        let parent = Parent {
+            root: 0,
+            boundary: frame.boundary,
+        };
         let row = if reserve {
             admission::decide(excluded, &entry, parent, &self.visited)
         } else {
             admission::preview(excluded, &entry, parent, &self.visited)
         };
         let timed = TimedObservedEntry::from(entry);
-        if row != Admission::Excluded {
+        if row == Admission::Excluded {
+            frame.excluded = frame.excluded.saturating_add(1);
+        } else {
             let item = (0, path, &timed);
             record::record_item(self.build, self.counts, &|| None, item, row)?;
         }
         Ok((row, timed.entry))
+    }
+
+    /// Reports the entries excluded directly below `frame` once, when its
+    /// listing ended (`complete`) or stopped; nothing is recorded for none.
+    fn report_excluded(&mut self, frame: &Frame, complete: bool) -> Result<(), BuildError> {
+        match record::excluded_children(frame.excluded, complete) {
+            Some((count, complete)) => {
+                self.build
+                    .set_excluded_children(0, &frame.path, count, complete)
+            }
+            None => Ok(()),
+        }
     }
 
     /// Records an unread range; the directory stays counted once, as failed.
@@ -308,13 +338,33 @@ impl Walk<'_> {
         )
     }
 
-    /// Records the returned entries of a directory without opening any of them.
+    /// Records the returned entries of a cancelled directory without opening
+    /// any of them, and marks it and every entered directory among its
+    /// entries as unread.
     fn drain(&mut self, mut frame: Frame) -> Result<(), BuildError> {
         while let Some(entry) = frame.entries.pop_front() {
             let path = frame.child_path(&entry);
-            self.record(frame.boundary, entry, path, false)?;
+            let (row, entry) = self.record(&mut frame, entry, path, false)?;
+            if row == Admission::Enter {
+                self.unread(frame.child_path(&entry))?;
+            }
         }
-        Ok(())
+        while let Some(entry) = frame.recorded_directories.pop_front() {
+            self.unread(frame.child_path(&entry))?;
+        }
+        self.report_excluded(&frame, false)?;
+        // An unverifiable root already has a gap from its start; a gap and a
+        // mark are never left on one directory.
+        if frame.boundary == Boundary::Unknown {
+            return Ok(());
+        }
+        self.unread(frame.path)
+    }
+
+    fn unread(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
+        self.failed.unread(0, &path);
+        self.build
+            .set_directory_unread(0, &path, UnreadReason::Cancelled)
     }
 
     fn cancel(&mut self, stack: Vec<Frame>) -> Result<Stop, BuildError> {
@@ -339,11 +389,12 @@ impl Walk<'_> {
         }
         while let Some(entry) = frame.entries.pop_front() {
             let path = frame.child_path(&entry);
-            let (row, _) = self.record(frame.boundary, entry, path.clone(), false)?;
+            let (row, _) = self.record(frame, entry, path.clone(), false)?;
             if row == Admission::Enter {
                 self.fail(path, Stage::Enumerate, issues::DISCONNECTED)?;
             }
         }
+        self.report_excluded(frame, false)?;
         self.fail(frame.path.clone(), Stage::Enumerate, issues::DISCONNECTED)
     }
 }
