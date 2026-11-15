@@ -27,6 +27,7 @@ import {
   displayMeasurementLimit,
   displaySize,
   displayRawSize,
+  displayUnitSystem,
   sizeLabels,
 } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
@@ -208,7 +209,7 @@ export function PinnedResult({
         />
       </DetailDisclosure>
       <Text kind="muted">
-        {basisLabel} · {display.system.toUpperCase()} · {unit}
+        {basisLabel} · {displayUnitSystem(display.system, text)} · {unit}
       </Text>
       {preferences.warning && (
         <Notice>

@@ -192,11 +192,11 @@ function rows(
         <>
           {describe(
             detail.capabilities,
+            // No capability has a name yet, and its key and state are not shown.
             (capabilities) =>
-              capabilities
-                .map(({ key, state }) => `${key} · ${state}`)
-                .join(", ") ||
-              text("ui.analysis.space_none_reported", "None reported"),
+              capabilities.length > 0
+                ? text("ui.common.unknown", "Unknown")
+                : text("ui.analysis.space_none_reported", "None reported"),
             text,
           )}
           {isSampleSource(detail.dataSource) && (
@@ -217,7 +217,12 @@ function rows(
               "ui.analysis.space_placeholder_residency",
               "Placeholder residency",
             ),
-            value: describe(detail.placeholderLocalState, String, text),
+            // No residency state has a name yet, and the value is not shown.
+            value: describe(
+              detail.placeholderLocalState,
+              () => text("ui.common.unknown", "Unknown"),
+              text,
+            ),
           },
         ]
       : []),

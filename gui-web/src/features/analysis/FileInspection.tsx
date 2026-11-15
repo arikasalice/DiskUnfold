@@ -27,6 +27,7 @@ import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import {
   displayEvidence,
+  displayKnownSpaceReason,
   displaySizeParts,
   displaySpaceReason,
   windowsSizeDisplay,
@@ -48,9 +49,49 @@ function attribute<T>(
   );
 }
 
-function diagnostics(detail: BrowseDetail, text: LocaleText) {
+/** Names the kind of an item; a kind without a name reads as unknown. */
+function kindText(kind: string, text: LocaleText): string {
+  switch (kind) {
+    case "directory":
+      return text("ui.browse.type_directory", "Folder");
+    case "file":
+      return text("ui.browse.type_file", "File");
+    case "untraversed_link":
+      return text("ui.inspection.kind_untraversed_link", "Link (not followed)");
+    default:
+      return text("ui.common.unknown", "Unknown");
+  }
+}
+
+/**
+ * Says why a field has no value. Only here a reason key may show: a key
+ * without a text is named, so that a report can quote it.
+ */
+function diagnosticReason(key: string, text: LocaleText): string {
+  if (key === "ref.unavailable")
+    return text(
+      "ui.inspection.reason_not_in_result",
+      "Not included in this result",
+    );
+  return (
+    displayKnownSpaceReason(key, text) ??
+    text("ui.inspection.reason_unknown", "Unknown reason ({key})", { key })
+  );
+}
+
+/** One line per field without a value: its label in the dialog, then why. */
+function diagnostics(
+  detail: BrowseDetail,
+  itemKind: "file" | "folder",
+  text: LocaleText,
+): string[] {
   const fields = [
-    [text("ui.inspection.name", "Name"), detail.displayName],
+    [
+      itemKind === "file"
+        ? text("ui.inspection.file_name", "File name")
+        : text("ui.inspection.folder_name", "Folder name"),
+      detail.displayName,
+    ],
     [text("ui.inspection.path", "Path"), detail.displayPath],
     [text("ui.inspection.kind", "Kind"), detail.kind],
     [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
@@ -63,7 +104,14 @@ function diagnostics(detail: BrowseDetail, text: LocaleText) {
     [text("ui.inspection.published", "Result published"), detail.observedAt],
   ] as const;
   return fields.flatMap(([label, field]) =>
-    field.state === "unknown" ? [{ label, value: field.reasonKey }] : [],
+    field.state === "unknown"
+      ? [
+          text("ui.inspection.reason_line", "{field}: {reason}", {
+            field: label,
+            reason: diagnosticReason(field.reasonKey, text),
+          }),
+        ]
+      : [],
   );
 }
 
@@ -185,7 +233,7 @@ function attributes(
     },
     {
       label: text("ui.inspection.kind", "Kind"),
-      value: attribute(detail.kind, String, text),
+      value: attribute(detail.kind, (kind) => kindText(kind, text), text),
     },
   ];
 }
@@ -324,9 +372,11 @@ export function FileInspection({
                 )}
               />
             </div>
-            {diagnostics(detail, text).length > 0 && (
+            {diagnostics(detail, itemKind, text).length > 0 && (
               <DetailDisclosure title={reasons}>
-                <Readout label={reasons} rows={diagnostics(detail, text)} />
+                {diagnostics(detail, itemKind, text).map((line) => (
+                  <Text key={line}>{line}</Text>
+                ))}
               </DetailDisclosure>
             )}
             <DetailDisclosure title={more}>

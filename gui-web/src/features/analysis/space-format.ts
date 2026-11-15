@@ -108,6 +108,13 @@ const measurementLimitMessages = new Map<string, Message>([
       "Some observation details are unavailable",
     ],
   ],
+  [
+    "space.hardlink_identity_unknown",
+    [
+      "ui.analysis.space_hardlink_identity_unknown",
+      "The allocated size of files that could not be identified was left out of the total.",
+    ],
+  ],
 ]);
 
 const unrecognizedLimit: Message = [
@@ -137,6 +144,26 @@ export function displayMeasurementLimit(key: string, text: LocaleText): string {
       measurementLimitMessages.get(key) ??
       unrecognizedLimit),
   );
+}
+
+/** Explains a space reason of either table; a key without a text gives none. */
+export function displayKnownSpaceReason(
+  key: string,
+  text: LocaleText,
+): string | undefined {
+  const message =
+    spaceReasonMessages.get(key) ?? measurementLimitMessages.get(key);
+  return message && text(...message);
+}
+
+/** Names a unit system by what its units look like. */
+export function displayUnitSystem(
+  system: SizeDisplay["system"],
+  text: LocaleText,
+): string {
+  return system === "iec"
+    ? text("ui.analysis.unit_system_binary", "Binary units (KiB, MiB)")
+    : text("ui.analysis.unit_system_decimal", "Decimal units (kB, MB)");
 }
 
 /** How the scan stands that is still to supply a size without a value. */

@@ -1176,7 +1176,9 @@ test("F03: changing size display does not request another result", async () => {
   ).toBeDefined();
   expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Display options" }));
-  expect(screen.getByText("Allocated size · SI · B")).toBeDefined();
+  expect(
+    screen.getByText("Allocated size · Decimal units (kB, MB) · B"),
+  ).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Display options" }));
   expect(
     screen.getByRole<HTMLSelectElement>("combobox", { name: "Size basis" })
@@ -1225,7 +1227,9 @@ test("F03 IF-18: new preferences change presentation without replacing the pinne
       });
     }
   });
-  expect(await screen.findByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    await screen.findByText("Logical size · Decimal units (kB, MB) · kB"),
+  ).toBeDefined();
   expect(screen.getByText(/Some display preferences/)).toBeDefined();
   await act(async () =>
     resolveOld({
@@ -1237,7 +1241,9 @@ test("F03 IF-18: new preferences change presentation without replacing the pinne
       warningKey: null,
     }),
   );
-  expect(screen.getByText("Logical size · SI · kB")).toBeDefined();
+  expect(
+    screen.getByText("Logical size · Decimal units (kB, MB) · kB"),
+  ).toBeDefined();
   expect(
     screen.getByText("Result version: Final with scan gaps"),
   ).toBeDefined();

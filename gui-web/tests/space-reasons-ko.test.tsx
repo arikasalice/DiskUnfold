@@ -70,6 +70,10 @@ const limitReasons = [
     "space.observation_detail_insufficient",
     "ui.analysis.space_observation_detail_insufficient",
   ],
+  [
+    "space.hardlink_identity_unknown",
+    "ui.analysis.space_hardlink_identity_unknown",
+  ],
 ] as const;
 const unrecognizedLimit = "ui.analysis.space_measurement_limit_reported";
 
