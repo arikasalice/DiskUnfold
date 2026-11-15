@@ -380,7 +380,7 @@ impl VizModel {
         if totals.into_iter().any(|total| !total.matches(size_basis)) {
             return Err("model total does not match its source size");
         }
-        Ok(())
+        self.totals.validate_breakdown()
     }
 
     fn validate_shapes(&self, revision: &Id) -> Result<(), &'static str> {
