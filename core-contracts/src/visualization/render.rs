@@ -15,7 +15,7 @@ pub struct VizFallback {
 impl<'de> Deserialize<'de> for VizFallback {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[serde(rename_all = "camelCase")]
         struct Wire {
             model_ref: String,
             result_revision: Id,
@@ -101,8 +101,7 @@ impl<'de> Deserialize<'de> for VizRenderNonModelResponse {
         #[serde(
             tag = "kind",
             rename_all = "snake_case",
-            rename_all_fields = "camelCase",
-            deny_unknown_fields
+            rename_all_fields = "camelCase"
         )]
         enum Wire {
             Job {

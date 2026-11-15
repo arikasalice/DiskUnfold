@@ -30,7 +30,7 @@ pub struct VizFormatAvailability {
 impl<'de> Deserialize<'de> for VizFormatAvailability {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[serde(rename_all = "camelCase")]
         struct Wire {
             format: String,
             available: bool,
@@ -88,7 +88,7 @@ impl VizAvailabilityResponse {
 impl<'de> Deserialize<'de> for VizAvailabilityResponse {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        #[serde(rename_all = "camelCase")]
         struct Wire {
             formats: Vec<VizFormatAvailability>,
             required_data_table_revision: u32,

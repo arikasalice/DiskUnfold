@@ -154,8 +154,7 @@ pub struct VizTableRevisions {
 #[serde(
     tag = "state",
     rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
+    rename_all_fields = "camelCase"
 )]
 pub enum VizMatchKey {
     Present { value: CorrespondenceKey },
