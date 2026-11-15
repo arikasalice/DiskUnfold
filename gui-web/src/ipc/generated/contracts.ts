@@ -1113,14 +1113,15 @@ export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<S
  */
 sizeRule?: QueryStrategy,
 /**
- * How many folders below the target were left unread because the scan was cancelled,
- * the target itself included when it is such a folder. The count is for this result
- * version; `0` confirms that there are none. Other-volume and already-counted
- * folders, open or read failures and disconnects are not counted.
+ * The exact number of folders below the target left unread because the scan was
+ * cancelled, including the target itself when it is such a folder. Other-volume and
+ * already-counted folders, gaps and disconnects are not counted. `0` confirms none only
+ * for a sealed real scan with `Complete` or `Missing` status and no cancelled marks.
  *
- * Absent when the source does not provide the fact: a sample, a publication of a scan
- * that has not finished, a cancelled or partial result whose collector recorded no
- * unread folder, or a target that is not a single subtree (a query result).
+ * Absent when the source cannot prove the total: a sample, an unfinished publication, a
+ * partial or cancelled result (even when it has marks), a complete or missing result
+ * containing a cancelled mark, an incremental replacement, or a target that is not a
+ * single subtree (a query result).
  * Absence is not zero.
  */
 cancelledUnreadFolders?: number, };
