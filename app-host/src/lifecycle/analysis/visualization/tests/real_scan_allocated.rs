@@ -77,6 +77,16 @@ fn scan(assembled: &Assembled, folder: &Path) -> Result<Id, Failure> {
 
 /// Renders the treemap of the scanned folder on `basis`, on a view channel of its own.
 fn render(assembled: &Assembled, revision: &Id, basis: &str) -> Result<Value, Failure> {
+    render_at_depth(assembled, revision, basis, 1)
+}
+
+/// Renders the treemap at a requested depth on a view channel of its own.
+fn render_at_depth(
+    assembled: &Assembled,
+    revision: &Id,
+    basis: &str,
+    depth_limit: u32,
+) -> Result<Value, Failure> {
     let view = ok(&assembled.engine, "viz.view.open", json!({}))?["viewChannel"].clone();
     let scope = json!({"resultVersion": revision, "itemNo": 0});
     let request = |seq: u32| {
@@ -87,7 +97,7 @@ fn render(assembled: &Assembled, revision: &Id, basis: &str) -> Result<Value, Fa
             "classificationCriterion": "none", "colorCriterion": "none",
             "denominatorBasis": "scope", "viewport": {"width": 800, "height": 600, "scale": 1.0},
             "visibleWindow": {"left": 0, "top": 0, "right": 1_000_000, "bottom": 1_000_000},
-            "minAreaPx2": 16, "depthLimit": 1,
+            "minAreaPx2": 16, "depthLimit": depth_limit,
         })
     };
     let mut answer = ok(&assembled.engine, "viz.render", request(1))?;
@@ -100,6 +110,41 @@ fn render(assembled: &Assembled, revision: &Id, basis: &str) -> Result<Value, Fa
         answer = ok(&assembled.engine, "viz.render", request(seq))?;
     }
     Ok(answer)
+}
+
+#[test]
+fn a_real_scan_of_nested_hard_links_keeps_allocated_area_within_the_f03_scope()
+-> Result<(), Failure> {
+    let assembled = assemble()?;
+    let folder = tempfile::tempdir()?;
+    let x = folder.path().join("p").join("x");
+    let y = folder.path().join("p").join("y");
+    fs::create_dir_all(&x)?;
+    fs::create_dir_all(&y)?;
+    let source = x.join("shared.bin");
+    fs::write(&source, vec![0xA5_u8; 40_960])?;
+    fs::hard_link(&source, y.join("shared.bin"))?;
+
+    let revision = scan(&assembled, folder.path())?;
+    let answer = render_at_depth(&assembled, &revision, "allocated", 2)?;
+    assert_eq!(answer["kind"], "model", "{answer}");
+    let model = &answer["model"];
+    let scope = bytes(&model["totals"]["scope"]["quantity"]["value"])?;
+    let drawn = bytes(&model["totals"]["drawn"]["quantity"]["value"])?;
+    assert_eq!(scope, space_total(&assembled, &revision, "allocated", 1)?);
+
+    let rows = rows_of(&assembled, &answer)?;
+    let parent = rows["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["displayName"] == "p"))
+        .ok_or("no row for the shared-file parent")?;
+    let shapes = model["shapes"].as_array().ok_or("shapes are not a list")?;
+    // The parent owns the one F03 scope area; neither hard-link child gets a second shape.
+    assert_eq!(shapes.len(), 1, "{answer}");
+    assert_eq!(shapes[0]["itemRef"], parent["itemRef"]);
+    assert_eq!(bytes(&parent["size"]["bytes"])?, scope);
+    assert_eq!(drawn, scope);
+    Ok(())
 }
 
 /// The rows of the model, or of the table-only fallback, that an answer refers to.
