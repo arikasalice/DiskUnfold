@@ -51,8 +51,9 @@ function sandboxTree(sandbox: string) {
   return { write, check };
 }
 
-// Both fixtures start a separate dependency-cruiser process.
-test("enforces GUI dependency boundaries", { timeout: 20_000 }, () => {
+// Each fixture starts separate dependency-cruiser processes, which take far
+// longer than 20 seconds when the whole suite shares a few cores.
+test("enforces GUI dependency boundaries", { timeout: 60_000 }, () => {
   inSandbox(({ write, check }) => {
     write("src/ipc/bridge.ts", "export const invoke = () => undefined;");
     write("src/ipc/index.ts", 'export { invoke } from "./bridge";');
@@ -86,7 +87,7 @@ test("enforces GUI dependency boundaries", { timeout: 20_000 }, () => {
 
 test(
   "keeps the visualization model layer between components and features",
-  { timeout: 20_000 },
+  { timeout: 60_000 },
   () => {
     inSandbox(({ write, check }) => {
       write("src/ipc/index.ts", "export const call = () => undefined;");

@@ -1,23 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Notice, Progress } from "../../components";
-import type { AnalysisClient, VizRenderRequest } from "../../ipc";
+import type { AnalysisClient } from "../../ipc";
 import { ControlledVisualization } from "./ControlledVisualization";
 import { VisualizationController } from "./controller";
 import { GroupController } from "./group-controller";
 import type { ModelResponse } from "../../viz";
 import type { VizText } from "../../viz";
-import { useLocaleText } from "../../i18n/presentation";
-import { visualizationMessages } from "../../viz";
 import {
   createVisualizationPort,
   observeVisualizationJob,
-} from "./visualization-port";
-
-/** Explicit conditions for one pinned F06 view. Channel and sequence are lifecycle-owned. */
-export type VisualizationViewRequest = Omit<
-  VizRenderRequest,
-  "viewChannel" | "requestSeq" | "resultRevision"
-> & { resultRevision: NonNullable<VizRenderRequest["resultRevision"]> };
+  useLocalizedVizText,
+} from "../../viz";
+import type { VisualizationViewRequest } from "../../viz";
 
 type Session = {
   client: AnalysisClient;
@@ -48,19 +42,7 @@ export function VisualizationSession({
   >[0]["resolveRenderer"];
   onApplyRevision?: (revision: string) => void;
 }) {
-  const localeText = useLocaleText();
-  const localizedText = useMemo<VizText>(
-    () => ({
-      ...text,
-      message: (key, values) =>
-        localeText(
-          `ui.visualization.${key}`,
-          visualizationMessages.en[key],
-          values,
-        ),
-    }),
-    [localeText, text],
-  );
+  const localizedText = useLocalizedVizText(text);
   const [session, setSession] = useState<Session | null>(null);
   const [openError, setOpenError] = useState(false);
   const [renderError, setRenderError] = useState(false);

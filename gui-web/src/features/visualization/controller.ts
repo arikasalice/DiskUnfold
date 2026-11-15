@@ -2,25 +2,20 @@ import { AnalysisError } from "../../ipc";
 import type {
   AnalysisJobStatus,
   ItemRef,
-  VizCancelRequest,
-  VizCancelResponse,
   VizRenderRequest,
   VizRenderResponse,
-  VizRows,
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, matchingRowsPage } from "../../viz";
-import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
+import type {
+  ModelResponse,
+  ModelRowsPage,
+  VisualizationPort,
+  VizSelection,
+} from "../../viz";
 
 type View = Pick<VizRenderRequest, "viewport" | "visibleWindow">;
 type Committed = { frame: ModelResponse; view: View };
-export type VisualizationPort = {
-  render(request: VizRenderRequest): Promise<VizRenderResponse>;
-  cancel(request: VizCancelRequest): Promise<VizCancelResponse>;
-  rows(request: VizRowsRequest): Promise<VizRows>;
-  /** True only when the whole model is supported by the chosen renderer. */
-  canDisplay(frame: ModelResponse): boolean;
-};
 export type Reconciled = {
   from: ItemRef;
   to: ItemRef;

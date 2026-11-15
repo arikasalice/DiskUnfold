@@ -26,4 +26,15 @@ export type {
   VisualizationLanguage,
   VisualizationMessageKey,
 } from "./messages";
+export { ModelEvidence } from "./ModelEvidence";
 export { RowName } from "./RowName";
+export {
+  createVisualizationPort,
+  observeVisualizationJob,
+} from "./visualization-port";
+export type {
+  JobObserverTarget,
+  VisualizationPort,
+} from "./visualization-port";
+export { useLocalizedVizText } from "./use-viz-text";
+export type { VisualizationViewRequest } from "./view-request";
