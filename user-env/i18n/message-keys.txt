@@ -754,18 +754,31 @@ ui.visualization.bar
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
 ui.visualization.classification
+ui.visualization.completenessCancelled
+ui.visualization.completenessComplete
+ui.visualization.completenessMissing
+ui.visualization.completenessPartial
 ui.visualization.correspondenceUnknown
 ui.visualization.coverage
 ui.visualization.denominator
+ui.visualization.denominatorAnalysisTotal
+ui.visualization.denominatorParentFolder
+ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
 ui.visualization.estimatedEvidence
 ui.visualization.filteredOutTotal
+ui.visualization.flagLowerBound
+ui.visualization.flagOtherGroup
+ui.visualization.flagUnknown
 ui.visualization.flags
 ui.visualization.focusGraphAction
 ui.visualization.focusLost
 ui.visualization.format
 ui.visualization.formats
+ui.visualization.freshnessCurrent
+ui.visualization.freshnessStale
+ui.visualization.freshnessUnknown
 ui.visualization.graphFallback
 ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
@@ -784,6 +797,7 @@ ui.visualization.groupedTotal
 ui.visualization.histogram
 ui.visualization.independentTotals
 ui.visualization.invalidReferences
+ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.legend.unclassified
 ui.visualization.loadNewer
@@ -795,6 +809,7 @@ ui.visualization.loadingMembers
 ui.visualization.loadingNewer
 ui.visualization.lowerBound value:size
 ui.visualization.measure
+ui.visualization.measureSize
 ui.visualization.measuredEvidence
 ui.visualization.measurementBasisTotals
 ui.visualization.memberRanges
@@ -817,8 +832,10 @@ ui.visualization.noItemSizes
 ui.visualization.noMembers
 ui.visualization.noRowsInPage
 ui.visualization.noSourceSize
+ui.visualization.observedAtUnknown
 ui.visualization.omittedItems
 ui.visualization.openFailed
+ui.visualization.originScan
 ui.visualization.otherItems
 ui.visualization.otherMembers
 ui.visualization.previousBasis
@@ -828,6 +845,8 @@ ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
 ui.visualization.ratioUnavailable
+ui.visualization.rawBytes count:count
+ui.visualization.rawBytesAtLeast count:count
 ui.visualization.renderFailed
 ui.visualization.reportedEvidence
 ui.visualization.representation
@@ -851,7 +870,11 @@ ui.visualization.selected
 ui.visualization.selectionLost
 ui.visualization.show_space_distribution
 ui.visualization.singleObservation
+ui.visualization.sizeAtLeast value:name
 ui.visualization.sizeBasis
+ui.visualization.sizeBasisAllocated
+ui.visualization.sizeBasisLogical
+ui.visualization.sizeBasisUniquePhysical
 ui.visualization.sourceSizes
 ui.visualization.spaceDistribution
 ui.visualization.space_distribution
@@ -866,6 +889,7 @@ ui.visualization.unavailable_for_folder
 ui.visualization.unknownFormat
 ui.visualization.unknownItems
 ui.visualization.unknownReason
+ui.visualization.unrecognizedValue
 ui.visualization.updateFailed
 ui.visualization.value
 ui.visualization.viewGroupMembers

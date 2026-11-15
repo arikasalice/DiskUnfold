@@ -14,7 +14,7 @@ export type {
   ModelRowsPage,
   VizSelection,
 } from "./model-adapter";
-export { rawSourceSize, shapeLabels, vizMessage } from "./model-text";
+export { rawSourceSize, rowName, shapeLabels, vizMessage } from "./model-text";
 export type { VizText } from "./model-text";
 export {
   visualizationFormatName,
@@ -45,4 +45,9 @@ export type {
   VisualizationPort,
 } from "./visualization-port";
 export { useLocalizedVizText } from "./use-viz-text";
+export {
+  createProductionVizText,
+  useProductionVizText,
+} from "./production-text";
+export { createVizKeyText } from "./key-text";
 export type { VisualizationViewRequest } from "./view-request";

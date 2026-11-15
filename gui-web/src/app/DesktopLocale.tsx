@@ -21,6 +21,7 @@ import type { LocaleView } from "../state/use-locale";
 import { applyPresentation } from "../theme/presentation-settings";
 import "../theme/locale.css";
 import { App } from "./App";
+import { productionVisualizationProvider } from "./production-visualization";
 import { SupportRequestContext } from "./support-request";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -158,6 +159,7 @@ export function DesktopLocale({
   const shell = (
     <App
       {...(analysisEnabled ? { analysis: client } : {})}
+      visualizationProvider={productionVisualizationProvider}
       nativeLocaleHost={!analysisEnabled}
       infoClient={client}
       locale={locale}
