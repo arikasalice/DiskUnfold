@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::support::{Harness, Publication, render_body};
 use super::{TestResult, row_bytes, rows_of, two_files};
 
-fn total(model: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn total(model: &Value, name: &str) -> Result<u64, String> {
     model["totals"][name]["quantity"]["value"]
         .as_str()
         .and_then(|value| value.parse().ok())
@@ -26,7 +26,7 @@ pub(super) fn assert_within_scope(model: &Value) -> TestResult {
     Ok(())
 }
 
-fn count(model: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn count(model: &Value, name: &str) -> Result<u64, String> {
     model["summary"][name]["value"]
         .as_str()
         .and_then(|value| value.parse().ok())
@@ -34,7 +34,7 @@ fn count(model: &Value, name: &str) -> Result<u64, String> {
 }
 
 // A large sibling that always keeps a shape, then small ones of the given size.
-fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u64>)> {
+pub(super) fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u64>)> {
     let names = (b'a'..=b'z').chain(b'A'..=b'Z');
     let sizes = large
         .iter()
@@ -46,7 +46,7 @@ fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u6
         .collect()
 }
 
-fn render(harness: &Harness, files: &[(u8, Option<u64>)]) -> Result<Value, String> {
+pub(super) fn render(harness: &Harness, files: &[(u8, Option<u64>)]) -> Result<Value, String> {
     harness.publish(&Publication {
         files,
         ..two_files(3)
