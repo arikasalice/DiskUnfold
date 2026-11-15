@@ -769,6 +769,7 @@ ui.visualization.graphFallback
 ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
 ui.visualization.graphUpdated
+ui.visualization.group.other
 ui.visualization.groupMeasurementContext
 ui.visualization.groupMembers
 ui.visualization.groupMissing
@@ -783,6 +784,7 @@ ui.visualization.histogram
 ui.visualization.independentTotals
 ui.visualization.invalidReferences
 ui.visualization.itemNamePending
+ui.visualization.legend.unclassified
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
 ui.visualization.loadedGraphRows
@@ -852,6 +854,7 @@ ui.visualization.sizeBasis
 ui.visualization.sourceSizes
 ui.visualization.spaceDistribution
 ui.visualization.space_distribution
+ui.visualization.stalenessUnwatched
 ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
