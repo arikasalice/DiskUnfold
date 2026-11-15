@@ -12,6 +12,7 @@ import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
+import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
@@ -27,7 +28,8 @@ export type BrowseVisualizationSelection = {
 export type BrowseVisualizationAssembly = {
   request: VisualizationViewRequest;
   canDisplay: (frame: ModelResponse) => boolean;
-  text: VizText;
+  /** Omitted: the view builds the product text in the active language. */
+  text?: VizText;
   autoLoadRows: boolean;
   resolveRenderer?: Parameters<
     typeof VisualizationSession
@@ -39,6 +41,8 @@ export type BrowseVisualizationProvider = (
   selection: BrowseVisualizationSelection,
   catalog: VizCatalog,
 ) => BrowseVisualizationAssembly | null;
+
+const DEFAULT_DISPLAY: SizeDisplay = { system: "iec", unit: "auto" };
 
 export function useBrowseVisualization(
   client: AnalysisClient | undefined,
@@ -183,6 +187,9 @@ export function BrowseVisualizationView({
   assembly: BrowseVisualizationAssembly | undefined;
 }) {
   const text = useLocaleText();
+  const productionText = useProductionVizText(
+    selection?.display ?? DEFAULT_DISPLAY,
+  );
   const viewportElement = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
@@ -280,7 +287,7 @@ export function BrowseVisualizationView({
               frameMatchesBrowseSelection(frame, selection) &&
               assembly.canDisplay(frame)
             }
-            text={assembly.text}
+            text={assembly.text ?? productionText}
             autoLoadRows={assembly.autoLoadRows}
             {...(assembly.resolveRenderer
               ? { resolveRenderer: assembly.resolveRenderer }
@@ -296,7 +303,15 @@ export function BrowseVisualizationView({
   );
 }
 
-function supportsBrowseVisualization(
+/**
+ * Whether the owner's request fits the pinned Browse selection and the catalog.
+ *
+ * A request that leaves `strategy` out is accepted: the engine then pins the
+ * highest registered revision for the format and reports it in the model, so the
+ * screen never invents a strategy id. A request that names a strategy must name
+ * one the catalog lists.
+ */
+export function supportsBrowseVisualization(
   assembly: BrowseVisualizationAssembly,
   catalog: VizCatalog,
   selection: BrowseVisualizationSelection,
@@ -317,12 +332,12 @@ function supportsBrowseVisualization(
     catalog.measures.includes(request.measure) &&
     catalog.colorCriteria.includes(request.colorCriterion) &&
     catalog.denominatorCriteria.includes(request.denominatorBasis) &&
-    strategy !== undefined &&
-    catalog.strategies.some(
-      (candidate) =>
-        candidate.id === strategy.id &&
-        candidate.revision === strategy.revision,
-    )
+    (strategy === undefined ||
+      catalog.strategies.some(
+        (candidate) =>
+          candidate.id === strategy.id &&
+          candidate.revision === strategy.revision,
+      ))
   );
 }
 
