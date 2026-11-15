@@ -47,7 +47,7 @@ fn observed_last_write_is_retained_after_live_change() -> Result<(), Box<dyn std
         .modified_at
         .clone()
         .ok_or("missing time")?;
-    assert_eq!(first.as_str(), "2020-09-13T12:26:40.000Z");
+    assert_eq!(first.to_string(), "2020-09-13T12:26:40.000Z");
     file.set_times(
         fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
     )?;

@@ -261,9 +261,7 @@ pub(super) fn build_model(
 }
 fn bytes(size: &SizeValue) -> Result<u64, EngineError> {
     match &size.amount {
-        SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => {
-            bytes.as_str().parse().map_err(|_| internal())
-        }
+        SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => Ok(bytes.get()),
         _ => Err(internal()),
     }
 }

@@ -26,7 +26,7 @@ fn observe_in(
             | NSISO8601DateFormatOptions::WithFractionalSeconds,
     );
     let date = formatter
-        .dateFromString(&NSString::from_str(instant.as_str()))
+        .dateFromString(&NSString::from_str(&instant.to_string()))
         .ok_or(TimeZoneUnavailable)?;
     let offset_seconds =
         i32::try_from(zone.secondsFromGMTForDate(&date)).map_err(|_| TimeZoneUnavailable)?;

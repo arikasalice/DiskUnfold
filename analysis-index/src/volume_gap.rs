@@ -135,7 +135,7 @@ fn remainder(
         *bytes = *value;
         evidence = crate::space::weaker(Some(evidence), source.clone());
     }
-    let allocated = bytes.as_str().parse::<u64>().map_err(|_| InexactInput)?;
+    let allocated = bytes.get();
     std::iter::once(allocated)
         .chain(known)
         .try_fold(used_bytes, u64::checked_sub)

@@ -44,7 +44,7 @@ pub fn size(basis: SizeBasis, bytes: u64) -> SizeValue {
 /// The exact byte count of a total, or `None` when the amount is not exact.
 pub fn exact(value: &SizeValue) -> Option<u64> {
     match &value.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
         SizeAmount::LowerBound { .. } | SizeAmount::Unknown => None,
     }
 }

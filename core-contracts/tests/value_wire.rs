@@ -179,39 +179,28 @@ fn timestamp_from_unix_millis_matches_parse_for_sampled_values() {
     }
 }
 
-// The three inputs below are not the canonical form this crate produces. They
-// record what the implementation did when the wire form was pinned.
+// The three inputs below are not the canonical form this crate prints. The
+// first wire-form commit recorded that they were accepted as typed; the
+// numeric representation stores milliseconds, so they are now rejected.
 #[test]
-fn timestamp_leap_second_text_current_behaviour() {
+fn timestamp_leap_second_text_is_rejected() {
     let text = "2016-12-31T23:59:60.000Z";
-    let value = Timestamp::parse(text).expect("accepted at this commit");
-    assert_eq!(
-        serde_json::to_string(&value).expect("json"),
-        byte_json(text)
-    );
-    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_ok());
+    assert!(Timestamp::parse(text).is_err());
+    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_err());
 }
 
 #[test]
-fn timestamp_lowercase_t_separator_current_behaviour() {
+fn timestamp_lowercase_t_separator_is_rejected() {
     let text = "2026-11-15t00:00:00.000Z";
-    let value = Timestamp::parse(text).expect("accepted at this commit");
-    assert_eq!(
-        serde_json::to_string(&value).expect("json"),
-        byte_json(text)
-    );
-    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_ok());
+    assert!(Timestamp::parse(text).is_err());
+    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_err());
 }
 
 #[test]
-fn timestamp_space_separator_current_behaviour() {
+fn timestamp_space_separator_is_rejected() {
     let text = "2026-11-15 00:00:00.000Z";
-    let value = Timestamp::parse(text).expect("accepted at this commit");
-    assert_eq!(
-        serde_json::to_string(&value).expect("json"),
-        byte_json(text)
-    );
-    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_ok());
+    assert!(Timestamp::parse(text).is_err());
+    assert!(serde_json::from_str::<Timestamp>(&byte_json(text)).is_err());
 }
 
 #[test]

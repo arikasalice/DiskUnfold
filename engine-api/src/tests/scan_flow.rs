@@ -319,7 +319,7 @@ fn check_observed_details(
     assert_eq!(observed.volume_id, [1]);
     assert_eq!(observed.file_id, 3usize.to_le_bytes());
     assert_eq!(
-        pinned.observed_at().map(|time| time.as_str()),
+        pinned.observed_at().map(|time| time.to_string()).as_deref(),
         Some("1970-01-01T00:00:01.000Z")
     );
     let detail = gui(

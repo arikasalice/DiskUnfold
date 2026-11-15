@@ -229,7 +229,7 @@ fn exact(size: &SizeValue) -> Option<u64> {
         return None;
     }
     match &size.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
         _ => None,
     }
 }

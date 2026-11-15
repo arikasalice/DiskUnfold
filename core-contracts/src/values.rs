@@ -1,6 +1,8 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
-use std::{fmt, str::FromStr};
+
+mod compact;
+pub use compact::{ByteSize, Timestamp};
 
 macro_rules! string_value {
     ($name:ident, $validate:expr) => {
@@ -54,31 +56,6 @@ impl Id {
                 .into_uuid()
                 .to_string(),
         )
-    }
-}
-string_value!(ByteSize, |s: &str| !s.is_empty()
-    && s.bytes().all(|c| c.is_ascii_digit())
-    && (s == "0" || !s.starts_with('0'))
-    && u64::from_str(s).is_ok());
-string_value!(Timestamp, |s: &str| s.len() == 24
-    && s.ends_with('Z')
-    && s.as_bytes().get(19) == Some(&b'.')
-    && chrono::DateTime::parse_from_rfc3339(s).is_ok());
-impl Timestamp {
-    /// Encodes an injected epoch timestamp in the fixed UTC wire format.
-    pub fn from_unix_millis(millis: i64) -> Option<Self> {
-        let time = chrono::DateTime::from_timestamp_millis(millis)?;
-        Self::parse(&time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).ok()
-    }
-}
-impl From<u64> for ByteSize {
-    fn from(value: u64) -> Self {
-        Self(value.to_string())
-    }
-}
-impl fmt::Display for ByteSize {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
     }
 }
 

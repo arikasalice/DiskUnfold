@@ -57,7 +57,11 @@ fn publications_pin_and_sort_issue_facts_without_creating_gaps() -> Result<(), S
         ]
     );
     assert_eq!(
-        facts[1].observed_at.as_ref().map(Timestamp::as_str),
+        facts[1]
+            .observed_at
+            .as_ref()
+            .map(Timestamp::to_string)
+            .as_deref(),
         Some("2021-01-01T00:00:00.000Z")
     );
     assert!(new.scan_issues()[0].observed_at.is_none());

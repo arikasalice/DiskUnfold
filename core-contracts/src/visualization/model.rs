@@ -431,7 +431,7 @@ impl VizTotal {
                     && match (&size.amount, self.quantity.amount()) {
                         (SizeAmount::Exact { bytes }, VizAmount::Exact { value })
                         | (SizeAmount::LowerBound { bytes }, VizAmount::LowerBound { value }) => {
-                            bytes.as_str().parse::<i128>() == Ok(value.get())
+                            i128::from(bytes.get()) == value.get()
                         }
                         (SizeAmount::Unknown, VizAmount::Unknown { .. }) => true,
                         _ => false,

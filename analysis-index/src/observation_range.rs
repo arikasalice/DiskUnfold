@@ -84,12 +84,8 @@ fn select(
     }
 }
 
-// Timestamp validation requires exactly three fractional digits and UTC Z. RFC 3339
-// accepts T, t or a space at byte 10, so exclude that non-semantic separator.
 fn compare(a: &Timestamp, b: &Timestamp) -> Ordering {
-    let a = a.as_str().as_bytes();
-    let b = b.as_str().as_bytes();
-    a[..10].cmp(&b[..10]).then_with(|| a[11..].cmp(&b[11..]))
+    a.unix_millis().cmp(&b.unix_millis())
 }
 
 pub(crate) fn build(

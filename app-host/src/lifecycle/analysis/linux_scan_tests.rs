@@ -87,8 +87,8 @@ fn logical(total: &SpaceTotal) -> Result<(u64, bool), Box<dyn std::error::Error>
         .find(|value| value.size.basis == SizeBasis::Logical)
         .ok_or("missing logical size")?;
     match &size.size.amount {
-        SizeAmount::Exact { bytes } => Ok((bytes.as_str().parse()?, true)),
-        SizeAmount::LowerBound { bytes } => Ok((bytes.as_str().parse()?, false)),
+        SizeAmount::Exact { bytes } => Ok((bytes.get(), true)),
+        SizeAmount::LowerBound { bytes } => Ok((bytes.get(), false)),
         other => Err(format!("unexpected logical size: {other:?}").into()),
     }
 }

@@ -436,7 +436,7 @@ fn exact_size(value: Option<&du_core_contracts::SizeValue>) -> Option<u64> {
         return None;
     }
     match &value.amount {
-        SizeAmount::Exact { bytes } => bytes.as_str().parse().ok(),
+        SizeAmount::Exact { bytes } => Some(bytes.get()),
         _ => None,
     }
 }

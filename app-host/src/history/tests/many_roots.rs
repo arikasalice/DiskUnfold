@@ -30,7 +30,7 @@ fn logical(total: &SpaceTotal) -> Result<u64, Box<dyn std::error::Error>> {
         .size
         .amount;
     match amount {
-        SizeAmount::Exact { bytes } => Ok(bytes.as_str().parse()?),
+        SizeAmount::Exact { bytes } => Ok(bytes.get()),
         _ => Err(format!("logical size is not exact: {amount:?}").into()),
     }
 }

@@ -87,15 +87,11 @@ mod tests {
     fn floor_and_unavailable_boundaries() {
         let epoch = 116_444_736_000_000_000;
         assert_eq!(
-            filetime(epoch - 1)
-                .map(|t| t.as_str().to_owned())
-                .as_deref(),
+            filetime(epoch - 1).map(|t| t.to_string()).as_deref(),
             Some("1969-12-31T23:59:59.999Z")
         );
         assert_eq!(
-            filetime(epoch + 9_999)
-                .map(|t| t.as_str().to_owned())
-                .as_deref(),
+            filetime(epoch + 9_999).map(|t| t.to_string()).as_deref(),
             Some("1970-01-01T00:00:00.000Z")
         );
         assert!(filetime(0).is_none());
