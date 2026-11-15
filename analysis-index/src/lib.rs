@@ -32,7 +32,7 @@ pub mod volume_gap;
 use aggregation_rule::RegisteredRule;
 pub use aggregation_rule::SizeRuleIdentity;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
 use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublisher};
 use du_core_contracts::{Id, Timestamp};
@@ -47,6 +47,7 @@ use version_store::{Entry, State};
 mod build_error;
 pub use build_error::BuildError;
 mod build_abort;
+mod build_add;
 mod completed_scan;
 pub use completed_scan::{CompletedScan, CompletedScanError, ScanCompletion};
 mod volume_reports;
@@ -201,97 +202,6 @@ pub struct BuildHandle {
     finished: bool,
 }
 impl BuildHandle {
-    /// Adds a confirmed directory with no independent logical-size contribution.
-    pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.insert(
-            path,
-            StoredObservation {
-                size: None,
-                kind: ResultItemKind::Directory,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
-    pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.insert(
-            path,
-            StoredObservation {
-                size: None,
-                kind: ResultItemKind::UntraversedLink,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a file and its separately observed physical-space evidence.
-    ///
-    /// Identity must be an OS-provided volume/file pair, never a path or content hash.
-    /// Missing or inconsistent evidence is retained as unknown during aggregation.
-    pub fn add_with_space(
-        &mut self,
-        observation: Observation,
-        space: SpaceObservation,
-    ) -> Result<(), BuildError> {
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind: ResultItemKind::File,
-                physical: Some(Arc::new(space)),
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a confirmed file even if its logical size could not be read.
-    pub fn add_file(&mut self, observation: Observation) -> Result<(), BuildError> {
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind: ResultItemKind::File,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
-        let kind = if observation.size.is_some() {
-            ResultItemKind::File
-        } else {
-            ResultItemKind::Unknown
-        };
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
     fn insert(
         &mut self,
         path: Vec<Vec<u8>>,
