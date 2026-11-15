@@ -122,3 +122,38 @@ pub struct BrowseDetail {
     pub current_correspondence: bool,
     pub observation_only: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    const ID: &str = "018f0000-0000-7000-8000-000000000001";
+
+    fn with_field(mut value: Value, pointer: &str) -> Result<Value, String> {
+        value
+            .pointer_mut(pointer)
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| pointer.to_owned())?
+            .insert("futureField".into(), json!(true));
+        Ok(value)
+    }
+
+    #[test]
+    fn detail_and_copy_path_requests_reject_unknown_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let detail = json!({"resultVersion":ID,"item":{"resultVersion":ID,"itemNo":0}});
+        serde_json::from_value::<BrowseDetailRequest>(detail.clone())?;
+        for pointer in ["", "/item"] {
+            let value = with_field(detail.clone(), pointer)?;
+            assert!(serde_json::from_value::<BrowseDetailRequest>(value).is_err());
+        }
+        let copy = json!({"resultVersion":ID,"items":[{"resultVersion":ID,"itemNo":0}]});
+        serde_json::from_value::<BrowseCopyPathRequest>(copy.clone())?;
+        for pointer in ["", "/items/0"] {
+            let value = with_field(copy.clone(), pointer)?;
+            assert!(serde_json::from_value::<BrowseCopyPathRequest>(value).is_err());
+        }
+        Ok(())
+    }
+}
