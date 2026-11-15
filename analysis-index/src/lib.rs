@@ -183,6 +183,7 @@ impl IngestSink {
             observations: observation_store::ObservationStore::default(),
             directory_case: BTreeMap::new(),
             excluded_children: BTreeMap::new(),
+            unread_folders: BTreeMap::new(),
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,
@@ -211,6 +212,8 @@ pub struct BuildHandle {
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     /// Excluded-child records by store node of the folder they were reported for.
     excluded_children: BTreeMap<u32, folder_marks::ExcludedRecord>,
+    /// Unread-folder marks by store node of the folder they were reported for.
+    unread_folders: BTreeMap<u32, folder_collection::UnreadReason>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     volume_reports: Vec<VolumeReport>,
     finished: bool,
@@ -339,7 +342,7 @@ impl BuildHandle {
             &built,
             &self.observations,
             &self.issues,
-            &self.excluded_children,
+            (&self.excluded_children, &self.unread_folders),
             finish,
         );
         // Linear in items and gaps, so it runs here and never under the state lock below.

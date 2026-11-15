@@ -11,18 +11,22 @@
 //!    publication and any completeness: unenumerated is Yes with the reason of the first
 //!    recorded gap, and the boundary is [`FolderBoundary::NoBoundary`]. A gap whose path
 //!    is not an item has no row and marks nothing.
-//! 3. The folder has a `scan.boundary_other_volume` issue ([`BOUNDARY_OTHER_VOLUME`]) or a
+//! 3. The folder carries an unread mark ([`crate::BuildHandle::set_directory_unread`]): unenumerated
+//!    is Yes with [`REASON_CANCELLED`] or [`REASON_DISCONNECTED`] and the boundary is
+//!    [`FolderBoundary::NoBoundary`]. A gap on the same folder wins (rule 2), so the gap's
+//!    reason is reported. The mark outranks a boundary issue on the same folder.
+//! 4. The folder has a `scan.boundary_other_volume` issue ([`BOUNDARY_OTHER_VOLUME`]) or a
 //!    `scan.revisit_blocked` issue ([`BOUNDARY_ALREADY_COUNTED`]): the boundary is that
 //!    kind and unenumerated is No. With both issues the other-volume boundary is reported.
-//! 4. No mark and the publication is not the sealed one of its build: both are Unknown with
+//! 5. No mark and the publication is not the sealed one of its build: both are Unknown with
 //!    [`REASON_IN_PROGRESS`].
-//! 5. No mark and the sealed version is Complete or Missing: unenumerated is No and the
+//! 6. No mark and the sealed version is Complete or Missing: unenumerated is No and the
 //!    boundary is [`FolderBoundary::NoBoundary`].
-//! 6. No mark and the sealed version is Partial or Cancelled: both are Unknown with
+//! 7. No mark and the sealed version is Partial or Cancelled: both are Unknown with
 //!    [`REASON_DATA_INSUFFICIENT`], because an unmarked folder cannot yet be told from an
-//!    empty one.
+//!    empty one. Unread marks let such a version answer for the folders they name.
 //!
-//! Rules 2 and 3 are exclusive, so a folder is never both unenumerated and bounded.
+//! Rules 2 to 4 are exclusive, so a folder is never both unenumerated and bounded.
 //!
 //! Replacement builds (`open_replacement`) start without gaps, issues and records, keep the
 //! data source of their base and are always sealed. They follow the same rules from what
@@ -30,10 +34,11 @@
 //!
 //! # Excluded children
 //!
-//! A reported folder answers `count` and `exact = complete && no gap on the folder`. An
-//! unreported folder of a real sealed Complete or Missing version answers 0, exact unless
-//! the folder has a gap (its entries were not read, so 0 is a lower bound). Any other
-//! unreported folder answers `None`.
+//! A reported folder answers `count` and `exact = complete && the folder is not unread`,
+//! where unread means a gap or an unread mark on the folder. An unreported folder of a real
+//! sealed Complete or Missing version answers 0, exact unless the folder is unread (its
+//! entries were not read, so 0 is a lower bound). Any other unreported folder answers
+//! `None`.
 //!
 //! # Cost
 //!
@@ -52,6 +57,11 @@ use crate::folder_marks::BoundaryKind;
 pub const REASON_IN_PROGRESS: &str = "scan.in_progress";
 /// Reason key reported when the version cannot tell the fact.
 pub const REASON_DATA_INSUFFICIENT: &str = "space.data_insufficient";
+/// Reason key of a folder left unread because the scan was cancelled. Defined here only; it
+/// is not a shared contract key.
+pub const REASON_CANCELLED: &str = "scan.cancelled";
+/// Reason key of a folder left unread because its volume disconnected.
+pub const REASON_DISCONNECTED: &str = "scan.disconnected";
 /// Name of the boundary of a folder on another volume than its parent.
 pub const BOUNDARY_OTHER_VOLUME: &str = "other_volume";
 /// Name of the boundary of a folder that was already collected through another path.
@@ -105,6 +115,35 @@ pub enum FolderCollection<'a> {
     },
 }
 
+/// Why the collector left a folder's entries unread without recording an unread range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnreadReason {
+    /// The scan was cancelled before the folder was read.
+    Cancelled,
+    /// The volume disconnected before the folder was read.
+    Disconnected,
+}
+
+impl UnreadReason {
+    /// The reason key a query reports for this reason.
+    pub fn reason_key(self) -> &'static str {
+        match self {
+            Self::Cancelled => REASON_CANCELLED,
+            Self::Disconnected => REASON_DISCONNECTED,
+        }
+    }
+}
+
+/// How many folders of a version carry each [`UnreadReason`] mark.
+///
+/// Counts marks as recorded, including a folder that also has a gap. They are separate from
+/// the inaccessible ranges of the aggregates and from the scan issues.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UnreadFolderCounts {
+    pub cancelled: u32,
+    pub disconnected: u32,
+}
+
 /// Direct children dropped by exclusion rules in one folder.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExcludedChildren {
@@ -150,17 +189,24 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
-        let unread = self.exact_gaps.contains_key(&item.item_no);
+        let not_read = self.recorded_unread(item.item_no).is_some();
         if let Some(record) = self.folder_marks.excluded(item.item_no) {
             return Ok(Some(ExcludedChildren {
                 count: record.count,
-                exact: record.complete && !unread,
+                exact: record.complete && !not_read,
             }));
         }
         Ok(self.sealed_scan().then_some(ExcludedChildren {
             count: 0,
-            exact: !unread,
+            exact: !not_read,
         }))
+    }
+
+    /// How many folders of this version carry each unread mark.
+    ///
+    /// Computed when the version was published; the call is O(1).
+    pub fn unread_folder_counts(&self) -> UnreadFolderCounts {
+        self.folder_marks.unread_counts()
     }
 
     /// Whether this is the sealed publication of a real scan that finished its walk.
@@ -188,13 +234,8 @@ impl ResultVersion {
                 },
                 FolderBoundary::NotProvided,
             )
-        } else if let Some(gap) = self.first_gap(item.item_no) {
-            (
-                Unenumerated::Yes {
-                    reason_key: gap.as_str(),
-                },
-                FolderBoundary::NoBoundary,
-            )
+        } else if let Some(reason_key) = self.recorded_unread(item.item_no) {
+            (Unenumerated::Yes { reason_key }, FolderBoundary::NoBoundary)
         } else if let Some(kind) = self.folder_marks.boundary(item.item_no) {
             (Unenumerated::No, boundary_of(kind))
         } else if !self.folder_marks.sealed() {
@@ -210,10 +251,21 @@ impl ResultVersion {
         }
     }
 
-    /// The reason key of the first gap recorded for exactly this item.
-    fn first_gap(&self, item_no: u32) -> Option<&String> {
-        let index = *self.exact_gaps.get(&item_no)?.first()?;
-        self.gaps.get(index).map(|gap| &gap.reason_key)
+    /// The reason the folder's entries were not read: the first gap recorded for exactly
+    /// this item, else its unread mark.
+    fn recorded_unread(&self, item_no: u32) -> Option<&str> {
+        let gap = self
+            .exact_gaps
+            .get(&item_no)
+            .and_then(|indices| indices.first())
+            .and_then(|index| self.gaps.get(*index));
+        match gap {
+            Some(gap) => Some(gap.reason_key.as_str()),
+            None => self
+                .folder_marks
+                .unread(item_no)
+                .map(UnreadReason::reason_key),
+        }
     }
 }
 

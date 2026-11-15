@@ -4,7 +4,12 @@
 //! excluded-child record holds no memory. Both tables are sorted by item number
 //! and read by binary search, so a lookup is O(log n) in the number of marked
 //! folders.
-use crate::{BuildError, BuildHandle, observation_store::ObservationStore, tree::BuiltItems};
+use crate::{
+    BuildError, BuildHandle,
+    folder_collection::{UnreadFolderCounts, UnreadReason},
+    observation_store::ObservationStore,
+    tree::BuiltItems,
+};
 use du_core_contracts::{
     result::ResultItemKind,
     scan_failures::{ScanIssue, unentered_reason},
@@ -35,6 +40,9 @@ pub(crate) struct FolderMarks {
     boundaries: Box<[(u32, BoundaryKind)]>,
     /// Folders with an excluded-child record, ascending by item number.
     excluded: Box<[(u32, ExcludedRecord)]>,
+    /// Folders reported as left unread, ascending by item number.
+    unread: Box<[(u32, UnreadReason)]>,
+    unread_counts: UnreadFolderCounts,
 }
 
 impl BuildHandle {
@@ -56,23 +64,52 @@ impl BuildHandle {
         count: u32,
         complete: bool,
     ) -> Result<(), BuildError> {
+        let node = self.registered_directory(root, path)?;
+        self.excluded_children
+            .insert(node, ExcludedRecord { count, complete });
+        Ok(())
+    }
+
+    /// Marks one folder as not read because the scan was cancelled or the volume
+    /// disconnected, without an unread-range row.
+    ///
+    /// `root` identifies the actual input root and an empty path selects that root.
+    /// The mark is for folders whose entries the collector never read; a folder with a
+    /// recorded gap needs no mark, and a gap's reason wins over the mark. The mark does
+    /// not touch aggregation, so the caller seals the version as `Partial` or
+    /// `Cancelled`, which already makes every size a lower bound or unknown. A later
+    /// record for the same folder replaces the earlier one in future publications only.
+    /// Each mark costs 8 bytes in a published version; unmarked folders cost nothing.
+    ///
+    /// # Errors
+    /// Returns `Unavailable` after the build finishes and `InvalidTree` when the exact
+    /// root and path do not name a previously registered directory.
+    pub fn set_directory_unread(
+        &mut self,
+        root: u32,
+        path: &[Vec<u8>],
+        reason: UnreadReason,
+    ) -> Result<(), BuildError> {
+        let node = self.registered_directory(root, path)?;
+        self.unread_folders.insert(node, reason);
+        Ok(())
+    }
+
+    /// The store node of an already registered directory, with the build still open.
+    fn registered_directory(&mut self, root: u32, path: &[Vec<u8>]) -> Result<u32, BuildError> {
         if self.finished {
             return Err(BuildError::Unavailable);
         }
         if !self.valid_root(root) {
             return Err(BuildError::InvalidTree);
         }
-        let node = self
-            .observations
+        self.observations
             .locate(root, path)
             .filter(|node| {
                 self.observations.observation(*node).map(|item| item.kind)
                     == Some(ResultItemKind::Directory)
             })
-            .ok_or(BuildError::InvalidTree)?;
-        self.excluded_children
-            .insert(node, ExcludedRecord { count, complete });
-        Ok(())
+            .ok_or(BuildError::InvalidTree)
     }
 }
 
@@ -85,9 +122,10 @@ impl FolderMarks {
         built: &BuiltItems,
         store: &ObservationStore,
         issues: &[ScanIssue],
-        excluded: &BTreeMap<u32, ExcludedRecord>,
+        records: (&BTreeMap<u32, ExcludedRecord>, &BTreeMap<u32, UnreadReason>),
         sealed: bool,
     ) -> Self {
+        let (excluded, unread) = records;
         let mut boundaries: Vec<(u32, BoundaryKind)> = issues
             .iter()
             .filter_map(|issue| boundary_mark(built, store, issue))
@@ -103,15 +141,45 @@ impl FolderMarks {
             })
             .collect();
         excluded.sort_unstable_by_key(|entry| entry.0);
+        let mut unread: Vec<(u32, UnreadReason)> = unread
+            .iter()
+            .filter_map(|(node, reason)| {
+                let item = built.item_of_node.get(*node as usize)?;
+                Some((*item, *reason))
+            })
+            .collect();
+        unread.sort_unstable_by_key(|entry| entry.0);
+        let count = |wanted| {
+            let total = unread.iter().filter(|entry| entry.1 == wanted).count();
+            u32::try_from(total).unwrap_or(u32::MAX)
+        };
+        let unread_counts = UnreadFolderCounts {
+            cancelled: count(UnreadReason::Cancelled),
+            disconnected: count(UnreadReason::Disconnected),
+        };
         Self {
             sealed,
             boundaries: boundaries.into_boxed_slice(),
             excluded: excluded.into_boxed_slice(),
+            unread: unread.into_boxed_slice(),
+            unread_counts,
         }
     }
 
     pub(crate) fn sealed(&self) -> bool {
         self.sealed
+    }
+
+    pub(crate) fn unread(&self, item_no: u32) -> Option<UnreadReason> {
+        let at = self
+            .unread
+            .binary_search_by_key(&item_no, |entry| entry.0)
+            .ok()?;
+        self.unread.get(at).map(|entry| entry.1)
+    }
+
+    pub(crate) fn unread_counts(&self) -> UnreadFolderCounts {
+        self.unread_counts
     }
 
     pub(crate) fn boundary(&self, item_no: u32) -> Option<BoundaryKind> {
