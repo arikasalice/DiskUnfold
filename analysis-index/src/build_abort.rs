@@ -23,6 +23,16 @@ impl BuildHandle {
             let sequence = withdrawn
                 .as_ref()
                 .and_then(|_| state.next_event_sequence(self.lineage.as_ref()));
+            let freshness = if withdrawn.is_some() && self.events.tracks_freshness() {
+                // Only O(roots) work may happen under the state lock; query admissions wait on it.
+                state.freshness_aborted(
+                    &self.lineage,
+                    &self.scope_version_id,
+                    self.baseline.as_ref().map(|entry| &entry.result),
+                )
+            } else {
+                Vec::new()
+            };
             drop(state);
             self.events.notify(
                 self.lineage.as_ref(),
@@ -31,6 +41,7 @@ impl BuildHandle {
                 withdrawn.as_ref().map(|entry| entry.result.as_ref()),
                 self.baseline.as_ref().map(|entry| entry.result.as_ref()),
             );
+            self.events.notify_freshness(freshness);
             drop(order);
             if let Some(entry) = &withdrawn {
                 // The withdrawn partial can never be current again; the baseline stays. Retiring

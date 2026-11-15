@@ -60,7 +60,11 @@ test("volume problems use the active locale after the request finishes", async (
 test.each([
   ["STALE_VERSION", "result.requery_required", /open the latest result/i],
   ["NOT_FOUND", "ref.unavailable", /run the analysis again/i],
-  ["INVALID_ARGUMENT", "space.target_out_of_scope", /outside this scan/i],
+  [
+    "INVALID_ARGUMENT",
+    "space.target_out_of_scope",
+    /outside this analysis scope/i,
+  ],
   ["INVALID_ARGUMENT", "command.body_invalid", /explanation is unavailable/i],
 ])(
   "explains %s %s without changing the selected result",

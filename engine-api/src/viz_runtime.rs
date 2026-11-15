@@ -307,14 +307,17 @@ impl Runtime {
     }
 
     /// Registers visualization on the analysis desktop's existing worker pool.
+    ///
+    /// Without a `selection` each request pins the result it names (or the current
+    /// result when it names none) through the source store.
     pub(crate) fn register_on_desktop(
         builder: &mut EngineBuilder,
         assembly: Assembly,
         random: &dyn Random,
-        selection: Arc<dyn selection::WindowScanSelection>,
+        selection: Option<Arc<dyn selection::WindowScanSelection>>,
         workers: Arc<Workers>,
     ) -> Result<Arc<Self>, &'static str> {
-        Self::register_inner(builder, assembly, random, Some(selection), Some(workers))
+        Self::register_inner(builder, assembly, random, selection, Some(workers))
     }
 
     fn register_inner(

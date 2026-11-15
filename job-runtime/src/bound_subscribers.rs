@@ -46,8 +46,10 @@ struct Fanout {
 }
 impl JobEvents for Fanout {
     fn publish(&self, event: JobEvent) {
-        if !matches!(event, JobEvent::ResultVersionChanged(_))
-            && !self.bus.publish(event.clone(), self.clock.now())
+        if !matches!(
+            event,
+            JobEvent::ResultVersionChanged(_) | JobEvent::ResultFreshnessChanged(_)
+        ) && !self.bus.publish(event.clone(), self.clock.now())
         {
             self.failed.store(true, Ordering::Release);
         }

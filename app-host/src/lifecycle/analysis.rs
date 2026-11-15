@@ -27,7 +27,21 @@ struct ScanPorts {
 ///
 /// FR1.HD2.app-host.DD1: engine-api registers the `scan.metadata` job kind in
 /// the same step as `scan.start`, which supplies its job bodies.
-const REQUIRED_USE_CASES: [&str; 2] = ["scan.start", "scan.failures"];
+/// FR10.HD1.app-host.DD2: the visualization registration adds the `viz.*` commands
+/// and the `viz.compute` job kind.
+const REQUIRED_USE_CASES: [&str; 11] = [
+    "scan.start",
+    "scan.failures",
+    "viz.view.open",
+    "viz.view.close",
+    "viz.render",
+    "viz.cancel",
+    "viz.rows",
+    "viz.group_rows",
+    "viz.locate",
+    "viz.catalog",
+    "viz.availability",
+];
 
 /// The single per-platform injection point for scan collection adapters.
 ///
@@ -108,6 +122,21 @@ pub(super) fn register_desktop(
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
+    services
+        .bind_scope_observation_log(Arc::new(database.scope_observations()))
+        .map_err(std::io::Error::other)
+        .map_err(|error| report_pre_window_error(capabilities, error))?;
+    visualization::register(
+        &services.visualization,
+        builder,
+        settings.clone().unit_table_source(),
+    )
+    .map_err(|error| {
+        report_pre_window_error(
+            capabilities,
+            std::io::Error::other(format!("startup.registration_failed: {error}")),
+        )
+    })?;
     crate::group_rules_store::register(builder, services.groups, database, capabilities)?;
     #[cfg(windows)]
     let recent_worker = recent
@@ -240,3 +269,4 @@ mod linux_scan_tests;
 mod macos_scan_tests;
 #[cfg(test)]
 mod tests;
+mod visualization;

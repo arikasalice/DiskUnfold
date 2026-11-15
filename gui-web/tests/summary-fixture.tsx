@@ -267,7 +267,7 @@ export async function startPanel(
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
-    name: "Start scan",
+    name: "Start analysis",
   });
   await waitFor(() => expect(start.disabled).toBe(false));
   fireEvent.click(start);

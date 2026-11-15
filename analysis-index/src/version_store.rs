@@ -11,6 +11,7 @@ use std::{
 
 type Lineage = Option<Id>;
 
+mod freshness;
 mod sample;
 
 #[derive(Clone)]
@@ -18,6 +19,8 @@ pub(super) struct Entry {
     pub(super) result: Arc<ResultVersion>,
     order: u64,
     pub(super) completion: Option<Arc<OnceLock<ScanCompletion>>>,
+    /// True for the final publication of a build; false for interim publications.
+    pub(super) sealed: bool,
 }
 
 #[derive(Default)]
@@ -34,6 +37,8 @@ pub(super) struct State {
     next_sample: u64,
     /// The most recently released sample sessions; see `sample::RELEASED_SESSION_LIMIT`.
     released_samples: VecDeque<SampleSessionKey>,
+    /// Freshness ledgers; they change under this lock, see `freshness`.
+    freshness: crate::freshness_ledger::Ledgers,
 }
 impl State {
     pub(super) fn next_event_sequence(&mut self, lineage: Option<&Id>) -> Option<u64> {
@@ -152,6 +157,7 @@ impl State {
                 result,
                 order,
                 completion,
+                sealed: finish,
             },
         );
         if finish && reserved {

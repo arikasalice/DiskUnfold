@@ -16,6 +16,25 @@ pub(super) fn descriptor() -> JobDescriptor {
         history: HistoryMode::None,
     }
 }
+/// The layout path a format takes once its required data is present.
+///
+/// A registered format the runtime cannot lay out is unsupported. Only the treemap
+/// layout may enter the treemap projection, so such a format never gets a treemap model.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    Treemap,
+    Bar,
+    Histogram,
+    Unsupported,
+}
+fn layout_for(format: &str) -> Layout {
+    match format {
+        "treemap" => Layout::Treemap,
+        "bar" => Layout::Bar,
+        "histogram" => Layout::Histogram,
+        _ => Layout::Unsupported,
+    }
+}
 pub(super) struct Compute {
     pub session: Arc<Session>,
     pub producer: Arc<dyn EvidenceProducer>,
@@ -38,11 +57,17 @@ impl JobBody for Compute {
         ) {
             return missing_data_fallback(self, &mut cancelled);
         }
-        if self.admitted.histogram.is_some() {
-            return super::histogram::run(self, &mut cancelled);
-        }
-        if self.admitted.request.format == "bar" {
-            return super::ranked_bar::run(self, &mut cancelled);
+        match layout_for(&self.admitted.request.format) {
+            Layout::Histogram if self.admitted.histogram.is_some() => {
+                return super::histogram::run(self, &mut cancelled);
+            }
+            Layout::Bar => return super::ranked_bar::run(self, &mut cancelled),
+            Layout::Treemap => {}
+            // Required data was reported present for a format with no layout path:
+            // a composition error, closed here rather than drawn as a treemap.
+            Layout::Histogram | Layout::Unsupported => {
+                return outcome(false, Some("support.internal_error"));
+            }
         }
         let request = &self.admitted.request;
         let hierarchy = request.format == "treemap"

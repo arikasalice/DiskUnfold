@@ -38,7 +38,10 @@ const spaceReasonLabels = new Map([
   ["space.sharing_not_collected", "Sharing evidence was not collected"],
   ["space.sharing_unknown", "Sharing could not be verified"],
   ["space.identity_unsupported", "File identity could not be verified"],
-  ["space.out_of_range_links", "Links outside the scan were reported"],
+  [
+    "space.out_of_range_links",
+    "Links outside the analysis scope were reported",
+  ],
   ["space.shared_reported", "The file system reported shared space"],
 ]);
 

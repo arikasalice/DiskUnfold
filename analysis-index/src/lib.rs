@@ -5,6 +5,8 @@ mod current_pin;
 mod directory_case;
 mod forest;
 pub mod freshness;
+mod freshness_ledger;
+mod freshness_outcomes;
 pub mod group;
 mod issues;
 mod physical;
@@ -17,6 +19,10 @@ mod result_read;
 mod sample_versions;
 mod scope_header;
 pub use scope_header::ScopeHeader;
+mod scope_observation;
+pub use scope_observation::{
+    ObservationSkip, ObservationStamp, SealedScanError, fingerprint_from_hex,
+};
 pub mod source_registry;
 mod space;
 pub mod space_detail;
@@ -31,7 +37,7 @@ pub mod volume_gap;
 use aggregation_rule::RegisteredRule;
 pub use aggregation_rule::SizeRuleIdentity;
 use du_core_contracts::result::{
-    ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
+    ResultCompleteness, ResultItem, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
 use du_core_contracts::result_events::{ResultVersionChange, ResultVersionPublisher};
 use du_core_contracts::{Id, Timestamp};
@@ -46,6 +52,7 @@ use version_store::{Entry, State};
 mod build_error;
 pub use build_error::BuildError;
 mod build_abort;
+mod build_add;
 mod completed_scan;
 pub use completed_scan::{CompletedScan, CompletedScanError, ScanCompletion};
 mod volume_reports;
@@ -93,6 +100,9 @@ pub struct ResultVersion {
         Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+    /// Per-root outcomes for the freshness ledger, computed at seal time outside the store
+    /// lock. `None` when the version was not sealed by a store that tracks freshness.
+    freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
 }
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
@@ -105,7 +115,7 @@ impl IngestSink {
     pub fn with_version_publisher(publisher: Arc<dyn ResultVersionPublisher>) -> Self {
         Self {
             state: Arc::default(),
-            events: Arc::new(PublicationEvents::new(publisher)),
+            events: Arc::new(PublicationEvents::new(publisher, None)),
         }
     }
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
@@ -200,97 +210,6 @@ pub struct BuildHandle {
     finished: bool,
 }
 impl BuildHandle {
-    /// Adds a confirmed directory with no independent logical-size contribution.
-    pub fn add_directory(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.insert(
-            path,
-            StoredObservation {
-                size: None,
-                kind: ResultItemKind::Directory,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
-    pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
-        self.insert(
-            path,
-            StoredObservation {
-                size: None,
-                kind: ResultItemKind::UntraversedLink,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a file and its separately observed physical-space evidence.
-    ///
-    /// Identity must be an OS-provided volume/file pair, never a path or content hash.
-    /// Missing or inconsistent evidence is retained as unknown during aggregation.
-    pub fn add_with_space(
-        &mut self,
-        observation: Observation,
-        space: SpaceObservation,
-    ) -> Result<(), BuildError> {
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind: ResultItemKind::File,
-                physical: Some(Arc::new(space)),
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    /// Adds a confirmed file even if its logical size could not be read.
-    pub fn add_file(&mut self, observation: Observation) -> Result<(), BuildError> {
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind: ResultItemKind::File,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
-    pub fn add(&mut self, observation: Observation) -> Result<(), BuildError> {
-        let kind = if observation.size.is_some() {
-            ResultItemKind::File
-        } else {
-            ResultItemKind::Unknown
-        };
-        self.insert(
-            observation.path,
-            StoredObservation {
-                size: observation.size,
-                kind,
-                physical: None,
-                modified_at: None,
-                native_modified_at: None,
-                enumerated_inode: None,
-                placeholder_observation: None,
-                observed_at: None,
-            },
-        )
-    }
     fn insert(
         &mut self,
         path: Vec<Vec<u8>>,
@@ -410,6 +329,16 @@ impl BuildHandle {
         let (observation_ranges, scope_observation_range) =
             observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
+        // Linear in items and gaps, so it runs here and never under the state lock below.
+        let freshness_outcomes = (finish && self.events.tracks_freshness()).then(|| {
+            freshness_outcomes::compute(
+                self.roots.len(),
+                result_completeness,
+                &built.items,
+                &built.root_indices,
+                &self.gaps,
+            )
+        });
         let result = Arc::new(ResultVersion {
             version_id,
             origin: self.origin,
@@ -442,6 +371,7 @@ impl BuildHandle {
             scope_total,
             volume_reports: self.volume_reports.clone(),
             observed_at,
+            freshness_outcomes,
         });
         let order = self
             .events
@@ -469,6 +399,12 @@ impl BuildHandle {
             self.finished = true;
         }
         let sequence = state.next_event_sequence(self.lineage.as_ref());
+        // Only O(roots) work may happen under this lock; query admissions wait on it.
+        let freshness = if self.events.tracks_freshness() {
+            state.freshness_published(&self.lineage, &result, !was_published, finish)
+        } else {
+            Vec::new()
+        };
         drop(state);
         self.events.notify(
             self.lineage.as_ref(),
@@ -477,6 +413,7 @@ impl BuildHandle {
             previous.as_ref().map(|entry| entry.result.as_ref()),
             Some(&result),
         );
+        self.events.notify_freshness(freshness);
         drop(order);
         // Retiring raises no notification and the replaced version is already not current,
         // so registrations of it fail as stale; it needs no place in the publication order.

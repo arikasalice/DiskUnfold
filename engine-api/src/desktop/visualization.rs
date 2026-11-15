@@ -12,11 +12,15 @@ use crate::{
     api::EngineBuilder,
     viz_catalog,
     viz_pages::session::Session,
+    viz_production::{ProductionEvidence, UnitTableSource, policy},
     viz_runtime::{
         Assembly, EvidenceProducer, Runtime, ViewPolicy, selection::WindowScanSelection,
     },
     workers::Workers,
 };
+
+#[cfg(test)]
+mod tests;
 
 /// Shares desktop-owned resources with opt-in visualization composition.
 pub struct VisualizationServices {
@@ -33,6 +37,24 @@ pub struct VisualizationPreview {
     pub model_capacity: NonZeroUsize,
 }
 
+/// Limits and settings the composition root supplies to the product registration.
+pub struct DefaultVisualization {
+    /// View policy limits, frozen into the registered runtime.
+    pub policy: ViewPolicy,
+    /// Number of models the session cache keeps.
+    pub model_capacity: NonZeroUsize,
+    /// Source of the unit table (SI or IEC) selected by the display setting.
+    pub unit_table: UnitTableSource,
+}
+
+/// What one registered runtime needs besides the shared desktop resources.
+struct RuntimeParts {
+    producer: Arc<dyn EvidenceProducer>,
+    selection: Option<Arc<dyn WindowScanSelection>>,
+    policy: ViewPolicy,
+    model_capacity: NonZeroUsize,
+}
+
 impl VisualizationServices {
     pub(super) fn new(
         source: IngestSink,
@@ -44,6 +66,57 @@ impl VisualizationServices {
             ids,
             workers,
         }
+    }
+
+    /// Registers the product visualization: all six layout strategies, the catalog,
+    /// availability, rendering and its `viz.compute` job kind, in one call.
+    ///
+    /// Requests pin their own result: an explicit result revision or source reference
+    /// is admitted only while it is current, and an omitted one is resolved when the
+    /// request is admitted. No window selection is consulted. The composition root
+    /// must call this once per engine; a second call, a missing strategy or an
+    /// invalid policy returns an error that must stop startup.
+    pub fn register_default(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        options: DefaultVisualization,
+    ) -> Result<(), &'static str> {
+        let dispatcher = bundle::default_dispatcher()
+            .map_err(|_| "visualization default strategy registration failed")?;
+        self.register_default_with(builder, random, options, dispatcher)
+    }
+
+    fn register_default_with(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        options: DefaultVisualization,
+        dispatcher: Dispatcher,
+    ) -> Result<(), &'static str> {
+        let catalog = viz_catalog::prepare(&dispatcher, policy::catalog_policy())
+            .map_err(|_| "visualization catalog registration failed")?;
+        let producer = Arc::new(ProductionEvidence::new(
+            catalog.formats().to_vec(),
+            options.policy.revision,
+            options.unit_table,
+        ));
+        let availability = crate::viz_availability::prepare(
+            self.source.clone(),
+            catalog.formats().to_vec(),
+            catalog.required_data_table_revision(),
+            producer.clone(),
+        )
+        .map_err(|_| "visualization availability registration failed")?;
+        let parts = RuntimeParts {
+            producer,
+            selection: None,
+            policy: options.policy,
+            model_capacity: options.model_capacity,
+        };
+        self.register_runtime(builder, random, parts, dispatcher, Some(availability))?;
+        builder.register(catalog);
+        Ok(())
     }
 
     /// Registers the available treemap for explicit development and integration tests.
@@ -123,9 +196,26 @@ impl VisualizationServices {
         dispatcher: Dispatcher,
         availability: Option<crate::viz_availability::ReadAvailability>,
     ) -> Result<(), &'static str> {
+        let parts = RuntimeParts {
+            producer: options.producer,
+            selection: Some(options.selection),
+            policy: options.policy,
+            model_capacity: options.model_capacity,
+        };
+        self.register_runtime(builder, random, parts, dispatcher, availability)
+    }
+
+    fn register_runtime(
+        &self,
+        builder: &mut EngineBuilder,
+        random: &dyn Random,
+        parts: RuntimeParts,
+        dispatcher: Dispatcher,
+        availability: Option<crate::viz_availability::ReadAvailability>,
+    ) -> Result<(), &'static str> {
         let session = Arc::new(Session::new(
             self.source.clone(),
-            options.model_capacity,
+            parts.model_capacity,
             self.ids.clone(),
             dispatcher,
         ));
@@ -136,11 +226,11 @@ impl VisualizationServices {
                 session,
                 jobs: self.workers.runtime.clone(),
                 ids: self.ids.clone(),
-                producer: options.producer,
-                policy: options.policy,
+                producer: parts.producer,
+                policy: parts.policy,
             },
             random,
-            options.selection,
+            parts.selection,
             self.workers.clone(),
         )?;
         if let Some(availability) = availability {
