@@ -83,7 +83,10 @@ impl EvidenceProducer for ProductionEvidence {
         source: &CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<Option<SourcePolicyFacts>, EngineError> {
-        if request.color_criterion != policy::COLOR_CRITERION_NONE {
+        // Both criteria name rule tables that do not exist yet, so only "none" is served.
+        if request.classification_criterion != policy::CLASSIFICATION_CRITERION_NONE
+            || request.color_criterion != policy::COLOR_CRITERION_NONE
+        {
             return Err(EngineError::reason("viz.measure_unknown"));
         }
         let available = facts::available_formats(

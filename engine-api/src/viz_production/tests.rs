@@ -74,11 +74,23 @@ fn scope() -> ItemRef {
 }
 
 fn request(color_criterion: &str, format: &str) -> Result<VizRenderRequest, String> {
+    criteria_request(
+        policy::CLASSIFICATION_CRITERION_NONE,
+        color_criterion,
+        format,
+    )
+}
+
+fn criteria_request(
+    classification_criterion: &str,
+    color_criterion: &str,
+    format: &str,
+) -> Result<VizRenderRequest, String> {
     serde_json::from_value(json!({
         "viewChannel": id(9), "requestSeq": 1, "format": format, "resultRevision": id(3),
         "aggregateScopeRef": scope(), "navigationScopeRef": scope(),
         "measure": "size", "sizeBasis": "logical",
-        "classificationCriterion": "none", "colorCriterion": color_criterion,
+        "classificationCriterion": classification_criterion, "colorCriterion": color_criterion,
         "denominatorBasis": "scope", "viewport": {"width": 800, "height": 600, "scale": 1.0},
         "visibleWindow": {"left": 0, "top": 0, "right": 1_000_000, "bottom": 1_000_000},
         "minAreaPx2": 16, "depthLimit": 1,
@@ -224,6 +236,35 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
         accepted
             .classes
             .contains_key(policy::LEGEND_CLASS_UNCLASSIFIED)
+    );
+    Ok(())
+}
+
+#[test]
+fn only_the_none_classification_criterion_is_served() -> TestResult {
+    let source = publish(&[(b'a', Some(10))])?;
+    let producer = producer(&SI_UNITS);
+    for criterion in ["type", "", "None", " none", "fixture.criterion"] {
+        let request = criteria_request(criterion, policy::COLOR_CRITERION_NONE, "treemap")?;
+        assert_eq!(
+            producer.source_policy_facts(&source, &request).err(),
+            Some(crate::error::EngineError::new(
+                "viz.measure_unknown",
+                vec![]
+            )),
+            "{criterion:?}"
+        );
+    }
+    let served = criteria_request(
+        policy::CLASSIFICATION_CRITERION_NONE,
+        policy::COLOR_CRITERION_NONE,
+        "treemap",
+    )?;
+    assert!(
+        producer
+            .source_policy_facts(&source, &served)
+            .map_err(|error| format!("{error:?}"))?
+            .is_some()
     );
     Ok(())
 }
