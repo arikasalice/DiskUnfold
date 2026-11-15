@@ -711,6 +711,7 @@
     ["ui.browse.location_hierarchy","Location hierarchy",[]],
     ["ui.browse.no_confirmed_items_end_unknown","No confirmed items. The end of the list is unknown.",[]],
     ["ui.browse.no_items","No observed items in this folder.",[]],
+    ["ui.browse.no_more_items","No more items",[]],
     ["ui.browse.not_enumerated","Not enumerated",[]],
     ["ui.browse.not_recorded","Not recorded",[]],
     ["ui.browse.not_reported","Not reported",[]],

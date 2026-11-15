@@ -9,6 +9,7 @@ import {
   Progress,
   StatusBadge,
   Text,
+  Unbroken,
 } from "../../components";
 import type { BrowseGridFocus } from "../../components";
 import type { SizeDisplay } from "../../i18n/bytes";
@@ -157,10 +158,14 @@ export function GroupMemberList({
                   {memberTextValue(row.displayPath, text)}
                 </Text>,
                 <Text key="logical">
-                  {memberSizeText(row.logicalSize, display, text)}
+                  <Unbroken>
+                    {memberSizeText(row.logicalSize, display, text)}
+                  </Unbroken>
                 </Text>,
                 <Text key="allocated">
-                  {memberSizeText(row.allocatedSize, display, text)}
+                  <Unbroken>
+                    {memberSizeText(row.allocatedSize, display, text)}
+                  </Unbroken>
                 </Text>,
                 <div key="groups" className="du-groups-memberships">
                   {row.groups.length > 1 && (

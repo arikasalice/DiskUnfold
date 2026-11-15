@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FolderQueryRow, ItemRef } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import { browseDisplayName, rowKey } from "./browse-display";
@@ -9,16 +8,26 @@ export type InspectedItem = {
   kind: "file" | "folder";
   name: string;
   opener: HTMLElement | null;
+  /** The opener's position in the list. */
+  index: number;
 };
 
-/** Holds an observed item and its return target for the current browse revision. */
+/**
+ * Holds an observed item and its return target for the current browse
+ * revision. When the opener's row went away while the details were open,
+ * focusRow receives the row's former position.
+ */
 export function useItemInspection(
   version: string | undefined,
-  panel: RefObject<HTMLElement | null>,
+  focusRow: (index: number) => void,
 ) {
   const text = useLocaleText();
   const [item, setItem] = useState<InspectedItem>();
   const pending = useRef<InspectedItem>(undefined);
+  const fallback = useRef(focusRow);
+  useLayoutEffect(() => {
+    fallback.current = focusRow;
+  });
   const selected = item?.item.resultVersion === version ? item : undefined;
 
   useEffect(() => {
@@ -31,15 +40,15 @@ export function useItemInspection(
       // React Aria owns normal modal restoration. Only recover an orphaned
       // focus, never override a control the user or the modal already focused.
       if (active !== document.body) return;
-      const target =
+      if (
         restore.opener?.isConnected &&
         restore.opener.dataset.itemKey === rowKey(restore.item)
-          ? restore.opener
-          : panel.current;
-      target?.focus({ preventScroll: true });
+      )
+        restore.opener.focus({ preventScroll: true });
+      else fallback.current(restore.index);
     });
     return () => cancelAnimationFrame(frame);
-  }, [selected, version, panel]);
+  }, [selected, version]);
 
   return {
     selected,
@@ -60,6 +69,7 @@ export function useItemInspection(
         kind: row.kind === "directory" ? "folder" : "file",
         name: browseDisplayName(row.displayName, text),
         opener,
+        index: Number(opener.dataset.row ?? 0),
       });
     },
     close() {

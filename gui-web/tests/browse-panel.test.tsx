@@ -300,8 +300,9 @@ test("keyboard opens a folder and breadcrumbs return to the virtual root", async
   expect(accessibility.violations).toEqual([]);
   fireEvent.click(current);
   expect(port.open).toHaveBeenCalledTimes(2);
+  // The opened folder is empty, so "Up" is the next step (design review of PR #60).
   expect(document.activeElement).toBe(
-    screen.getByRole("region", { name: "Folder navigation" }),
+    screen.getByRole("button", { name: "Up" }),
   );
   expect(port.open).toHaveBeenLastCalledWith(
     expect.objectContaining({ location: ref(1), resultVersion: id }),
@@ -443,7 +444,7 @@ test("keyboard paging leaves focus where the user moved it before the final resp
   expect(document.activeElement).toBe(folder);
 });
 
-test("keyboard paging restores panel focus if the final page has no rows", async () => {
+test("keyboard paging focuses the last row if the final page has no rows", async () => {
   const port: BrowsePort = {
     open: vi.fn().mockResolvedValue(openingPage([row(1, "Alpha")], 1)),
     page: vi.fn().mockResolvedValue(page([], null, 1)),
@@ -456,9 +457,7 @@ test("keyboard paging restores panel focus if the final page has no rows", async
     fireEvent.keyUp(load, { key: "Enter", code: "Enter" });
   });
   expect(load.isConnected).toBe(false);
-  expect(document.activeElement).toBe(
-    screen.getByRole("region", { name: "Folder navigation" }),
-  );
+  expect(document.activeElement).toBe(gridRow("Alpha"));
 });
 
 function openedAt(sequence: number, path: number[], rows: FolderQueryRow[]) {
@@ -696,9 +695,7 @@ test.each(["success", "moved focus", "failure"] as const)(
       within(path).getByText("Crumb 11").getAttribute("aria-current"),
     ).toBe("location");
     expect(document.activeElement).toBe(
-      outcome === "moved focus"
-        ? elsewhere
-        : screen.getByRole("region", { name: "Folder navigation" }),
+      outcome === "moved focus" ? elsewhere : gridRow("Nested"),
     );
   },
 );
@@ -830,32 +827,75 @@ function clickLoadMore(button: HTMLElement) {
   fireEvent.click(button, { detail: 1 });
 }
 
-test.each([0, 1, 200])(
-  "pointer terminal page (%i rows) restores focus without scrolling",
+test.each([1, 200])(
+  "pointer terminal page (%i rows) moves focus to the first new row",
   async (count) => {
     const { pending, port } = delayedPage();
-    const initial = count === 0 ? 200 : 200 + count;
-    vi.mocked(port.open).mockResolvedValue(openingPage([], initial));
+    vi.mocked(port.open).mockResolvedValue(openingPage([], 200 + count));
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    act(() => load.focus());
+    clickLoadMore(load);
+    const rows = Array.from({ length: count }, (_, index) =>
+      row(201 + index, "Added " + index),
+    );
+    await act(async () => pending.resolve(page(rows, null, 200 + count)));
+    expect(load.isConnected).toBe(false);
+    expect(document.activeElement).toBe(gridRow("Added 0"));
+  },
+);
+
+test("pointer terminal page without rows scrolls the last row only to the nearest edge", async () => {
+  const { pending, port } = delayedPage();
+  vi.mocked(port.open).mockResolvedValue(openingPage([], 200));
+  const previous = listScroll.scrollY;
+  const focus = vi.spyOn(HTMLElement.prototype, "focus");
+  try {
+    listScroll.scrollTo(0, 600);
+    render(<BrowsePanel port={port} resultVersion={id} />);
+    const load = await screen.findByRole("button", { name: "Load more" });
+    act(() => load.focus());
+    clickLoadMore(load);
+    focus.mockClear();
+    await act(async () => pending.resolve(page([], null, 200)));
+    expect(load.isConnected).toBe(false);
+    // The last row's bottom edge meets the viewport's bottom edge.
+    expect(listScroll.scrollY).toBe(64 * 200 - 480);
+    expect(document.activeElement).toBe(gridRow("Entry 199"));
+    // Only the grid's reveal scrolls; focusing never does.
+    expect(focus).toHaveBeenCalled();
+    for (const [options] of focus.mock.calls)
+      expect(options).toEqual({ preventScroll: true });
+  } finally {
+    focus.mockRestore();
+    listScroll.scrollTo(0, previous);
+  }
+});
+
+test.each([
+  ["already shown", 202, 64 * 194, 64 * 194],
+  ["below the viewport", 210, 600, 64 * 201 - 480],
+] as const)(
+  "pointer Load more going away leaves a new first row %s at the nearest edge",
+  async (_, total, from, to) => {
+    const { pending, port } = delayedPage();
+    vi.mocked(port.open).mockResolvedValue(openingPage([], total));
     const previous = listScroll.scrollY;
-    const focus = vi.spyOn(HTMLElement.prototype, "focus");
     try {
-      listScroll.scrollTo(0, 600);
+      listScroll.scrollTo(0, from);
       render(<BrowsePanel port={port} resultVersion={id} />);
       const load = await screen.findByRole("button", { name: "Load more" });
       act(() => load.focus());
       clickLoadMore(load);
-      focus.mockClear();
-      const rows = Array.from({ length: count }, (_, index) =>
+      const rows = Array.from({ length: total - 200 }, (_, index) =>
         row(201 + index, "Added " + index),
       );
-      await act(async () => pending.resolve(page(rows, null, initial)));
-      const panel = screen.getByRole("region", { name: "Folder navigation" });
+      await act(async () => pending.resolve(page(rows, null, total)));
       expect(load.isConnected).toBe(false);
-      expect(listScroll.scrollY).toBe(600);
-      expect(document.activeElement).toBe(panel);
-      expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+      expect(document.activeElement).toBe(gridRow("Added 0"));
+      // Never pulled up to the top edge (64 * 200).
+      expect(listScroll.scrollY).toBe(to);
     } finally {
-      focus.mockRestore();
       listScroll.scrollTo(0, previous);
     }
   },
@@ -1039,9 +1079,7 @@ test.each(["first opening", "existing location"] as const)(
     );
     expect(retry.isConnected).toBe(false);
     expect(screen.getByRole("button", { name: "Retried" })).toBeDefined();
-    expect(document.activeElement).toBe(
-      screen.getByRole("region", { name: "Folder navigation" }),
-    );
+    expect(document.activeElement).toBe(gridRow("Retried"));
   },
 );
 
@@ -1343,7 +1381,7 @@ test("stale position pages offer reopening the same folder and pinned result", a
   );
 });
 
-test("folder activation restores the panel when the active button normalizes to its grid row", async () => {
+test("folder activation focuses the new folder's first row when the active button normalizes to its grid row", async () => {
   const pending = deferred<BrowseOpenResponse>();
   const port: BrowsePort = {
     open: vi
@@ -1360,9 +1398,7 @@ test("folder activation restores the panel when the active button normalizes to 
   });
   expect(document.activeElement).toBe(gridRow("Alpha"));
   await act(async () => pending.resolve(opened(2, [row(2, "New location")])));
-  expect(document.activeElement).toBe(
-    screen.getByRole("region", { name: "Folder navigation" }),
-  );
+  expect(document.activeElement).toBe(gridRow("New location"));
 });
 
 test("assistive-technology-style activation of Load more focuses the first new file", async () => {
@@ -1861,9 +1897,7 @@ test.each(["sequence", "version", "job version"])(
     fireEvent.click(retry);
     await screen.findByRole("button", { name: "Recovered" });
     expect(calls).toBe(3);
-    expect(document.activeElement).toBe(
-      screen.getByRole("region", { name: "Folder navigation" }),
-    );
+    expect(document.activeElement).toBe(gridRow("Recovered"));
     port.dispose();
   },
 );

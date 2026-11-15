@@ -19,8 +19,7 @@
   line-clamp: var(--du-clamp-lines, 2);
   min-inline-size: 0;
   overflow: hidden;
-  /* Korean prose breaks between words; a word longer than the line still wraps. */
-  word-break: keep-all;
+  /* Korean keeps its words whole by default; any word still wraps here. */
   overflow-wrap: anywhere;
 }
 
@@ -86,7 +85,6 @@
   box-shadow: var(--du-shadow);
   font-size: 13px;
   white-space: normal;
-  word-break: keep-all;
   overflow-wrap: anywhere;
 }
 

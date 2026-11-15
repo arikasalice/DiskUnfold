@@ -25,6 +25,7 @@ import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
+import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -52,6 +53,11 @@ export type BrowseOpenLocation = Extract<
 >;
 
 type View = { opened: Opened; pages: BrowsePages };
+/**
+ * The control that held focus when a folder was opened; a pressed control
+ * that is still usable afterwards keeps the focus.
+ */
+type FocusOrigin = { origin: Element; pressed: boolean };
 
 /** Isolated folder browser; its host supplies the transport and pinned result. */
 export function BrowsePanel({
@@ -65,6 +71,7 @@ export function BrowsePanel({
   rootLabel,
   actionsDisabledReason,
   titleBadge,
+  focusTitle = false,
 }: {
   port: BrowsePort;
   resultVersion?: string;
@@ -84,11 +91,20 @@ export function BrowsePanel({
   actionsDisabledReason?: string;
   /** A badge shown beside the title, such as the sample experience's "Example" mark. */
   titleBadge?: ReactNode;
+  /**
+   * Moves focus to the title when the panel mounts, for a host that shows the
+   * panel as its own screen. The title draws no focus frame; it is also the
+   * last fallback for focus that has no row or "Up" to go to.
+   */
+  focusTitle?: boolean;
 }) {
   const text = useLocaleText();
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<"error" | "job">();
+  // Counts openings that ended without a new list, so a selection action bar
+  // waiting for "Show latest result" learns that the switch failed.
+  const [openFailures, setOpenFailures] = useState(0);
   const sequence = useRef(0);
   const opening = useRef<AbortController | undefined>(undefined);
   const lastAttempt = useRef<{
@@ -97,26 +113,37 @@ export function BrowsePanel({
   }>(undefined);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
-  const focusAfterUpdate = useRef<Element>(undefined);
+  const title = useRef<HTMLHeadingElement>(null);
+  const upAction = useRef<HTMLButtonElement>(null);
+  const listEntry = useRef<ListEntryFocus>(undefined);
+  const listRow = useRef<ListRowFocus>(undefined);
+  const focusAfterUpdate = useRef<FocusOrigin>(undefined);
   // Survives the remount of the results, so a new list's selection action
   // bar can take over the focus its predecessor held.
   const barFocus = useRef(false);
   const inspection = useItemInspection(
     resultVersion ?? view?.opened.page.resultVersion,
-    panel,
+    (index) => {
+      if (listRow.current) listRow.current(index);
+      else if (!focusUp()) focusTitleNow();
+    },
   );
 
   function navigate(
     location?: ItemRef,
     pinned = resultVersion,
     retrying = false,
+    pressed = false,
   ) {
     if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
     const requestSeq = ++sequence.current;
     const active = document.activeElement;
+    // The title holds the screen's entry focus; opening the first list keeps it there.
     const restoreFocus =
-      active !== panel.current && panel.current?.contains(active);
+      active !== panel.current &&
+      active !== title.current &&
+      panel.current?.contains(active);
 
     opening.current?.abort();
     onOpening?.();
@@ -147,10 +174,12 @@ export function BrowsePanel({
               : response.page.resultVersion !== pinned))
         ) {
           setMessage("error");
+          setOpenFailures((count) => count + 1);
           return;
         }
         if (response.kind === "job") {
           setMessage("job");
+          setOpenFailures((count) => count + 1);
           return;
         }
         const pages = new BrowsePages(response.page);
@@ -159,8 +188,8 @@ export function BrowsePanel({
           virtualRootVersion.current = response.page.resultVersion;
         }
         focusAfterUpdate.current =
-          restoreFocus && document.activeElement === active
-            ? (active ?? undefined)
+          restoreFocus && active && document.activeElement === active
+            ? { origin: active, pressed }
             : undefined;
         setMessage(undefined);
         setView({
@@ -173,8 +202,30 @@ export function BrowsePanel({
         opening.current = undefined;
         setBusy(false);
         setMessage("error");
+        setOpenFailures((count) => count + 1);
       });
   }
+
+  function retry() {
+    navigate(lastAttempt.current?.location, lastAttempt.current?.pinned, true);
+  }
+
+  /** Focuses "Up" when it is available; false when it is not. */
+  function focusUp(): boolean {
+    const up = upAction.current;
+    if (!up || up.disabled) return false;
+    up.focus({ preventScroll: true });
+    return document.activeElement === up;
+  }
+
+  function focusTitleNow() {
+    title.current?.focus({ preventScroll: true });
+  }
+
+  useEffect(() => {
+    if (focusTitle) title.current?.focus({ preventScroll: true });
+    // Only the screen's entry moves focus to the title.
+  }, []);
 
   useEffect(() => {
     inspection.reset();
@@ -188,14 +239,23 @@ export function BrowsePanel({
   }, [port, resultVersion]);
 
   useLayoutEffect(() => {
-    const focus = focusAfterUpdate.current;
+    const pending = focusAfterUpdate.current;
     focusAfterUpdate.current = undefined;
+    if (!pending) return;
+    const { origin, pressed } = pending;
+    const active = document.activeElement;
+    // A pressed button that is still usable keeps the focus, so "Up" can be
+    // pressed again.
+    if (pressed && active === origin && !origin.matches(":disabled")) return;
+    // Focus was lost with the control that opened the folder when that control
+    // went away, or became disabled ("Up" at the top), which the browser
+    // answers by moving focus to the body.
     if (
-      focus &&
-      (document.activeElement === focus ||
-        (!focus.isConnected && document.activeElement === document.body))
+      active === origin ||
+      (active === document.body &&
+        (!origin.isConnected || origin.matches(":disabled")))
     )
-      panel.current?.focus();
+      listEntry.current?.(origin);
   }, [view]);
 
   const page = view?.opened.page;
@@ -208,9 +268,9 @@ export function BrowsePanel({
     if (!opening.current) inspection.open(row, trigger);
   }
 
-  function goUp() {
+  function goUp(pressed = false) {
     if (parent && page && !opening.current && !previousResult)
-      navigate(parent.item, page.resultVersion);
+      navigate(parent.item, page.resultVersion, false, pressed);
   }
 
   function handleBrowseKey(event: KeyboardEvent<HTMLElement>) {
@@ -242,7 +302,7 @@ export function BrowsePanel({
     >
       <div className="du-browse-header">
         <div className="du-browse-title">
-          <Heading level={2}>
+          <Heading level={2} ref={title} programmaticFocus>
             {text("ui.browse.folders_and_files", "Folders and files")}
           </Heading>
           {titleBadge}
@@ -258,16 +318,7 @@ export function BrowsePanel({
               "ui.browse.open_folder_failed",
               "Could not open this folder.",
             )}{" "}
-            <Action
-              isPending={busy}
-              onPress={() =>
-                navigate(
-                  lastAttempt.current?.location,
-                  lastAttempt.current?.pinned,
-                  true,
-                )
-              }
-            >
+            <Action isPending={busy} onPress={retry}>
               {busy
                 ? text("ui.browse.retrying", "Retrying…")
                 : text("ui.browse.retry", "Retry")}
@@ -289,7 +340,11 @@ export function BrowsePanel({
             <PreviousResultNotice previous={previousResult} />
             <div className="du-browse-context">
               <div className="du-card__actions">
-                <Action onPress={goUp} isDisabled={!parent || previousResult}>
+                <Action
+                  ref={upAction}
+                  onPress={() => goUp(true)}
+                  isDisabled={!parent || previousResult}
+                >
                   {text("ui.browse.up", "Up")}
                 </Action>
                 <Breadcrumbs
@@ -332,8 +387,13 @@ export function BrowsePanel({
             navigationEpoch={sequence.current}
             navigationSeq={() => sequence.current}
             canRead={() => opening.current === undefined && !previousResult}
-            focusPanel={() => panel.current?.focus({ preventScroll: true })}
+            focusTitle={focusTitleNow}
+            focusUp={focusUp}
+            listEntry={listEntry}
+            listRow={listRow}
             barFocus={barFocus}
+            openFailures={openFailures}
+            retryOpen={retry}
             openFolder={(item) => navigate(item, page.resultVersion)}
             openItem={inspectItem ? openItem : undefined}
             copyPath={

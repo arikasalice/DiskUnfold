@@ -3,55 +3,70 @@ import { expect, test } from "vitest";
 import { allRules } from "./style-rules";
 
 /*
- * Reasons and descriptions are prose. Korean breaks between words there, as
- * the design review of PR #60 asked: the browser would otherwise break Korean
- * between any two syllables ("...있습니 / 다"). A word longer than the line
- * still wraps. Where the text then breaks is verified in a real webview.
+ * Korean breaks between words everywhere, as the design review of PR #60
+ * asked (follow-up 2): the browser would otherwise break Korean between any
+ * two syllables ("...있습니 / 다"). One default on body covers the screen and
+ * everything drawn under body outside it (menus, popovers, dialogs), and
+ * paths and identifiers keep their own rules. Where the text then breaks is
+ * verified in a real webview.
  */
 
 const all = allRules();
 
-/** The common parts that draw reasons and descriptions. */
-const prose = [
-  // A row menu's labels and unavailable reasons, rendered outside the screen.
+const declared = (selector: string, property: string) =>
+  all
+    .filter((rule) =>
+      rule.selector.split(",").some((part) => part.trim() === selector),
+    )
+    .map((rule) => rule.declarations.get(property))
+    .filter((value) => value !== undefined);
+
+test("body keeps Korean words whole and breaks only a word longer than its line", () => {
+  expect(declared("body", "word-break")).toEqual(["keep-all"]);
+  // break-word, unlike anywhere, leaves the min-content width of tables and
+  // flex items as it was.
+  expect(declared("body", "overflow-wrap")).toEqual(["break-word"]);
+});
+
+/** The parts that repeated the rule before it became the default. */
+const inheriting = [
   '.du-item-menu [role="menuitem"]',
-  // The selection action bar's summary, which carries its reasons, and outcome.
   ".du-selection-actions__summary",
   ".du-selection-actions__notice",
-  // Text kind="muted", the description variant.
   ".du-text--muted",
-  ".du-notice",
-  // ReviewField and choice descriptions and field errors.
   '.du-field [slot="description"]',
   '.du-field [slot="errorMessage"]',
   ".du-choice__description",
   ".du-readout__note",
+  ".du-clamp",
+  ".du-fit__full",
+  ".du-name-hint",
+  ".du-info-screen",
 ];
 
-function wrapping(selector: string) {
-  const found = all.filter((rule) =>
-    rule.selector.split(",").some((part) => part.trim() === selector),
-  );
-  return {
-    wordBreak: found.map((rule) => rule.declarations.get("word-break")),
-    overflowWrap: found.map((rule) => rule.declarations.get("overflow-wrap")),
-  };
-}
+test.each(inheriting)(
+  "%s takes the default instead of repeating it",
+  (selector) => {
+    expect(declared(selector, "word-break"), selector).toEqual([]);
+  },
+);
 
-test.each(prose)("%s keeps Korean words whole", (selector) => {
-  const { wordBreak, overflowWrap } = wrapping(selector);
-  expect(wordBreak, selector).toContain("keep-all");
-  expect(wordBreak, selector).not.toContain("break-all");
-  // Only a word longer than the line breaks inside it.
-  expect(overflowWrap, selector).toContain("anywhere");
+test("only paths set word-break apart from body, and never to break-all", () => {
+  for (const rule of all) {
+    const value = rule.declarations.get("word-break");
+    if (value === undefined) continue;
+    expect(value, `${rule.file}: ${rule.selector}`).not.toBe("break-all");
+    expect(value, `${rule.file}: ${rule.selector}`).not.toBe("normal");
+  }
 });
 
-test("no stylesheet breaks words between any two characters", () => {
-  for (const rule of all)
-    expect(
-      rule.declarations.get("word-break"),
-      `${rule.file}: ${rule.selector}`,
-    ).not.toBe("break-all");
+test("no menu, popover or dialog root turns the default off", () => {
+  for (const rule of all.filter((candidate) =>
+    /menu|popover|dialog|modal/.test(candidate.selector),
+  )) {
+    expect(rule.declarations.get("word-break")).toBeUndefined();
+    expect(rule.declarations.get("white-space") ?? "normal").not.toBe("nowrap");
+  }
 });
 
 test("paths and identifiers still break anywhere", () => {
@@ -62,4 +77,25 @@ test("paths and identifiers still break anywhere", () => {
     "anywhere",
   );
   expect(rule(".du-text--path")?.get("overflow-wrap")).toBe("anywhere");
+});
+
+test("a size with its unit or a date with its time never wraps inside", () => {
+  expect(declared(".du-unbroken", "white-space")).toEqual(["nowrap"]);
+});
+
+test("the folder list keeps room for one unbroken size or time per column", () => {
+  // Without a minimum the fractional tracks let an unbroken value spill into
+  // the next column of a narrow table.
+  const [columns] = declared(".du-browse-grid__row", "grid-template-columns");
+  expect(columns).toBe(
+    "minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr)) minmax(10em, 16fr) minmax(0, 14fr)",
+  );
+});
+
+test("the history target, a fixed summary from the engine, is prose", () => {
+  // engine-api/src/scan.rs writes "metadata: 1 root" or "metadata: N roots",
+  // and app-db's valid_scope passes only those, so no user path can appear in
+  // HistoryPanel's target. Muted text therefore takes the prose default.
+  expect(declared(".du-text--muted", "overflow-wrap")).toEqual([]);
+  expect(declared(".du-text--muted", "word-break")).toEqual([]);
 });

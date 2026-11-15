@@ -198,8 +198,9 @@
   font-size: 12px;
 }
 
-/* The member grid has five columns, with the original path getting the most room. */
-@container (min-width: 641px) {
+/* The member grid has five columns, with the original path getting the most
+   room. It applies where the shared browse grid shows a table (browse-grid.css). */
+@container (min-width: 701px) {
   .du-groups-members .du-browse-grid__header [role="row"],
   .du-groups-members .du-browse-grid__row {
     grid-template-columns:
