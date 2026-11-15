@@ -62,6 +62,24 @@ module.exports = {
       from: { path: zone("(i18n|theme)") },
       to: { path: "^src/", pathNot: zone("(i18n|theme)") },
     },
+    {
+      name: "viz-layer-direction",
+      severity: "error",
+      from: { path: zone("viz") },
+      to: { path: zone("(features|app|state)") },
+    },
+    {
+      name: "viz-above-lower-layers",
+      severity: "error",
+      from: { path: zone("(components|state|ipc)") },
+      to: { path: zone("viz") },
+    },
+    {
+      name: "viz-via-index",
+      severity: "error",
+      from: { pathNot: zone("viz") },
+      to: { path: zone("viz"), pathNot: "^src/viz/index\\.ts$" },
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },
