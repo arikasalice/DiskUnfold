@@ -103,7 +103,7 @@ pub(super) fn response(
 fn fallback_reason(reason: crate::viz_pages::render::FallbackReason) -> &'static str {
     use crate::viz_pages::render::FallbackReason::*;
     match reason {
-        NoAttribution | OrderingUnavailable => "viz.unavailable.no_attribution",
+        NoAttribution => "viz.unavailable.no_attribution",
     }
 }
 pub(super) fn build_model(
@@ -302,4 +302,19 @@ pub(super) fn page_error(error: crate::viz_pages::Error) -> EngineError {
         },
         vec![],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_table_only_fallback_publishes_the_no_attribution_key() {
+        assert_eq!(
+            super::fallback_reason(crate::viz_pages::render::FallbackReason::NoAttribution),
+            crate::required_data::Reason::NoAttribution.key()
+        );
+        assert_eq!(
+            super::fallback_reason(crate::viz_pages::render::FallbackReason::NoAttribution),
+            "viz.unavailable.no_attribution"
+        );
+    }
 }

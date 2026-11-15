@@ -4,7 +4,7 @@ use du_analysis_index::{
         AreaValue,
         geometry::{NoArea, Rect},
         projection::{self, Options, Source},
-        registry, treemap,
+        registry,
         typed_layout::{self, Dispatcher, Input, Strategy},
     },
 };
@@ -13,15 +13,7 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultVersionRead},
 };
 
-fn fixture() -> Result<
-    (
-        std::sync::Arc<ResultVersion>,
-        ItemRef,
-        Vec<treemap::ChildKey>,
-        Dispatcher,
-    ),
-    String,
-> {
+fn fixture() -> Result<(std::sync::Arc<ResultVersion>, ItemRef, Dispatcher), String> {
     let id = |n| Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"));
     let sink = IngestSink::default();
     let mut builder = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
@@ -54,15 +46,6 @@ fn fixture() -> Result<
         item_no: n,
     };
     let parent = item(0);
-    let keys: Vec<_> = version
-        .items()
-        .iter()
-        .filter(|i| i.parent == Some(0))
-        .map(|i| treemap::ChildKey {
-            item: item(i.item_no),
-            path_compare_key: i.name.clone(),
-        })
-        .collect();
     let descriptor = typed_layout::treemap_descriptor();
     let mut registry = registry::Builder::<Box<dyn Strategy>>::default();
     registry
@@ -73,19 +56,13 @@ fn fixture() -> Result<
             .build(&[descriptor])
             .map_err(|e| format!("{e:?}"))?,
     );
-    Ok((version, parent, keys, dispatcher))
+    Ok((version, parent, dispatcher))
 }
-fn source<'a>(
-    version: &'a ResultVersion,
-    parent: &'a ItemRef,
-    basis: SizeBasis,
-    keys: &'a [treemap::ChildKey],
-) -> Source<'a> {
+fn source<'a>(version: &'a ResultVersion, parent: &'a ItemRef, basis: SizeBasis) -> Source<'a> {
     Source {
         version,
         parent,
         basis,
-        keys,
         bounds: Rect {
             left: 0,
             top: 0,
@@ -103,9 +80,9 @@ fn options(limit: usize) -> Options<'static> {
 }
 #[test]
 fn projection_keeps_source_rows_and_verified_totals() -> Result<(), String> {
-    let (version, parent, keys, dispatcher) = fixture()?;
+    let (version, parent, dispatcher) = fixture()?;
     let model = projection::project(
-        source(&version, &parent, SizeBasis::Logical, &keys),
+        source(&version, &parent, SizeBasis::Logical),
         &dispatcher,
         options(10),
         &mut || false,
@@ -203,13 +180,9 @@ fn folder_branch_is_carried_to_projection_row_and_shape() -> Result<(), String> 
             .ok_or("missing folder")?
             .item_no,
     };
-    let keys = vec![treemap::ChildKey {
-        item: folder.clone(),
-        path_compare_key: b"folder".to_vec(),
-    }];
-    let (_, _, _, dispatcher) = fixture()?;
+    let (_, _, dispatcher) = fixture()?;
     let model = projection::project(
-        source(&version, &parent, SizeBasis::Logical, &keys),
+        source(&version, &parent, SizeBasis::Logical),
         &dispatcher,
         options(10),
         &mut || false,
@@ -222,10 +195,10 @@ fn folder_branch_is_carried_to_projection_row_and_shape() -> Result<(), String> 
 }
 #[test]
 fn limits_wrong_sources_and_cancellation_do_not_expose_partial_models() -> Result<(), String> {
-    let (version, parent, keys, dispatcher) = fixture()?;
+    let (version, parent, dispatcher) = fixture()?;
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys),
+            source(&version, &parent, SizeBasis::Logical),
             &dispatcher,
             options(1),
             &mut || false
@@ -235,7 +208,7 @@ fn limits_wrong_sources_and_cancellation_do_not_expose_partial_models() -> Resul
     );
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Allocated, &keys),
+            source(&version, &parent, SizeBasis::Allocated),
             &dispatcher,
             options(10),
             &mut || false
@@ -245,7 +218,7 @@ fn limits_wrong_sources_and_cancellation_do_not_expose_partial_models() -> Resul
     );
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys),
+            source(&version, &parent, SizeBasis::Logical),
             &dispatcher,
             options(10),
             &mut || true
@@ -257,7 +230,7 @@ fn limits_wrong_sources_and_cancellation_do_not_expose_partial_models() -> Resul
     wrong.item_no = 1;
     assert_eq!(
         projection::project(
-            source(&version, &wrong, SizeBasis::Logical, &keys),
+            source(&version, &wrong, SizeBasis::Logical),
             &dispatcher,
             options(10),
             &mut || false
@@ -297,7 +270,7 @@ impl Strategy for Duplicate {
 }
 #[test]
 fn duplicate_or_missing_row_from_strategy_is_rejected() -> Result<(), String> {
-    let (version, parent, keys, _) = fixture()?;
+    let (version, parent, _) = fixture()?;
     let descriptor = du_core_contracts::visualization::LayoutDescriptor {
         format: "future".into(),
         strategy: du_core_contracts::visualization::LayoutStrategyKey {
@@ -317,7 +290,7 @@ fn duplicate_or_missing_row_from_strategy_is_rejected() -> Result<(), String> {
     };
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys),
+            source(&version, &parent, SizeBasis::Logical),
             &dispatcher,
             opts,
             &mut || false
@@ -329,24 +302,13 @@ fn duplicate_or_missing_row_from_strategy_is_rejected() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_wrong_version_duplicate_keys_and_mid_admission_cancel() -> Result<(), String> {
-    let (version, parent, keys, dispatcher) = fixture()?;
+fn rejects_wrong_version_and_mid_admission_cancel() -> Result<(), String> {
+    let (version, parent, dispatcher) = fixture()?;
     let mut wrong = parent.clone();
     wrong.result_version = Id::parse("018f0000-0000-7000-8000-000000000099")?;
     assert_eq!(
         projection::project(
-            source(&version, &wrong, SizeBasis::Logical, &keys),
-            &dispatcher,
-            options(10),
-            &mut || false
-        )
-        .err(),
-        Some(projection::Error::InvalidSource)
-    );
-    let duplicate = [keys[0].clone(), keys[0].clone()];
-    assert_eq!(
-        projection::project(
-            source(&version, &parent, SizeBasis::Logical, &duplicate),
+            source(&version, &wrong, SizeBasis::Logical),
             &dispatcher,
             options(10),
             &mut || false
@@ -357,7 +319,7 @@ fn rejects_wrong_version_duplicate_keys_and_mid_admission_cancel() -> Result<(),
     let mut calls = 0;
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys),
+            source(&version, &parent, SizeBasis::Logical),
             &dispatcher,
             options(10),
             &mut || {
@@ -394,15 +356,14 @@ fn projection_runs_one_admission_before_strategy() -> Result<(), String> {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
-    let (version, parent, keys, _) = fixture()?;
-    let src = source(&version, &parent, SizeBasis::Logical, &keys);
+    let (version, parent, _) = fixture()?;
+    let src = source(&version, &parent, SizeBasis::Logical);
     let mut admission_checks = 0;
     Input::admit_cancellable(
         src.version,
         src.parent,
         src.basis.clone(),
         src.bounds,
-        src.keys,
         &mut || {
             admission_checks += 1;
             false
@@ -458,7 +419,7 @@ impl Strategy for DrawZero {
 }
 #[test]
 fn rejects_a_strategy_that_draws_exact_zero_with_otherwise_valid_rows() -> Result<(), String> {
-    let (version, parent, keys, _) = fixture()?;
+    let (version, parent, _) = fixture()?;
     let descriptor = du_core_contracts::visualization::LayoutDescriptor {
         format: "future".into(),
         strategy: du_core_contracts::visualization::LayoutStrategyKey {
@@ -478,7 +439,7 @@ fn rejects_a_strategy_that_draws_exact_zero_with_otherwise_valid_rows() -> Resul
     };
     assert_eq!(
         projection::project(
-            source(&version, &parent, SizeBasis::Logical, &keys),
+            source(&version, &parent, SizeBasis::Logical),
             &dispatcher,
             opts,
             &mut || false

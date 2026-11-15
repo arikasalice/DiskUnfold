@@ -13,7 +13,6 @@ use std::{
 use du_analysis_index::visualization::{
     geometry::Rect,
     projection::{self, Options, Source},
-    treemap::ChildKey,
     typed_layout::Dispatcher,
 };
 use du_core_contracts::{
@@ -40,6 +39,9 @@ pub struct Request<'a> {
     pub max_shapes: usize,
 }
 /// Facts supplied by the path-comparison and presentation owners for one item.
+///
+/// `path_compare_key` no longer orders siblings; it is kept until its
+/// producers stop supplying it and still feeds the model-cache fingerprint.
 pub struct ChildEvidence {
     pub item: ItemRef,
     pub path_compare_key: Option<Vec<u8>>,
@@ -57,7 +59,6 @@ pub struct Rendered {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FallbackReason {
     NoAttribution,
-    OrderingUnavailable,
 }
 
 /// A successfully committed geometry model or table-only fallback.
@@ -88,8 +89,6 @@ pub enum Error {
     Projection(projection::Error),
     /// The same pinned rows remain available without geometry.
     NoAttribution(VizFallback),
-    /// Equal positive weights need pinned ordering evidence. Table rows remain available.
-    OrderingUnavailable(VizFallback),
     Registration(production::Error),
     Cache(super::Error),
     InvalidEvidence,
@@ -143,10 +142,6 @@ impl ModelPages {
                         reason: FallbackReason::NoAttribution,
                         fallback,
                     } => Err(Error::NoAttribution(fallback)),
-                    CommittedRender::Fallback {
-                        reason: FallbackReason::OrderingUnavailable,
-                        fallback,
-                    } => Err(Error::OrderingUnavailable(fallback)),
                 }
             }
         }
@@ -232,13 +227,10 @@ impl ModelPages {
             check(cancelled)?;
             return Ok(Preparation::Cached(cached));
         }
-        let mut keys = Vec::with_capacity(normalized.len());
         let mut presentations = Vec::with_capacity(normalized.len());
         for child in normalized.into_values() {
             check(cancelled)?;
-            let (key, presentation) = split_evidence(child);
-            keys.extend(key);
-            presentations.push(presentation);
+            presentations.push(presentation(child));
         }
         let project = if matches!(mode, PrepareMode::Hierarchical) {
             projection::project_deferred
@@ -251,7 +243,6 @@ impl ModelPages {
                 parent: request.parent,
                 basis: request.basis.clone(),
                 bounds: request.bounds,
-                keys: &keys,
             },
             dispatcher,
             Options {
@@ -263,10 +254,7 @@ impl ModelPages {
         );
         let model = match model {
             Ok(model) => model,
-            Err(
-                reason @ (projection::Error::UnavailableAttribution
-                | projection::Error::OrderingUnavailable),
-            ) => {
+            Err(reason @ projection::Error::UnavailableAttribution) => {
                 let input = production::project_fallback(
                     source.version().clone(),
                     request.parent,
@@ -361,17 +349,13 @@ impl ModelPages {
         let (model_ref, model) = self
             .register_prepared_with_reference(input, layout, cancelled, reference)
             .map_err(registration_error)?;
-        if let Some(reason) = fallback_reason {
+        if fallback_reason.is_some() {
             let fallback = VizFallback {
                 model_ref,
                 result_revision: revision,
             };
             return Ok(CommittedRender::Fallback {
-                reason: if reason == projection::Error::OrderingUnavailable {
-                    FallbackReason::OrderingUnavailable
-                } else {
-                    FallbackReason::NoAttribution
-                },
+                reason: FallbackReason::NoAttribution,
                 fallback,
             });
         }
@@ -477,18 +461,12 @@ fn fingerprint(
     Ok(hash.finalize().to_hex().to_string())
 }
 
-fn split_evidence(child: ChildEvidence) -> (Option<ChildKey>, RowPresentation) {
-    (
-        child.path_compare_key.map(|path_compare_key| ChildKey {
-            item: child.item.clone(),
-            path_compare_key,
-        }),
-        RowPresentation {
-            item: child.item,
-            legend_class_key: child.legend_class_key,
-            display_flags: child.display_flags,
-        },
-    )
+fn presentation(child: ChildEvidence) -> RowPresentation {
+    RowPresentation {
+        item: child.item,
+        legend_class_key: child.legend_class_key,
+        display_flags: child.display_flags,
+    }
 }
 
 fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
