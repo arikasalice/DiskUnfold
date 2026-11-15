@@ -1,8 +1,8 @@
-//! Interim F06 vocabulary and policy-table revisions for the product producer.
+//! F06 vocabulary and policy-table revisions for the product producer.
 //!
-//! Every wire string below is interim, pending standardization review: the F06
-//! HLD names these concepts (tables 22 and 32) but no published contract fixes
-//! their text yet. They live in this one module so a reviewed rename is one edit.
+//! Names reviewed; awaiting publication of the architecture DLD paragraph and the F06 HLD revision.
+//! The F06 HLD names these concepts (tables 22 and 32) but no published contract fixes
+//! the wire strings below yet. They live in this one module so a rename is one edit.
 //! Strings that the GUI translates are keys declared in the F13 locale bundles.
 use std::collections::HashMap;
 
@@ -55,8 +55,9 @@ pub const LEGEND_RULE_REVISION: u32 = 1;
 /// for changes after it was produced, so whether it still holds is unknown.
 ///
 /// The model reason is `viz.staleness.<freshness state>`; only `unwatched` is produced
-/// until the freshness ledger (`results.freshness_changed`) is connected. Interim,
-/// pending standardization review.
+/// until the freshness ledger (`results.freshness_changed`) is connected.
+///
+/// Names reviewed; awaiting publication of the architecture DLD paragraph and the F06 HLD revision.
 pub const STALENESS_UNWATCHED_REASON: &str = "viz.staleness.unwatched";
 
 /// The catalog policy the product advertises; it lists only what render serves.
