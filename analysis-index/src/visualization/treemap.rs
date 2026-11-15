@@ -336,9 +336,9 @@ struct Identities {
 struct Observed {
     /// Bytes of the observations that carry a measured value.
     bytes: u64,
-    /// True when the subtree holds a link that was not followed or an entry that could
-    /// not be read. Neither has a value, so each adds no bytes and the F03 value of
-    /// the subtree can only be a lower bound.
+    /// True when the subtree holds an entry that could not be read. It has no value, so
+    /// it adds no bytes and the F03 value of the subtree can only be a lower bound. A link
+    /// that was not followed is not such an entry: it is a scope boundary.
     unmeasured: bool,
 }
 
@@ -353,8 +353,12 @@ fn lower_bound_partitions(basis: &SizeBasis) -> bool {
 
 /// Sums the measured bytes under a sibling.
 ///
-/// With allow_unmeasured, an untraversed link or an unread entry adds no bytes and is
-/// reported in the result; without it, such an entry refuses the sibling.
+/// An untraversed link is a counted scope boundary with no bytes of its own, so it adds
+/// nothing and leaves the subtree as measured as it was; whether F03 gives the folder
+/// above it a lower bound or an exact value is then the value's business, and the sum of
+/// the measured bytes is what that value must equal either way. With allow_unmeasured, an
+/// unread entry adds no bytes and is reported in the result; without it, such an entry
+/// refuses the sibling.
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
@@ -392,7 +396,8 @@ fn inspect_subtree(
                     .checked_add(bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
             }
-            ResultItemKind::UntraversedLink | ResultItemKind::Unknown if allow_unmeasured => {
+            ResultItemKind::UntraversedLink => {}
+            ResultItemKind::Unknown if allow_unmeasured => {
                 unmeasured = true;
             }
             _ => return Err(AdmissionError::NoAttribution),

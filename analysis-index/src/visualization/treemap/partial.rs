@@ -43,17 +43,18 @@ struct Entry {
 ///
 /// A child is attributed when its subtree has observations whose sum equals its F03
 /// value. The value may be a lower bound (HLD table 22: drawn by its lower bound, the
-/// totals marked as such): a link that was not followed or an entry that could not be
-/// read adds no bytes and leaves the subtree with a lower bound, which is attributed by
-/// the bytes that were measured. A value claiming to be exact over such a subtree
-/// contradicts the observations and is not attributed. A child with no value of its own,
-/// and a file shared with another sibling, which makes every sharing sibling
-/// unattributed regardless of read order, are counted without an area. The parent is
-/// refused only when its own value cannot partition, a scope gap covers it, the
-/// attributed sum exceeds it, or the sum differs from it while every child is
-/// attributed; lower bounds are compared with lower bounds. Attributed children follow
-/// the same sibling order as the all-or-nothing admission. Cancellation is checked as
-/// in that admission.
+/// totals marked as such). A link that was not followed is a scope boundary with no bytes
+/// of its own, and the value above it is the measured bytes whether F03 calls it exact or
+/// a lower bound. An entry that could not be read adds no bytes either and leaves the
+/// subtree with a lower bound, attributed by the bytes that were measured; a value
+/// claiming to be exact over such a subtree contradicts the observations and is not
+/// attributed. A child with no value of its own, and a file shared with another sibling,
+/// which makes every sharing sibling unattributed regardless of read order, are counted
+/// without an area. The parent is refused only when its own value cannot partition, a
+/// scope gap covers it, the attributed sum exceeds it, or the sum differs from it while
+/// every child is attributed; lower bounds are compared with lower bounds. Attributed
+/// children follow the same sibling order as the all-or-nothing admission. Cancellation
+/// is checked as in that admission.
 pub(crate) fn admit_partial_cancellable(
     version: &ResultVersion,
     parent: &ItemRef,
