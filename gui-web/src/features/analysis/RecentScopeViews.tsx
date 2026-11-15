@@ -22,6 +22,7 @@ import type {
 import { useRecentScopes } from "./use-recent-scopes";
 import { formatDate, PathValue, targetStatus } from "./RecentScopeDisplay";
 import { revealConfirmGroup } from "./recent-confirm-scroll";
+import { exclusionText } from "./scope-exclusion";
 
 export type View = "closed" | "list" | "detail";
 export function detailRow(
@@ -389,9 +390,7 @@ function SavedConditions({ draft }: { draft: ScopeDraft }) {
             : draft.exclusions.map((item, index) => (
                 <PathValue
                   key={index}
-                  value={
-                    item.kind === "path" ? item.path.display : item.pattern
-                  }
+                  value={exclusionText(item)}
                   lossy={item.kind === "path" && item.path.lossy}
                 />
               ))}

@@ -13,6 +13,7 @@ import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
+import { exclusionText } from "./scope-exclusion";
 
 function ReviewNotices({
   review,
@@ -148,11 +149,7 @@ function reviewRows(scope: ScopeDraft, text: LocaleText) {
   if (scope.exclusions.length > 0) {
     rows.push({
       label: text("ui.analysis.exclusions", "Exclusions"),
-      value: scope.exclusions
-        .map((rule) =>
-          rule.kind === "path" ? rule.path.display : rule.pattern,
-        )
-        .join(", "),
+      value: scope.exclusions.map(exclusionText).join(", "),
     });
   }
   return rows;
