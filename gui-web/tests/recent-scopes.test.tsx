@@ -206,7 +206,7 @@ test("F01 FR8: lists records in server order, opens only the selected reference,
   const { onApply, nextRequestSeq } = picker(client);
 
   await showList();
-  const buttons = screen.getAllByRole("button", { name: /Review scope/ });
+  const buttons = screen.getAllByRole("button", { name: /^Review scope \d+$/ });
   expect(buttons).toHaveLength(2);
   expect(buttons[0]?.textContent).toBe("Review scope 1");
   fireEvent.click(buttons[1]!);

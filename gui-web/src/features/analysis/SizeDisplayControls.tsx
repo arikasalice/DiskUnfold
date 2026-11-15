@@ -1,13 +1,8 @@
 import { SelectField } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
-import { sizeLabels } from "./space-format";
+import { displayUnitSystem, sizeLabels } from "./space-format";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
-
-const unitSystems = [
-  { value: "iec", label: "IEC (1024)" },
-  { value: "si", label: "SI (1000)" },
-] as const;
 
 /** Changes presentation only; these controls never fetch another result. */
 export function SizeDisplayControls({
@@ -39,6 +34,11 @@ export function SizeDisplayControls({
       ),
     },
   ] as const;
+  // The choices carry the names the summary line shows for the unit system.
+  const unitSystems = (["iec", "si"] as const).map((value) => ({
+    value,
+    label: displayUnitSystem(value, text),
+  }));
   const units = [
     { value: "auto", label: text("ui.analysis.automatic", "Automatic") },
     ...SIZE_UNIT_RULES[display.system].symbols.map((label, index) => ({
