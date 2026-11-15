@@ -25,6 +25,7 @@ mod scope_observation;
 pub use scope_observation::{
     ObservationSkip, ObservationStamp, SealedScanError, fingerprint_from_hex,
 };
+pub mod size_rule_registry;
 pub mod source_registry;
 mod space;
 pub mod space_detail;
@@ -36,8 +37,7 @@ mod tree;
 mod version_store;
 pub mod visualization;
 pub mod volume_gap;
-use aggregation_rule::RegisteredRule;
-pub use aggregation_rule::SizeRuleIdentity;
+pub use aggregation_rule::{BoundSizeRule, SizeRuleIdentity};
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
@@ -78,7 +78,7 @@ pub struct ResultVersion {
     lineage_id: Option<Id>,
     scope_fingerprint: Option<String>,
     completeness: ResultCompleteness,
-    size_rule: RegisteredRule,
+    size_rule: BoundSizeRule,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
     observation_ranges: Vec<observation_range::RangeIndices>,
@@ -174,7 +174,7 @@ impl IngestSink {
             origin: ResultOrigin::Scan,
             data_source: du_core_contracts::data_source::DataSource::Real,
             published: false,
-            size_rule: RegisteredRule::default_registration(),
+            size_rule: BoundSizeRule::builtin_default(),
             shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
             scope_fingerprint: None,
@@ -201,7 +201,7 @@ pub struct BuildHandle {
     origin: ResultOrigin,
     data_source: du_core_contracts::data_source::DataSource,
     published: bool,
-    size_rule: RegisteredRule,
+    size_rule: BoundSizeRule,
     shared_table_limit: usize,
     scope_version_id: Id,
     scope_fingerprint: Option<String>,
