@@ -63,8 +63,8 @@ pub(super) fn amount(total: &SpaceTotal, basis: SizeBasis) -> Result<(u64, bool)
         .find(|value| value.size.basis == basis)
         .ok_or(format!("missing {basis:?} size"))?;
     match &size.size.amount {
-        SizeAmount::Exact { bytes } => Ok((bytes.as_str().parse()?, true)),
-        SizeAmount::LowerBound { bytes } => Ok((bytes.as_str().parse()?, false)),
+        SizeAmount::Exact { bytes } => Ok((bytes.get(), true)),
+        SizeAmount::LowerBound { bytes } => Ok((bytes.get(), false)),
         other => Err(format!("unexpected {basis:?} size: {other:?}").into()),
     }
 }
