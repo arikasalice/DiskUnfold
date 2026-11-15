@@ -161,9 +161,41 @@ impl JobContext for MultiContext {
     }
 }
 
+fn wait_at_cancel_boundary(
+    gate: &Gate,
+    mut state: std::sync::MutexGuard<'_, GateState>,
+    root: usize,
+) -> Checkpoint {
+    state.parked_after_return[root] = true;
+    gate.changed.notify_all();
+    if root == 0 && !state.allow_root_zero_item {
+        while !state.allow_root_zero_item && !state.cancelled && !state.aborted {
+            state = match gate.changed.wait(state) {
+                Ok(state) => state,
+                Err(_) => return Checkpoint::Cancel,
+            };
+        }
+        if !state.cancelled && !state.aborted {
+            return Checkpoint::Continue;
+        }
+    } else if root == 0 && !state.root_zero_item_sent {
+        state.root_zero_item_sent = true;
+        gate.changed.notify_all();
+    }
+    while !state.cancelled && !state.aborted {
+        state = match gate.changed.wait(state) {
+            Ok(state) => state,
+            Err(_) => return Checkpoint::Cancel,
+        };
+    }
+    state.cancel_boundaries[root] = true;
+    gate.changed.notify_all();
+    Checkpoint::Cancel
+}
+
 impl JobFlow for MultiFlow {
     fn safe_point(&self) -> Checkpoint {
-        let Ok(mut state) = self.gate.state.lock() else {
+        let Ok(state) = self.gate.state.lock() else {
             return Checkpoint::Cancel;
         };
         if self.flow_id > 0 {
@@ -175,31 +207,7 @@ impl JobFlow for MultiFlow {
             if let Some(root) = root
                 && state.returned_cancel_batches[root]
             {
-                state.parked_after_return[root] = true;
-                self.gate.changed.notify_all();
-                if root == 0 && !state.allow_root_zero_item {
-                    while !state.allow_root_zero_item && !state.cancelled && !state.aborted {
-                        state = match self.gate.changed.wait(state) {
-                            Ok(state) => state,
-                            Err(_) => return Checkpoint::Cancel,
-                        };
-                    }
-                    if !state.cancelled && !state.aborted {
-                        return Checkpoint::Continue;
-                    }
-                } else if root == 0 && !state.root_zero_item_sent {
-                    state.root_zero_item_sent = true;
-                    self.gate.changed.notify_all();
-                }
-                while !state.cancelled && !state.aborted {
-                    state = match self.gate.changed.wait(state) {
-                        Ok(state) => state,
-                        Err(_) => return Checkpoint::Cancel,
-                    };
-                }
-                state.cancel_boundaries[root] = true;
-                self.gate.changed.notify_all();
-                return Checkpoint::Cancel;
+                return wait_at_cancel_boundary(&self.gate, state, root);
             }
         }
         if state.cancelled || state.aborted {
@@ -309,6 +317,76 @@ fn fail() -> PortError {
     }
 }
 
+fn coordinate_two_lane_cancel(gate: &Gate) -> Result<(bool, bool), String> {
+    gate.wait_for(|state| state.progress_entered, "publisher did not pause")?;
+    gate.wait_for(
+        |state| state.second_reads.iter().all(|entered| *entered),
+        "two lane reads did not overlap",
+    )?;
+    let distinct_workers = {
+        let state = gate.state.lock().map_err(|_| "gate lock")?;
+        state.reader_threads[0].is_some()
+            && state.reader_threads[1].is_some()
+            && state.reader_threads[0] != state.reader_threads[1]
+    };
+    gate.release_reads();
+    gate.wait_for(
+        |state| state.parked_after_return.iter().all(|parked| *parked),
+        "both returned batches did not reach worker safe points",
+    )?;
+    // The first batches emitted 8,192 events. The publisher consumed one
+    // before blocking, leaving 8,191 of 8,192 channel slots occupied.
+    // One more item from root zero fills the final slot before cancellation.
+    gate.allow_root_zero_item();
+    gate.wait_for(
+        |state| state.root_zero_item_sent,
+        "root zero did not fill the final publisher slot",
+    )?;
+    gate.cancel();
+    gate.wait_for(
+        |state| state.cancel_boundaries.iter().all(|crossed| *crossed),
+        "both workers did not cross the cancellation boundary",
+    )?;
+    let pressure_held_until_both_boundaries =
+        gate.state
+            .lock()
+            .map_err(|_| "gate lock")
+            .is_ok_and(|state| {
+                state.root_zero_item_sent
+                    && state.progress_entered
+                    && !state.release_progress
+                    && !state.aborted
+                    && state.cancel_boundaries.iter().all(|crossed| *crossed)
+            });
+    Ok((distinct_workers, pressure_held_until_both_boundaries))
+}
+
+fn assert_cancelled_batch_items(items: &[du_core_contracts::result::ResultItem]) {
+    let mut names = std::collections::HashMap::<Vec<u8>, usize>::new();
+    let mut root_items = 0;
+    for item in items {
+        if item.name.is_empty() {
+            root_items += 1;
+        } else {
+            *names.entry(item.name.clone()).or_default() += 1;
+        }
+    }
+    assert_eq!(root_items, LANE_COUNT);
+    assert_eq!(
+        names.len(),
+        LANE_COUNT * (FIRST_BATCH_ITEMS + CANCEL_BATCH_ITEMS)
+    );
+    assert!(names.values().all(|count| *count == 1));
+    for root in 0..LANE_COUNT {
+        for (phase, count) in [(b'F', FIRST_BATCH_ITEMS), (b'C', CANCEL_BATCH_ITEMS)] {
+            for index in 0..count {
+                let name = format!("r{root}-{}-{index:04}", char::from(phase)).into_bytes();
+                assert_eq!(names.get(&name), Some(&1), "missing {name:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
@@ -371,49 +449,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
         let _ = done_tx.send(result);
     });
 
-    let coordinated = (|| -> Result<(bool, bool), String> {
-        gate.wait_for(|state| state.progress_entered, "publisher did not pause")?;
-        gate.wait_for(
-            |state| state.second_reads.iter().all(|entered| *entered),
-            "two lane reads did not overlap",
-        )?;
-        let distinct_workers = {
-            let state = gate.state.lock().map_err(|_| "gate lock")?;
-            state.reader_threads[0].is_some()
-                && state.reader_threads[1].is_some()
-                && state.reader_threads[0] != state.reader_threads[1]
-        };
-        gate.release_reads();
-        gate.wait_for(
-            |state| state.parked_after_return.iter().all(|parked| *parked),
-            "both returned batches did not reach worker safe points",
-        )?;
-        // The first batches emitted 8,192 events. The publisher consumed one
-        // before blocking, leaving 8,191 of 8,192 channel slots occupied.
-        // One more item from root zero fills the final slot before cancellation.
-        gate.allow_root_zero_item();
-        gate.wait_for(
-            |state| state.root_zero_item_sent,
-            "root zero did not fill the final publisher slot",
-        )?;
-        gate.cancel();
-        gate.wait_for(
-            |state| state.cancel_boundaries.iter().all(|crossed| *crossed),
-            "both workers did not cross the cancellation boundary",
-        )?;
-        let pressure_held_until_both_boundaries = gate
-            .state
-            .lock()
-            .map_err(|_| "gate lock")
-            .is_ok_and(|state| {
-                state.root_zero_item_sent
-                    && state.progress_entered
-                    && !state.release_progress
-                    && !state.aborted
-                    && state.cancel_boundaries.iter().all(|crossed| *crossed)
-            });
-        Ok((distinct_workers, pressure_held_until_both_boundaries))
-    })();
+    let coordinated = coordinate_two_lane_cancel(&gate);
 
     // On every assertion, timeout, or early return, unblock both fake reads
     // and the publisher before joining the collector.
@@ -445,7 +481,6 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
     let (sealed_id, cancelled, _) = result?;
     assert!(cancelled);
     assert_eq!(context.flow_id.load(Ordering::SeqCst), 3); // prep plus two workers
-
     let state = gate.state.lock().map_err(|_| "gate lock")?;
     assert_eq!(state.calls, [2, 2]);
     assert_eq!(state.calls_after_cancel, [0, 0]);
@@ -454,35 +489,12 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
     assert!(state.progress_released_after_boundaries);
     assert_eq!(state.worker_finishes, LANE_COUNT);
     drop(state);
-
     let version = store
         .pin()
         .map_err(|error| format!("{error:?}"))?
         .ok_or("missing cancelled version")?;
     assert_eq!(version.version_id(), &sealed_id);
     assert_eq!(version.completeness(), ResultCompleteness::Cancelled);
-    let mut names = std::collections::HashMap::<Vec<u8>, usize>::new();
-    let mut root_items = 0;
-    for item in version.items() {
-        if item.name.is_empty() {
-            root_items += 1;
-        } else {
-            *names.entry(item.name.clone()).or_default() += 1;
-        }
-    }
-    assert_eq!(root_items, LANE_COUNT);
-    assert_eq!(
-        names.len(),
-        LANE_COUNT * (FIRST_BATCH_ITEMS + CANCEL_BATCH_ITEMS)
-    );
-    assert!(names.values().all(|count| *count == 1));
-    for root in 0..LANE_COUNT {
-        for (phase, count) in [(b'F', FIRST_BATCH_ITEMS), (b'C', CANCEL_BATCH_ITEMS)] {
-            for index in 0..count {
-                let name = format!("r{root}-{}-{index:04}", char::from(phase)).into_bytes();
-                assert_eq!(names.get(&name), Some(&1), "missing {name:?}");
-            }
-        }
-    }
+    assert_cancelled_batch_items(version.items());
     Ok(())
 }
