@@ -44,10 +44,10 @@ test("keeps heading and return action available during the first page load", () 
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Back to graph" })).toBeTruthy();
   expect(
-    screen.getByRole("progressbar", { name: "Loading members" }),
+    screen.getByRole("progressbar", { name: "Loading combined items" }),
   ).toBeTruthy();
   expect(screen.queryByText(/No members in this range/)).toBeNull();
-  expect(screen.queryByRole("table", { name: "Group members" })).toBeNull();
+  expect(screen.queryByRole("table", { name: "Combined items" })).toBeNull();
 });
 
 test("retains the last supplied rows during loading and reports the supplied range", () => {
@@ -59,7 +59,7 @@ test("retains the last supplied rows during loading and reports the supplied ran
 
   expect(screen.getByText("Rows 21–40 of 86")).toBeTruthy();
   expect(
-    screen.getByRole("table", { name: "Group members" }).textContent,
+    screen.getByRole("table", { name: "Combined items" }).textContent,
   ).toContain(row.displayName);
   expect(screen.queryByText(/No members in this range/)).toBeNull();
 });
@@ -83,7 +83,7 @@ test("keeps the last supplied rows on error and retries only when requested", ()
     "Could not load rows 21–40.",
   );
   expect(
-    screen.getByRole("table", { name: "Group members" }).textContent,
+    screen.getByRole("table", { name: "Combined items" }).textContent,
   ).toContain(row.displayName);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(retry).toHaveBeenCalledOnce();
@@ -93,21 +93,21 @@ test("shows an empty state only for a successfully supplied empty page", () => {
   const { rerender } = render(
     <GroupMembersPresenter {...props({ rows: [], status: "ready" })} />,
   );
-  expect(screen.getByText("No members in this range.")).toBeTruthy();
-  expect(screen.queryByRole("table", { name: "Group members" })).toBeNull();
+  expect(screen.getByText("No items in this range.")).toBeTruthy();
+  expect(screen.queryByRole("table", { name: "Combined items" })).toBeNull();
 
   rerender(
     <GroupMembersPresenter
       {...props({ rows: [], status: "error", errorMessage: "Request failed." })}
     />,
   );
-  expect(screen.queryByText("No members in this range.")).toBeNull();
+  expect(screen.queryByText("No items in this range.")).toBeNull();
   expect(screen.getByRole("alert").textContent).toContain("Request failed.");
 
   rerender(
     <GroupMembersPresenter {...props({ rows: undefined, status: "ready" })} />,
   );
-  expect(screen.queryByText("No members in this range.")).toBeNull();
+  expect(screen.queryByText("No items in this range.")).toBeNull();
 });
 
 test("does not offer page retry unless the owner marks the error retryable", () => {
@@ -136,7 +136,7 @@ test("does not infer an observation time or total when the owner has no labels",
   const { container } = render(<GroupMembersPresenter {...input} />);
 
   expect(container.textContent).not.toMatch(/observed|total|unknown/i);
-  expect(screen.getByText("No members in this range.")).toBeTruthy();
+  expect(screen.getByText("No items in this range.")).toBeTruthy();
 });
 
 test("pages through injected callbacks and respects supplied range boundaries", () => {
@@ -171,8 +171,8 @@ test("uses accessible heading, table, navigation and action semantics", async ()
   const { container } = render(<GroupMembersPresenter {...props()} />);
 
   expect(
-    screen.getByRole("navigation", { name: "Group member ranges" }),
+    screen.getByRole("navigation", { name: "Combined item ranges" }),
   ).toBeTruthy();
-  expect(screen.getByRole("table", { name: "Group members" })).toBeTruthy();
+  expect(screen.getByRole("table", { name: "Combined items" })).toBeTruthy();
   expect((await axe.run(container)).violations).toEqual([]);
 });

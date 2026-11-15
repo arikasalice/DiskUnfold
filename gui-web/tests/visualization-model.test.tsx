@@ -69,7 +69,8 @@ test.each([
     const adapted = adapt(input);
     expect(adapted.rowsMatch).toBe(false);
     expect(adapted.rows).toEqual([]);
-    expect(adapted.shapes[0]!.displayLabel).toContain(
+    expect(adapted.shapes[0]!.displayLabel).toBe("");
+    expect(adapted.shapes[0]!.accessibleLabel).toContain(
       "Item name not yet retrieved",
     );
     expect(adapted.shapes[0]!.geometry).toBe(
@@ -165,9 +166,9 @@ test("unsupported geometry shows same-model rows without drawing a partial graph
     />,
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   expect(
-    screen.getByRole("table", { name: "Loaded graph rows" }).textContent,
+    screen.getByRole("table", { name: "Loaded chart rows" }).textContent,
   ).toContain("영상");
   expect(screen.getByText(/cannot be drawn/)).toBeDefined();
 });
@@ -252,8 +253,8 @@ test("rows only expose Actions when this page has a group and an open handler", 
       text={fixtureText}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
-  let table = screen.getByRole("table", { name: "Loaded graph rows" });
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -269,7 +270,7 @@ test("rows only expose Actions when this page has a group and an open handler", 
       onOpenGroup={vi.fn()}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).getByRole("columnheader", { name: "Actions" }),
   ).toBeDefined();
@@ -278,7 +279,7 @@ test("rows only expose Actions when this page has a group and an open handler", 
   expect(bodyRows.every((row) => row.children.length === 7)).toBe(true);
   expect(
     within(bodyRows[0]!).getByRole("button", {
-      name: "View members of 영상",
+      name: "View items in 영상",
     }),
   ).toBeDefined();
   expect(within(bodyRows[1]!).queryByRole("button")).toBeNull();
@@ -296,8 +297,8 @@ test("rows omit Actions when the displayed page has no valid group row", () => {
       onOpenGroup={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
-  const table = screen.getByRole("table", { name: "Loaded graph rows" });
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  const table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -334,9 +335,9 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
 
-  let table = screen.getByRole("table", { name: "Loaded graph rows" });
+  let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -355,7 +356,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).getByRole("columnheader", { name: "Actions" }),
   ).toBeDefined();
@@ -364,7 +365,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
   expect(bodyRows[0]!.children.length).toBe(7);
   expect(
     within(bodyRows[0]!).getByRole("button", {
-      name: "View members of 영상",
+      name: "View items in 영상",
     }),
   ).toBeDefined();
 
@@ -376,7 +377,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded graph rows" });
+  table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -402,7 +403,7 @@ test("page navigation retains the exact model and result revision", () => {
       onPage={onPage}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   fireEvent.click(screen.getByRole("button", { name: "Next rows" }));
   expect(onPage).toHaveBeenCalledWith({ ...input.page.request, start: 4 });
 });
@@ -413,7 +414,8 @@ test("a loaded page does not imply that names of shapes outside the page are loa
   input.page.request.count = 2;
   const adapted = adapt(input);
   expect(adapted.rowsMatch).toBe(true);
-  expect(adapted.shapes[2]!.displayLabel).toBe(
+  expect(adapted.shapes[2]!.displayLabel).toBe("");
+  expect(adapted.shapes[2]!.accessibleLabel).toContain(
     "Item name not yet retrieved · 17179869184 bytes · measured",
   );
   expect(adapted.shapes[2]!.geometry).toBe(
@@ -452,7 +454,7 @@ test("row progress requires an explicit in-flight request for this model and rev
     />,
   );
   expect(
-    screen.getByRole("progressbar", { name: "Loading rows from this graph" }),
+    screen.getByRole("progressbar", { name: "Loading rows from this chart" }),
   ).toBeDefined();
   rerender(
     <VisualizationModelPresenter
