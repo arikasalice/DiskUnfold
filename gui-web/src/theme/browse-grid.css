@@ -141,7 +141,13 @@
   display: none;
 }
 
-@container (max-width: 640px) {
+/* Cards replace the table at a list width of 700px or less, before the name
+   column, the most important one, is squeezed to a sliver. The list is about
+   0.94 x (W - 16) px wide in a window W px wide (window frame and the app's
+   3vw side margins): about 643px in a 700px window, which shows cards, and
+   737px in an 800px window, which keeps the table. Keep this width in step
+   with BROWSE_CARD_WIDTH and the member grid in groups.css. */
+@container (max-width: 700px) {
   .du-browse-grid__header {
     position: absolute;
     inline-size: 1px;
