@@ -76,6 +76,12 @@ type GridProps<Item> = {
   getRow: (index: number) => Item | undefined;
   getKey: (item: Item) => string;
   renderCells: (item: Item) => readonly ReactNode[];
+  /**
+   * The ids of the elements that name a row, space separated, for a row
+   * whose first cell also holds controls that are not part of its name.
+   * Without it, or when it returns nothing, the first cell names the row.
+   */
+  rowLabelledBy?: (item: Item) => string | undefined;
   /** Receives the selected row keys, or "all" after select all. */
   onSelectionChange?: (keys: "all" | ReadonlySet<string>) => void;
 };
@@ -156,6 +162,7 @@ export function BrowseGrid<Item>({
   getRow,
   getKey,
   renderCells,
+  rowLabelledBy,
   onSelectionChange,
 }: GridProps<Item>) {
   const ownRoot = useRef<HTMLDivElement>(null);
@@ -299,6 +306,9 @@ export function BrowseGrid<Item>({
                       <div
                         {...element}
                         onKeyDown={guardedKeys(element.onKeyDown)}
+                        aria-labelledby={
+                          rowLabelledBy?.(item) ?? element["aria-labelledby"]
+                        }
                         aria-rowindex={index + 2}
                         data-row={index}
                         data-item-key={key}
