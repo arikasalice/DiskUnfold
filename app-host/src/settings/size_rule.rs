@@ -1,0 +1,98 @@
+//! Read the size aggregation rule setting when an analysis starts (F03 FR14.HD2.app-host.DD4).
+use std::{io, sync::Arc};
+
+use du_core_contracts::size_rule::DEFAULT_SIZE_RULE_ID;
+use du_engine_api::size_rule::{SizeRuleSource, SizeRules, default_size_rule_source};
+use du_user_env::space::AGGREGATION_RULE;
+use serde_json::Value;
+
+use super::StartupSettings;
+
+/// Lists the rule IDs of the registry the desktop analysis flow assembles.
+///
+/// The IDs come from the same default bundle that `lifecycle::analysis` registers, so
+/// the setting accepts exactly the rules an analysis can start with. A bundle that
+/// cannot be assembled stops startup with the `startup.registration_failed` convention.
+pub(super) fn registered_ids() -> Result<Vec<String>, io::Error> {
+    let rules = SizeRules::default_bundle(default_size_rule_source())
+        .map_err(|error| io::Error::other(format!("startup.registration_failed: {error}")))?;
+    let mut ids: Vec<String> = Vec::new();
+    for identity in rules.identities() {
+        if !ids.iter().any(|id| id == identity.id) {
+            ids.push(identity.id.to_owned());
+        }
+    }
+    Ok(ids)
+}
+
+/// Names the rule an analysis uses: the stored ID when the registry has it, else the default.
+///
+/// The settings write path and the startup restore reject an unregistered ID, so a value
+/// outside `registered` only reaches this point through a snapshot that bypassed them.
+/// Falling back keeps `space.rule_unknown` out of normal use.
+fn resolve(stored: Option<&Value>, registered: &[String]) -> String {
+    stored
+        .and_then(Value::as_str)
+        .filter(|id| registered.iter().any(|known| known == id))
+        .unwrap_or(DEFAULT_SIZE_RULE_ID)
+        .to_owned()
+}
+
+impl StartupSettings {
+    /// Supplies the size aggregation rule ID when an analysis is admitted.
+    ///
+    /// The source reads the current `space.aggregation_rule` value on every call, so a
+    /// changed value applies from the next analysis start while a running analysis keeps
+    /// the rule it pinned at admission. An absent value, an unregistered ID or an
+    /// unreadable service yields [`DEFAULT_SIZE_RULE_ID`].
+    pub(crate) fn size_rule_source(self: Arc<Self>) -> SizeRuleSource {
+        Arc::new(move || {
+            let stored = self
+                .service
+                .lock()
+                .ok()
+                .and_then(|service| service.snapshot().values.get(AGGREGATION_RULE).cloned());
+            resolve(stored.as_ref(), &self.size_rule_ids)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn registered() -> Vec<String> {
+        vec![DEFAULT_SIZE_RULE_ID.to_owned(), "size.agg.other".to_owned()]
+    }
+
+    #[test]
+    fn a_registered_id_is_kept() {
+        assert_eq!(
+            resolve(Some(&json!("size.agg.other")), &registered()),
+            "size.agg.other"
+        );
+    }
+
+    #[test]
+    fn absent_unregistered_and_malformed_values_use_the_default() {
+        for stored in [
+            None,
+            Some(json!("size.agg.removed")),
+            Some(json!("")),
+            Some(json!(7)),
+            Some(json!(null)),
+        ] {
+            assert_eq!(
+                resolve(stored.as_ref(), &registered()),
+                DEFAULT_SIZE_RULE_ID
+            );
+        }
+    }
+
+    #[test]
+    fn the_registered_ids_are_the_assembled_default_bundle() -> Result<(), io::Error> {
+        assert_eq!(registered_ids()?, vec![DEFAULT_SIZE_RULE_ID.to_owned()]);
+        Ok(())
+    }
+}

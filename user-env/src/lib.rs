@@ -58,6 +58,9 @@ impl Registry {
         })
     }
 
+    /// Lists every registered setting, including hidden ones, with its effective value.
+    ///
+    /// Screens and search must skip entries whose `descriptor.presentation.hidden` is set.
     pub fn catalog<'a>(&'a self, snapshot: &'a SettingsSnapshot) -> Vec<CatalogEntry<'a>> {
         self.descriptors
             .values()

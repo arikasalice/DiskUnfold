@@ -34,6 +34,12 @@ pub(super) fn scan_harness_with_size_rule_source(
     source: crate::size_rule::SizeRuleSource,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let rules = crate::size_rule::SizeRules::default_bundle(source)?;
+    scan_harness_with_size_rules(rules)
+}
+
+pub(super) fn scan_harness_with_size_rules(
+    rules: crate::size_rule::SizeRules,
+) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     scan_harness_with_admissions(None, None, None, false, false, Some(rules))
 }
 

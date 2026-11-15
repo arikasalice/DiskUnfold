@@ -1,6 +1,10 @@
 //! The size aggregation rule is pinned once, when an analysis starts (F03 FR14.HD2.app-host.DD3).
 use super::*;
-use crate::size_rule::{DEFAULT_SIZE_RULE_ID, SizeRuleSource};
+use crate::size_rule::{
+    DEFAULT_SIZE_RULE_ID, SizeRuleRegistryBuilder, SizeRuleSource, SizeRules,
+    register_default_size_rules,
+};
+use du_analysis_index::SizeRuleIdentity;
 use std::sync::atomic::AtomicUsize;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -90,6 +94,7 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
         engine,
         roots,
         terminal,
+        versions,
         ..
     } = fixture::scan_harness_with_size_rule_source(source)?;
     let draft = draft();
@@ -105,6 +110,97 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
     assert_eq!(roots.reads.load(Ordering::Acquire), reads_before);
     // No job ran, so nothing finished and nothing was published.
     assert!(terminal.recv_timeout(Duration::from_millis(200)).is_err());
+    // The job table is empty: the runtime never saw a submission.
+    let jobs = call(
+        &engine,
+        "job.list",
+        Channel::Gui,
+        ENVELOPE_VERSION,
+        json!({}),
+    )?;
+    assert!(jobs.error.is_none());
+    assert_eq!(jobs.body, json!([]));
+    // No lineage is bound for the scope: binding it now returns the candidate we offer
+    // instead of an earlier lineage. The probe runs last because binding is permanent.
+    let request: du_core_contracts::analysis_ipc::ScanStartRequest =
+        serde_json::from_value(json!({"draft": draft, "reviewFingerprint": fingerprint}))?;
+    let scope_fingerprint = crate::scope::verify(
+        &request.draft,
+        &request.review_fingerprint,
+        &*roots,
+        None,
+        false,
+    )
+    .and_then(|verified| verified.scope_fingerprint.resolve())
+    .map_err(|error| format!("{error:?}"))?;
+    let candidate = Id::parse("018f0000-0000-7000-8000-00000000f003")?;
+    let bound = versions
+        .bind_current_analysis(&scope_fingerprint, candidate.clone())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(bound, candidate);
+    Ok(())
+}
+
+/// A registry with the default rule and a second identity of the same implementation.
+fn two_rules(source: SizeRuleSource, other: &'static str) -> Result<SizeRules, String> {
+    let mut builder = SizeRuleRegistryBuilder::new();
+    register_default_size_rules(&mut builder).map_err(|error| error.to_string())?;
+    builder
+        .register_test_alias(SizeRuleIdentity {
+            id: other,
+            revision: 1,
+        })
+        .map_err(|error| format!("{error:?}"))?;
+    SizeRules::assemble(builder, source).map_err(|error| error.to_string())
+}
+
+#[test]
+fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResult {
+    const OTHER: &str = "size.agg.test-alias";
+    // The first start names the default rule; the source names another registered rule
+    // from then on.
+    let (source, reads) = scripted(&[DEFAULT_SIZE_RULE_ID, OTHER]);
+    let ScanHarness {
+        engine,
+        release,
+        terminal,
+        versions,
+        ..
+    } = fixture::scan_harness_with_size_rules(two_rules(source, OTHER)?)?;
+    let draft = draft();
+    let fingerprint = review_fingerprint(&engine, &draft)?;
+    let receipt: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
+    assert!(!receipt.existing);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+
+    // The scan is still running, so the same scope returns it and discards the rule the
+    // changed source now names.
+    let duplicate: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
+    assert!(duplicate.existing);
+    assert_eq!(duplicate.job_ref, receipt.job_ref);
+    assert_eq!(duplicate.scope_version, receipt.scope_version);
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+    release.send(())?;
+    let (summary, _) = scan_finished(&terminal)?;
+    assert_eq!(summary.job_id, receipt.job_ref);
+    let version = versions
+        .pin_current(&summary.result_version_id.ok_or("missing version")?)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(version.size_rule().id, DEFAULT_SIZE_RULE_ID);
+    assert_eq!(version.size_rule().revision, 1);
+
+    // Once the scan is sealed, the next start applies the changed source.
+    let next: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
+    assert!(!next.existing);
+    assert_ne!(next.job_ref, receipt.job_ref);
+    release.send(())?;
+    let (summary, _) = scan_finished(&terminal)?;
+    assert_eq!(summary.job_id, next.job_ref);
+    let version = versions
+        .pin_current(&summary.result_version_id.ok_or("missing version")?)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(version.size_rule().id, OTHER);
     Ok(())
 }
 

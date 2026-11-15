@@ -17,6 +17,7 @@ use std::path::Path;
 mod display_preferences;
 mod recent_scope;
 mod recent_service;
+mod rule_setting;
 mod schema;
 mod search;
 mod unit_table;
@@ -31,7 +32,12 @@ fn open_settings(
     path: &Path,
     timestamp_ms: i64,
 ) -> Result<SettingsService<SharedSettings>, io::Error> {
-    restore_settings(&test_database(path)?, timestamp_ms, &["en", "ko"])
+    restore_settings(
+        &test_database(path)?,
+        timestamp_ms,
+        &["en", "ko"],
+        &size_rule::registered_ids()?,
+    )
 }
 
 fn context() -> SettingsCommit {

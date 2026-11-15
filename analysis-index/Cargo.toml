@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Lets another crate's tests register a second size rule identity.
+test-support = []
+
 [dependencies]
 blake3 = "=1.8.3"
 du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
