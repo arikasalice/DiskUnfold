@@ -16,6 +16,7 @@ use super::{
     SharedTableLimit, SharedTableLimitSource, VisualizationServices, recent_scope_admissions,
     scan_completion, shutdown, utc_now_ms,
 };
+use crate::size_rule::SizeRules;
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 
 // Provisional until the target probe deadline is measured across supported devices.
@@ -76,6 +77,7 @@ pub fn register_with_scan_diagnostics(
         random,
         DesktopRegistrationOptions {
             shared_table_limit: Arc::new(SharedTableLimit::default),
+            size_rules: None,
             diagnostics: Some(diagnostics),
             recent_admission_capacity: None,
         },
@@ -117,8 +119,47 @@ impl DesktopServices {
 
 struct DesktopRegistrationOptions {
     shared_table_limit: SharedTableLimitSource,
+    size_rules: Option<SizeRules>,
     diagnostics: Option<ScanDiagnosticsFactory>,
     recent_admission_capacity: Option<NonZeroUsize>,
+}
+
+/// Sources the composition root injects into the desktop analysis flow.
+pub struct DesktopSources {
+    /// Setting snapshot read when a scan is admitted.
+    pub shared_table_limit: SharedTableLimitSource,
+    /// The size rule registry, assembled once, and the source naming the rule ID.
+    pub size_rules: SizeRules,
+    /// Capacity of the deferred recent-scope worker handoff; `None` disables it.
+    pub recent_admission_capacity: Option<NonZeroUsize>,
+}
+
+/// Registers analysis with every injected source, including the size rule selection.
+///
+/// The composition root assembles `sources.size_rules` once, for example with
+/// [`SizeRules::default_bundle`], and stops startup when that fails. Each
+/// `scan.start` reads the rule source once and pins the latest revision of its ID.
+pub fn register_services_with_sources(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    history: Arc<dyn JobHistory>,
+    random: &dyn Random,
+    sources: DesktopSources,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    register_services_inner(
+        builder,
+        roots,
+        volumes,
+        history,
+        random,
+        DesktopRegistrationOptions {
+            shared_table_limit: sources.shared_table_limit,
+            size_rules: Some(sources.size_rules),
+            diagnostics: None,
+            recent_admission_capacity: sources.recent_admission_capacity,
+        },
+    )
 }
 
 /// Registers analysis and exposes the observed-path reader for app-host only.
@@ -138,6 +179,7 @@ pub fn register_services(
         random,
         DesktopRegistrationOptions {
             shared_table_limit,
+            size_rules: None,
             diagnostics: None,
             recent_admission_capacity: None,
         },
@@ -165,6 +207,7 @@ pub fn register_services_with_recent_scope_worker(
         random,
         DesktopRegistrationOptions {
             shared_table_limit,
+            size_rules: None,
             diagnostics: None,
             recent_admission_capacity: Some(recent_admission_capacity),
         },
@@ -181,6 +224,7 @@ fn register_services_inner(
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let DesktopRegistrationOptions {
         shared_table_limit,
+        size_rules,
         diagnostics,
         recent_admission_capacity,
     } = options;
@@ -224,25 +268,20 @@ fn register_services_inner(
         } else {
             (None, None)
         };
-    let sets = match recent_publisher {
-        Some(publisher) => scan::register_with_admissions(
-            builder,
-            workers.clone(),
-            roots,
-            ids.clone(),
-            shared_table_limit,
+    let sets = scan::register_with_options(
+        builder,
+        workers.clone(),
+        roots,
+        ids.clone(),
+        scan::ScanRegistrationOptions {
+            comparison: None,
+            limit: shared_table_limit,
             diagnostics,
-            publisher,
-        )?,
-        None => scan::register_with_limit(
-            builder,
-            workers.clone(),
-            roots,
-            ids.clone(),
-            shared_table_limit,
-            diagnostics,
-        )?,
-    };
+            admissions: recent_publisher,
+            priority_control: true,
+            size_rules,
+        },
+    )?;
     let store = sets.source();
     let groups = crate::group::compose(&store, &runtime, &workers, ids.clone());
     let completed_scans = scan_events.bind(store.clone())?;

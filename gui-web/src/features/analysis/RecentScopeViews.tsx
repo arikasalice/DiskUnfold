@@ -104,18 +104,18 @@ export function RecentScopeListView({
     <div className="du-recent-scopes__body">
       {list.kind === "idle" && (
         <Action isPending onPress={onRetry}>
-          {text("ui.analysis.loading_recent_ranges", "Loading recent ranges…")}
+          {text("ui.analysis.loading_recent_ranges", "Loading recent scopes…")}
         </Action>
       )}
       {list.kind === "loading" && (
         <LoadingMessage
           message={text(
             "ui.analysis.loading_recent_ranges_full",
-            "Loading recent analysis ranges…",
+            "Loading recent analysis scopes…",
           )}
           label={text(
             "ui.analysis.loading_recent_ranges_label",
-            "Loading recent analysis ranges",
+            "Loading recent analysis scopes",
           )}
         />
       )}
@@ -125,7 +125,7 @@ export function RecentScopeListView({
             <Text>
               {text(
                 "ui.analysis.recent_ranges_load_failed",
-                "Recent analysis ranges could not be loaded.",
+                "Recent analysis scopes could not be loaded.",
               )}
             </Text>
             <Action onPress={onRetry}>
@@ -138,7 +138,7 @@ export function RecentScopeListView({
         <Notice tone="info">
           {text(
             "ui.analysis.no_recent_ranges",
-            "There are no recent analysis ranges. Return to folder selection to choose a path.",
+            "There are no recent analysis scopes. Return to folder selection to choose a path.",
           )}
         </Notice>
       )}
@@ -171,7 +171,7 @@ function RecentScopeRows({
         <div key={row.recentScopeRef} role="listitem">
           <div className="du-recent-scopes__summary">
             <Text>
-              {text("ui.analysis.recent_range_number", "Range {number}", {
+              {text("ui.analysis.recent_range_number", "Scope {number}", {
                 number: BigInt(index + 1),
               })}
             </Text>
@@ -192,7 +192,7 @@ function RecentScopeRows({
             }}
             onPress={() => onOpen(row)}
           >
-            {text("ui.analysis.review_range_number", "Review range {number}", {
+            {text("ui.analysis.review_range_number", "Review scope {number}", {
               number: BigInt(index + 1),
             })}
           </Action>
@@ -323,7 +323,7 @@ function DetailFeedback({
           </Action>
         )}
         <Action variant="quiet" onPress={() => onBack(detail.row)}>
-          {text("ui.analysis.back_to_recent_ranges", "Back to recent ranges")}
+          {text("ui.analysis.back_to_recent_ranges", "Back to recent scopes")}
         </Action>
       </div>
     </Notice>
@@ -335,25 +335,25 @@ function detailMessage(
   text: ReturnType<typeof useLocaleText>,
 ) {
   switch (message) {
-    case "The scope changed. Check the saved range again.":
+    case "The scope changed. Check the saved scope again.":
       return text(
         "ui.analysis.recent_scope_changed",
-        "The scope changed. Check the saved range again.",
+        "The scope changed. Check the saved scope again.",
       );
-    case "The scope review changed. Open the saved range again.":
+    case "The scope review changed. Open the saved scope again.":
       return text(
         "ui.analysis.recent_scope_review_changed",
-        "The scope review changed. Open the saved range again.",
+        "The scope review changed. Open the saved scope again.",
       );
-    case "This saved range is no longer available. Refresh the list and choose another range.":
+    case "This saved scope is no longer available. Refresh the list and choose another scope.":
       return text(
         "ui.analysis.recent_range_missing",
-        "This saved range is no longer available. Refresh the list and choose another range.",
+        "This saved scope is no longer available. Refresh the list and choose another scope.",
       );
-    case "This saved range could not be opened. It may be damaged or from an unsupported version.":
+    case "This saved scope could not be opened. It may be damaged or from an unsupported version.":
       return text(
         "ui.analysis.recent_range_open_failed",
-        "This saved range could not be opened. It may be damaged or from an unsupported version.",
+        "This saved scope could not be opened. It may be damaged or from an unsupported version.",
       );
     default:
       return message;
@@ -465,7 +465,7 @@ function CurrentPathStatus({
             <Notice tone="info">
               {text(
                 "ui.analysis.recent_paths_access_unreviewed",
-                "Current paths and access could not be reviewed. Check the saved range again or choose the paths and review them before using this range.",
+                "Current paths and access could not be reviewed. Check the saved scope again or choose the paths and review them before using this scope.",
               )}
             </Notice>
             <Action onPress={onCheckAgain}>
@@ -478,7 +478,7 @@ function CurrentPathStatus({
           <Notice tone="info">
             {text(
               "ui.analysis.recent_editor_scope_changed",
-              "The editor scope changed. Check this saved range again before using it.",
+              "The editor scope changed. Check this saved scope again before using it.",
             )}
           </Notice>
           <Action onPress={onCheckAgain}>
@@ -623,7 +623,7 @@ function RecentScopeApplyActions({
             hasDraftEdits ? toggleConfirm(true) : onApply(value.draft, review)
           }
         >
-          {text("ui.analysis.use_recent_range", "Use this range")}
+          {text("ui.analysis.use_recent_range", "Use this scope")}
         </Action>
       )}
       {!canApply && (

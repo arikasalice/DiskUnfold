@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode, Ref, RefObject } from "react";
 import { Action, Heading, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import {
@@ -165,7 +165,7 @@ export function AnalysisPanel({
   ) => void;
   onSizeBasisChange?:
     ((version: string, basis: SizeBasisFilter) => void) | undefined;
-  browseTrigger?: Ref<HTMLButtonElement>;
+  browseTrigger?: RefObject<HTMLButtonElement | null>;
   /** Reports the running scan this panel started and its newest partial result. */
   onScanContext?: (context: ScanPriorityContext | undefined) => void;
   /** Another way to begin, such as the sample experience, offered before a scan starts. */
@@ -175,7 +175,7 @@ export function AnalysisPanel({
   const text = useLocaleText();
   const reviewProblemId = useId();
   const editorId = useId();
-  const scanStatusFocus = useRef<HTMLDivElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
   const editorOpener = useRef<HTMLButtonElement>(null);
   const editorBody = useRef<HTMLElement>(null);
   const firstPath = useRef<HTMLInputElement>(null);
@@ -256,7 +256,9 @@ export function AnalysisPanel({
       focusReview.current = false;
     }
     if (focusResult.current && !editorOpen) {
-      scanStatusFocus.current?.focus();
+      // A started analysis leaves the focus on the screen title, which
+      // draws no frame. The scan state is announced by its status region.
+      title.current?.focus();
       focusResult.current = false;
     }
   });
@@ -346,7 +348,7 @@ export function AnalysisPanel({
     setReviewProblem(
       text(
         "ui.analysis.choose_path_or_reopen",
-        "Choose a path or reopen the saved range before analyzing.",
+        "Choose a path or reopen the saved scope before analyzing.",
       ),
     );
   }
@@ -558,7 +560,7 @@ export function AnalysisPanel({
           setReviewProblem(
             text(
               "ui.analysis.reopen_saved_or_select",
-              "Reopen the saved range or select its paths again before analyzing.",
+              "Reopen the saved scope or select its paths again before analyzing.",
             ),
           );
         }
@@ -672,6 +674,7 @@ export function AnalysisPanel({
       aria-labelledby="analysis-heading"
     >
       <AnalysisHeader
+        title={title}
         hasTotal={Boolean(scan.total)}
         resultActive={resultActive}
         hasReceipt={receipt !== null}
@@ -739,10 +742,10 @@ export function AnalysisPanel({
               onDisplayChoice={setDisplayChoice}
               onSizeBasisChange={onSizeBasisChange}
               scan={scan}
+              job={scanJob}
               started={receipt !== null}
               running={running}
               problem={error}
-              statusFocus={scanStatusFocus}
               roots={resultRoots}
               actions={
                 <ResultActions
@@ -753,7 +756,7 @@ export function AnalysisPanel({
                   state={scan.status?.state}
                   pending={scan.control}
                   onControl={scan.requestControl}
-                  statusFocus={scanStatusFocus}
+                  title={title}
                 />
               }
             />
@@ -765,6 +768,7 @@ export function AnalysisPanel({
 }
 
 function AnalysisHeader({
+  title,
   hasTotal,
   resultActive,
   hasReceipt,
@@ -775,6 +779,7 @@ function AnalysisHeader({
   opener,
   onOpen,
 }: {
+  title: Ref<HTMLHeadingElement>;
   hasTotal: boolean;
   resultActive: boolean;
   hasReceipt: boolean;
@@ -788,7 +793,7 @@ function AnalysisHeader({
   const text = useLocaleText();
   return (
     <header className="du-analysis__header">
-      <Heading level={2} id="analysis-heading">
+      <Heading level={2} id="analysis-heading" ref={title} programmaticFocus>
         {hasTotal
           ? text("ui.analysis.results", "Disk space results")
           : resultActive
