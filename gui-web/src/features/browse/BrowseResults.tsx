@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   Action,
@@ -8,11 +8,10 @@ import {
   Moment,
   NameText,
   Notice,
-  RowAction,
   Text,
   Unbroken,
 } from "../../components";
-import type { BrowseGridFocus, ItemAction } from "../../components";
+import type { BrowseGridFocus } from "../../components";
 import type {
   FolderQueryRow,
   BrowseCopyPathOutcome,
@@ -30,13 +29,13 @@ import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
-import {
-  canAnalyzeFirst,
-  newerResultReason,
-  SelectionAnalyzeFirst,
-  waitsForNewerResult,
-} from "./SelectionAnalyzeFirst";
+import { SelectionAnalyzeFirst } from "./SelectionAnalyzeFirst";
 import type { Selection } from "./SelectionAnalyzeFirst";
+import {
+  analyzeFirstActions,
+  priorityBadge,
+  PrioritySlot,
+} from "./PrioritySlot";
 
 /**
  * Focuses the list's entry after a new folder replaced it: its first row, or
@@ -71,87 +70,6 @@ function size(
     display.regional,
   );
   return `${lowerBound ? `${text("ui.browse.at_least", "At least")} ` : ""}${readable}`;
-}
-
-function availability(
-  row: FolderQueryRow,
-  text: ReturnType<typeof useLocaleText>,
-): string {
-  const flags = [row.flags.unenumerated, row.flags.excluded];
-  const found: string[] = [];
-  if (flags[0]?.state === "present" && flags[0].value)
-    found.push(text("ui.browse.not_enumerated", "Not enumerated"));
-  if (flags[1]?.state === "present" && flags[1].value)
-    found.push(text("ui.browse.excluded", "Excluded"));
-  if (flags.some((flag) => flag.state === "unknown"))
-    found.push(text("ui.browse.availability_unknown", "Unknown"));
-  return found.join(" · ") || text("ui.browse.not_reported", "Not reported");
-}
-
-/**
- * "Analyze first" in the row menu: available for a folder of the running
- * scan's current result, and unavailable with its reason while the list shows
- * an earlier result of that scan.
- */
-function analyzeFirstActions(
-  row: FolderQueryRow,
-  priority: ScanPriority | undefined,
-  readOnly: boolean,
-  text: ReturnType<typeof useLocaleText>,
-): ItemAction[] {
-  const label = text("ui.browse.analyze_first", "Analyze first");
-  if (waitsForNewerResult(row, priority, readOnly))
-    return [
-      {
-        id: "analyze-first",
-        label,
-        onAction: () => undefined,
-        disabledReason: newerResultReason(text),
-      },
-    ];
-  if (!canAnalyzeFirst(row, priority, readOnly)) return [];
-  return [
-    {
-      id: "analyze-first",
-      label,
-      onAction: () =>
-        priority.request(row.item, browseDisplayName(row.displayName, text)),
-    },
-  ];
-}
-
-/** The row's collection status; a requested folder shows that instead. */
-function StatusCell({
-  row,
-  priority,
-  readOnly,
-}: {
-  row: FolderQueryRow;
-  priority: ScanPriority | undefined;
-  readOnly: boolean;
-}) {
-  const text = useLocaleText();
-  const status =
-    row.kind === "directory" ? priority?.status(row.item) : undefined;
-  return (
-    <div className="du-row-status" data-requested={status ? "" : undefined}>
-      <Text>
-        {status === "analyzing"
-          ? text("ui.browse.priority_analyzing", "Analyzing first")
-          : status === "requested"
-            ? text("ui.browse.priority_requested", "Analyze first requested")
-            : availability(row, text)}
-      </Text>
-      {canAnalyzeFirst(row, priority, readOnly) && (
-        <RowAction
-          label={text("ui.browse.analyze_first", "Analyze first")}
-          onPress={() =>
-            priority.request(row.item, browseDisplayName(row.displayName, text))
-          }
-        />
-      )}
-    </div>
-  );
 }
 
 /** The disabled reason of the copy action: the host's reason first, else "Unavailable now". */
@@ -231,9 +149,13 @@ export function BrowseResults({
     text("ui.browse.column_logical_size", "Logical size"),
     text("ui.browse.column_allocated_size", "Allocated size"),
     text("ui.browse.column_modified", "Modified"),
-    text("ui.browse.column_availability", "Availability"),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
+  // A row is named by its name and its badge only; the controls beside them
+  // keep their own names.
+  const labels = useId();
+  const nameId = (row: FolderQueryRow) => `${labels}name-${rowKey(row.item)}`;
+  const badgeId = (row: FolderQueryRow) => `${labels}badge-${rowKey(row.item)}`;
   const [selection, setSelection] = useState<Selection>(() => new Set());
   const [rowFocus, setRowFocus] = useState<BrowseGridFocus>();
   const copy = useBrowseCopy(
@@ -446,6 +368,11 @@ export function BrowseResults({
         onLayoutScroll={paging.recordLayoutScroll}
         getRow={(index) => pages.row(index)}
         getKey={(row) => rowKey(row.item)}
+        rowLabelledBy={(row) =>
+          priorityBadge(row, priority)
+            ? `${nameId(row)} ${badgeId(row)}`
+            : nameId(row)
+        }
         onSelectionChange={setSelection}
         renderCells={(row) => [
           <ItemActions
@@ -486,27 +413,37 @@ export function BrowseResults({
               },
             ]}
           >
-            {row.kind === "directory" ? (
-              <Action
-                excludeFromTabOrder
-                isDisabled={readOnly}
-                onPress={() => openFolder(row.item)}
-              >
-                <NameText name={browseDisplayName(row.displayName, text)} />
-              </Action>
-            ) : row.kind === "file" && openItem ? (
-              <Action
-                excludeFromTabOrder
-                isDisabled={busy}
-                onPress={(event) => openItem(row, event.target)}
-              >
-                <NameText name={browseDisplayName(row.displayName, text)} />
-              </Action>
-            ) : (
-              <Text>
-                <NameText name={browseDisplayName(row.displayName, text)} />
-              </Text>
-            )}
+            <div className="du-browse-name">
+              <div id={nameId(row)}>
+                {row.kind === "directory" ? (
+                  <Action
+                    excludeFromTabOrder
+                    isDisabled={readOnly}
+                    onPress={() => openFolder(row.item)}
+                  >
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Action>
+                ) : row.kind === "file" && openItem ? (
+                  <Action
+                    excludeFromTabOrder
+                    isDisabled={busy}
+                    onPress={(event) => openItem(row, event.target)}
+                  >
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Action>
+                ) : (
+                  <Text>
+                    <NameText name={browseDisplayName(row.displayName, text)} />
+                  </Text>
+                )}
+              </div>
+              <PrioritySlot
+                row={row}
+                priority={priority}
+                readOnly={readOnly}
+                badgeId={badgeId(row)}
+              />
+            </div>
           </ItemActions>,
           <Text>
             {row.kind === "unknown" || row.kind === "unknown_structure"
@@ -543,7 +480,6 @@ export function BrowseResults({
                 ? text("ui.browse.not_recorded", "Not recorded")
                 : text("ui.browse.unavailable", "Unavailable")}
           </Text>,
-          <StatusCell row={row} priority={priority} readOnly={readOnly} />,
         ]}
       />
       <ActionFeedback

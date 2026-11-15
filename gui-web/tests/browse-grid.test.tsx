@@ -77,6 +77,44 @@ test.each([count + 1, -1])(
   },
 );
 
+test("a row is named by its first cell unless the list names it by other elements", async () => {
+  const view = render(grid(4, undefined, "names", 3));
+  const first = (await screen.findByText("Item 0")).closest('[role="row"]')!;
+  expect(first.getAttribute("aria-labelledby")).toBe(
+    within(first as HTMLElement).getByRole("rowheader").id,
+  );
+  expect(screen.getByRole("row", { name: "Item 0" })).toBe(first);
+  view.unmount();
+
+  render(
+    <BrowseGrid
+      label="Folder items"
+      columns={["Name", "Kind"]}
+      count={2}
+      rowCount={3}
+      busy={false}
+      focusRequest={undefined}
+      onMove={onMove}
+      onOpen={onOpen}
+      onFocusRow={onFocusRow}
+      onVisible={onVisible}
+      getRow={(index) => index}
+      getKey={(index) => "row-" + index}
+      rowLabelledBy={(index) => (index === 0 ? "name-0" : undefined)}
+      renderCells={(index) => [
+        <div key="name">
+          <div id={"name-" + index}>{"Item " + index}</div>
+          <Action onPress={() => undefined}>Extra</Action>
+        </div>,
+        "file",
+      ]}
+    />,
+  );
+  await screen.findByText("Item 0");
+  expect(screen.getByRole("row", { name: "Item 0" })).toBeDefined();
+  expect(screen.getByRole("row", { name: "Item 1 Extra" })).toBeDefined();
+});
+
 test("dispatches absolute navigation and toggles selection independently of focus", async () => {
   render(grid(count + 1));
   const first = (await screen.findByText("Item 0")).closest<HTMLElement>(

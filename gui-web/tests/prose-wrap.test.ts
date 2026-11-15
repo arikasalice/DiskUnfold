@@ -88,7 +88,7 @@ test("the folder list keeps room for one unbroken size or time per column", () =
   // the next column of a narrow table.
   const [columns] = declared(".du-browse-grid__row", "grid-template-columns");
   expect(columns).toBe(
-    "minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr)) minmax(10em, 16fr) minmax(0, 14fr)",
+    "minmax(0, 46fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr)) minmax(10em, 16fr)",
   );
 });
 
