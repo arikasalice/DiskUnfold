@@ -18,15 +18,11 @@ import type {
   VizRow,
   VizRowsRequest,
 } from "../../ipc";
-import { adaptVizModel, selectionKey } from "./model-adapter";
-import { RowName } from "./RowName";
-import type {
-  ModelResponse,
-  ModelRowsPage,
-  VizSelection,
-} from "./model-adapter";
-import { rawSourceSize, shapeLabels, vizMessage } from "./model-text";
-import type { VizText } from "./model-text";
+import { adaptVizModel, selectionKey } from "../../viz";
+import { RowName } from "../../viz";
+import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
+import { rawSourceSize, shapeLabels, vizMessage } from "../../viz";
+import type { VizText } from "../../viz";
 
 const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {

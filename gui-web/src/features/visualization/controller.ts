@@ -9,12 +9,8 @@ import type {
   VizRows,
   VizRowsRequest,
 } from "../../ipc";
-import { adaptVizModel, matchingRowsPage } from "./model-adapter";
-import type {
-  ModelResponse,
-  ModelRowsPage,
-  VizSelection,
-} from "./model-adapter";
+import { adaptVizModel, matchingRowsPage } from "../../viz";
+import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 
 type View = Pick<VizRenderRequest, "viewport" | "visibleWindow">;
 type Committed = { frame: ModelResponse; view: View };

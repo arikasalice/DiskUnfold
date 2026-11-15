@@ -4,10 +4,10 @@ import type { AnalysisClient, VizRenderRequest } from "../../ipc";
 import { ControlledVisualization } from "./ControlledVisualization";
 import { VisualizationController } from "./controller";
 import { GroupController } from "./group-controller";
-import type { ModelResponse } from "./model-adapter";
-import type { VizText } from "./model-text";
+import type { ModelResponse } from "../../viz";
+import type { VizText } from "../../viz";
 import { useLocaleText } from "../../i18n/presentation";
-import { visualizationMessages } from "./messages";
+import { visualizationMessages } from "../../viz";
 import {
   createVisualizationPort,
   observeVisualizationJob,

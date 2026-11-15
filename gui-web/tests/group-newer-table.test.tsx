@@ -19,10 +19,7 @@ import type {
   VizRows,
   VizRowsRequest,
 } from "../src/ipc";
-import type {
-  ModelResponse,
-  ModelRowsPage,
-} from "../src/features/visualization/model-adapter";
+import type { ModelResponse, ModelRowsPage } from "../src/viz";
 
 afterEach(cleanup);
 
