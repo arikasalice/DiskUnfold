@@ -340,7 +340,7 @@ fn inspect_subtree(
                         .and_then(|v| exact(v, basis))
                         .ok_or(AdmissionError::NoAttribution)?
                 } else {
-                    physical_file(version, no, sibling, identities)?
+                    physical_file(version, no, sibling, basis, identities)?
                 };
                 sum = sum
                     .checked_add(bytes)
@@ -352,10 +352,24 @@ fn inspect_subtree(
     Ok(sum)
 }
 
+/// Attributes one file to its sibling on a physical size basis and returns the bytes it
+/// adds to that sibling.
+///
+/// The file must carry the OS-reported allocation, a file identity and a link count.
+/// A file reachable from two siblings, or whose links are not all seen inside one
+/// sibling, is refused for both siblings, so no byte is used twice.
+///
+/// Extent-sharing evidence ([`SharingEvidence`]) matters only when the basis is
+/// `UniquePhysical`. F03 sums allocated sizes exactly whatever the sharing evidence is
+/// and makes only the unique-physical value unknown (`physical/finish.rs`). The treemap
+/// follows the same rule: an allocated partition needs identity and link evidence, not
+/// extent-sharing evidence. A scan never establishes that extents are unshared, so
+/// demanding it would leave every real allocated partition unattributed.
 fn physical_file(
     version: &ResultVersion,
     no: u32,
     sibling: u32,
+    basis: &SizeBasis,
     identities: &mut Identities,
 ) -> Result<u64, AdmissionError> {
     let observation = version
@@ -373,7 +387,7 @@ fn physical_file(
         .link_count
         .filter(|n| *n > 0)
         .ok_or(AdmissionError::NoAttribution)?;
-    if observation.sharing != SharingEvidence::None {
+    if *basis == SizeBasis::UniquePhysical && observation.sharing != SharingEvidence::None {
         return Err(AdmissionError::NoAttribution);
     }
     let size = observation
