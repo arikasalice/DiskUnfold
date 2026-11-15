@@ -2,8 +2,8 @@
 //! events became lenient still reject unknown fields and unknown tags. They are
 //! decoded from GUI request bodies or from stored F36 group rules.
 use du_core_contracts::{
-    PathBytes,
-    analysis_ipc::{ScopeDraft, ScopeExclusion},
+    OsPath, PathBytes,
+    analysis_ipc::{ScopeCorrespondence, ScopeDraft, ScopeExclusion},
     browse_open_ipc::{QueryCondition, QueryPredicate},
     browse_page_ipc::QueryStrategy,
     visualization::request::{VizViewChannel, VizViewOpenRequest},
@@ -93,7 +93,7 @@ fn query_condition_variants_reject_unknown_fields_and_tags() -> TestResult {
 fn scope_exclusion_variants_reject_unknown_fields_and_tags() -> TestResult {
     strict::<ScopeExclusion>(
         &json!({ "kind": "path", "path": os_path("/data/tmp") }),
-        &[""],
+        &["", "/path"],
     )?;
     strict::<ScopeExclusion>(
         &json!({ "kind": "name_pattern", "pattern": "*.tmp" }),
@@ -105,39 +105,96 @@ fn scope_exclusion_variants_reject_unknown_fields_and_tags() -> TestResult {
 }
 
 fn scope_draft() -> Value {
+    let mut lossy = os_path("/data/b");
+    lossy["display"] = json!("/data/\u{fffd}");
+    lossy["lossy"] = json!(true);
     json!({
-        "includes": [os_path("/data")],
+        "includes": [os_path("/data/a"), lossy],
         "exclusions": [
-            { "kind": "path", "path": os_path("/data/tmp") },
             { "kind": "name_pattern", "pattern": "*.tmp" },
+            { "kind": "path", "path": os_path("/data/a/tmp") },
         ],
         "boundary": "include_selected",
-        "includedMounts": [os_path("/data/mnt")],
+        "includedMounts": [os_path("/data/a/mnt"), os_path("/data/b/mnt")],
         "source": "gui",
     })
 }
+
+/// Every position of a path inside a scope draft.
+const DRAFT_PATHS: [&str; 5] = [
+    "/includes/0",
+    "/includes/1",
+    "/includedMounts/0",
+    "/includedMounts/1",
+    "/exclusions/1/path",
+];
 
 #[test]
 fn scope_draft_rejects_unknown_fields_in_itself_and_its_exclusions() -> TestResult {
     strict::<ScopeDraft>(&scope_draft(), &["", "/exclusions/0", "/exclusions/1"])?;
     let mut unknown_tag = scope_draft();
-    unknown_tag["exclusions"][1]["kind"] = json!("glob");
+    unknown_tag["exclusions"][0]["kind"] = json!("glob");
     assert!(from_value::<ScopeDraft>(unknown_tag).is_err());
     Ok(())
 }
 
-/// Known gap, pending a protocol decision: `OsPath` is a shared value type that
-/// responses also carry, so it accepts unknown fields, and so do the paths inside a
-/// `ScopeDraft` request. Flip this test when the request paths become strict.
+/// The paths of a scope draft are strict at every position, and a valid draft keeps
+/// its display text and lossy flag through a round trip.
 #[test]
-fn scope_draft_paths_still_accept_unknown_fields() -> TestResult {
-    for pointer in ["/includes/0", "/includedMounts/0", "/exclusions/0/path"] {
-        let accepted = extended(&scope_draft(), pointer)?;
-        assert_eq!(
-            from_value::<ScopeDraft>(accepted)?,
-            from_value(scope_draft())?
-        );
+fn scope_draft_paths_reject_unknown_fields() -> TestResult {
+    strict::<ScopeDraft>(&scope_draft(), &DRAFT_PATHS)
+}
+
+/// A draft path decodes exactly what the shared `OsPath` decodes, apart from
+/// unknown fields: the strict shape must not skip or add a field check.
+#[test]
+fn scope_draft_paths_keep_the_field_validation_of_the_shared_path() -> TestResult {
+    let valid = os_path("/data/a");
+    let mut invalid = Vec::new();
+    for field in ["encoding", "raw", "display", "lossy"] {
+        let mut missing = valid.clone();
+        missing.as_object_mut().ok_or("path")?.remove(field);
+        invalid.push(missing);
+        let mut null = valid.clone();
+        null[field] = Value::Null;
+        invalid.push(null);
     }
+    for (field, value) in [
+        ("encoding", json!("future")),
+        ("raw", json!("L2RhdGE=")),
+        ("raw", json!("not base64!")),
+        ("display", json!(1)),
+        ("lossy", json!("false")),
+    ] {
+        let mut wrong = valid.clone();
+        wrong[field] = value;
+        invalid.push(wrong);
+    }
+    invalid.extend([json!(null), json!("/data/a"), json!([])]);
+    for path in invalid {
+        assert!(from_value::<OsPath>(path.clone()).is_err(), "{path}");
+        for pointer in DRAFT_PATHS {
+            let mut draft = scope_draft();
+            *draft.pointer_mut(pointer).ok_or(pointer)? = path.clone();
+            assert!(
+                from_value::<ScopeDraft>(draft).is_err(),
+                "{path} at {pointer}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The shared path stays open: responses and events that carry it accept a field
+/// added by a newer build.
+#[test]
+fn shared_path_and_responses_still_accept_unknown_fields() -> TestResult {
+    let valid = os_path("/data/a");
+    let future = extended(&valid, "")?;
+    assert_eq!(to_value(from_value::<OsPath>(future.clone())?)?, valid);
+    let response = json!({ "path": future, "access": "accessible", "reasonKey": null });
+    let decoded: ScopeCorrespondence = from_value(response)?;
+    assert_eq!(to_value(decoded.path)?, valid);
     Ok(())
 }
 
