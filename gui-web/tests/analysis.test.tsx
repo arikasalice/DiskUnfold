@@ -21,6 +21,7 @@ import { LocaleTextContext } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import type { VisualizationViewRequest } from "../src/features/visualization/VisualizationSession";
+import { RESULT_REFLECT_INTERVAL_MS } from "../src/state/result-cadence";
 import type {
   AnalysisClient,
   AnalysisJobControl,
@@ -51,6 +52,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+let reflectOffset = 0;
+afterEach(() => {
+  reflectOffset = 0;
+});
+
+/**
+ * Moves the clock the reflect cadence reads one interval ahead, so the next
+ * publication of a running scan is read at once instead of up to a second
+ * later. The cadence itself is covered by analysis-auto-reflect.test.tsx.
+ */
+function passReflectInterval() {
+  if (reflectOffset === 0) {
+    const realNow = Date.now.bind(Date);
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + reflectOffset);
+  }
+  reflectOffset += RESULT_REFLECT_INTERVAL_MS;
+}
 
 const resizeObservers: {
   callback: ResizeObserverCallback;
@@ -1459,17 +1478,20 @@ test("F02: result changes recover while the job list is still resynchronizing", 
   await screen.findByText("Result version: Interim");
   const before = calls.filter(({ name }) => name === "job.get").length;
   newest = true;
+  passReflectInterval();
   notifyResult(listeners, "job.resync_required", {});
   await waitFor(() => expect(lists).toBe(2));
-  await screen.findByRole("button", { name: "Show latest result" });
+  // The newer result is reflected without a selection while the job list is
+  // still resynchronizing; the job state waits for its baseline.
+  await screen.findByText("Result version: Final");
   expect(calls.filter(({ name }) => name === "job.get").length).toBe(
     before + 1,
   );
   expect(screen.getByText("Scanning")).toBeDefined();
   expect(screen.queryByText("Scan finished")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Show latest result" }));
-  await screen.findByText("Result version: Final");
-  expect(screen.getByText("Scanning")).toBeDefined();
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
 test.each(["STALE_VERSION", "NOT_FOUND"] as const)(
@@ -1630,16 +1652,16 @@ test("F21 F24: history and a pinned result recover separately after a shared del
   fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
   await screen.findByText("Previous history");
   changed = true;
+  passReflectInterval();
   notifyResult(listeners, "job.resync_required", {});
   await screen.findByText("New history");
   expect(screen.queryByText("Previous history")).toBeNull();
   expect(lists).toBe(2);
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  expect(await screen.findByText("Result version: Interim")).toBeDefined();
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Show latest result" }),
-  );
-  await screen.findByText("Result version: Final");
+  expect(await screen.findByText("Result version: Final")).toBeDefined();
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
   expect(screen.getByText("Scanning")).toBeDefined();
   expect(calls.filter(({ name }) => name === "history.list")).toHaveLength(2);
   expect(lists).toBe(2);
@@ -2992,11 +3014,9 @@ test.each(["starting", "cancelling"] as const)(
   },
 );
 
-test("F02 IF-23: opens an existing partial without an event, then keeps it until explicit refresh", async () => {
-  // The 500 ms status poll keeps running while a terminal status lacks its
-  // terminal marker, so a slow runner can land a legitimate poll between the
-  // final render and the assertion below. Only the explicit reads under test
-  // may reach the port, so the poll is not scheduled in this test.
+test("F02 FR3.HD1.gui-web.DD1: opens an existing partial without an event, then reflects the final result by itself", async () => {
+  // Only the reads under test may reach the port, so the 500 ms status poll
+  // is not scheduled in this test.
   const scheduleInterval = window.setInterval.bind(window);
   vi.spyOn(window, "setInterval").mockImplementation(((
     handler: TimerHandler,
@@ -3010,15 +3030,6 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
           timeout,
           ...args,
         )) as typeof window.setInterval);
-  let finish = () => {};
-  let finishBackground = () => {};
-  let delayBackground = false;
-  const delayed = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const background = new Promise<void>((resolve) => {
-    finishBackground = resolve;
-  });
   let status: AnalysisJobStatus = {
     jobRef: "scan",
     kind: "scan.metadata",
@@ -3030,15 +3041,9 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   };
   const { client, calls, listeners } = fixture({
     lineageId: "lineage",
-    readStatus: async () => {
-      if (!delayBackground) return status;
-      delayBackground = false;
-      await background;
-      return { ...status, jobRef: "unrelated" };
-    },
+    readStatus: async () => status,
     readTotals: async (result) => {
       const interim = result.resultVersion === "part";
-      if (!interim) await delayed;
       return {
         ...result,
         completeness: interim ? "partial" : "complete",
@@ -3056,8 +3061,14 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
   expect(screen.getByText("Scanning")).toBeDefined();
+  expect(screen.getByText("Values update as the scan runs")).toBeDefined();
+  expect(screen.getByText("At least 255 bytes")).toBeDefined();
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 
   const previousReads = calls.filter(({ name }) => name === "job.get").length;
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "other",
     sequence: 2,
@@ -3075,91 +3086,30 @@ test("F02 IF-23: opens an existing partial without an event, then keeps it until
     lineageId: "lineage",
     sequence: 2,
   });
-  const latest = await screen.findByRole("button", {
-    name: "Show latest result",
-  });
-  const interim = screen.getByText("Result version: Interim");
-  const summary = interim.closest('[role="status"]');
-  expect(screen.getByText("Scan finished")).toBeDefined();
-  expect(summary?.textContent).toContain(
-    "You’re still viewing an interim result.",
-  );
-  expect(summary?.contains(latest)).toBe(false);
-  expect(
-    latest.compareDocumentPosition(
-      screen.getByRole("button", { name: "Browse folders" }),
-    ),
-  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(screen.getByText("At least 255 bytes")).toBeDefined();
-  expect(screen.queryByText(/2,207 bytes/)).toBeNull();
-  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
-  await screen.findByRole("region", { name: "Folder navigation" });
-  expect(calls.find(({ name }) => name === "browse.open")?.body).toMatchObject({
-    resultVersion: "part",
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  // Queue the user's selection behind a status read that cannot consume it.
-  delayBackground = true;
-  notifyResult(listeners, "job.resync_required", {});
-  await waitFor(() => expect(delayBackground).toBe(false));
-  latest.focus();
-  fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
-  fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
-  const reading = screen.getByRole("button", {
-    name: "Reading latest result…",
-  });
-  expect(reading).toBe(latest);
-  expect(reading.getAttribute("aria-disabled")).toBe("true");
-  expect(document.activeElement).toBe(reading);
-  expect(screen.getByText("At least 255 bytes")).toBeDefined();
-  finishBackground();
-  await waitFor(() =>
-    expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2),
-  );
-  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
-    reading,
-  );
-  const started = calls.length;
-  fireEvent.keyDown(reading, { key: "Enter", code: "Enter", repeat: true });
-  fireEvent.keyUp(reading, { key: "Enter", code: "Enter" });
-  fireEvent.click(reading);
-  finish();
   await screen.findByText("Result version: Final");
-  expect(
-    calls.slice(started).filter(({ name }) => name === "job.get"),
-  ).toHaveLength(0);
-  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2);
+  expect(screen.getByText("Scan finished")).toBeDefined();
   const logical = within(screen.getByRole("group", { name: "Logical size" }));
   expect(logical.getByText("At least 2.1 KiB")).toBeDefined();
   expect(screen.queryByText("At least 255 bytes")).toBeNull();
-  expect(document.activeElement).toBe(summary);
-  expect(summary?.textContent).toContain("Now showing the latest result.");
-  expect(
-    logical.getByText(/Incomplete measurement · Reported by the file system/),
-  ).toBeDefined();
+  expect(screen.queryByText("Values update as the scan runs")).toBeNull();
+  expect(screen.queryByText(/still viewing/)).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
+  expect(calls.filter(({ name }) => name === "space.total")).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   await screen.findByRole("region", { name: "Folder navigation" });
   expect(
     calls.filter(({ name }) => name === "browse.open").at(-1)?.body,
-  ).toMatchObject({
-    resultVersion: "final",
-  });
+  ).toMatchObject({ resultVersion: "final" });
 });
 
-test("F02: a failed switch retains the interim totals and can be retried after focus moves", async () => {
+test("F02: a final result whose automatic read fails keeps the interim totals and offers a retry", async () => {
   let published = false;
   let attempts = 0;
   let finish = () => {};
-  let fail = () => {};
   const delayed = new Promise<void>((resolve) => {
     finish = resolve;
-  });
-  const delayedFailure = new Promise<void>((resolve) => {
-    fail = resolve;
   });
   const { client, listeners } = fixture({
     lineageId: "lineage",
@@ -3176,10 +3126,7 @@ test("F02: a failed switch retains the interim totals and can be retried after f
     readTotals: async (result) => {
       if (result.resultVersion === "part")
         return { ...result, completeness: "partial" };
-      if (++attempts === 1) {
-        await delayedFailure;
-        throw new Error("Could not read newer totals.");
-      }
+      if (++attempts === 1) throw new Error("Could not read newer totals.");
       await delayed;
       return { ...result, completeness: "missing" };
     },
@@ -3187,28 +3134,23 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
   published = true;
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "lineage",
     sequence: 2,
   });
-  const latest = await screen.findByRole("button", {
-    name: "Show latest result",
-  });
-  latest.focus();
-  fireEvent.click(latest);
-  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
-    latest,
-  );
-  fail();
   await within(await screen.findByRole("alert")).findByText(
     "Analysis could not be read.",
   );
   expect(screen.getByText("Result version: Interim")).toBeDefined();
   expect(screen.getByText("At least 42 bytes")).toBeDefined();
   expect(
-    await screen.findByRole("button", { name: "Show latest result" }),
-  ).toBe(latest);
-  expect(document.activeElement).toBe(latest);
+    screen.getByText("You’re still viewing an interim result."),
+  ).toBeDefined();
+  const latest = await screen.findByRole("button", {
+    name: "Show latest result",
+  });
+  latest.focus();
   fireEvent.click(latest);
   await waitFor(() => expect(attempts).toBe(2));
   expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
@@ -3220,6 +3162,9 @@ test("F02: a failed switch retains the interim totals and can be retried after f
   await screen.findByText("Result version: Final with scan gaps");
   expect(document.activeElement).toBe(browse);
   expect(screen.queryByText("Analysis could not be read.")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
 test("F02 IF-23: a contradictory result at the same lineage sequence cannot replace a publication", async () => {
@@ -3239,11 +3184,16 @@ test("F02 IF-23: a contradictory result at the same lineage sequence cannot repl
     }),
     readTotals: (result) => ({ ...result, completeness: "partial" }),
   });
+  const totals = () =>
+    calls
+      .filter(({ name }) => name === "space.total")
+      .map(({ body }) => (body as { resultVersion: string }).resultVersion);
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
 
   const statusReads = calls.filter(({ name }) => name === "job.get").length;
   version = "contradictory";
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "lineage",
     sequence: 2,
@@ -3253,81 +3203,73 @@ test("F02 IF-23: a contradictory result at the same lineage sequence cannot repl
       calls.filter(({ name }) => name === "job.get").length,
     ).toBeGreaterThan(statusReads),
   );
+  await act(async () => {});
+  expect(totals()).toEqual(["part"]);
   expect(
     screen.queryByRole("button", { name: "Show latest result" }),
   ).toBeNull();
-  expect(screen.getByText("Result version: Interim")).toBeDefined();
 
   version = "newer";
   publication = 2;
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "lineage",
     sequence: 2,
   });
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Show latest result" }),
-  );
-  await screen.findByText("Now showing the latest result.");
+  await waitFor(() => expect(totals()).toEqual(["part", "newer"]));
   expect(
-    calls
-      .filter(({ name }) => name === "space.total")
-      .map(({ body }) => (body as { resultVersion: string }).resultVersion),
-  ).toEqual(["part", "newer"]);
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
-test("F02: an expired newer result stops showing progress after resynchronizing", async () => {
-  let published = false;
-  let expired = true;
+test("F02: an expired newer result keeps the shown totals until the scan publishes again", async () => {
+  let version = "part";
+  let sequence = 1;
   const { client, calls, listeners } = fixture({
     lineageId: "lineage",
     readStatus: (base) => ({
       ...base,
       state: "running",
       resultVersion: null,
-      scanResult: {
-        lineageId: "lineage",
-        sequence: published ? 2 : 1,
-        resultVersion: published ? "newer" : "part",
-      },
+      scanResult: { lineageId: "lineage", sequence, resultVersion: version },
     }),
     readTotals: (result) => {
-      if (result.resultVersion === "newer" && expired)
+      if (result.resultVersion === "newer")
         throw new AnalysisError("STALE_VERSION", "result.requery_required");
       return { ...result, completeness: "partial" };
     },
   });
+  const totals = () =>
+    calls
+      .filter(({ name }) => name === "space.total")
+      .map(({ body }) => (body as { resultVersion: string }).resultVersion);
+  const publish = (next: string) => {
+    version = next;
+    passReflectInterval();
+    notifyResult(listeners, "results.version_changed", {
+      lineageId: "lineage",
+      sequence: ++sequence,
+    });
+  };
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
-  published = true;
-  notifyResult(listeners, "results.version_changed", {
-    lineageId: "lineage",
-    sequence: 2,
-  });
-  const latest = await screen.findByRole("button", {
-    name: "Show latest result",
-  });
-  const before = calls.length;
-  fireEvent.click(latest);
-  expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
-    latest,
-  );
-  expect(
-    await screen.findByRole("button", { name: "Show latest result" }),
-  ).toBe(latest);
-  expect(calls.slice(before, before + 3).map(({ name }) => name)).toEqual([
-    "job.get",
-    "space.total",
-    "job.get",
-  ]);
+  publish("newer");
+  await waitFor(() => expect(totals()).toEqual(["part", "newer"]));
+  await act(async () => {});
   expect(screen.getByText("At least 42 bytes")).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
-  expired = false;
-  fireEvent.click(latest);
-  await screen.findByText("Now showing the latest result.");
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
+  publish("newest");
+  await waitFor(() => expect(totals()).toEqual(["part", "newer", "newest"]));
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
 test.each(["STALE_VERSION", "NOT_FOUND", "status read failure"] as const)(
-  "F03: a publication arriving after %s still needs an explicit selection",
+  "F03: a publication arriving after %s is reflected without a selection",
   async (failure) => {
     let version = "interim-a";
     let sequence = 1;
@@ -3365,6 +3307,7 @@ test.each(["STALE_VERSION", "NOT_FOUND", "status read failure"] as const)(
     });
     const publish = (next: string) => {
       version = next;
+      passReflectInterval();
       notifyResult(listeners, "results.version_changed", {
         lineageId: "lineage",
         sequence: ++sequence,
@@ -3377,38 +3320,31 @@ test.each(["STALE_VERSION", "NOT_FOUND", "status read failure"] as const)(
 
     await startFixtureScan(client);
     await screen.findByText("Result version: Interim");
-    publish("expired-b");
-    const latest = await screen.findByRole("button", {
-      name: "Show latest result",
-    });
     failStatus = failure === "status read failure";
-    fireEvent.click(latest);
-    expect(screen.getByRole("button", { name: "Reading latest result…" })).toBe(
-      latest,
-    );
-    await screen.findByRole("button", { name: "Show latest result" });
-    const expected =
-      failure === "status read failure"
-        ? ["interim-a"]
-        : ["interim-a", "expired-b"];
-    expect(totalsRead()).toEqual(expected);
+    publish("expired-b");
+    if (failure !== "status read failure")
+      await waitFor(() =>
+        expect(totalsRead()).toEqual(["interim-a", "expired-b"]),
+      );
+    await act(async () => {});
+    expect(
+      screen.queryByRole("button", { name: "Show latest result" }),
+    ).toBeNull();
 
     publish("final-c");
-    await screen.findByText("Scan finished");
-    await act(async () => {});
-    expect(totalsRead()).toEqual(expected);
-    const interim = screen.getByText("Result version: Interim");
-    const summary = interim.closest('[role="status"]');
-    latest.focus();
-    fireEvent.keyDown(latest, { key: "Enter", code: "Enter" });
-    fireEvent.keyUp(latest, { key: "Enter", code: "Enter" });
     await screen.findByText("Result version: Final");
-    expect(totalsRead()).toEqual([...expected, "final-c"]);
-    expect(document.activeElement).toBe(summary);
+    expect(screen.getByText("Scan finished")).toBeDefined();
+    expect(totalsRead()[0]).toBe("interim-a");
+    expect(totalsRead().at(-1)).toBe("final-c");
+    if (failure !== "status read failure")
+      expect(totalsRead()).toEqual(["interim-a", "expired-b", "final-c"]);
+    expect(
+      screen.queryByRole("button", { name: "Show latest result" }),
+    ).toBeNull();
   },
 );
 
-test("F03: an in-progress switch can read a replacement during resynchronization", async () => {
+test("F03: an automatic read follows a replacement during resynchronization", async () => {
   let version = "interim-a";
   const { client, calls, listeners } = fixture({
     lineageId: "lineage",
@@ -3425,6 +3361,7 @@ test("F03: an in-progress switch can read a replacement during resynchronization
     readTotals: (result) => {
       if (result.resultVersion === "expired-b") {
         version = "replacement-c";
+        passReflectInterval();
         throw new AnalysisError("STALE_VERSION", "result.requery_required");
       }
       return { ...result, completeness: "partial" };
@@ -3433,25 +3370,29 @@ test("F03: an in-progress switch can read a replacement during resynchronization
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
   version = "expired-b";
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "lineage",
     sequence: 2,
   });
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Show latest result" }),
+  await waitFor(() =>
+    expect(
+      calls
+        .filter(({ name }) => name === "space.total")
+        .map(({ body }) => body),
+    ).toMatchObject([
+      { resultVersion: "interim-a" },
+      { resultVersion: "expired-b" },
+      { resultVersion: "replacement-c" },
+    ]),
   );
-  await screen.findByText("Now showing the latest result.");
   expect(
-    calls.filter(({ name }) => name === "space.total").map(({ body }) => body),
-  ).toMatchObject([
-    { resultVersion: "interim-a" },
-    { resultVersion: "expired-b" },
-    { resultVersion: "replacement-c" },
-  ]);
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
 test.each(["partial", "cancelled"] as const)(
-  "F02: a %s scan keeps the interim result separate from the job outcome",
+  "F02: a %s scan reflects its last result by itself and keeps the job outcome separate",
   async (outcome) => {
     let published = false;
     const { client, listeners } = fixture({
@@ -3479,23 +3420,25 @@ test.each(["partial", "cancelled"] as const)(
     await startFixtureScan(client);
     await screen.findByText("Result version: Interim");
     published = true;
+    passReflectInterval();
     notifyResult(listeners, "results.version_changed", {
       lineageId: "lineage",
       sequence: 2,
     });
     await screen.findByText(
-      outcome === "cancelled" ? "Scan cancelled" : "Scan ended with gaps",
-    );
-    expect(screen.queryByText(/^Scan finished/)).toBeNull();
-    expect(screen.getByText("Result version: Interim")).toBeDefined();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Show latest result" }),
-    );
-    await screen.findByText(
       outcome === "cancelled"
         ? "Result version: Cancelled"
         : "Result version: Final with scan gaps",
     );
+    expect(
+      screen.getByText(
+        outcome === "cancelled" ? "Scan cancelled" : "Scan ended with gaps",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/^Scan finished/)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Show latest result" }),
+    ).toBeNull();
   },
 );
 
@@ -3631,8 +3574,12 @@ test("F02 IF-05: pages within the displayed result and discards a late page afte
   ]);
 });
 
-test("F02 FR3.HD1.gui-web.DD1: a newer result keeps the pinned issue list until the user switches", async () => {
+test("F02 FR3.HD1.gui-web.DD1: a newer result replaces the issue list in place without emptying it", async () => {
   let published = false;
+  let releaseFinal = () => {};
+  const finalPage = new Promise<void>((resolve) => {
+    releaseFinal = resolve;
+  });
   const { client, calls, listeners } = fixture({
     lineageId: "lineage",
     readStatus: (base) => ({
@@ -3646,19 +3593,22 @@ test("F02 FR3.HD1.gui-web.DD1: a newer result keeps the pinned issue list until 
       },
     }),
     readTotals: (result) => ({ ...result, completeness: "partial" }),
-    readFailures: ({ resultVersion }) => ({
-      resultVersion,
-      totalCount: 1,
-      rows: [
-        {
-          kind: "unread_range",
-          stage: "enumerate",
-          pathRef: { rootIndex: 0, relative: [] },
-          reasonKey: "scan.path_denied",
-          displayPath: "C:\\" + resultVersion,
-        },
-      ],
-    }),
+    readFailures: async ({ resultVersion }) => {
+      if (resultVersion === "final") await finalPage;
+      return {
+        resultVersion,
+        totalCount: 1,
+        rows: [
+          {
+            kind: "unread_range",
+            stage: "enumerate",
+            pathRef: { rootIndex: 0, relative: [] },
+            reasonKey: "scan.path_denied",
+            displayPath: "C:\\" + resultVersion,
+          },
+        ],
+      };
+    },
   });
   const failureReads = () =>
     calls
@@ -3669,23 +3619,32 @@ test("F02 FR3.HD1.gui-web.DD1: a newer result keeps the pinned issue list until 
     await screen.findByRole("button", { name: "View scan issues" }),
   );
   await screen.findByText("C:\\part");
+  const table = screen.getByRole("table", { name: "Scan issue entries" });
   published = true;
+  passReflectInterval();
   notifyResult(listeners, "results.version_changed", {
     lineageId: "lineage",
     sequence: 2,
   });
-  const latest = await screen.findByRole("button", {
-    name: "Show latest result",
-  });
+  await waitFor(() =>
+    expect(failureReads()).toEqual([
+      { resultVersion: "part" },
+      { resultVersion: "final" },
+    ]),
+  );
+  // The rows already shown stay until the new result's rows are read.
   expect(screen.getByText("C:\\part")).toBeDefined();
-  expect(failureReads()).toEqual([{ resultVersion: "part" }]);
-  fireEvent.click(latest);
+  expect(
+    screen.queryByRole("progressbar", { name: "Reading scan issues" }),
+  ).toBeNull();
+  expect(screen.getByRole("table", { name: "Scan issue entries" })).toBe(table);
+  await act(async () => releaseFinal());
   await screen.findByText("C:\\final");
   expect(screen.queryByText("C:\\part")).toBeNull();
-  expect(failureReads()).toEqual([
-    { resultVersion: "part" },
-    { resultVersion: "final" },
-  ]);
+  expect(screen.getByRole("table", { name: "Scan issue entries" })).toBe(table);
+  expect(
+    screen.queryByRole("button", { name: "Show latest result" }),
+  ).toBeNull();
 });
 
 test("F02 NFR5.HD1.gui-web.DD1: a hidden window pauses status reads and catches up once when shown", async () => {

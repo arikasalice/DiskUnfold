@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { useState } from "react";
@@ -84,6 +85,61 @@ test("F02 FR3.HD1.gui-web.DD1: a late page for the previous result version is di
   expect(screen.getByText("Showing 1 of 1 issues")).toBeDefined();
   expect(screen.queryByRole("button", { name: "Load more issues" })).toBeNull();
   expect(requests).toEqual([{ resultVersion: "v1" }, { resultVersion: "v2" }]);
+});
+
+test("F02 FR3.HD1.gui-web.DD1: a newer result rereads the loaded rows and replaces them at once", async () => {
+  const lastPage = deferred<ScanFailures>();
+  const { client, requests } = issuesClient(
+    async ({ resultVersion, cursor }) => {
+      if (resultVersion === "v2" && cursor === "v2-next")
+        return lastPage.promise;
+      return {
+        resultVersion,
+        totalCount: 3,
+        rows: [row(resultVersion + (cursor ? "-second" : "-first"))],
+        nextCursor: resultVersion + (cursor ? "-last" : "-next"),
+      };
+    },
+  );
+  const view = render(
+    <ScanIssues client={client} resultVersion="v1" onReopenLatest={vi.fn()} />,
+  );
+  openIssues();
+  await screen.findByText("v1-first");
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  await screen.findByText("v1-second");
+  const table = screen.getByRole("table", { name: "Scan issue entries" });
+
+  view.rerender(
+    <ScanIssues client={client} resultVersion="v2" onReopenLatest={vi.fn()} />,
+  );
+  await waitFor(() =>
+    expect(requests.at(-1)).toEqual({ resultVersion: "v2", cursor: "v2-next" }),
+  );
+  // Until both rows of the new result are read, the list shows only the old ones.
+  expect(screen.getByText("v1-first")).toBeDefined();
+  expect(screen.getByText("v1-second")).toBeDefined();
+  expect(screen.queryByText("v2-first")).toBeNull();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.getByText("Showing 2 of 3 issues")).toBeDefined();
+
+  await act(async () =>
+    lastPage.resolve({
+      resultVersion: "v2",
+      totalCount: 4,
+      rows: [row("v2-second")],
+      nextCursor: "v2-last",
+    }),
+  );
+  expect(screen.getByText("v2-first")).toBeDefined();
+  expect(screen.getByText("v2-second")).toBeDefined();
+  expect(screen.queryByText("v1-first")).toBeNull();
+  expect(screen.getByText("Showing 2 of 4 issues")).toBeDefined();
+  expect(screen.getByRole("table", { name: "Scan issue entries" })).toBe(table);
+  fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
+  await waitFor(() =>
+    expect(requests.at(-1)).toEqual({ resultVersion: "v2", cursor: "v2-last" }),
+  );
 });
 
 test("F02 FR3.HD1.gui-web.DD1: changing the filter drops the previous cursor and its late page", async () => {

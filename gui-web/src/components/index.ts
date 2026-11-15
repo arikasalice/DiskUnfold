@@ -42,6 +42,7 @@ export { NAME_SPACE_MARK, nameEdges, pathNameEdges } from "./name-edges";
 export type { NameEdges, PathNameEdges } from "./name-edges";
 export { DataTable } from "./data-table";
 export { DetailDisclosure } from "./detail-disclosure";
+export { HeldHeight } from "./held-height";
 export { InspectionDialog } from "./inspection-dialog";
 export { ContentState, ReviewSurface, ReviewSection } from "./review-surface";
 export type { SurfaceState } from "./review-surface";

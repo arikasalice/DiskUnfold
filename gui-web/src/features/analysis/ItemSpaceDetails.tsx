@@ -303,10 +303,13 @@ export function ItemSpaceDetails({
   client,
   item,
   display,
+  onStale,
 }: {
   client: AnalysisClient;
   item: SpaceDetail["item"];
   display: SizeDisplay;
+  /** Told when the read was refused because the item's result was replaced. */
+  onStale?: ((resultVersion: string) => void) | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -337,8 +340,10 @@ export function ItemSpaceDetails({
       })
       .catch((failure: unknown) => {
         if (!active) return;
+        const stale =
+          failure instanceof AnalysisError && failure.code === "STALE_VERSION";
         setProblem(
-          failure instanceof AnalysisError && failure.code === "STALE_VERSION"
+          stale
             ? [
                 "ui.analysis.space_open_latest",
                 "Open the latest result to see its space details.",
@@ -348,10 +353,12 @@ export function ItemSpaceDetails({
                 "Space details are unavailable.",
               ],
         );
+        if (stale) onStale?.(resultVersion);
       });
     return () => {
       active = false;
     };
+    // onStale only reports; a new callback does not call for another read.
   }, [client, resultVersion, itemNo]);
 
   if (problem) return <Notice tone="error">{text(...problem)}</Notice>;

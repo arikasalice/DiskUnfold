@@ -7,6 +7,7 @@ import {
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import { AnalysisError } from "../../ipc";
 import type {
   AnalysisClient,
   BrowseCopyPathOutcome,
@@ -14,12 +15,33 @@ import type {
   ItemRef,
 } from "../../ipc";
 
+/**
+ * A copy the user pressed that continues once on the newest result, for an
+ * item that names the same item in every result (see `useDialogResult`).
+ */
+export type CopyContinuation = {
+  /** Whether this item owes a copy that was refused on an earlier result. */
+  pending: boolean;
+  /**
+   * Told when a pressed copy was refused because its result was replaced.
+   * Returns whether the owner continues the copy on a newer result; if not,
+   * the copy reports its failure here.
+   */
+  refused: (resultVersion: string) => boolean;
+  /** Told when the owed copy is tried or cannot be tried; it never runs twice. */
+  done: () => void;
+};
+
 type CopyPathProps = {
   client: AnalysisClient;
   item: ItemRef;
   path: BrowseValue<string>;
   /** Turns the copy action off and shows this reason; the sample experience sets it. */
   disabledReason?: string;
+  /** Told when the copy was refused because the item's result was replaced. */
+  onStale?: (resultVersion: string) => void;
+  /** Continues a refused copy on the newest result instead of `onStale`. */
+  continuation?: CopyContinuation;
 };
 
 type CopyPathRefusal = Extract<
@@ -30,7 +52,40 @@ type CopyStatus =
   | { kind: "copying" }
   | { kind: "copied"; count: number }
   | { kind: "refused"; reasonKey: CopyPathRefusal }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  | { kind: "missing" };
+
+/** Whether the engine refused the item because its result does not hold it. */
+function isMissingItem(failure: unknown): boolean {
+  return (
+    failure instanceof AnalysisError &&
+    failure.code === "NOT_FOUND" &&
+    failure.reasonKey === "ref.unavailable"
+  );
+}
+
+/**
+ * Says why an owed copy could not run because the item's newest detail could
+ * not be read. The status region is mounted before the outcome so it is
+ * announced.
+ */
+export function OwedCopyStatus({
+  failure,
+}: {
+  failure: "missing" | "failed" | undefined;
+}) {
+  const text = useLocaleText();
+  return (
+    <LiveStatus>
+      {failure && copyStatusText({ kind: failure }, text)}
+    </LiveStatus>
+  );
+}
+
+/** Maps an owed copy whose item detail could not be read to its status. */
+export function owedCopyFailure(failure: unknown): "missing" | "failed" {
+  return isMissingItem(failure) ? "missing" : "failed";
+}
 
 function copyStatusText(
   status: CopyStatus | undefined,
@@ -71,6 +126,11 @@ function copyStatusText(
       }
     case "failed":
       return text("ui.analysis.copy_path_failed", "Could not copy the path.");
+    case "missing":
+      return text(
+        "ui.analysis.copy_path_missing",
+        "Couldn't copy the path. The item is no longer in the latest result.",
+      );
   }
 }
 
@@ -136,6 +196,8 @@ function CopyPathForItem({
   item,
   path,
   disabledReason,
+  onStale,
+  continuation,
 }: CopyPathProps) {
   const text = useLocaleText();
   const [status, setStatus] = useState<CopyStatus>();
@@ -152,7 +214,17 @@ function CopyPathForItem({
       if (active.current === generation) active.current++;
     };
   }, [item.resultVersion, item.itemNo]);
-  function copy() {
+  // An owed copy runs once, as soon as this item's path is shown.
+  const owed = useRef(continuation?.pending === true);
+  useEffect(() => {
+    if (!owed.current) return;
+    owed.current = false;
+    continuation?.done();
+    copy(true);
+    // Runs on mount only; the item key gives each result its own instance.
+  }, []);
+  /** `continued` marks the one copy owed after a refusal; it never continues. */
+  function copy(continued = false) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
@@ -171,8 +243,17 @@ function CopyPathForItem({
           setStatus({ kind: "refused", reasonKey: result.reasonKey });
         }
       })
-      .catch(() => {
-        if (active.current === generation) setStatus({ kind: "failed" });
+      .catch((failure: unknown) => {
+        if (active.current !== generation) return;
+        const replaced =
+          failure instanceof AnalysisError && failure.code === "STALE_VERSION";
+        // The owner moves to the newest result and copies there once.
+        if (replaced && !continued && continuation?.refused(item.resultVersion))
+          return;
+        setStatus({
+          kind: continued && isMissingItem(failure) ? "missing" : "failed",
+        });
+        if (replaced && !continued) onStale?.(item.resultVersion);
       })
       .finally(() => {
         pending.current = false;
@@ -204,7 +285,7 @@ function CopyPathForItem({
           ref={copyButton}
           isDisabled={disabledReason !== undefined}
           aria-disabled={busy}
-          onPress={copy}
+          onPress={() => copy()}
         >
           {text("ui.browse.copy_path", "Copy path")}
         </Action>
