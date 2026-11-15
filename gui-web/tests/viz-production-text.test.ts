@@ -59,6 +59,35 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
       expect(locale.keys.has(`ui.visualization.${key}`), key).toBe(true);
   });
 
+  test("F06 FR9.HD1.gui-web.DD1: the status words are the words the analysis screen uses for the same state", () => {
+    const sameAsAnalysis = [
+      ["completenessComplete", "ui.analysis.version_final"],
+      ["completenessPartial", "ui.analysis.version_interim"],
+      ["completenessMissing", "ui.analysis.version_gaps"],
+      ["completenessCancelled", "ui.analysis.scan_cancelled"],
+      ["flagUnknown", "ui.analysis.unavailable"],
+      ["unrecognizedValue", "ui.browse.availability_unknown"],
+    ] as const;
+    for (const [word, analysisKey] of sameAsAnalysis)
+      expect(message(word), word).toBe(locale.text(analysisKey, ""));
+  });
+
+  test("F06 FR9.HD1.gui-web.DD1: the status words in the dictionary and in the bundle agree", () => {
+    const statusWords = [
+      "completenessComplete",
+      "completenessPartial",
+      "completenessMissing",
+      "completenessCancelled",
+      "denominatorScope",
+      "denominatorAnalysisTotal",
+      "flagLowerBound",
+      "unrecognizedValue",
+      "flagUnknown",
+    ] as const;
+    for (const word of statusWords)
+      expect(visualizationMessages[language][word], word).toBe(message(word));
+  });
+
   test("F06 FR9.HD1.gui-web.DD1: every wire word has its own text and none shows a key or a marker", () => {
     const general = message("unrecognizedValue");
     const shown = wireWords.map((word) => text.key(word));
