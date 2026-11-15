@@ -60,6 +60,13 @@ export function rawSourceSize(
   return `${value} · ${evidence}`;
 }
 
+/** Localizes registered labels on group rows while preserving item names verbatim. */
+export function rowName(row: VizRow, text: Pick<VizText, "key">): string {
+  return row.groupRef !== null && row.itemRef === null && row.labelKey
+    ? text.key(row.labelKey)
+    : row.displayName;
+}
+
 export function shapeLabels(
   model: VizModel,
   shape: VizShape,
@@ -70,7 +77,7 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row?.displayName ?? text.message("itemNamePending");
+  const name = row ? rowName(row, text) : text.message("itemNamePending");
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);

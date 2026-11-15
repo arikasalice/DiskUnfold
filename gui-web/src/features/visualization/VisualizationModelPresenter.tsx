@@ -18,7 +18,7 @@ import type {
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "../../viz";
-import { RowName } from "../../viz";
+import { RowName, rowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
 import type { VizText } from "../../viz";
@@ -285,8 +285,10 @@ export function ModelRows({
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
           renderCells={(row) => {
             let trigger: HTMLButtonElement | null = null;
+            const name = rowName(row, text);
+            const groupLabel = name.trim() || text.message("otherItems");
             return [
-              <RowName name={row.displayName} item={row.itemRef !== null} />,
+              <RowName name={name} item={row.itemRef !== null} />,
               ...(hasOpenableGroups
                 ? [
                     row.groupRef !== null &&
@@ -302,15 +304,12 @@ export function ModelRows({
                               row.groupRef,
                               row.size,
                               trigger,
-                              row.displayName.trim() ||
-                                text.message("otherItems"),
+                              groupLabel,
                               returnTargetRef?.current ?? rowsRegion.current,
                             );
                         }}
                         aria-label={vizMessage(text, "viewMembersOf", {
-                          name:
-                            row.displayName.trim() ||
-                            text.message("otherItems"),
+                          name: groupLabel,
                         })}
                       >
                         {text.message("viewMembers")}

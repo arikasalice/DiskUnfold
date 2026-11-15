@@ -33,6 +33,7 @@ const wireWords = [
   "viz.flag.lower_bound",
   "viz.flag.other_group",
   "unclassified",
+  "ui.visualization.group.other",
   "ui.visualization.legend.unclassified",
 ];
 
@@ -97,13 +98,16 @@ describe.each(["en", "ko"] as const)("production viz text (%s)", (language) => {
       expect(value, wireWords[index]).not.toContain("viz.flag");
       expect(value, wireWords[index]).not.toBe(general);
     }
+    expect(text.key("ui.visualization.group.other")).toBe(
+      language === "en" ? "Other items" : "기타 항목",
+    );
   });
 
   test("F06 FR9.HD1.gui-web.DD1: a key outside the table gets the general phrase", () => {
     const general = message("unrecognizedValue");
     expect(general).not.toContain(marker);
     for (const key of [
-      "ui.visualization.group.other",
+      "ui.visualization.group.future",
       "scan.path_denied",
       "viz.flag.future",
       "constructor",

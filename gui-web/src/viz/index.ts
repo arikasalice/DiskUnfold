@@ -14,7 +14,7 @@ export type {
   ModelRowsPage,
   VizSelection,
 } from "./model-adapter";
-export { rawSourceSize, shapeLabels, vizMessage } from "./model-text";
+export { rawSourceSize, rowName, shapeLabels, vizMessage } from "./model-text";
 export type { VizText } from "./model-text";
 export {
   visualizationFormatName,

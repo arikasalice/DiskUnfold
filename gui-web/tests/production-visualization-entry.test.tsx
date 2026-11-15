@@ -26,6 +26,7 @@ afterEach(() => {
 
 const stamp = "2026-11-15T00:00:00.000Z";
 const target = windowsPath("C:\\fixture");
+const OTHER_GROUP_LABEL = "ui.visualization.group.other";
 const catalog: VizCatalog = {
   formats: ["treemap", "bar", "histogram"],
   strategies: [{ id: "viz.treemap", revision: 1 }],
@@ -36,7 +37,7 @@ const catalog: VizCatalog = {
   requiredDataTableRevision: 1,
   legendRuleRevision: 1,
 };
-const names = ["Videos", "Projects", "Photos", "Documents"];
+const names = ["Videos", OTHER_GROUP_LABEL, "Photos", "Documents"];
 
 function frameFor(request: VizRenderRequest) {
   const { frame } = modelFixture();
@@ -70,8 +71,10 @@ function frameFor(request: VizRenderRequest) {
     },
   ];
   model.shapes.forEach((shape, index) => {
-    shape.itemRef = ref(index + 1);
-    shape.rootBranchRef = ref(index + 1);
+    const otherGroup = index === 0;
+    shape.itemRef = otherGroup ? null : ref(index + 1);
+    shape.groupRef = otherGroup ? "group-other" : null;
+    shape.rootBranchRef = otherGroup ? null : ref(index + 1);
     shape.legendClassKey = "unclassified";
   });
   return frame;
@@ -81,18 +84,22 @@ function rowsFor(
   request: VizRenderRequest | undefined,
   revision: string,
 ): VizRows {
-  const { frame } = modelFixture();
+  const frame = request ? frameFor(request) : modelFixture().frame;
   return {
-    rows: frame.model.shapes.map((shape, index) => ({
-      itemRef: { resultVersion: revision, itemNo: index + 1 },
-      groupRef: null,
-      displayName: names[index] ?? "Item",
-      size: shape.size,
-      ratio: "0.25",
-      denominator: frame.model.denominator,
-      legendClassKey: "unclassified",
-      displayFlags: [],
-    })),
+    rows: frame.model.shapes.map((shape, index) => {
+      const otherGroup = shape.groupRef !== null && shape.itemRef === null;
+      return {
+        itemRef: shape.itemRef,
+        groupRef: shape.groupRef,
+        displayName: otherGroup ? OTHER_GROUP_LABEL : (names[index] ?? "Item"),
+        ...(otherGroup && { labelKey: OTHER_GROUP_LABEL }),
+        size: shape.size,
+        ratio: "0.25",
+        denominator: frame.model.denominator,
+        legendClassKey: "unclassified",
+        displayFlags: [],
+      };
+    }),
     totalCount: 4,
     resultRevision: revision,
     observedAt: request ? frame.observedAt : null,
@@ -313,7 +320,15 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(calls.some(({ name }) => name === "viz.render")).toBe(false);
 
     fireEvent.click(open);
-    await screen.findByRole("button", { name: /Videos/ }, { timeout: 5000 });
+    await screen.findByRole("button", { name: /Photos/ }, { timeout: 5000 });
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: label("ui.visualization.rowsFromGraph"),
+      }),
+    );
+    const groupLabel = language === "en" ? "Other items" : "기타 항목";
+    expect(await screen.findAllByText(groupLabel)).not.toHaveLength(0);
+    expect(await screen.findAllByText(OTHER_GROUP_LABEL)).not.toHaveLength(0);
 
     const request = calls.find(({ name }) => name === "viz.render");
     expect(request?.body).toMatchObject({
@@ -340,9 +355,15 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(shell).not.toBeNull();
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
+    expect(
+      Array.from(
+        shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
+      ).some((element) =>
+        element.getAttribute("aria-label")?.startsWith(`${groupLabel} ·`),
+      ),
+    ).toBe(true);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
     expect(shown).not.toContain("Translation unverified");
-    expect(shown).not.toContain("ui.visualization");
     expect(shown).not.toContain("viz.");
 
     await new Promise((resolve) => setTimeout(resolve, 60));

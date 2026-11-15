@@ -33,6 +33,7 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
   "viz.flag.lower_bound": "flagLowerBound",
   "viz.flag.other_group": "flagOtherGroup",
   unclassified: "legend.unclassified",
+  "ui.visualization.group.other": "otherItems",
   "ui.visualization.legend.unclassified": "legend.unclassified",
 };
 
