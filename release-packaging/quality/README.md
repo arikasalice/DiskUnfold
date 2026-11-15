@@ -90,10 +90,11 @@ node --test release-packaging/quality/
 
 `--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. Today a person runs `--check` and the tests by hand; no workflow under `.github` runs either of them, and no workflow runs the release review. Connecting `--check` and the tests to the merge stage and the combination review to the release tag is release owner work. This tool does not drive assistive technology; a person or a separate automated run produces the results file.
 
-
 ## Self-hosted macOS arm64 runner
 
 Hosted macOS jobs can wait 20 to 50 minutes in the queue. The `targets` job reads the repository variable `DU_RUNNER_OVERRIDES`, a JSON object that maps `<os>-<cpu>` to a runner label or a list of labels, and replaces `runner` for those targets. An unset or empty variable keeps the GitHub-hosted runners. An unknown key or an empty value fails the `targets` job. `quality-output/targets.json` records the effective runners.
+
+Fork pull requests never use the self-hosted runners: the workflow passes the variable to the `targets` job only for pushes and same-repository pull requests, so fork pull requests always run on GitHub-hosted runners. The repository also requires approval before workflow runs from outside contributors.
 
 Enable:
 
