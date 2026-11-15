@@ -695,7 +695,7 @@
     ["ui.browse.item_actions","Actions for {name}",[["name","name"]]],
     ["ui.browse.item_count","{count} items",[["count","count"]]],
     ["ui.browse.item_count_at_least","At least {count} items",[["count","count"]]],
-    ["ui.browse.origin_scan","Scan",[]],
+    ["ui.browse.origin_scan","Current analysis",[]],
     ["ui.browse.origin_incremental","Incremental update",[]],
     ["ui.browse.keys.cell_next","Move to the next cell",[]],
     ["ui.browse.keys.cell_previous","Move to the previous cell",[]],
