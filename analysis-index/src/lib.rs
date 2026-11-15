@@ -212,6 +212,7 @@ impl IngestSink {
             roots,
             gaps: Vec::new(),
             observations: observation_store::ObservationStore::default(),
+            numbered_nodes: None,
             directory_case: BTreeMap::new(),
             unread_folders: BTreeMap::new(),
             issues: Vec::new(),
@@ -242,6 +243,8 @@ pub struct BuildHandle {
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: observation_store::ObservationStore,
+    /// Cached topology order; each publication still rebuilds its result and aggregates.
+    numbered_nodes: Option<Arc<Vec<u32>>>,
     /// Case evidence by store node of the directory it was recorded for.
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     /// Unread-folder marks by store node of the folder they were reported for.
@@ -280,12 +283,13 @@ impl BuildHandle {
             self.abort();
             return Err(BuildError::InvalidTree);
         }
-        self.observations
-            .insert(root_index, &path, observation)
-            .map_err(|error| {
-                self.abort();
-                error.into()
-            })
+        let inserted = self.observations.insert(root_index, &path, observation);
+        if inserted.is_ok() {
+            self.numbered_nodes = None;
+        } else {
+            self.abort();
+        }
+        inserted.map_err(Into::into)
     }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
         self.publish_partial_at(version_id, None)
@@ -334,6 +338,7 @@ impl BuildHandle {
             &self.observations,
             self.roots.len().max(1),
             self.roots.len() > 1,
+            &mut self.numbered_nodes,
         ) {
             Ok(items) => items,
             Err(error) => {

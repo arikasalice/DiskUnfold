@@ -30,11 +30,19 @@ pub(crate) fn build_items(
     store: &ObservationStore,
     root_count: usize,
     strict_roots: bool,
+    numbered_nodes: &mut Option<Arc<Vec<u32>>>,
 ) -> Result<BuiltItems, BuildError> {
     if store.has_unobserved() {
         return Err(BuildError::InvalidTree);
     }
-    let order = number_nodes(store, root_count, strict_roots)?;
+    let order = match numbered_nodes {
+        Some(order) => Arc::clone(order),
+        None => {
+            let order = Arc::new(number_nodes(store, root_count, strict_roots)?);
+            *numbered_nodes = Some(Arc::clone(&order));
+            order
+        }
+    };
     let mut item_of_node = vec![0_u32; order.len()];
     for (item, node) in order.iter().enumerate() {
         item_of_node[*node as usize] =
