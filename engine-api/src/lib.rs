@@ -39,6 +39,7 @@ pub mod trend_series;
 pub mod viz_availability;
 pub mod viz_catalog;
 pub mod viz_pages;
+pub mod viz_production;
 pub mod watch_gap;
 pub mod watch_source;
 mod workers;

@@ -78,6 +78,7 @@ fn engine(profile: &Path) -> Result<Assembled, Box<dyn std::error::Error>> {
     let mut builder = EngineBuilder::default();
     let limit: SharedTableLimitSource = Arc::new(SharedTableLimit::default);
     let services = register_analysis(&mut builder, ports, &database, limit, None)?;
+    visualization::register_with_stored_settings(&services.visualization, &mut builder, &database)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
     Ok((engine, services, database))

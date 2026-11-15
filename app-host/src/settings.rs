@@ -6,7 +6,8 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use du_engine_api::desktop::SharedTableLimitSource;
+use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
+use du_engine_api::{desktop::SharedTableLimitSource, viz_production::UnitTableSource};
 use du_user_env::space::restore_shared_table_limit;
 use du_user_env::{
     Registry, locale,
@@ -78,6 +79,24 @@ impl StartupSettings {
                 .ok()
                 .and_then(|service| restore_shared_table_limit(service.snapshot()))
                 .unwrap_or_default()
+        })
+    }
+
+    /// Supplies the unit table the display setting selects when a request is admitted.
+    ///
+    /// An unreadable setting uses the system this platform registers as its default.
+    pub(super) fn unit_table_source(self: Arc<Self>) -> UnitTableSource {
+        Arc::new(move || {
+            let selected = self
+                .service
+                .lock()
+                .ok()
+                .and_then(|service| service.display_units().map(|units| units.system == "iec"));
+            if selected.unwrap_or(cfg!(windows)) {
+                &IEC_UNITS
+            } else {
+                &SI_UNITS
+            }
         })
     }
 }

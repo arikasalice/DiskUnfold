@@ -28,7 +28,8 @@ fn platform_adapters_register_scanning_once() -> TestResult {
     let database = crate::startup_database::open(profile.path())?;
     let limit: SharedTableLimitSource = Arc::new(SharedTableLimit::default);
     let mut builder = EngineBuilder::default();
-    register_analysis(&mut builder, ports.clone(), &database, limit.clone(), None)?;
+    let services = register_analysis(&mut builder, ports.clone(), &database, limit.clone(), None)?;
+    visualization::register_with_stored_settings(&services.visualization, &mut builder, &database)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
     assert!(engine.has_use_case("scope.review"));
