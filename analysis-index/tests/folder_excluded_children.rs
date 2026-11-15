@@ -160,6 +160,7 @@ fn unrecorded_folders_are_unknown_in_progress_partial_cancelled_and_sample() -> 
         .open_sample_forest(id(1), vec![root(b"/s")], &SampleSessionKey::new(id(9)))
         .map_err(err)?;
     sample.add_directory_at(0, Vec::new()).map_err(err)?;
+    sample.set_excluded_children(0, &[], 7, true).map_err(err)?;
     let version = sample
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(err)?;

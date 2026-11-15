@@ -34,7 +34,8 @@
 //!
 //! # Excluded children
 //!
-//! A reported folder answers `count` and `exact = complete && the folder is not unread`,
+//! A sample never provides an excluded count. A reported folder of a real scan answers
+//! `count` and `exact = complete && the folder is not unread`,
 //! where unread means a gap or an unread mark on the folder. An unreported folder that is
 //! unread answers 0 as a lower bound in every sealed version of a real scan, whatever its
 //! completeness: its entries were not read, so nothing was counted. An unreported folder
@@ -175,6 +176,9 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
+        if !self.data_source.is_real() {
+            return Ok(None);
+        }
         let not_read = self.recorded_unread(item.item_no).is_some();
         if let Some(record) = self.folder_marks.excluded(item.item_no) {
             return Ok(Some(ExcludedChildren {
