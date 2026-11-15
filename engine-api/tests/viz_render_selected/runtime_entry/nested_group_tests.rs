@@ -143,3 +143,135 @@ fn an_expanded_folder_groups_its_small_children_and_opens_them_by_position() -> 
     );
     Ok(())
 }
+
+// Folder p holds a large file, an entry that could not be read, and forty small folders
+// that each hold a file and an entry that could not be read, so every one of them is a
+// lower bound; folder q holds one large file.
+fn publish_unread_tail(sink: &IngestSink) -> Result<(), String> {
+    let lineage = sink
+        .bind_current_analysis("scope", id(1))
+        .map_err(|error| format!("{error:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut scan = sink
+        .open_forest_in_lineage(id(2), vec![root], lineage)
+        .map_err(|error| format!("{error:?}"))?;
+    let path = |parts: &[&str]| -> Vec<Vec<u8>> {
+        parts.iter().map(|part| part.as_bytes().to_vec()).collect()
+    };
+    let exact = |bytes: u64| SizeValue {
+        basis: SizeBasis::Logical,
+        evidence: SizeEvidence::Measured,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    };
+    let failed = |error: du_analysis_index::BuildError| format!("{error:?}");
+    scan.add_directory_at(0, vec![]).map_err(failed)?;
+    scan.add_directory_at(0, path(&["p"])).map_err(failed)?;
+    scan.add_file_at(
+        0,
+        Observation {
+            path: path(&["p", "big"]),
+            size: Some(exact(100_000)),
+        },
+    )
+    .map_err(failed)?;
+    scan.add_file_at(
+        0,
+        Observation {
+            path: path(&["q"]),
+            size: Some(exact(50_000)),
+        },
+    )
+    .map_err(failed)?;
+    scan.add_at(
+        0,
+        Observation {
+            path: path(&["p", "gone"]),
+            size: None,
+        },
+    )
+    .map_err(failed)?;
+    for i in 0..40 {
+        let name = format!("s{i:02}");
+        scan.add_directory_at(0, path(&["p", &name]))
+            .map_err(failed)?;
+        scan.add_file_at(
+            0,
+            Observation {
+                path: path(&["p", &name, "f"]),
+                size: Some(exact(500)),
+            },
+        )
+        .map_err(failed)?;
+        scan.add_at(
+            0,
+            Observation {
+                path: path(&["p", &name, "u"]),
+                size: None,
+            },
+        )
+        .map_err(failed)?;
+    }
+    scan.seal(id(3), ResultCompleteness::Complete)
+        .map_err(failed)?;
+    Ok(())
+}
+
+#[test]
+fn the_group_of_lower_bound_folders_inside_an_expanded_folder_is_read_by_position()
+-> Result<(), String> {
+    let sink = IngestSink::default();
+    publish_unread_tail(&sink)?;
+    let fixture = Fixture::from_sink(
+        sink,
+        Duration::from_secs(2),
+        NonZeroUsize::MIN.saturating_add(3),
+    )?;
+    let view = fixture.open()?;
+    fixture.release.send(()).map_err(|e| e.to_string())?;
+    let mut request = render_body(&view, 1);
+    request["depthLimit"] = json!(2);
+    request["viewport"]["width"] = json!(40);
+    request["viewport"]["height"] = json!(40);
+    let rendered = fixture.ok("viz.render", request)?;
+    let parsed: VizRenderResponse =
+        serde_json::from_value(rendered.clone()).map_err(|e| e.to_string())?;
+    parsed.validate()?;
+    let model = &rendered["model"];
+    let shapes = model["shapes"].as_array().ok_or("no shapes")?;
+    let group = shapes
+        .iter()
+        .find(|shape| shape["groupRef"].is_string())
+        .ok_or_else(|| format!("no group shape: {}", model["summary"]))?;
+    assert_eq!(group["visibleDepth"], 2);
+    // Both folders are drawn by their lower bound; the group is a lower bound too, and
+    // lies inside its folder's bytes, so it is no part of the grouped total.
+    assert_eq!(group["size"]["state"], "lower_bound");
+    assert_eq!(group["size"]["bytes"], "20000");
+    assert_eq!(model["totals"]["grouped"]["quantity"]["value"], "0");
+    assert_eq!(model["totals"]["scope"]["quantity"]["state"], "lower_bound");
+    // The forty small folders are the members of the group.
+    assert_eq!(model["summary"]["groupedItems"]["value"], "40");
+    let members = fixture.ok(
+        "viz.group_rows",
+        json!({"modelRef": model["modelRef"], "groupRef": group["groupRef"], "start": 0, "count": 1000}),
+    )?;
+    assert_eq!(members["totalCount"], 40);
+    assert_eq!(members["groupTotal"], group["size"]);
+    assert_eq!(members["sizeRange"]["kind"], "unknown");
+    let rows = members["rows"].as_array().ok_or("no member rows")?;
+    assert!(rows.iter().all(|row| {
+        row["size"]["state"] == "lower_bound"
+            && row.get("labelKey").is_none()
+            && row["groupRef"].is_null()
+    }));
+    Ok(())
+}
