@@ -1119,7 +1119,8 @@ sizeRule?: QueryStrategy,
  * folders, open or read failures and disconnects are not counted.
  *
  * Absent when the source does not provide the fact: a sample, a publication of a scan
- * that has not finished, or a target that is not a single subtree (a query result).
+ * that has not finished, a cancelled or partial result whose collector recorded no
+ * unread folder, or a target that is not a single subtree (a query result).
  * Absence is not zero.
  */
 cancelledUnreadFolders?: number, };

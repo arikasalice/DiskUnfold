@@ -121,6 +121,40 @@ fn a_sealed_version_without_marks_confirms_zero() -> Result<(), String> {
 }
 
 #[test]
+fn a_cancelled_or_partial_version_without_cancelled_marks_does_not_confirm_zero()
+-> Result<(), String> {
+    for (number, completeness) in [
+        (2, ResultCompleteness::Cancelled),
+        (3, ResultCompleteness::Partial),
+    ] {
+        let sink = IngestSink::default();
+        let mut build = two_root_build(&sink, 1)?;
+        // A disconnect is recorded, but the collector reported no cancelled folder.
+        mark(&mut build, 0, &["a", "d"], DISCONNECTED)?;
+        let version = build.seal(id(number), completeness).map_err(err)?;
+        assert_eq!(below(&version, 0, &["a"])?, None, "{completeness:?}");
+        assert_eq!(below(&version, 0, &[])?, None, "{completeness:?}");
+        assert_eq!(version.cancelled_unread_folders_in_scope(), None);
+    }
+    Ok(())
+}
+
+#[test]
+fn one_cancelled_mark_makes_every_target_count_trustworthy() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = two_root_build(&sink, 1)?;
+    mark(&mut build, 0, &["a", "b"], CANCELLED)?;
+    let version = build
+        .seal(id(2), ResultCompleteness::Cancelled)
+        .map_err(err)?;
+    assert_eq!(version.cancelled_unread_folders_in_scope(), Some(1));
+    assert_eq!(below(&version, 0, &["a"])?, Some(1));
+    assert_eq!(below(&version, 0, &["e"])?, Some(0));
+    assert_eq!(below(&version, 1, &[])?, Some(0));
+    Ok(())
+}
+
+#[test]
 fn an_unfinished_publication_does_not_provide_the_count() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = two_root_build(&sink, 1)?;

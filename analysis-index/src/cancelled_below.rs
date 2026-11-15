@@ -11,7 +11,10 @@
 //! count) only when a cancelled mark is at or below it, and nothing otherwise. A lookup is a
 //! binary search, O(log n) in the number of such folders, with no allocation.
 use crate::{QueryError, ResultVersion, result_read::ensure_directory};
-use du_core_contracts::{ItemRef, result::ResultItem};
+use du_core_contracts::{
+    ItemRef,
+    result::{ResultCompleteness, ResultItem},
+};
 use std::collections::BTreeMap;
 
 /// Counts, ascending by item number, of the cancelled marks at or below each folder.
@@ -47,8 +50,11 @@ impl ResultVersion {
     /// and already-counted folders, open or read failures and disconnected folders are not
     /// counted. `Some(0)` confirms that none exists in this version.
     ///
-    /// `None` for a version that is not a real scan (a sample) and for a publication whose
-    /// scan has not finished; only the sealed publication answers. The call is O(log n).
+    /// `None` for a version that is not a real scan (a sample), for a publication whose
+    /// scan has not finished, and for a cancelled or partial result whose collector recorded
+    /// no unread folder: without a single cancelled mark the zero cannot be told from a
+    /// collector that does not record them. Otherwise the sealed publication answers. The
+    /// call is O(log n).
     ///
     /// # Errors
     /// `StaleVersion` when the reference pins another version, `NotFound` when the item
@@ -66,14 +72,23 @@ impl ResultVersion {
     /// or `None` when this version does not provide the fact.
     ///
     /// Equals `unread_folder_counts().cancelled` whenever a value is provided, and follows
-    /// the omission rules of [`ResultVersion::cancelled_unread_folders`]. The call is O(1).
+    /// the omission rules of [`ResultVersion::cancelled_unread_folders`], including the one
+    /// for a cancelled or partial result whose collector recorded no unread folder. The call
+    /// is O(1).
     pub fn cancelled_unread_folders_in_scope(&self) -> Option<u32> {
         self.provides_unread_counts()
             .then(|| self.folder_marks.unread_counts().cancelled)
     }
 
-    /// Whether this is the sealed publication of a real scan, whatever its completeness.
+    /// Whether the count is trustworthy: the sealed publication of a real scan that either
+    /// was not cancelled (complete or missing, so nothing can be cancelled-unread) or carries
+    /// at least one cancelled mark (the collector reports them).
     fn provides_unread_counts(&self) -> bool {
-        self.data_source.is_real() && self.folder_marks.sealed()
+        self.data_source.is_real()
+            && self.folder_marks.sealed()
+            && (matches!(
+                self.completeness,
+                ResultCompleteness::Complete | ResultCompleteness::Missing
+            ) || self.folder_marks.unread_counts().cancelled > 0)
     }
 }

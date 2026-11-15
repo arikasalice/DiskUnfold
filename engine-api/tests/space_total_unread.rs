@@ -138,6 +138,27 @@ fn a_sealed_scan_that_was_not_cancelled_confirms_zero() -> TestResult {
 }
 
 #[test]
+fn a_cancelled_scan_without_collector_marks_omits_the_count() -> TestResult {
+    let store = IngestSink::default();
+    let mut build = store.open(id(1)?).map_err(|e| format!("{e:?}"))?;
+    for parts in [&[][..], &["a"]] {
+        build
+            .add_directory(path(parts))
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = build
+        .seal(id(2)?, ResultCompleteness::Cancelled)
+        .map_err(|e| format!("{e:?}"))?;
+    let engine = engine_for(Arc::new(ResultSets::new(store)))?;
+    for target in [json!({"kind": "scope_root"}), folder(&version, &["a"])?] {
+        let body = call(&engine, target, Some(version.version_id()))?;
+        assert!(body.get("sizeRule").is_some());
+        assert_eq!(body.get("cancelledUnreadFolders"), None);
+    }
+    Ok(())
+}
+
+#[test]
 fn an_unfinished_publication_omits_the_count_and_keeps_the_rule() -> TestResult {
     let store = IngestSink::default();
     let mut build = marked_build(&store)?;
