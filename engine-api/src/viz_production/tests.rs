@@ -229,7 +229,7 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
 }
 
 #[test]
-fn freshness_is_never_asserted_because_no_ledger_exists() -> TestResult {
+fn freshness_is_unknown_because_nothing_watches_the_result() -> TestResult {
     let source = publish(&[(b'a', Some(10))])?;
     let facts = producer(&SI_UNITS)
         .source_policy_facts(&source, &request(policy::COLOR_CRITERION_NONE, "treemap")?)
@@ -240,7 +240,7 @@ fn freshness_is_never_asserted_because_no_ledger_exists() -> TestResult {
     assert_eq!(facts.staleness.state, VizStalenessState::Unknown);
     assert_eq!(
         facts.staleness.reason_key.as_deref(),
-        Some(policy::STALENESS_UNTRACKED_REASON)
+        Some(policy::STALENESS_UNWATCHED_REASON)
     );
     Ok(())
 }

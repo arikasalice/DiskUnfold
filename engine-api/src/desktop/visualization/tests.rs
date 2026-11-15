@@ -73,12 +73,12 @@ fn rows_of(harness: &Harness, answer: &Value) -> Result<Value, String> {
     )
 }
 
-/// Models never claim freshness: no freshness ledger exists, so the state is unknown.
-fn assert_untracked(answer: &Value) {
+/// Models never claim freshness: nothing watches the result, so the state is unknown.
+fn assert_unwatched(answer: &Value) {
     let staleness = &answer["model"]["staleness"];
     assert_ne!(staleness["state"], "current", "{staleness}");
     assert_eq!(staleness["state"], "unknown");
-    assert_eq!(staleness["reasonKey"], policy::STALENESS_UNTRACKED_REASON);
+    assert_eq!(staleness["reasonKey"], policy::STALENESS_UNWATCHED_REASON);
 }
 
 fn row_bytes(rows: &Value) -> Result<Vec<u64>, String> {
@@ -263,7 +263,7 @@ fn treemap_scope_total_equals_the_row_total_of_a_published_result() -> TestResul
     let view = harness.open_view()?;
     let answer = harness.ok("viz.render", render_body(&view, 1, "treemap", 3))?;
     assert_eq!(answer["kind"], "model");
-    assert_untracked(&answer);
+    assert_unwatched(&answer);
     let rows = rows_of(&harness, &answer)?;
     let listed: u64 = row_bytes(&rows)?.iter().sum();
     let scope_total = &answer["model"]["totals"]["scope"]["quantity"];
@@ -294,7 +294,7 @@ fn bar_over_the_shape_limit_serves_the_other_group() -> TestResult {
     let view = harness.open_view()?;
     let answer = harness.ok("viz.render", render_body(&view, 1, "bar", 3))?;
     assert_eq!(answer["kind"], "model", "{answer}");
-    assert_untracked(&answer);
+    assert_unwatched(&answer);
     let groups: Vec<_> = answer["model"]["shapes"]
         .as_array()
         .ok_or("no shapes")?
@@ -328,7 +328,7 @@ fn histogram_follows_the_unit_setting_with_symbol_only_interval_names() -> TestR
         harness.iec.store(iec, Ordering::SeqCst);
         let answer = harness.ok("viz.render", render_body(&view, seq, "histogram", 3))?;
         assert_eq!(answer["kind"], "model", "{answer}");
-        assert_untracked(&answer);
+        assert_unwatched(&answer);
         let rows = rows_of(&harness, &answer)?;
         let names: Vec<_> = rows["rows"]
             .as_array()
@@ -354,7 +354,7 @@ fn an_empty_folder_renders_an_empty_model_in_every_runtime_format() -> TestResul
     for (seq, format) in (1..).zip(["treemap", "bar", "histogram"]) {
         let answer = harness.ok("viz.render", render_body(&view, seq, format, 3))?;
         assert_eq!(answer["kind"], "model", "{format}: {answer}");
-        assert_untracked(&answer);
+        assert_unwatched(&answer);
         assert_eq!(answer["model"]["shapes"], json!([]), "{format}");
         let rows = rows_of(&harness, &answer)?;
         assert!(
