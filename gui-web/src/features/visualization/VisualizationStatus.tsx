@@ -4,7 +4,6 @@ import type {
   VisualizationSnapshot,
 } from "./controller";
 import type { VizText } from "../../viz";
-import { visualizationFormatName, visualizationReason } from "../../viz";
 import { RowName } from "../../viz";
 import { RenderRetry } from "./RetryNotices";
 
@@ -40,18 +39,6 @@ export function VisualizationStatus({
           )}
         </Notice>
       )}
-      {state.phase === "unavailable" &&
-        state.response?.kind === "unavailable" && (
-          <Notice>
-            {text.message("unavailable")}{" "}
-            {visualizationReason(state.response.reasonKey, text.message)}.{" "}
-            {text.message("formats")}{" "}
-            {state.response.availableFormats
-              .map((format) => visualizationFormatName(format, text.message))
-              .join(", ") || text.message("noFormats")}
-            .
-          </Notice>
-        )}
       {state.previousSelection && (
         <Notice>
           <Text>{text.message("selectionLost")}</Text>

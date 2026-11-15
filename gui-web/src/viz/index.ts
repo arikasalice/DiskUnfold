@@ -22,6 +22,7 @@ export {
   visualizationMessages,
   visualizationReason,
 } from "./messages";
+export { visualizationUnavailableText } from "./unavailable-text";
 export type {
   VisualizationLanguage,
   VisualizationMessageKey,

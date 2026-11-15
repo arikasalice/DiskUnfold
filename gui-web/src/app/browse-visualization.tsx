@@ -6,7 +6,8 @@ import {
   useState,
 } from "react";
 import type { Ref } from "react";
-import { Action, Progress, Text } from "../components";
+import type { RefObject } from "react";
+import { Action, Heading, Progress, Text } from "../components";
 import type { SizeDisplay } from "../i18n/bytes";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
@@ -22,6 +23,8 @@ export type BrowseVisualizationSelection = {
   location: ItemRef;
   display: SizeDisplay;
   sizeBasis: SizeBasisFilter;
+  /** Display names from the scope root to this folder; absent when any name is unknown. */
+  locationTrail?: readonly string[];
 };
 
 /** App-only assembly supplied by the product owner after catalog inspection. */
@@ -130,12 +133,54 @@ export function browseSelectionFromOpen(
     opened.location.resultVersion !== page.resultVersion
   )
     return undefined;
+  const locationTrail = trailOf(opened);
   return {
     resultVersion: page.resultVersion,
     location: opened.location,
     display,
     sizeBasis,
+    ...(locationTrail ? { locationTrail } : {}),
   };
+}
+
+/** The folder's display names, or undefined when they do not match the opened location. */
+function trailOf(opened: BrowseOpenLocation): string[] | undefined {
+  const { location, breadcrumbs, page } = opened;
+  const current = breadcrumbs.at(-1);
+  if (
+    !location ||
+    !current ||
+    location.resultVersion !== page.resultVersion ||
+    !sameItemRef(current.item, location)
+  )
+    return undefined;
+  const names = breadcrumbs.map(({ displayName }) =>
+    displayName.state === "present" ? displayName.value : null,
+  );
+  return names.every((name) => name !== null) ? (names as string[]) : undefined;
+}
+
+/**
+ * Closing the space view returns the focus to its open button. The returned
+ * `close` is the one handler for every control that leaves the view.
+ */
+export function useVisualizationFocus(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  trigger: RefObject<HTMLButtonElement | null>,
+) {
+  const restore = useRef(false);
+  useLayoutEffect(() => {
+    if (!open && restore.current) {
+      trigger.current?.focus();
+      restore.current = false;
+    }
+  }, [open, trigger]);
+  const close = useCallback(() => {
+    restore.current = true;
+    setOpen(false);
+  }, [setOpen]);
+  return { close, restoring: () => restore.current };
 }
 
 export function BrowseVisualizationActions({
@@ -163,7 +208,7 @@ export function BrowseVisualizationActions({
       )}
       {visible && available && (
         <div hidden={open}>
-          <Action variant="quiet" icon="layers" ref={trigger} onPress={onOpen}>
+          <Action icon="layers" ref={trigger} onPress={onOpen}>
             {text(
               "ui.visualization.show_space_distribution",
               "Show space distribution",
@@ -180,11 +225,14 @@ export function BrowseVisualizationView({
   open,
   selection,
   assembly,
+  onClose,
 }: {
   client: AnalysisClient | undefined;
   open: boolean;
   selection: BrowseVisualizationSelection | undefined;
   assembly: BrowseVisualizationAssembly | undefined;
+  /** Leaves the view; the unavailable notice offers it next to its text. */
+  onClose?: () => void;
 }) {
   const text = useLocaleText();
   const productionText = useProductionVizText(
@@ -278,6 +326,14 @@ export function BrowseVisualizationView({
         "Space distribution",
       )}
     >
+      <header className="du-visualization-title">
+        <Heading level={2}>
+          {text("ui.visualization.space_distribution", "Space distribution")}
+        </Heading>
+        {selection.locationTrail && (
+          <Text kind="path">{selection.locationTrail.join(" › ")}</Text>
+        )}
+      </header>
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
           <VisualizationSession
@@ -289,6 +345,17 @@ export function BrowseVisualizationView({
             }
             text={assembly.text ?? productionText}
             autoLoadRows={assembly.autoLoadRows}
+            {...(onClose
+              ? {
+                  backAction: {
+                    label: text(
+                      "ui.visualization.back_to_folders",
+                      "Back to folders",
+                    ),
+                    onPress: onClose,
+                  },
+                }
+              : {})}
             {...(assembly.resolveRenderer
               ? { resolveRenderer: assembly.resolveRenderer }
               : {})}

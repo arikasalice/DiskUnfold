@@ -941,10 +941,12 @@ test("status exposes real unavailable reason and revision callback without inven
   expect(apply).toHaveBeenCalledWith("next");
   expect(controller.getSnapshot().graph?.frame.resultRevision).toBe(revision);
   await act(async () => controller.render(request(2)));
-  expect(screen.getByText(/No comparison baseline is available/)).toBeTruthy();
-  expect(screen.getByText(/Available formats/).textContent).toContain(
-    "Bar chart",
-  );
+  expect(
+    screen.getByRole("heading", {
+      name: "There is no earlier result to compare",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Available formats/)).toBeNull();
 });
 
 test("lost correspondence is explained and never moves focus to another application control", async () => {
@@ -1111,10 +1113,10 @@ test("Korean visualization status uses Korean reason and format names", async ()
   };
   render(<ControlledVisualization controller={controller} text={text} />);
   await act(async () => controller.render(request(1)));
-  expect(screen.getByText(/비교 기준이 없습니다/)).toBeTruthy();
-  expect(screen.getByText(/사용 가능한 형식/).textContent).toContain(
-    "막대 그래프, 트리맵",
-  );
+  expect(
+    screen.getByRole("heading", { name: "비교할 이전 결과가 없습니다" }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/사용 가능한 형식/)).toBeNull();
 });
 
 test.each(["unknown", "duplicate", "outside"] as const)(

@@ -54,6 +54,24 @@ export const visualizationMessages = {
     noItemSizes: "Item sizes are unavailable",
     negativeFlow: "Negative flow cannot be displayed in this format",
     unknownReason: "The reason is unavailable",
+    unavailableTitleNoBaseline: "There is no earlier result to compare",
+    unavailableBodyNoBaseline:
+      "This chart compares two points in time. Analyze the same scope again or choose a saved result.",
+    unavailableTitleSingleObservation: "There is only one observation",
+    unavailableBodySingleObservation:
+      "A trend line needs two or more observations. Changes appear from the next analysis.",
+    unavailableTitleNoAttribution: "The space can't be attributed",
+    unavailableBodyNoAttribution:
+      "The same files belong to more than one folder, or where they belong couldn't be confirmed. The list still shows the original values.",
+    unavailableTitleNoItemSizes: "No item sizes are available",
+    unavailableBodyNoItemSizes:
+      "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
+    unavailableTitleNegativeFlow: "This chart can't show decreases",
+    unavailableBodyNegativeFlow:
+      "Sankey shows only amounts of zero or more. Use the waterfall chart to see increases and decreases.",
+    unavailableTitleUnknown: "This chart isn't available",
+    unavailableBodyUnknown:
+      "The reason couldn't be confirmed. The list shows the same result.",
     emptyResultTitle: "There are no items to draw in this scope",
     emptyResultScopeTotal: "Scope total: {value}",
     emptyResultUnknownItems: "{count} unavailable",
@@ -225,6 +243,24 @@ export const visualizationMessages = {
     noItemSizes: "항목 크기를 사용할 수 없습니다",
     negativeFlow: "이 형식에서는 음수 흐름을 표시할 수 없습니다",
     unknownReason: "사유를 확인할 수 없습니다",
+    unavailableTitleNoBaseline: "비교할 이전 결과가 없습니다",
+    unavailableBodyNoBaseline:
+      "이 그래프는 두 시점의 결과를 비교합니다. 같은 범위를 한 번 더 분석하거나 보관한 결과를 고르면 볼 수 있습니다.",
+    unavailableTitleSingleObservation: "관측이 한 번뿐입니다",
+    unavailableBodySingleObservation:
+      "추세선은 관측이 두 번 이상 있어야 그릴 수 있습니다. 다음 분석부터 변화가 그려집니다.",
+    unavailableTitleNoAttribution: "공간이 어디에 속하는지 나눌 수 없습니다",
+    unavailableBodyNoAttribution:
+      "같은 파일이 여러 폴더에 걸쳐 있거나 속한 곳을 확인할 수 없습니다. 목록에서는 원래 수치를 볼 수 있습니다.",
+    unavailableTitleNoItemSizes: "크기를 확인한 항목이 없습니다",
+    unavailableBodyNoItemSizes:
+      "이 범위에서 크기를 확인한 항목이 아직 없습니다. 스캔 중이면 잠시 뒤 나타납니다.",
+    unavailableTitleNegativeFlow: "줄어든 양은 이 그래프로 그릴 수 없습니다",
+    unavailableBodyNegativeFlow:
+      "생키는 0 이상의 양만 그립니다. 늘고 준 양은 워터폴에서 볼 수 있습니다.",
+    unavailableTitleUnknown: "이 그래프를 그릴 수 없습니다",
+    unavailableBodyUnknown:
+      "사유를 확인할 수 없습니다. 목록에서는 같은 결과를 볼 수 있습니다.",
     emptyResultTitle: "이 범위에는 그릴 항목이 없습니다",
     emptyResultScopeTotal: "범위 합계: {value}",
     emptyResultUnknownItems: "확인 불가 {count}",

@@ -1983,6 +1983,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       location,
       display: { system: "iec", unit: "auto" },
       sizeBasis: "allocated",
+      locationTrail: ["Root"],
     });
     expect(receivedCatalog).toEqual(catalog);
     const request: VisualizationViewRequest = {

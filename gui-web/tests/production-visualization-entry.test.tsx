@@ -210,7 +210,12 @@ function desktop(language: "en" | "ko") {
           requestSeq: body.requestSeq,
           origin: "scan",
           location: { resultVersion: "result", itemNo: 5 },
-          breadcrumbs: [],
+          breadcrumbs: [
+            {
+              item: { resultVersion: "result", itemNo: 5 },
+              displayName: { state: "present", value: "FolderOfVideos" },
+            },
+          ],
           rootKind: "scope_root",
           currentCorrespondence: false,
           page: {
@@ -346,6 +351,9 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
+    // The view names itself and the folder it shows.
+    expect(shown).toContain(label("ui.visualization.space_distribution"));
+    expect(shown).toContain("FolderOfVideos");
     for (const word of badgeWords) expect(shown).not.toContain(word);
     expect(shown).not.toContain("Translation unverified");
     expect(shown).not.toContain("ui.visualization");
