@@ -69,6 +69,54 @@ fn rejects_bad_refs_flags_and_missing_or_null_fields() {
     }
 }
 #[test]
+fn label_key_round_trips_and_an_old_row_without_it_is_still_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    // A row from before the field existed has no labelKey and writes none back.
+    let old: VizRow = serde_json::from_value(row())?;
+    assert_eq!(old.label_key, None);
+    assert!(serde_json::to_value(&old)?.get("labelKey").is_none());
+    let mut group = row();
+    group["itemRef"] = Value::Null;
+    group["groupRef"] = json!("g1");
+    group["displayName"] = json!("viz.group.other");
+    group["labelKey"] = json!("viz.group.other");
+    let decoded: VizRow = serde_json::from_value(group.clone())?;
+    assert_eq!(decoded.label_key.as_deref(), Some("viz.group.other"));
+    assert_eq!(serde_json::to_value(decoded)?, group);
+    // A page carrying such a row keeps it through the page check and a round trip.
+    let page = json!({
+        "rows": [group],
+        "totalCount": 1,
+        "resultRevision": ID,
+        "observedAt": null,
+        "completeness": "complete"
+    });
+    let rows: VizRows = serde_json::from_value(page.clone())?;
+    assert_eq!(serde_json::to_value(rows)?, page);
+    Ok(())
+}
+
+#[test]
+fn label_key_rejects_empty_and_null_and_unknown_fields_stay_accepted() {
+    for bad in [json!(""), Value::Null, json!(1), json!(["k"])] {
+        let mut v = row();
+        v["labelKey"] = bad;
+        assert!(serde_json::from_value::<VizRow>(v.clone()).is_err(), "{v}");
+    }
+    let mut v = row();
+    v["labelKey"] = json!("viz.group.other");
+    v["futureField"] = json!({"any": true});
+    assert!(serde_json::from_value::<VizRow>(v).is_ok());
+    let mut empty = serde_json::from_value::<VizRow>(row()).ok();
+    if let Some(row) = &mut empty {
+        row.label_key = Some(String::new());
+        assert!(row.validate().is_err());
+        row.label_key = Some("k".into());
+        assert!(row.validate().is_ok());
+    }
+}
+
+#[test]
 fn canonical_ratio_has_no_lossy_or_ambiguous_representation() {
     for v in [
         "0",

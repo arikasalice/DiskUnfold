@@ -100,6 +100,19 @@ pub struct VizRow {
     pub denominator: VizDenominator,
     pub legend_class_key: String,
     pub display_flags: Vec<String>,
+    /// Message-bundle key for a group row the engine made, such as the merged small
+    /// siblings of a treemap.
+    ///
+    /// Present only on such rows; the value is a key registered in the message
+    /// bundle, never a path or file name. A consumer that understands it shows that
+    /// message and does not use the display name as the row's name. The display name
+    /// is required and carries the same key string, as a fallback for a consumer that
+    /// does not know this field. Item rows, and group rows whose name the supplier
+    /// gave (for example a histogram bin), omit it. An empty string is invalid; the
+    /// field is omitted rather than null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub label_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +130,8 @@ struct RowWire {
     denominator: VizDenominator,
     legend_class_key: String,
     display_flags: Vec<String>,
+    #[serde(default, deserialize_with = "optional_present")]
+    label_key: Option<String>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -133,6 +148,9 @@ impl VizRow {
             .any(|key| key.is_empty() || !seen.insert(key))
         {
             return Err("invalid display flags");
+        }
+        if self.label_key.as_ref().is_some_and(String::is_empty) {
+            return Err("invalid label key");
         }
         Ok(())
     }
@@ -162,6 +180,7 @@ impl<'de> Deserialize<'de> for VizRow {
             denominator: w.denominator,
             legend_class_key: w.legend_class_key,
             display_flags: w.display_flags,
+            label_key: w.label_key,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)
