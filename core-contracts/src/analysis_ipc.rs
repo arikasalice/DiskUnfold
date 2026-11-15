@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 mod f03_request;
 mod job_progress;
 mod recent_scope;
+mod scope_draft;
 use f03_request::F03RequestItemRef;
 
 pub(crate) use f03_request::{
@@ -16,6 +17,7 @@ pub use recent_scope::{
     RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,
 };
+pub use scope_draft::{ScopeDraft, ScopeExclusion};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -125,26 +127,6 @@ pub enum ScopeSource {
 pub enum ScopeBoundary {
     CurrentVolume,
     IncludeSelected,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
-pub enum ScopeExclusion {
-    Path { path: OsPath },
-    NamePattern { pattern: String },
-}
-
-/// Scope selected by the caller. An OS adapter verifies the raw paths before use.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ScopeDraft {
-    pub includes: Vec<OsPath>,
-    pub exclusions: Vec<ScopeExclusion>,
-    pub boundary: ScopeBoundary,
-    pub included_mounts: Vec<OsPath>,
-    pub source: ScopeSource,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
