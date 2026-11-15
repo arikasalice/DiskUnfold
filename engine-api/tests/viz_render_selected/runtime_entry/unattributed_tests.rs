@@ -94,6 +94,7 @@ fn siblings_without_a_provable_area_are_counted_and_the_class_total_is_a_lower_b
             .and_then(|value| value.parse().ok())
             .ok_or_else(|| format!("no {name} total"))
     };
+    assert!(wire("drawn")? + wire("grouped")? <= wire("scope")?);
     assert_eq!(
         wire("scope")? - wire("drawn")? - wire("grouped")? - wire("filteredOut")?,
         10

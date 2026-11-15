@@ -15,6 +15,17 @@ fn total(model: &Value, name: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("no {name} total in {}", model["totals"]))
 }
 
+/// The drawn and the grouped total never exceed the scope.
+pub(super) fn assert_within_scope(model: &Value) -> TestResult {
+    let (drawn, grouped) = (total(model, "drawn")?, total(model, "grouped")?);
+    assert!(
+        drawn + grouped <= total(model, "scope")?,
+        "{}",
+        model["totals"]
+    );
+    Ok(())
+}
+
 fn count(model: &Value, name: &str) -> Result<u64, String> {
     model["summary"][name]["value"]
         .as_str()
@@ -57,6 +68,7 @@ fn the_scope_is_the_drawn_item_shapes_plus_the_group() -> TestResult {
     assert_eq!(total(model, "drawn")?, 2_400);
     assert_eq!(total(model, "grouped")?, 1_600);
     assert_eq!(total(model, "filteredOut")?, 0);
+    assert_within_scope(model)?;
     assert_eq!(count(model, "omittedItems")?, 0);
     assert_eq!(count(model, "unknownItems")?, 0);
     // The table has the two item rows and the group row, and no row is counted twice.
@@ -95,6 +107,7 @@ fn siblings_below_the_minimum_area_are_the_difference_to_the_scope() -> TestResu
             - total(model, "filteredOut")?,
         omitted
     );
+    assert_within_scope(model)?;
     assert_eq!(count(model, "omittedItems")?, 30);
     assert_eq!(count(model, "groupedItems")?, 0);
     assert_eq!(count(model, "unknownItems")?, 0);
@@ -113,6 +126,7 @@ fn with_nothing_omitted_or_unknown_the_drawn_total_is_the_scope() -> TestResult 
     let harness = Harness::product(2000)?;
     let answer = render(&harness, &files_of(&[75, 25], 0, 0))?;
     let model = &answer["model"];
+    assert_within_scope(model)?;
     assert_eq!(count(model, "omittedItems")?, 0);
     assert_eq!(count(model, "unknownItems")?, 0);
     assert_eq!(total(model, "scope")?, 100);
