@@ -277,6 +277,7 @@ ui.analysis.empty_result
 ui.analysis.result_version status:name
 ui.analysis.latest_visible
 ui.analysis.reading_latest
+ui.analysis.reading_final
 ui.analysis.show_latest
 ui.analysis.newer_available
 ui.analysis.still_interim

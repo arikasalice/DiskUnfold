@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -15,6 +15,9 @@ import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 
 /** How the shown values relate to a scan that is still in progress. */
 type LiveResult = "updating" | "so_far";
+
+/** How long an ended scan's final result may take before the header says it is being read. */
+export const FINAL_RESULT_NOTICE_MS = 300;
 
 function liveResult(
   running: boolean,
@@ -42,6 +45,39 @@ function resultVersionLabel(
   }
 }
 
+/**
+ * The final result of an ended scan while the summary still shows an earlier
+ * one, or nothing when no read is under way: the scan still runs, the user
+ * holds the shown values with a selection, or the read failed (the existing
+ * error and "Show latest result" then apply).
+ */
+function awaitedFinalResult(
+  scan: ReturnType<typeof useScanResult>,
+  total: SpaceTotal | undefined,
+  running: boolean,
+  holding: boolean,
+): string | undefined {
+  if (running || holding || !total || scan.error || scan.hasNewResult)
+    return undefined;
+  return scan.currentVersion === total.resultVersion
+    ? undefined
+    : scan.currentVersion;
+}
+
+/**
+ * Whether `awaited` has been awaited for `delay` without a break. A result
+ * that arrives sooner is never reported as overdue, so nothing flickers.
+ */
+function useOverdue(awaited: string | undefined, delay: number): boolean {
+  const [overdue, setOverdue] = useState<string>();
+  useEffect(() => {
+    if (awaited === undefined) return;
+    const timer = window.setTimeout(() => setOverdue(awaited), delay);
+    return () => window.clearTimeout(timer);
+  }, [awaited, delay]);
+  return awaited !== undefined && overdue === awaited;
+}
+
 /** Heads the scan output with its status, result version, controls and progress. */
 export function ScanOutputHeader({
   scan,
@@ -49,6 +85,7 @@ export function ScanOutputHeader({
   versionSummary,
   started,
   running,
+  holding,
   awaitingTotals,
   actions,
 }: {
@@ -58,12 +95,18 @@ export function ScanOutputHeader({
   versionSummary: Ref<HTMLDivElement>;
   started: boolean;
   running: boolean;
+  /** Whether a text selection holds the shown totals back from newer ones. */
+  holding: boolean;
   awaitingTotals: boolean;
   actions: ReactNode;
 }) {
   const text = useLocaleText();
   const cancelling =
     scan.control === "cancel" || scan.status?.state === "cancel_requested";
+  const readingFinal = useOverdue(
+    awaitedFinalResult(scan, total, running, holding),
+    FINAL_RESULT_NOTICE_MS,
+  );
   return (
     <header className="du-result__header">
       <div className="du-result__title">
@@ -89,6 +132,7 @@ export function ScanOutputHeader({
           switching={scan.switchingResult}
           trailing={total?.resultVersion !== scan.total?.resultVersion}
           finished={scan.status?.state === "done"}
+          readingFinal={readingFinal}
         />
         {actions}
       </div>
@@ -237,6 +281,7 @@ function ResultVersionSummary({
   switching,
   trailing,
   finished,
+  readingFinal,
 }: {
   ref: Ref<HTMLDivElement>;
   total: SpaceTotal | undefined;
@@ -251,6 +296,12 @@ function ResultVersionSummary({
    */
   trailing: boolean;
   finished: boolean;
+  /**
+   * Set once an ended scan's final result has been awaited for a moment. The
+   * values stay as received, and change together with the result version
+   * when it arrives.
+   */
+  readingFinal: boolean;
 }) {
   const text = useLocaleText();
   const button = useRef<HTMLButtonElement>(null);
@@ -312,6 +363,7 @@ function ResultVersionSummary({
         </LiveStatus>
         {/* Outside the status region: the scan state badge already announces pause and resume. */}
         {total && live && <LiveResultLine live={live} />}
+        {readingFinal && <FinalResultLine />}
       </div>
       {version && (offerLatest || waitingToSwitch) && (
         <Action
@@ -342,6 +394,16 @@ function LiveResultLine({ live }: { live: LiveResult }) {
             "Values update as the scan runs",
           )
         : text("ui.analysis.result_so_far", "Result so far")}
+    </Text>
+  );
+}
+
+/** Takes the place of the live line while an ended scan's final result is read. */
+function FinalResultLine() {
+  const text = useLocaleText();
+  return (
+    <Text kind="muted">
+      {text("ui.analysis.reading_final", "Reading the final result…")}
     </Text>
   );
 }

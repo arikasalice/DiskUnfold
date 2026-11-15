@@ -294,6 +294,7 @@
     ["ui.analysis.result_version", "Result version: {status}", [["status","name"]]],
     ["ui.analysis.latest_visible", "Now showing the latest result.", []],
     ["ui.analysis.reading_latest", "Reading latest result…", []],
+    ["ui.analysis.reading_final", "Reading the final result…", []],
     ["ui.analysis.show_latest", "Show latest result", []],
     ["ui.analysis.newer_available", "Newer result available. Showing the current result until you switch.", []],
     ["ui.analysis.still_interim", "You’re still viewing an interim result.", []],

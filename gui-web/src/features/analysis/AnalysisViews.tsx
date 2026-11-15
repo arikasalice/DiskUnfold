@@ -74,6 +74,7 @@ export function ScanOutput({
         versionSummary={versionSummary}
         started={started}
         running={running}
+        holding={holding}
         awaitingTotals={awaitingTotals}
         actions={actions}
       />
