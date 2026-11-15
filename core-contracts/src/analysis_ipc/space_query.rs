@@ -1,5 +1,5 @@
 //! Space query request and response bodies (space.total).
-use crate::{ByteSize, Id, ItemRef, SizeValue};
+use crate::{ByteSize, Id, ItemRef, SizeValue, browse_page_ipc::QueryStrategy};
 use serde::{Deserialize, Serialize};
 
 use super::f03_request::{self, F03RequestItemRef};
@@ -106,6 +106,10 @@ pub struct SpaceTotalSize {
 
 /// A response bound to a single immutable result version and request sequence.
 /// Unavailable counts are null. The missing item count covers known observations.
+///
+/// The response accepts unknown fields. `size_rule` and `cancelled_unread_folders` are
+/// optional additions to contract version 1: a reader written before them still decodes a
+/// response that carries them, and a response without them decodes with both absent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -117,4 +121,20 @@ pub struct SpaceTotal {
     pub missing_items: Option<ByteSize>,
     pub inaccessible_ranges: Option<ByteSize>,
     pub untraversed_links: Option<ByteSize>,
+    /// The registered aggregation rule that produced these sizes, read from the pinned
+    /// result version. Absent when an older producer answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub size_rule: Option<QueryStrategy>,
+    /// How many folders below the target were left unread because the scan was cancelled,
+    /// the target itself included when it is such a folder. The count is for this result
+    /// version; `0` confirms that there are none. Other-volume and already-counted
+    /// folders, open or read failures and disconnects are not counted.
+    ///
+    /// Absent when the source does not provide the fact: a sample, a publication of a scan
+    /// that has not finished, or a target that is not a single subtree (a query result).
+    /// Absence is not zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub cancelled_unread_folders: Option<u32>,
 }

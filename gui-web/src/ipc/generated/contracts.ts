@@ -1106,7 +1106,23 @@ export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: 
 export type SpaceTotalRequest = { resultVersion?: Id, target: SpaceTarget, requestSeq: number, };
 export type ResultCompleteness = "partial" | "complete" | "missing" | "cancelled";
 export type SpaceTotalSize = { size: SizeValue, completeness: ResultCompleteness, measurementLimits: Array<string>, };
-export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null, };
+export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null,
+/**
+ * The registered aggregation rule that produced these sizes, read from the pinned
+ * result version. Absent when an older producer answered.
+ */
+sizeRule?: QueryStrategy,
+/**
+ * How many folders below the target were left unread because the scan was cancelled,
+ * the target itself included when it is such a folder. The count is for this result
+ * version; `0` confirms that there are none. Other-volume and already-counted
+ * folders, open or read failures and disconnects are not counted.
+ *
+ * Absent when the source does not provide the fact: a sample, a publication of a scan
+ * that has not finished, or a target that is not a single subtree (a query result).
+ * Absence is not zero.
+ */
+cancelledUnreadFolders?: number, };
 export type VolumeGapSelection = { volumeId?: PathBytes | null, root?: ItemRef | null, };
 export type VolumeGapRequest = { resultVersion: Id, requestSeq: number, target: VolumeGapSelection, };
 export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "unavailable", observedAt: Timestamp | null, reasonKey: string, } | { "state": "available", observedAt: Timestamp | null, totalBytes: ByteSize, usedBytes: ByteSize, freeBytes: ByteSize, evidence: SizeEvidence, };

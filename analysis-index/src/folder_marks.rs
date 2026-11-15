@@ -1,9 +1,9 @@
 //! Per-folder collection marks retained in immutable result versions.
 //!
 //! The marks are sparse: a folder without a boundary issue and without an
-//! excluded-child record holds no memory. Both tables are sorted by item number
+//! excluded-child record holds no memory. Every table is sorted by item number
 //! and read by binary search, so a lookup is O(log n) in the number of marked
-//! folders.
+//! folders. The per-target cancelled counts are described in `cancelled_below`.
 use crate::{BuildError, BuildHandle, observation_store::ObservationStore, tree::BuiltItems};
 use du_core_contracts::{
     result::ResultItemKind,
@@ -57,6 +57,9 @@ pub(crate) struct FolderMarks {
     /// Folders reported as left unread, ascending by item number.
     unread: Box<[(u32, UnreadReason)]>,
     unread_counts: UnreadFolderCounts,
+    /// Folders with a cancelled mark at or below them, with that count, ascending by item
+    /// number. Built by `cancelled_below::build`.
+    cancelled_below: Box<[(u32, u32)]>,
 }
 
 impl BuildHandle {
@@ -171,12 +174,18 @@ impl FolderMarks {
             cancelled: count(UnreadReason::Cancelled),
             disconnected: count(UnreadReason::Disconnected),
         };
+        let cancelled = unread
+            .iter()
+            .filter(|entry| entry.1 == UnreadReason::Cancelled)
+            .map(|entry| entry.0);
+        let cancelled_below = crate::cancelled_below::build(&built.items, cancelled);
         Self {
             sealed,
             boundaries: boundaries.into_boxed_slice(),
             excluded: excluded.into_boxed_slice(),
             unread: unread.into_boxed_slice(),
             unread_counts,
+            cancelled_below,
         }
     }
 
@@ -194,6 +203,15 @@ impl FolderMarks {
 
     pub(crate) fn unread_counts(&self) -> UnreadFolderCounts {
         self.unread_counts
+    }
+
+    /// The cancelled marks at or below one folder, 0 for a folder with none.
+    pub(crate) fn cancelled_at_or_below(&self, item_no: u32) -> u32 {
+        self.cancelled_below
+            .binary_search_by_key(&item_no, |entry| entry.0)
+            .ok()
+            .and_then(|at| self.cancelled_below.get(at))
+            .map_or(0, |entry| entry.1)
     }
 
     pub(crate) fn boundary(&self, item_no: u32) -> Option<BoundaryKind> {
