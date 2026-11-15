@@ -251,6 +251,35 @@ fn sealed_missing_without_a_gap_keeps_every_folder_missing() -> Test {
 }
 
 #[test]
+#[ignore = "replacement gap coverage is not yet established; see PR #102"]
+fn replacement_gap_does_not_prove_other_folders_are_complete() -> Test {
+    let sink = IngestSink::default();
+    let lineage = sink
+        .bind_current_analysis("replacement-gap", id(4)?)
+        .map_err(e)?;
+    let mut original = sink
+        .open_forest_in_lineage(id(1)?, vec![root(b"/r", 1)], lineage)
+        .map_err(e)?;
+    dir(&mut original, 0, &[])?;
+    let base = original
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(e)?;
+    let mut replacement = sink.open_replacement(&base).map_err(e)?;
+    dir(&mut replacement, 0, &[])?;
+    dir(&mut replacement, 0, &["gap"])?;
+    dir(&mut replacement, 0, &["other"])?;
+    file(&mut replacement, 0, &["other", "file"], 10, Some(1))?;
+    gap(&mut replacement, 0, &["gap"])?;
+    let result = replacement
+        .seal(id(3)?, ResultCompleteness::Missing)
+        .map_err(e)?;
+    let other = space(&result, "other")?;
+    assert_eq!(other.completeness, ResultCompleteness::Missing);
+    assert_eq!(other.logical.amount, lower(10));
+    Ok(())
+}
+
+#[test]
 fn partial_and_cancelled_versions_stay_version_wide() -> Test {
     let mut b = builder(&[root(b"/r", 1)])?;
     for parts in [&["a"][..], &["a", "bad"], &["s"]] {
