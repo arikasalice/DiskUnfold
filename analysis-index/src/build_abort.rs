@@ -32,6 +32,12 @@ impl BuildHandle {
                 self.baseline.as_ref().map(|entry| entry.result.as_ref()),
             );
             drop(order);
+            if let Some(entry) = &withdrawn {
+                // The withdrawn partial can never be current again; the baseline stays. Retiring
+                // raises no notification and registrations of it already fail as stale, so it
+                // runs outside the publication order.
+                self.events.retire(&entry.result.version_id);
+            }
             drop(withdrawn);
         }
     }

@@ -94,7 +94,9 @@ impl ResultSets {
         if state.used.contains(&id) {
             return Err(PageError::DuplicateId);
         }
-        let result = state.insert(id.clone(), result, Some(key));
+        let (result, evicted) = state.insert(id.clone(), result, Some(key));
+        drop(state);
+        drop(evicted);
         Ok((id.clone(), first_page(id, result, count)))
     }
 }
@@ -257,12 +259,14 @@ impl ResultSets {
                 Err(_) => false,
             }
         };
-        let result = if current {
+        let (result, evicted) = if current {
             state.insert(id.clone(), result, None)
         } else {
             state.used.insert(id.clone());
-            Arc::new(result)
+            (Arc::new(result), None)
         };
+        drop(state);
+        drop(evicted);
         Ok(first_page(id, result, count))
     }
 
@@ -290,14 +294,18 @@ impl ResultSets {
         if state.released_sources.contains(version) {
             return Err(PageError::StaleVersion);
         }
-        self.source
+        let (page, evicted) = self
+            .source
             .with_current(&admission.source.version, || {
-                let result = state.insert(id.clone(), result, None);
-                first_page(id, result, count)
+                let (result, evicted) = state.insert(id.clone(), result, None);
+                (first_page(id, result, count), evicted)
             })
             .map_err(|error| match error {
                 QueryError::Unavailable => PageError::Unavailable,
                 _ => PageError::StaleVersion,
-            })
+            })?;
+        drop(state);
+        drop(evicted);
+        Ok(page)
     }
 }
