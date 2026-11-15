@@ -315,12 +315,12 @@ fn rows_cannot_be_updated_and_are_deleted_only_through_the_open_gate() -> TestRe
 }
 
 #[test]
-fn a_busy_database_is_retried_only_a_bounded_number_of_times() -> TestResult {
+fn a_busy_database_is_one_bounded_attempt_that_can_be_called_again() -> TestResult {
     let dir = tempfile::tempdir()?;
     let mut db = installed(&dir)?;
     let other =
         AppDb::open_gui_with_history(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
-    db.connection.busy_timeout(Duration::from_millis(30))?;
+    db.connection.busy_timeout(Duration::from_millis(200))?;
     other.connection.execute_batch("BEGIN IMMEDIATE")?;
     let started = Instant::now();
     let row = observation(1, 1, 1_000);
@@ -328,10 +328,10 @@ fn a_busy_database_is_retried_only_a_bounded_number_of_times() -> TestResult {
         db.append_scope_observation(&row),
         Err(ScopeObservationWriteError::Busy)
     );
-    // Three attempts each waited for the busy timeout, and no fourth was made.
+    // One call waited for the busy timeout once; any retry belongs to the caller.
     let elapsed = started.elapsed();
-    assert!(elapsed >= Duration::from_millis(80), "{elapsed:?}");
-    assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+    assert!(elapsed >= Duration::from_millis(150), "{elapsed:?}");
+    assert!(elapsed < Duration::from_millis(1_000), "{elapsed:?}");
     other.connection.execute_batch("ROLLBACK")?;
     assert_eq!(count(&other)?, 0);
     assert_eq!(
@@ -343,19 +343,19 @@ fn a_busy_database_is_retried_only_a_bounded_number_of_times() -> TestResult {
 }
 
 #[test]
-fn a_lock_released_during_the_attempts_lets_the_append_succeed_once() -> TestResult {
+fn a_lock_released_during_the_wait_lets_the_append_succeed_once() -> TestResult {
     let dir = tempfile::tempdir()?;
     let mut db = installed(&dir)?;
     let other =
         AppDb::open_gui_with_history(&dir.path().join("app.db")).map_err(|e| format!("{e:?}"))?;
-    db.connection.busy_timeout(Duration::from_millis(25))?;
+    db.connection.busy_timeout(Duration::from_secs(5))?;
     other.connection.execute_batch("BEGIN IMMEDIATE")?;
     let holder = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(80));
         other.connection.execute_batch("ROLLBACK")
     });
     let row = observation(1, 1, 1_000);
-    let result = db.append_scope_observation_with(&row, Retention::DEFAULT, 40);
+    let result = db.append_scope_observation(&row);
     holder.join().map_err(|_| "lock holder panicked")??;
     assert_eq!(result, Ok(ScopeObservationAppend::Added));
     assert_eq!(count(&db)?, 1);

@@ -25,12 +25,6 @@ pub const PER_SCOPE_LIMIT: usize = 2_000;
 /// Rows kept across all scopes; older rows are deleted first.
 pub const TOTAL_LIMIT: usize = 100_000;
 
-/// Attempts at one append when SQLite reports a busy database.
-///
-/// Each attempt already waits up to the connection's busy timeout, so no extra
-/// delay is added between attempts.
-pub const APPEND_ATTEMPTS: u32 = 3;
-
 /// The newest row that retention must delete: the first one past the per-scope limit.
 /// It reads at most `per_scope + 1` entries of the scope's index range.
 const CUTOFF_SQL: &str =
@@ -71,31 +65,28 @@ impl AppDb {
     ///
     /// Call through the shared GUI writer of a database upgraded to schema version
     /// seven. This method never creates or upgrades the table. A row for a job that
-    /// already has one is left unchanged and reported as already recorded. A busy
-    /// database is retried [`APPEND_ATTEMPTS`] times in total; every failed attempt
-    /// has rolled back completely, so a retry cannot duplicate a row or a deletion.
+    /// already has one is left unchanged and reported as already recorded.
+    ///
+    /// One call is one attempt and waits at most the connection's busy timeout. A busy
+    /// database is reported as such and the attempt has rolled back completely, so the
+    /// caller may call again without duplicating a row or a deletion. The caller owns
+    /// any retry policy, which leaves the connection free for other writers between
+    /// attempts.
     pub fn append_scope_observation(
         &mut self,
         observation: &ScopeObservation,
     ) -> Result<ScopeObservationAppend, ScopeObservationWriteError> {
-        self.append_scope_observation_with(observation, Retention::DEFAULT, APPEND_ATTEMPTS)
+        self.append_scope_observation_with(observation, Retention::DEFAULT)
     }
 
     pub(crate) fn append_scope_observation_with(
         &mut self,
         observation: &ScopeObservation,
         retention: Retention,
-        attempts: u32,
     ) -> Result<ScopeObservationAppend, ScopeObservationWriteError> {
         let encoded = row::encode(observation).ok_or(ScopeObservationWriteError::Invalid)?;
-        let mut attempt = 1;
-        loop {
-            match self.try_append(&encoded, retention) {
-                Ok(result) => return Ok(result),
-                Err(error) if is_busy(&error) && attempt < attempts => attempt += 1,
-                Err(error) => return Err(write_error(&error)),
-            }
-        }
+        self.try_append(&encoded, retention)
+            .map_err(|error| write_error(&error))
     }
 
     fn try_append(
@@ -185,13 +176,6 @@ fn with_open_gate(
         [],
     )?;
     Ok(())
-}
-
-fn is_busy(error: &rusqlite::Error) -> bool {
-    matches!(
-        error.sqlite_error_code(),
-        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
-    )
 }
 
 fn write_error(error: &rusqlite::Error) -> ScopeObservationWriteError {

@@ -1,16 +1,18 @@
 //! Records one scan-completion observation after a GUI scan ends.
 //!
-//! The row is read from the sealed result alone and written in its own transaction,
-//! after the scan's F24 terminal record. A failure here never changes the scan.
+//! The row is read from the sealed result alone, on the delivery thread at the moment the
+//! job's end arrives, so a result withdrawn or replaced later is not mistaken for current.
+//! The [`writer`] stores it in its own transaction off that thread, after the scan's F24
+//! terminal record. A failure here never changes the scan.
 
 use du_analysis_index::{IngestSink, ObservationSkip, ObservationStamp, SealedScanError};
 use du_core_contracts::{
     Id,
     job::{JobState, JobSummary},
-    scope_observation_log::{
-        ScopeObservationAppend, ScopeObservationLog, ScopeObservationWriteError,
-    },
+    scope_observation_log::{ScopeObservation, ScopeObservationWriteError},
 };
+
+pub(super) mod writer;
 
 /// The kind of job whose completion is recorded.
 const SCAN_KIND: &str = "scan.metadata";
@@ -57,62 +59,55 @@ impl Failure {
     }
 }
 
-/// What happened to one finished job.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Outcome {
-    /// A new row was stored.
-    Recorded,
-    /// The job already had its row.
-    AlreadyRecorded,
+/// What a finished job yields before anything is stored.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Prepared {
+    /// The row to store.
+    Row(Box<ScopeObservation>),
     /// The job leaves no row.
     Skipped(Skip),
-    /// The job should have a row but it was not stored.
+    /// The job should have a row but it could not be made.
     Failed(Failure),
 }
 
-/// Records the observation of a finished job, if it has one.
+/// Makes the observation row of a finished job, if it has one.
 ///
 /// Only a GUI scan that ended done or partial with a sealed, still-current, real result
-/// that has a collector observation time is recorded. The caller supplies the row identity
-/// and the write time.
-pub(crate) fn record(
+/// that has a collector observation time has a row. This reads the result store and never
+/// the database, so the delivery thread may call it. The caller supplies the row identity
+/// and its creation time.
+pub(crate) fn prepare(
     store: &IngestSink,
-    log: &dyn ScopeObservationLog,
     summary: &JobSummary,
     observation_id: Id,
     created_at_ms: i64,
-) -> Outcome {
+) -> Prepared {
     if summary.kind_id != SCAN_KIND {
-        return Outcome::Skipped(Skip::NotScan);
+        return Prepared::Skipped(Skip::NotScan);
     }
     let Some(version) = summary
         .result_version_id
         .as_ref()
         .filter(|_| matches!(summary.state, JobState::Done | JobState::Partial))
     else {
-        return Outcome::Skipped(Skip::NoSealedResult);
+        return Prepared::Skipped(Skip::NoSealedResult);
     };
     let result = match store.sealed_scan_result(version) {
         Ok(result) => result,
-        Err(SealedScanError::NotCurrent) => return Outcome::Skipped(Skip::Withdrawn),
-        Err(SealedScanError::NotSealed) => return Outcome::Skipped(Skip::NoSealedResult),
-        Err(SealedScanError::Unavailable) => return Outcome::Failed(Failure::ResultStore),
+        Err(SealedScanError::NotCurrent) => return Prepared::Skipped(Skip::Withdrawn),
+        Err(SealedScanError::NotSealed) => return Prepared::Skipped(Skip::NoSealedResult),
+        Err(SealedScanError::Unavailable) => return Prepared::Failed(Failure::ResultStore),
     };
     let stamp = ObservationStamp {
         observation_id,
         job_id: summary.job_id.clone(),
         created_at_ms,
     };
-    let row = match result.scope_observation(stamp) {
-        Ok(row) => row,
-        Err(ObservationSkip::NotRealSource) => return Outcome::Skipped(Skip::SampleSource),
-        Err(ObservationSkip::NoObservedAt) => return Outcome::Skipped(Skip::NoObservedAt),
-        Err(other) => return Outcome::Failed(Failure::Conversion(other)),
-    };
-    match log.append(&row) {
-        Ok(ScopeObservationAppend::Added) => Outcome::Recorded,
-        Ok(ScopeObservationAppend::AlreadyRecorded) => Outcome::AlreadyRecorded,
-        Err(error) => Outcome::Failed(Failure::Store(error)),
+    match result.scope_observation(stamp) {
+        Ok(row) => Prepared::Row(Box::new(row)),
+        Err(ObservationSkip::NotRealSource) => Prepared::Skipped(Skip::SampleSource),
+        Err(ObservationSkip::NoObservedAt) => Prepared::Skipped(Skip::NoObservedAt),
+        Err(other) => Prepared::Failed(Failure::Conversion(other)),
     }
 }
 

@@ -70,7 +70,7 @@ pub struct ScopeObservation {
     pub allocated: ObservedSize,
     /// Unique physical size of the scope.
     pub unique_physical: ObservedSize,
-    /// Time the row was written, in Unix milliseconds.
+    /// Time the row was made, in Unix milliseconds. A queued row can be stored later.
     pub created_at_ms: i64,
 }
 
@@ -88,7 +88,8 @@ pub enum ScopeObservationAppend {
 pub enum ScopeObservationWriteError {
     /// A value cannot be stored, for example a byte count of 2^63 or more.
     Invalid,
-    /// The database stayed locked through every bounded attempt.
+    /// The database stayed locked for the connection's busy timeout. The attempt rolled
+    /// back; the caller may try the same row again.
     Busy,
     /// The filesystem is full.
     DiskFull,

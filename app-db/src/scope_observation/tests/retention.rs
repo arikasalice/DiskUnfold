@@ -29,7 +29,6 @@ fn append(db: &mut AppDb, job: u64, scope: u16, at: i64) -> TestResult {
 #[test]
 fn the_limits_are_the_published_constants() {
     assert_eq!((PER_SCOPE_LIMIT, TOTAL_LIMIT), (2_000, 100_000));
-    assert_eq!(APPEND_ATTEMPTS, 3);
 }
 
 #[test]
@@ -126,7 +125,7 @@ fn a_failure_inside_the_trim_rolls_back_the_new_row_and_the_deletions() -> TestR
         total: 100,
     };
     for (job, at) in [(1, 100), (2, 200), (3, 300)] {
-        db.append_scope_observation_with(&observation(job, 1, at), small, 1)
+        db.append_scope_observation_with(&observation(job, 1, at), small)
             .map_err(|e| format!("{e:?}"))?;
     }
     let before = db
@@ -134,7 +133,7 @@ fn a_failure_inside_the_trim_rolls_back_the_new_row_and_the_deletions() -> TestR
         .map_err(|e| format!("{e:?}"))?;
     block_gate_close(&db)?;
     assert_eq!(
-        db.append_scope_observation_with(&observation(4, 1, 400), small, 1),
+        db.append_scope_observation_with(&observation(4, 1, 400), small),
         Err(ScopeObservationWriteError::Storage)
     );
     // The row is absent, the deleted row is back and the gate is still closed.
@@ -146,7 +145,7 @@ fn a_failure_inside_the_trim_rolls_back_the_new_row_and_the_deletions() -> TestR
     db.connection
         .execute_batch("DROP TRIGGER block_gate_close")?;
     assert_eq!(
-        db.append_scope_observation_with(&observation(4, 1, 400), small, 1),
+        db.append_scope_observation_with(&observation(4, 1, 400), small),
         Ok(ScopeObservationAppend::Added)
     );
     assert_eq!(range(&db, 1)?, (3, 200, 400));
@@ -162,12 +161,12 @@ fn a_failure_in_the_total_trim_rolls_back_too() -> TestResult {
         total: 2,
     };
     for (job, scope, at) in [(1, 1, 100), (2, 2, 200)] {
-        db.append_scope_observation_with(&observation(job, scope, at), small, 1)
+        db.append_scope_observation_with(&observation(job, scope, at), small)
             .map_err(|e| format!("{e:?}"))?;
     }
     block_gate_close(&db)?;
     assert_eq!(
-        db.append_scope_observation_with(&observation(3, 3, 300), small, 1),
+        db.append_scope_observation_with(&observation(3, 3, 300), small),
         Err(ScopeObservationWriteError::Storage)
     );
     assert_eq!(count(&db)?, 2);

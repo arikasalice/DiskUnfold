@@ -201,7 +201,11 @@ fn register_services_inner(
         },
     )?);
     let workers = Arc::new(Workers::start(runtime.clone())?);
-    builder.on_shutdown_hooks(shutdown::hooks(runtime.clone(), workers.clone()));
+    builder.on_shutdown_hooks(shutdown::hooks(
+        runtime.clone(),
+        workers.clone(),
+        scan_events.clone(),
+    ));
     scope::register_review(builder, roots.clone(), clock.clone());
     targets::register_with_probe(
         builder,

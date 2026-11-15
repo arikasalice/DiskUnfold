@@ -3,13 +3,22 @@ use du_analysis_index::{SampleSessionKey, ScopeHeader};
 use du_core_contracts::{
     PathBytes, PathEncoding, Timestamp,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead},
-    scope_observation_log::ScopeObservation,
+    scope_observation_log::{ScopeObservationAppend, ScopeObservationLog},
 };
 use std::sync::Mutex;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const HEX: &str = "00ff10abcdef0123456789abcdef0123456789abcdef0123456789abcdef9a5c";
+
+/// What one finished job comes to when its row is stored by a single, direct append.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outcome {
+    Recorded,
+    AlreadyRecorded,
+    Skipped(Skip),
+    Failed(Failure),
+}
 
 #[derive(Default)]
 struct Log {
@@ -128,7 +137,15 @@ fn seal(
 }
 
 fn run(sink: &IngestSink, log: &Log, summary: &JobSummary) -> Result<Outcome, String> {
-    Ok(record(sink, log, summary, id(500)?, 42))
+    Ok(match prepare(sink, summary, id(500)?, 42) {
+        Prepared::Skipped(skip) => Outcome::Skipped(skip),
+        Prepared::Failed(failure) => Outcome::Failed(failure),
+        Prepared::Row(row) => match log.append(&row) {
+            Ok(ScopeObservationAppend::Added) => Outcome::Recorded,
+            Ok(ScopeObservationAppend::AlreadyRecorded) => Outcome::AlreadyRecorded,
+            Err(error) => Outcome::Failed(Failure::Store(error)),
+        },
+    })
 }
 
 #[test]
