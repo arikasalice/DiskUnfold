@@ -160,3 +160,150 @@ fn a_real_scan_feeds_the_treemap_and_its_rows_the_same_totals() -> Result<(), Fa
     assert_eq!(logical["size"]["bytes"], "53");
     Ok(())
 }
+
+/// A flat folder of files with different sizes; the ranked bar needs file children only.
+fn flat_folder() -> Result<tempfile::TempDir, Failure> {
+    let folder = tempfile::tempdir()?;
+    fs::write(folder.path().join("a.bin"), vec![0_u8; 17])?;
+    fs::write(folder.path().join("b.bin"), vec![0_u8; 31])?;
+    fs::write(folder.path().join("c.bin"), vec![0_u8; 5])?;
+    Ok(folder)
+}
+
+/// Renders `format` on a view channel of its own, because request numbers count per channel.
+fn render_model(assembled: &Assembled, revision: &Id, format: &str) -> Result<Value, Failure> {
+    let view = ok(&assembled.engine, "viz.view.open", json!({}))?["viewChannel"].clone();
+    let answer = render_settled(assembled, &view, revision, format)?;
+    assert_eq!(answer["kind"], "model", "{format}: {answer}");
+    Ok(answer["model"].clone())
+}
+
+fn rows_page(
+    assembled: &Assembled,
+    model: &Value,
+    revision: &Id,
+    start: u32,
+    count: u32,
+) -> Result<Value, Failure> {
+    ok(
+        &assembled.engine,
+        "viz.rows",
+        json!({
+            "modelRef": model["modelRef"], "resultRevision": revision,
+            "start": start, "count": count,
+        }),
+    )
+}
+
+fn byte_count(value: &Value) -> Result<u64, Failure> {
+    Ok(value.as_str().ok_or("not a decimal string")?.parse()?)
+}
+
+fn locate(assembled: &Assembled, model: &Value, item: &Value) -> Result<Value, Failure> {
+    ok(
+        &assembled.engine,
+        "viz.locate",
+        json!({"modelRef": model["modelRef"], "itemRef": item}),
+    )
+}
+
+/// An item number that no scan of the test folder produces.
+fn unknown_item(revision: &Id) -> Value {
+    json!({"resultVersion": revision, "itemNo": 99})
+}
+
+#[test]
+fn treemap_and_bar_rows_and_locations_come_from_the_rendered_model() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let folder = flat_folder()?;
+    let revision = scan(&assembled, folder.path())?;
+    for format in ["treemap", "bar"] {
+        let model = render_model(&assembled, &revision, format)?;
+        let page = rows_page(&assembled, &model, &revision, 0, 100)?;
+        let rows = page["rows"].as_array().ok_or("rows are not a list")?;
+        assert_eq!(page["totalCount"], 3, "{format}");
+        // The sibling sizes differ, so the order is the size order.
+        let sizes = rows
+            .iter()
+            .map(|row| byte_count(&row["size"]["bytes"]))
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(sizes, [31, 17, 5], "{format}");
+        assert_eq!(
+            byte_count(&model["totals"]["scope"]["quantity"]["value"])?,
+            53,
+            "{format}"
+        );
+        // A later page is the same row the first page listed at that position.
+        let later = rows_page(&assembled, &model, &revision, 1, 1)?;
+        assert_eq!(later["rows"], json!([rows.get(1)]), "{format}");
+        // Every listed item is found on the drawn shape that carries its reference.
+        let shapes = model["shapes"].as_array().ok_or("shapes are not a list")?;
+        for row in rows {
+            let located = locate(&assembled, &model, &row["itemRef"])?;
+            assert_eq!(located["location"], "shape", "{format}");
+            let index = usize::try_from(located["shapeIndex"].as_u64().ok_or("no shape index")?)?;
+            let shape = shapes.get(index).ok_or("shape index out of range")?;
+            assert_eq!(shape["itemRef"], row["itemRef"], "{format}");
+        }
+        let missing = locate(&assembled, &model, &unknown_item(&revision));
+        assert_eq!(
+            missing.err().map(|error| error.to_string()).as_deref(),
+            Some("viz.locate: ref.unavailable"),
+            "{format}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn histogram_interval_rows_and_their_members_add_up_to_the_scope_total() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let folder = flat_folder()?;
+    let revision = scan(&assembled, folder.path())?;
+    let model = render_model(&assembled, &revision, "histogram")?;
+    let page = rows_page(&assembled, &model, &revision, 0, 100)?;
+    let rows = page["rows"].as_array().ok_or("rows are not a list")?;
+    assert!(!rows.is_empty());
+    assert_eq!(page["totalCount"], rows.len());
+    // A row stands for an interval: it has a group reference and no item reference.
+    assert!(
+        rows.iter()
+            .all(|row| !row["groupRef"].is_null() && row["itemRef"].is_null())
+    );
+    let mut total = 0;
+    for row in rows {
+        total += byte_count(&row["quantity"]["value"])?;
+    }
+    assert_eq!(total, 53);
+    assert_eq!(
+        byte_count(&model["totals"]["scope"]["quantity"]["value"])?,
+        53
+    );
+    // The three files are the members of the one interval that holds bytes.
+    let holding = rows
+        .iter()
+        .find(|row| row["quantity"]["value"] == "53")
+        .ok_or("no interval holds the files")?;
+    let members = ok(
+        &assembled.engine,
+        "viz.group_rows",
+        json!({
+            "modelRef": model["modelRef"], "groupRef": holding["groupRef"],
+            "start": 0, "count": 10,
+        }),
+    )?;
+    let listed = members["rows"].as_array().ok_or("members are not a list")?;
+    let mut sizes = listed
+        .iter()
+        .map(|row| byte_count(&row["size"]["bytes"]))
+        .collect::<Result<Vec<_>, _>>()?;
+    sizes.sort_unstable();
+    assert_eq!(sizes, [5, 17, 31]);
+    assert!(listed.iter().all(|row| !row["itemRef"].is_null()));
+    let missing = locate(&assembled, &model, &unknown_item(&revision));
+    assert_eq!(
+        missing.err().map(|error| error.to_string()).as_deref(),
+        Some("viz.locate: ref.unavailable")
+    );
+    Ok(())
+}
