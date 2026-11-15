@@ -1,10 +1,11 @@
-//! Real scans of temporary folders that hold a link or an unreadable folder, drawn on
-//! the logical basis through the assembled engine.
+//! Real scans of temporary folders that hold a link or an unreadable folder, drawn on the
+//! logical and on the allocated basis through the assembled engine.
 //!
 //! A link that was not followed, and a range that could not be read, each leave a value
 //! without bytes, so the F03 value above it is not a plain exact value. The treemap
-//! draws such a scope instead of falling back to the table. The allocated basis is added
-//! once the allocated attribution change is in this tree.
+//! draws such a scope instead of falling back to the table. A scan records no
+//! extent-sharing evidence, so the allocated basis is attributed by file identity and
+//! link count alone; each scan below is checked on both bases.
 //!
 //! Windows only: the links are junctions made with mklink, and the unreadable folder is
 //! made with an ACL. A fixture that cannot be made is reported on stderr and skipped.
@@ -22,6 +23,9 @@ use serde_json::{Value, json};
 use super::{Assembled, Failure, assemble, ok};
 
 const LOWER_BOUND_FLAG: &str = "viz.flag.lower_bound";
+
+/// The size bases a treemap is drawn on. Each scan is rendered once on each.
+const BASES: [&str; 2] = ["logical", "allocated"];
 
 fn native(path: &Path) -> Value {
     use std::os::windows::ffi::OsStrExt;
@@ -73,15 +77,15 @@ fn scan(assembled: &Assembled, folder: &Path) -> Result<Id, Failure> {
     Ok(event.result_version.ok_or("missing result revision")?)
 }
 
-/// Renders the treemap of one folder of the scan on the logical basis.
-fn render(assembled: &Assembled, revision: &Id, item: u64) -> Result<Value, Failure> {
+/// Renders the treemap of one folder of the scan on `basis`.
+fn render(assembled: &Assembled, revision: &Id, item: u64, basis: &str) -> Result<Value, Failure> {
     let view = ok(&assembled.engine, "viz.view.open", json!({}))?["viewChannel"].clone();
     let scope = json!({"resultVersion": revision, "itemNo": item});
     let request = |seq: u32| {
         json!({
             "viewChannel": view, "requestSeq": seq, "format": "treemap", "resultRevision": revision,
             "aggregateScopeRef": scope, "navigationScopeRef": scope,
-            "measure": "size", "sizeBasis": "logical",
+            "measure": "size", "sizeBasis": basis,
             "classificationCriterion": "none", "colorCriterion": "none",
             "denominatorBasis": "scope", "viewport": {"width": 800, "height": 600, "scale": 1.0},
             "visibleWindow": {"left": 0, "top": 0, "right": 1_000_000, "bottom": 1_000_000},
@@ -137,8 +141,13 @@ fn count(model: &Value, name: &str) -> Result<u64, Failure> {
     number(&model["summary"][name]["value"])
 }
 
-/// The F03 total of the scanned folder on the logical basis.
-fn space_total(assembled: &Assembled, revision: &Id, item: u64) -> Result<u64, Failure> {
+/// The F03 total of one folder of the scan on `basis`.
+fn space_total(
+    assembled: &Assembled,
+    revision: &Id,
+    item: u64,
+    basis: &str,
+) -> Result<u64, Failure> {
     let space = ok(
         &assembled.engine,
         "space.total",
@@ -149,12 +158,8 @@ fn space_total(assembled: &Assembled, revision: &Id, item: u64) -> Result<u64, F
     )?;
     let entry = space["sizes"]
         .as_array()
-        .and_then(|sizes| {
-            sizes
-                .iter()
-                .find(|entry| entry["size"]["basis"] == "logical")
-        })
-        .ok_or("no logical total")?;
+        .and_then(|sizes| sizes.iter().find(|entry| entry["size"]["basis"] == basis))
+        .ok_or("no total on this basis")?;
     number(&entry["size"]["bytes"])
 }
 
@@ -182,7 +187,7 @@ fn junction(link: &Path, target: &Path) -> Result<bool, Failure> {
 // FR5.HD1 is to be revised so that it stays exact and the link is an exact zero. This test
 // holds for both: it asserts what the treemap does with a link and never the value state
 // of the folder above it, except that the mark on a shape agrees with the state of its
-// own row.
+// own row. It holds on the logical and on the allocated basis.
 #[test]
 fn a_real_scan_with_junctions_draws_the_siblings_and_gives_each_link_no_area() -> Result<(), Failure>
 {
@@ -203,37 +208,65 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_gives_each_link_no_area() -
     }
     let assembled = assemble()?;
     let revision = scan(&assembled, root.path())?;
+    for basis in BASES {
+        check_junction_scope(&assembled, &revision, basis)?;
+    }
+    Ok(())
+}
 
-    let answer = render(&assembled, &revision, 0)?;
-    assert_eq!(answer["kind"], "model", "{answer}");
+fn check_junction_scope(assembled: &Assembled, revision: &Id, basis: &str) -> Result<(), Failure> {
+    let answer = render(assembled, revision, 0, basis)?;
+    assert_eq!(answer["kind"], "model", "{basis}: {answer}");
     let model = &answer["model"];
     // The three siblings that have bytes are drawn; the link beside them has no area. It
     // is an item without a value, which the summary counts, or an exact zero (FR5.HD1
     // revised), which has no area either.
-    assert_eq!(model["shapes"].as_array().map(Vec::len), Some(3), "{model}");
-    let rows = rows_of(&assembled, &answer)?;
-    assert_eq!(rows["totalCount"], 4);
+    let shapes = model["shapes"].as_array().map(Vec::len);
+    assert_eq!(shapes, Some(3), "{basis}: {model}");
+    let rows = rows_of(assembled, &answer)?;
+    assert_eq!(rows["totalCount"], 4, "{basis}");
     let link = row(&rows, "toplink")?;
     let without_value = link["size"]["state"] == "unknown";
-    assert!(without_value || (link["size"]["state"] == "exact" && link["size"]["bytes"] == "0"));
-    assert_eq!(count(model, "unknownItems")?, u64::from(without_value));
-    assert!(shape_of(model, &link["itemRef"]["itemNo"]).is_err());
+    assert!(
+        without_value || (link["size"]["state"] == "exact" && link["size"]["bytes"] == "0"),
+        "{basis}: {link}"
+    );
+    assert_eq!(
+        count(model, "unknownItems")?,
+        u64::from(without_value),
+        "{basis}"
+    );
+    assert!(
+        shape_of(model, &link["itemRef"]["itemNo"]).is_err(),
+        "{basis}"
+    );
     for name in ["clean", "plain.bin", "holder"] {
-        assert_ne!(row(&rows, name)?["size"]["state"], "unknown", "{name}");
+        assert_ne!(
+            row(&rows, name)?["size"]["state"],
+            "unknown",
+            "{basis}: {name}"
+        );
     }
     // The scope is the F03 value, and the link adds no bytes to what is drawn.
     let scope = number(&model["totals"]["scope"]["quantity"]["value"])?;
-    assert_eq!(scope, space_total(&assembled, &revision, 0)?);
-    assert_eq!(scope, 60_000);
+    assert_eq!(
+        scope,
+        space_total(assembled, revision, 0, basis)?,
+        "{basis}"
+    );
+    if basis == "logical" {
+        assert_eq!(scope, 60_000);
+    }
     let drawn = number(&model["totals"]["drawn"]["quantity"]["value"])?;
-    assert_eq!(drawn, scope);
+    assert_eq!(drawn, scope, "{basis}");
     // A folder without a link is exact and unmarked; the mark of the folder above a link
     // follows the state of its row.
     let clean = row(&rows, "clean")?;
-    assert_eq!(clean["size"]["state"], "exact");
+    assert_eq!(clean["size"]["state"], "exact", "{basis}");
     assert_eq!(
         shape_of(model, &clean["itemRef"]["itemNo"])?["displayFlags"],
-        json!([])
+        json!([]),
+        "{basis}"
     );
     let holder = row(&rows, "holder")?;
     let marked = holder["size"]["state"] == "lower_bound";
@@ -243,18 +276,25 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_gives_each_link_no_area() -
             json!([LOWER_BOUND_FLAG])
         } else {
             json!([])
-        }
+        },
+        "{basis}"
     );
+    let holder_item = holder["itemRef"]["itemNo"].as_u64().ok_or("no item")?;
+    check_inside_the_holder(assembled, revision, holder_item, basis)
+}
 
-    // Inside the folder that holds a link, the file is drawn and the link has no shape.
-    let inner = render(
-        &assembled,
-        &revision,
-        holder["itemRef"]["itemNo"].as_u64().ok_or("no item")?,
-    )?;
-    assert_eq!(inner["kind"], "model", "{inner}");
-    assert_eq!(inner["model"]["shapes"].as_array().map(Vec::len), Some(1));
-    let inner_rows = rows_of(&assembled, &inner)?;
+/// Inside the folder that holds a link, the file is drawn and the link has no shape.
+fn check_inside_the_holder(
+    assembled: &Assembled,
+    revision: &Id,
+    holder: u64,
+    basis: &str,
+) -> Result<(), Failure> {
+    let inner = render(assembled, revision, holder, basis)?;
+    assert_eq!(inner["kind"], "model", "{basis}: {inner}");
+    let shapes = inner["model"]["shapes"].as_array().map(Vec::len);
+    assert_eq!(shapes, Some(1), "{basis}");
+    let inner_rows = rows_of(assembled, &inner)?;
     let without_value = inner_rows["rows"].as_array().map_or(0, |rows| {
         rows.iter()
             .filter(|row| row["size"]["state"] == "unknown")
@@ -262,7 +302,8 @@ fn a_real_scan_with_junctions_draws_the_siblings_and_gives_each_link_no_area() -
     });
     assert_eq!(
         count(&inner["model"], "unknownItems")?,
-        without_value as u64
+        without_value as u64,
+        "{basis}"
     );
     Ok(())
 }
@@ -301,7 +342,7 @@ impl Drop for Denied<'_> {
 // FR5.HD1 is applied per folder. The treemap draws the scope instead of falling back to the
 // table, names the range's own reason, and carries each value's state; this test holds for
 // both, so it asserts that the marks and the totals follow the rows, never which rows are
-// lower bounds.
+// lower bounds. It holds on the logical and on the allocated basis.
 #[test]
 fn a_real_scan_with_an_unreadable_folder_draws_the_scope_and_names_the_reason()
 -> Result<(), Failure> {
@@ -334,24 +375,52 @@ fn a_real_scan_with_an_unreadable_folder_draws_the_scope_and_names_the_reason()
         eprintln!("skipped: the scan was able to read the folder that was denied");
         return Ok(());
     }
+    for basis in BASES {
+        check_unreadable_scope(&assembled, &revision, basis)?;
+    }
+    Ok(())
+}
 
-    let answer = render(&assembled, &revision, 0)?;
-    assert_eq!(answer["kind"], "model", "{answer}");
+fn check_unreadable_scope(
+    assembled: &Assembled,
+    revision: &Id,
+    basis: &str,
+) -> Result<(), Failure> {
+    let answer = render(assembled, revision, 0, basis)?;
+    assert_eq!(answer["kind"], "model", "{basis}: {answer}");
     let model = &answer["model"];
     // The two readable siblings are drawn, the unreadable one has no value and no area.
-    assert_eq!(model["shapes"].as_array().map(Vec::len), Some(2), "{model}");
-    assert_eq!(count(model, "unknownItems")?, 1);
-    assert_eq!(model["summary"]["reasonKeys"], json!(["scan.path_denied"]));
-    let rows = rows_of(&assembled, &answer)?;
-    assert_eq!(row(&rows, "locked")?["size"]["state"], "unknown");
+    let shapes = model["shapes"].as_array().map(Vec::len);
+    assert_eq!(shapes, Some(2), "{basis}: {model}");
+    assert_eq!(count(model, "unknownItems")?, 1, "{basis}");
+    assert_eq!(
+        model["summary"]["reasonKeys"],
+        json!(["scan.path_denied"]),
+        "{basis}"
+    );
+    let rows = rows_of(assembled, &answer)?;
+    assert_eq!(row(&rows, "locked")?["size"]["state"], "unknown", "{basis}");
     // The unreadable folder is directly under the scope, so the scope is a lower bound.
-    assert_eq!(model["totals"]["scope"]["quantity"]["state"], "lower_bound");
+    assert_eq!(
+        model["totals"]["scope"]["quantity"]["state"], "lower_bound",
+        "{basis}"
+    );
     let scope = number(&model["totals"]["scope"]["quantity"]["value"])?;
-    assert_eq!(scope, space_total(&assembled, &revision, 0)?);
-    assert_eq!(scope, 50_000);
+    assert_eq!(
+        scope,
+        space_total(assembled, revision, 0, basis)?,
+        "{basis}"
+    );
+    if basis == "logical" {
+        assert_eq!(scope, 50_000);
+    }
     let drawn = number(&model["totals"]["drawn"]["quantity"]["value"])?;
-    assert_eq!(drawn, 50_000);
-    // The mark of each shape and the state of the drawn total follow the rows they come from.
+    assert_eq!(drawn, scope, "{basis}");
+    check_marks_follow_rows(model, &rows, basis)
+}
+
+/// The mark of each shape and the state of the drawn total follow the rows they come from.
+fn check_marks_follow_rows(model: &Value, rows: &Value, basis: &str) -> Result<(), Failure> {
     let mut any_lower = false;
     for shape in model["shapes"].as_array().ok_or("no shapes")? {
         let own = rows["rows"]
@@ -366,12 +435,14 @@ fn a_real_scan_with_an_unreadable_folder_draws_the_scope_and_names_the_reason()
                 json!([LOWER_BOUND_FLAG])
             } else {
                 json!([])
-            }
+            },
+            "{basis}"
         );
     }
     assert_eq!(
         model["totals"]["drawn"]["quantity"]["state"] == "lower_bound",
-        any_lower
+        any_lower,
+        "{basis}"
     );
     Ok(())
 }
