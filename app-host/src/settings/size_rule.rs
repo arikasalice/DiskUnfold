@@ -47,12 +47,17 @@ impl StartupSettings {
     /// unreadable service yields [`DEFAULT_SIZE_RULE_ID`].
     pub(crate) fn size_rule_source(self: Arc<Self>) -> SizeRuleSource {
         Arc::new(move || {
-            let stored = self
+            self
                 .service
                 .lock()
                 .ok()
-                .and_then(|service| service.snapshot().values.get(AGGREGATION_RULE).cloned());
-            resolve(stored.as_ref(), &self.size_rule_ids)
+                .map(|service| {
+                    resolve(
+                        service.snapshot().values.get(AGGREGATION_RULE),
+                        &self.size_rule_ids,
+                    )
+                })
+                .unwrap_or_else(|| DEFAULT_SIZE_RULE_ID.to_owned())
         })
     }
 }

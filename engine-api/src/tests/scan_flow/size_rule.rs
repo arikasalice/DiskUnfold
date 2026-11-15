@@ -1,10 +1,6 @@
 //! The size aggregation rule is pinned once, when an analysis starts (F03 FR14.HD2.app-host.DD3).
 use super::*;
-use crate::size_rule::{
-    DEFAULT_SIZE_RULE_ID, SizeRuleRegistryBuilder, SizeRuleSource, SizeRules,
-    register_default_size_rules,
-};
-use du_analysis_index::SizeRuleIdentity;
+use crate::size_rule::{DEFAULT_SIZE_RULE_ID, SizeRuleSource};
 use std::sync::atomic::AtomicUsize;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -141,45 +137,39 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
     Ok(())
 }
 
-/// A registry with the default rule and a second identity of the same implementation.
-fn two_rules(source: SizeRuleSource, other: &'static str) -> Result<SizeRules, String> {
-    let mut builder = SizeRuleRegistryBuilder::new();
-    register_default_size_rules(&mut builder).map_err(|error| error.to_string())?;
-    builder
-        .register_test_alias(SizeRuleIdentity {
-            id: other,
-            revision: 1,
-        })
-        .map_err(|error| format!("{error:?}"))?;
-    SizeRules::assemble(builder, source).map_err(|error| error.to_string())
-}
-
 #[test]
 fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResult {
-    const OTHER: &str = "size.agg.test-alias";
-    // The first start names the default rule; the source names another registered rule
-    // from then on.
-    let (source, reads) = scripted(&[DEFAULT_SIZE_RULE_ID, OTHER]);
+    let (source, reads) = scripted(&[
+        DEFAULT_SIZE_RULE_ID,
+        DEFAULT_SIZE_RULE_ID,
+        "size.agg.nope",
+    ]);
     let ScanHarness {
         engine,
         release,
         terminal,
         versions,
         ..
-    } = fixture::scan_harness_with_size_rules(two_rules(source, OTHER)?)?;
+    } = fixture::scan_harness_with_size_rule_source(source)?;
     let draft = draft();
     let fingerprint = review_fingerprint(&engine, &draft)?;
     let receipt: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
     assert!(!receipt.existing);
     assert_eq!(reads.load(Ordering::SeqCst), 1);
 
-    // The scan is still running, so the same scope returns it and discards the rule the
-    // changed source now names.
+    // The scan is still running, so the same scope returns the existing job.
     let duplicate: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
     assert!(duplicate.existing);
     assert_eq!(duplicate.job_ref, receipt.job_ref);
     assert_eq!(duplicate.scope_version, receipt.scope_version);
     assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+    // An unregistered changed value is rejected before deduplication is checked.
+    let rejected = start(&engine, &draft, &fingerprint)?;
+    let error = rejected.error.ok_or("an unknown rule was admitted")?;
+    assert_eq!(error.code, du_core_contracts::ErrorCode::InvalidArgument);
+    assert_eq!(error.reason_key, "space.rule_unknown");
+    assert_eq!(reads.load(Ordering::SeqCst), 3);
 
     release.send(())?;
     let (summary, _) = scan_finished(&terminal)?;
@@ -190,17 +180,13 @@ fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResul
     assert_eq!(version.size_rule().id, DEFAULT_SIZE_RULE_ID);
     assert_eq!(version.size_rule().revision, 1);
 
-    // Once the scan is sealed, the next start applies the changed source.
-    let next: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
-    assert!(!next.existing);
-    assert_ne!(next.job_ref, receipt.job_ref);
-    release.send(())?;
-    let (summary, _) = scan_finished(&terminal)?;
-    assert_eq!(summary.job_id, next.job_ref);
-    let version = versions
-        .pin_current(&summary.result_version_id.ok_or("missing version")?)
-        .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(version.size_rule().id, OTHER);
+    // Once sealed, the changed unregistered value is still rejected.
+    let rejected = start(&engine, &draft, &fingerprint)?;
+    assert_eq!(
+        rejected.error.ok_or("the changed rule was admitted")?.reason_key,
+        "space.rule_unknown"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 4);
     Ok(())
 }
 

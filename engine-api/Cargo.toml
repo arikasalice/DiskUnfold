@@ -23,6 +23,3 @@ uuid = { workspace = true, features = ["v7"] }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-du-analysis-index = { version = "0.0.1", path = "../analysis-index", features = ["test-support"] }

@@ -41,7 +41,7 @@ impl BoundSizeRule {
     }
 
     /// Binds an implementation under a different registered identity, for tests.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     pub(crate) const fn bind_as(identity: SizeRuleIdentity, rule: RegisteredRule) -> Self {
         Self { identity, rule }
     }

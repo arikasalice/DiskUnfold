@@ -68,24 +68,6 @@ impl SizeRuleRegistryBuilder {
         }
     }
 
-    /// Registers the implemented subtree rule under a second identity.
-    ///
-    /// Only tests of other crates use it, to select between two registered rules
-    /// before a real second rule exists.
-    ///
-    /// # Errors
-    /// Returns [`SizeRuleRegistryError::DuplicateRule`] if `identity` is registered.
-    #[cfg(feature = "test-support")]
-    pub fn register_test_alias(
-        &mut self,
-        identity: SizeRuleIdentity,
-    ) -> Result<(), SizeRuleRegistryError> {
-        self.register(BoundSizeRule::bind_as(
-            identity,
-            crate::aggregation_rule::RegisteredRule::SubtreeUnique,
-        ))
-    }
-
     fn position(&self, identity: SizeRuleIdentity) -> Result<usize, usize> {
         self.rules
             .binary_search_by(|rule| rule.identity().cmp(&identity))
