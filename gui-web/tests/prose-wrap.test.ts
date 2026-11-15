@@ -83,6 +83,15 @@ test("a size with its unit or a date with its time never wraps inside", () => {
   expect(declared(".du-unbroken", "white-space")).toEqual(["nowrap"]);
 });
 
+test("the folder list keeps room for one unbroken size or time per column", () => {
+  // Without a minimum the fractional tracks let an unbroken value spill into
+  // the next column of a narrow table.
+  const [columns] = declared(".du-browse-grid__row", "grid-template-columns");
+  expect(columns).toBe(
+    "minmax(0, 32fr) minmax(4.5em, 8fr) repeat(2, minmax(10em, 15fr)) minmax(10em, 16fr) minmax(0, 14fr)",
+  );
+});
+
 test("the history target, a fixed summary from the engine, is prose", () => {
   // engine-api/src/scan.rs writes "metadata: 1 root" or "metadata: N roots",
   // and app-db's valid_scope passes only those, so no user path can appear in
