@@ -671,7 +671,7 @@ F02에 고쳐 달라고 한 문구 세 곳:
 
 바꿀 대상(0.0.1 dda8a23e의 ko.json, 값만 바꾸고 키와 영어는 그대로): ui.analysis.choose_path_or_reopen, reopen_saved_or_select, scan_targets, scan_and_results, issues_region, issues_hide, issues_view, issues_explanation, issues_reading, issues_none, issue_entries, issues_retry, issues_failed, volume_factor_out_of_scope, volume_scan_unavailable, volume_target_outside_scan, volume_response_mismatch, volume_scanned_folder, volume_all_scanned_folders, volume_selected_folder, volume_used_end, volume_scanned_allocation, volume_compare_all. 모두 23개다.
 
-상태 (2026-11-15, 총괄 채택): F02가 소형 PR로 23개 값을 바꾼다. 문구 표는 F02에 보냈다. 병합될 때까지 구현 화면에는 "검사"가 남는다. 이 README의 다른 절이 그때의 구현 문구로 적은 "검사 문제 목록"은 기록으로 두고, 병합 뒤에는 "스캔 문제 목록"으로 읽는다. AIDA 용어 사전에는 "스캔"도 "검사"도 등록돼 있지 않아, F02가 등록하거나 변경 요청으로 올린다. 검수는 분석 화면 Light 한 장으로 줄바꿈만 본다.
+상태 (2026-11-15, 총괄 채택): F02가 소형 PR로 23개 값을 바꾼다. 문구 표는 F02에 보냈다. 병합될 때까지 구현 화면에는 "검사"가 남는다. 이 README의 다른 절이 그때의 구현 문구로 적은 "검사 문제 목록"은 기록으로 두고, 병합 뒤에는 "스캔 문제 목록"으로 읽는다. PR #73은 병합됐다. 용어의 기준은 design/TERMS.md다(사용자 결정으로 AIDA 용어 사전은 쓰지 않는다).
 
 ### 20. 그 뒤의 경과 (2026-11-15 오후)
 
@@ -712,7 +712,7 @@ F05 수정판 확인 (2026-11-15, HLD 작업 판 131, DLD 작업 판 110): 고�
 - 무엇이 안 됐는지와 스캔이 계속된다는 것을 한 줄에 함께 쓴다. 사용자가 먼저 걱정하는 것은 스캔이 깨졌는지다.
 - 전제(F02가 코드로 확인): 이 실패는 요청을 검사하는 단계에서 나오고, 검사가 모두 끝난 뒤에야 우선 영역이 바뀐다. 그래서 실패 뒤에도 스캔 순서와 이전 우선 영역이 그대로다. F02가 초안에 규칙과 시험으로 넣는다. 구현에서 이 시험이 실패하는 경우가 나오면 뒤 구절을 뺀다. 스캔 자체가 실패로 끝났으면 이 알림을 띄우지 않는다.
 
-용어: "분석"은 사용자가 시작하는 일 전체와 그 결과, "스캔"은 그 안에서 파일 정보를 읽어 들이는 과정으로 구분해 쓴다. F02가 용어 사전 등록안에 함께 넣는다(사전은 아직 없다).
+용어: "분석"은 사용자가 시작하는 일 전체와 그 결과, "스캔"은 그 안에서 파일 정보를 읽어 들이는 과정으로 구분해 쓴다. 기준은 design/TERMS.md에 적었다(사용자 결정으로 AIDA 용어 사전은 쓰지 않는다).
 
 ### 23. "분석"과 "스캔"의 구분 (2026-11-15, 용어 정리 2차)
 
