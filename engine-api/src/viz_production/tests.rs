@@ -11,7 +11,7 @@ use du_core_contracts::{
 use serde_json::json;
 use std::sync::Arc;
 
-use super::{ProductionEvidence, UnitTableSource, groups, policy, presentation};
+use super::{ProductionEvidence, UnitTableSource, facts, groups, policy, presentation};
 use crate::{
     api::Channel,
     current_analysis::{CurrentAnalysis, admit_scan},
@@ -266,6 +266,51 @@ fn only_the_none_classification_criterion_is_served() -> TestResult {
             .map_err(|error| format!("{error:?}"))?
             .is_some()
     );
+    Ok(())
+}
+
+#[test]
+fn one_render_request_reads_its_folder_once() -> TestResult {
+    let source = publish(&[(b'a', Some(10)), (b'b', Some(20))])?;
+    let producer = producer(&SI_UNITS);
+    let request = request(policy::COLOR_CRITERION_NONE, "treemap")?;
+    producer
+        .source_policy_facts(&source, &request)
+        .map_err(|error| format!("{error:?}"))?;
+    let rendered = producer
+        .required_data_facts(&source, &request)
+        .map_err(|error| format!("{error:?}"))?;
+    // `viz.availability` asks about the same folder with the logical basis.
+    let scoped = producer
+        .required_data_facts_for_scope(&source, &scope())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(producer.folder_facts.reads(), 1);
+    let direct = facts::scope_facts(&source, &scope(), &SizeBasis::Logical)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(rendered, Some(direct.clone()));
+    assert_eq!(scoped, direct);
+    Ok(())
+}
+
+#[test]
+fn a_different_size_basis_is_read_again_and_not_answered_from_memory() -> TestResult {
+    let source = publish(&[(b'a', Some(10)), (b'b', Some(20))])?;
+    let producer = producer(&SI_UNITS);
+    let logical = request(policy::COLOR_CRITERION_NONE, "treemap")?;
+    let mut allocated = logical.clone();
+    allocated.size_basis = SizeBasis::Allocated;
+    let first = producer
+        .required_data_facts(&source, &logical)
+        .map_err(|error| format!("{error:?}"))?;
+    let second = producer
+        .required_data_facts(&source, &allocated)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(producer.folder_facts.reads(), 2);
+    // The fixture observes logical sizes only, so the two bases give different facts.
+    assert_ne!(first, second);
+    let direct = facts::scope_facts(&source, &scope(), &SizeBasis::Allocated)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(second, Some(direct));
     Ok(())
 }
 
