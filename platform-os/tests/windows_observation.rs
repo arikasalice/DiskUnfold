@@ -98,7 +98,10 @@ fn opens_ntfs_fixture_and_reads_bounded_batches() -> Result<(), Box<dyn std::err
         assert!(batch.len() <= 256);
         batches.push(batch);
     }
-    assert!(batches.len() > 1, "301 entries require multiple nonempty batches");
+    assert!(
+        batches.len() > 1,
+        "301 entries require multiple nonempty batches"
+    );
     let all: Vec<_> = batches.into_iter().flatten().collect();
     assert_eq!(all.len(), 301);
     let expected: std::collections::BTreeSet<_> = (0..300)
@@ -136,8 +139,18 @@ fn opens_ntfs_fixture_and_reads_bounded_batches() -> Result<(), Box<dyn std::err
 fn stable_handle_reads_an_empty_scope() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     let mut directory = open_verified_stable(fixture.path()).map_err(|e| format!("{e:?}"))?;
-    assert!(directory.next_batch().map_err(|e| format!("{e:?}"))?.is_empty());
-    assert!(directory.next_batch().map_err(|e| format!("{e:?}"))?.is_empty());
+    assert!(
+        directory
+            .next_batch()
+            .map_err(|e| format!("{e:?}"))?
+            .is_empty()
+    );
+    assert!(
+        directory
+            .next_batch()
+            .map_err(|e| format!("{e:?}"))?
+            .is_empty()
+    );
     Ok(())
 }
 

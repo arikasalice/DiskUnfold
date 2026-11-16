@@ -345,7 +345,10 @@ fn observes_links_without_following_or_revisiting() -> TestResult {
                 }
                 Ok(ObservedKind::Link) => {
                     assert_eq!(item.enumerated_kind, ObservedKind::Link);
-                    let metadata = item.metadata.as_ref().map_err(|error| fail(error.clone()))?;
+                    let metadata = item
+                        .metadata
+                        .as_ref()
+                        .map_err(|error| fail(error.clone()))?;
                     if let Ok(size) = &metadata.size {
                         let own_size = fs::symlink_metadata(
                             directory_path.join(OsStr::from_bytes(&item.name)),

@@ -71,18 +71,21 @@ fn reports_vanished_and_replaced_entries_per_item() -> TestResult {
             b"gone" => fs::remove_file(base.join("gone")),
             b"swap" => fs::rename(base.join("swap"), base.join("saved"))
                 .and_then(|()| fs::write(base.join("swap"), b"new")),
-            b"dir" => fs::rename(base.join("dir"), base.join("dir-old"))
-                .and_then(|()| match symlink("dir-old", base.join("dir")) {
-                    Ok(()) => {
-                        link_created.set(true);
-                        Ok(())
+            b"dir" => {
+                fs::rename(base.join("dir"), base.join("dir-old")).and_then(|()| {
+                    match symlink("dir-old", base.join("dir")) {
+                        Ok(()) => {
+                            link_created.set(true);
+                            Ok(())
+                        }
+                        Err(error) if link_creation_is_unavailable(&error) => {
+                            eprintln!("skipped Linux symlink replacement subcase: {error}");
+                            Ok(())
+                        }
+                        Err(error) => Err(error),
                     }
-                    Err(error) if link_creation_is_unavailable(&error) => {
-                        eprintln!("skipped Linux symlink replacement subcase: {error}");
-                        Ok(())
-                    }
-                    Err(error) => Err(error),
-                }),
+                })
+            }
             _ => Ok(()),
         };
         if changed.is_ok() {
