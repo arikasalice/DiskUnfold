@@ -422,5 +422,18 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
         .collect();
     assert_eq!(final_version.items().len(), expected.len() + 1);
     assert_eq!(actual, expected);
+    let second_worker_item = final_version
+        .items()
+        .iter()
+        .find(|item| item.name == format!("batch-{:04}", BUFFERED_OBSERVATIONS + 1).into_bytes())
+        .ok_or("missing second worker item")?;
+    let second_worker_root = final_version
+        .observed_root_for(&ItemRef {
+            result_version: final_version.version_id().clone(),
+            item_no: second_worker_item.item_no,
+        })
+        .map_err(|error| format!("{error:?}"))?
+        .0;
+    assert_eq!(second_worker_root, 1);
     Ok(())
 }
