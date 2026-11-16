@@ -1,7 +1,6 @@
 //! Entries an exclusion rule dropped directly below each folder.
 use super::fixture::*;
 use super::*;
-use du_analysis_index::folder_collection::ExcludedChildren;
 
 /// The root drops `x1`, `x2` and `x3` over two batches; `u1` cannot be
 /// decided by the filter. `d` drops nothing and `e` drops `x4` before its
@@ -30,19 +29,8 @@ fn tree() -> Arc<Tree> {
     )
 }
 
-fn exact(count: u32) -> Option<ExcludedChildren> {
-    Some(ExcludedChildren { count, exact: true })
-}
-
-fn lower_bound(count: u32) -> Option<ExcludedChildren> {
-    Some(ExcludedChildren {
-        count,
-        exact: false,
-    })
-}
-
 #[test]
-fn each_folder_reports_its_direct_exclusions_once_over_all_batches() -> Result<(), String> {
+fn excluded_counts_are_not_exposed_without_unique_enumeration_evidence() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     for collector in COLLECTORS {
         let label = format!("{collector:?}");
@@ -54,19 +42,16 @@ fn each_folder_reports_its_direct_exclusions_once_over_all_batches() -> Result<(
             ResultCompleteness::Missing,
             "{label}"
         );
-        // Undecided `u1` is not counted; `x2` counts as an entry like any other.
-        assert_eq!(excluded(&version, &[])?, exact(3), "{label}");
-        // An unreported folder of a finished scan answers an exact zero.
-        assert_eq!(excluded(&version, &["d"])?, exact(0), "{label}");
-        // The read of `e` failed after `x4` was excluded.
-        assert_eq!(excluded(&version, &["e"])?, lower_bound(1), "{label}");
+        // Neither reported counts nor an unreported zero establish distinct children.
+        assert_eq!(excluded(&version, &[])?, None, "{label}");
+        assert_eq!(excluded(&version, &["d"])?, None, "{label}");
+        assert_eq!(excluded(&version, &["e"])?, None, "{label}");
         assert_eq!(version.unread_folder_counts().cancelled, 0, "{label}");
     }
     Ok(())
 }
 
-/// A folder left unread without a count report answers zero as a lower bound;
-/// a folder read to its end without exclusions remains unreported.
+/// Neither cancellation nor a completed listing establishes an excluded count.
 #[test]
 fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
@@ -81,12 +66,7 @@ fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
             ResultCompleteness::Cancelled,
             "{label}"
         );
-        let root_unread = cancelled(&version)?.contains(&path(&[]));
-        assert_eq!(
-            excluded(&version, &[])?,
-            if root_unread { lower_bound(0) } else { None },
-            "{label}"
-        );
+        assert_eq!(excluded(&version, &[])?, None, "{label}");
         // `d` was read to its end with nothing excluded: neither marked nor reported.
         assert!(!cancelled(&version)?.contains(&path(&["d"])), "{label}");
         assert_eq!(excluded(&version, &["d"])?, None, "{label}");
@@ -97,7 +77,7 @@ fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
 /// `c` reports the disconnection after `x2`; the root drops `x1` and is
 /// read to its end, as a started folder on a disconnected volume is.
 #[test]
-fn a_folder_closed_by_a_disconnection_reports_a_lower_bound() -> Result<(), String> {
+fn a_folder_closed_by_a_disconnection_does_not_expose_a_count() -> Result<(), String> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
     let mut lost = file("lost", 202);
     lost.metadata = Err(PortError {
@@ -119,8 +99,8 @@ fn a_folder_closed_by_a_disconnection_reports_a_lower_bound() -> Result<(), Stri
         );
         let (outcome, version) = collect(&tree, collector)?;
         assert!(outcome.completed_scope, "{label}");
-        assert_eq!(excluded(&version, &[])?, exact(1), "{label}");
-        assert_eq!(excluded(&version, &["c"])?, lower_bound(1), "{label}");
+        assert_eq!(excluded(&version, &[])?, None, "{label}");
+        assert_eq!(excluded(&version, &["c"])?, None, "{label}");
         let unread = unread(&version)?;
         assert_eq!(
             unread.get(&path(&["c"])).map(String::as_str),

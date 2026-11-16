@@ -1,7 +1,6 @@
 //! Folders a cancellation leaves unopened or partly read are marked once.
 use super::fixture::*;
 use super::*;
-use du_analysis_index::folder_collection::ExcludedChildren;
 
 const A: u64 = 30;
 const B: u64 = 31;
@@ -69,13 +68,7 @@ const TRIGGERS: [Trigger; 8] = [
 
 /// A folder is marked exactly when the collector entered it and did not read
 /// it to its end, and its open or read did not fail; a failure is a gap.
-/// `root_listed` is false when the root's first batch was never returned.
-fn check(
-    tree: &Tree,
-    version: &ResultVersion,
-    root_listed: bool,
-    label: &str,
-) -> Result<(), String> {
+fn check(tree: &Tree, version: &ResultVersion, label: &str) -> Result<(), String> {
     let marked = cancelled(version)?;
     // A folder with a gap and a mark would be counted here but shown as the gap.
     assert_eq!(
@@ -91,25 +84,11 @@ fn check(
             log.failed.contains(&inode) || (inode == DENIED && log.opened.contains(&inode));
         let expected = entered && !failed && !log.ended.contains(&inode);
         assert_eq!(marked.contains(&path), expected, "{label}: {path:?}");
-        // Only the root counted an exclusion; other unread folders give a zero lower bound.
-        let wanted = if inode == ROOT && root_listed {
-            Some(ExcludedChildren {
-                count: 1,
-                exact: log.ended.contains(&inode) && !failed && !marked.contains(&path),
-            })
-        } else if failed || marked.contains(&path) {
-            Some(ExcludedChildren {
-                count: 0,
-                exact: false,
-            })
-        } else {
-            None
-        };
         let parts: Vec<&str> = path
             .iter()
             .map(|part| std::str::from_utf8(part).unwrap_or(""))
             .collect();
-        assert_eq!(excluded(version, &parts)?, wanted, "{label}: {path:?}");
+        assert_eq!(excluded(version, &parts)?, None, "{label}: {path:?}");
     }
     assert!(!log.opened.contains(&MOUNT), "{label}");
     Ok(())
@@ -142,10 +121,7 @@ fn a_cancelled_scan_marks_exactly_the_folders_not_read_to_their_end() -> Result<
                 ResultCompleteness::Cancelled,
                 "{label}"
             );
-            // A filtered read that sees the cancellation returns none of its entries.
-            let filtered = matches!(collector, Collector::Filtered(_));
-            let root_listed = !(filtered && trigger == Trigger::Read(ROOT, 0));
-            check(&tree, &version, root_listed, &label)?;
+            check(&tree, &version, &label)?;
         }
     }
     Ok(())
@@ -169,7 +145,7 @@ fn each_kind_of_unread_folder_is_marked_once() -> Result<(), String> {
     let run = |trigger| -> Result<(Marked, Arc<Tree>), String> {
         let tree = Tree::new(nodes(), trigger);
         let (_, version) = collect(&tree, Collector::Legacy(1))?;
-        check(&tree, &version, true, &describe(trigger))?;
+        check(&tree, &version, &describe(trigger))?;
         Ok((cancelled(&version)?, tree))
     };
     // The root's first entries were all scheduled before its second read.
@@ -240,13 +216,7 @@ fn sequential_marks_the_folders_on_its_stack() -> Result<(), String> {
         ]
         .into();
         assert_eq!(cancelled(&version)?, expected, "{}", describe(trigger));
-        assert_eq!(
-            excluded(&version, &[])?,
-            Some(ExcludedChildren {
-                count: 1,
-                exact: false
-            })
-        );
+        assert_eq!(excluded(&version, &[])?, None);
         assert_eq!(excluded(&version, &["a"])?, None);
     }
     Ok(())
