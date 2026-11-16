@@ -36,6 +36,10 @@ fn timed_out_wait_rejects_snapshot_with_three_active_workers()
         error.contains("3 distinct workers"),
         "unexpected error: {error}"
     );
+    assert!(
+        error.contains("barrier timeout"),
+        "unexpected error: {error}"
+    );
     Ok(())
 }
 
