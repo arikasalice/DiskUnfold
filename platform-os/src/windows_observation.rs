@@ -1,5 +1,9 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
 pub mod case_sensitivity;
+#[cfg(test)]
+mod correlated_batches;
+#[cfg(test)]
+mod correlated_tests;
 mod enumeration;
 #[cfg(test)]
 mod filter_tests;
@@ -25,8 +29,8 @@ thread_local! { static PROBES: std::cell::Cell<usize> = const { std::cell::Cell:
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch,
-        MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
+        AnchoredDirectory, CorrelatedDirectoryEvent, DirectoryObservations, FilterDecision,
+        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
     },
 };
 pub use scope::WindowsScopeRoots;
@@ -78,9 +82,22 @@ pub struct WindowsDirectory {
     restart: bool,
     pending: VecDeque<TimedObservedEntry>,
     filtered: Option<bool>,
+    correlated: bool,
+    correlated_records: VecDeque<CorrelatedWindowsRecord>,
+    correlated_next_child_id: Option<u64>,
+    correlated_pending_observation: Option<(u64, TimedObservedEntry)>,
+    correlated_error: Option<PortError>,
+    correlated_ended: bool,
     filter_failed: bool,
     finished: bool,
     ancestors: Option<AncestorChain>,
+}
+
+struct CorrelatedWindowsRecord {
+    name: Vec<u8>,
+    file_id: u64,
+    attributes: u32,
+    ea_size: u32,
 }
 
 struct AncestorChain {
@@ -438,6 +455,12 @@ impl AnchoredDirectory for WindowsDirectory {
             restart: true,
             pending: VecDeque::new(),
             filtered: None,
+            correlated: false,
+            correlated_records: VecDeque::new(),
+            correlated_next_child_id: None,
+            correlated_pending_observation: None,
+            correlated_error: None,
+            correlated_ended: false,
             filter_failed: false,
             finished: false,
             ancestors: None,

@@ -19,6 +19,7 @@ use std::{
 };
 
 mod boundary;
+mod correlated;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

@@ -2,16 +2,33 @@
 use super::{MacDirectory, bulk, errors};
 use du_core_contracts::{
     Timestamp,
-    ports::PortError,
+    ports::{PortError, PortErrorKind},
     scan_observation::{
-        DirectoryObservations, FilterDecision, FilteredBatch, MetadataObservation, ObservedEntry,
-        ObservedKind, SpaceIdentity, TimedFilteredBatch, TimedObservedEntry,
+        CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase, FilterDecision,
+        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, SpaceIdentity,
+        TimedFilteredBatch, TimedObservedEntry,
     },
 };
 use std::os::fd::AsFd;
 
 /// Largest number of entries one batch returns.
 const BATCH_SIZE: usize = 256;
+
+fn correlated_stream_conflict() -> PortError {
+    PortError {
+        kind: PortErrorKind::Busy,
+        reason_key: "os.query_failed".into(),
+        os_code: None,
+    }
+}
+
+fn correlated_stream_corrupt() -> PortError {
+    PortError {
+        kind: PortErrorKind::Corrupt,
+        reason_key: "os.query_failed".into(),
+        os_code: None,
+    }
+}
 
 impl MacDirectory {
     /// Reads one bulk buffer. Names are decided before any entry is recorded;
@@ -127,6 +144,125 @@ impl MacDirectory {
     }
 }
 
+impl MacDirectory {
+    /// Retains at most the records parsed from one fixed-size bulk reply.
+    fn fill_correlated_records(&mut self) -> Result<bool, PortError> {
+        if !self.correlated_records.is_empty() {
+            return Ok(true);
+        }
+        if self.finished {
+            return Ok(false);
+        }
+        if self.buffer.is_empty() {
+            let mut buffer = Vec::new();
+            if buffer.try_reserve_exact(bulk::BUFFER_BYTES).is_err() {
+                let error = bulk::allocation_error();
+                self.finish();
+                self.correlated_stream_error = Some(error.clone());
+                return Err(error);
+            }
+            buffer.resize(bulk::BUFFER_BYTES, 0);
+            self.buffer = buffer;
+        }
+        match bulk::read_correlated(self.fd.as_fd(), &mut self.buffer) {
+            Ok(records) if records.is_empty() => {
+                self.finish();
+                Ok(false)
+            }
+            Ok(records) => {
+                self.correlated_records = records.into();
+                Ok(true)
+            }
+            Err(error) => {
+                self.finish();
+                self.correlated_stream_error = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    fn correlated_event(
+        &mut self,
+        include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+        clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<CorrelatedDirectoryEvent, PortError> {
+        if !self.correlated {
+            return Err(correlated_stream_conflict());
+        }
+        if self.correlated_ended {
+            return Err(correlated_stream_conflict());
+        }
+        if let Some((child_id, entry)) = self.correlated_pending_observation.take() {
+            return Ok(CorrelatedDirectoryEvent::Observation { child_id, entry });
+        }
+        if let Some(error) = &self.correlated_stream_error {
+            return Err(error.clone());
+        }
+        if !self.fill_correlated_records()? {
+            let Some(child_count_exclusive) = self.correlated_next_child_id else {
+                let error = correlated_stream_corrupt();
+                self.correlated_stream_error = Some(error.clone());
+                return Err(error);
+            };
+            self.correlated_ended = true;
+            return Ok(CorrelatedDirectoryEvent::End {
+                child_count_exclusive,
+            });
+        }
+        let record = match self.correlated_records.pop_front() {
+            Some(record) => record,
+            None => {
+                let error = correlated_stream_corrupt();
+                self.correlated_stream_error = Some(error.clone());
+                return Err(error);
+            }
+        };
+        let child_id = match self.correlated_next_child_id {
+            Some(child_id) => child_id,
+            None => {
+                let error = correlated_stream_corrupt();
+                self.correlated_stream_error = Some(error.clone());
+                return Err(error);
+            }
+        };
+        let raw_name = match bulk::try_copy_bytes(&record.name) {
+            Ok(name) => name,
+            Err(error) => {
+                self.correlated_stream_error = Some(error.clone());
+                return Err(error);
+            }
+        };
+        self.correlated_next_child_id = child_id.checked_add(1);
+        if self.correlated_next_child_id.is_none() {
+            self.correlated_stream_error = Some(correlated_stream_corrupt());
+        }
+        let decision = include(&record.name);
+        if decision == FilterDecision::Admit {
+            let entry = self.observe(record);
+            let observed_at = if entry.metadata.is_ok() {
+                clock()
+            } else {
+                None
+            };
+            self.correlated_pending_observation = Some((
+                child_id,
+                TimedObservedEntry {
+                    entry,
+                    observed_at,
+                    placeholder_observation: None,
+                },
+            ));
+        }
+        Ok(CorrelatedDirectoryEvent::FilterCallback {
+            child_id,
+            raw_name,
+            decision,
+            // getattrlistbulk has already returned this child's metadata record.
+            phase: FilterCallbackPhase::AfterMetadata,
+        })
+    }
+}
+
 /// An entry of another volume, or a mount point, with its identity and kind
 /// only, as `MetadataObservation` requires. A mount point carries the device
 /// and inode of the directory it covers, which is what the record reports.
@@ -171,6 +307,9 @@ impl DirectoryObservations for MacDirectory {
         &mut self,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<Vec<TimedObservedEntry>, PortError> {
+        if self.correlated {
+            return Err(correlated_stream_conflict());
+        }
         if self.filtered == Some(true) {
             return Err(errors::invalid());
         }
@@ -201,6 +340,9 @@ impl DirectoryObservations for MacDirectory {
         include: &mut dyn FnMut(&[u8]) -> FilterDecision,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<TimedFilteredBatch, PortError> {
+        if self.correlated {
+            return Err(correlated_stream_conflict());
+        }
         if self.filtered == Some(false) {
             return Err(errors::invalid());
         }
@@ -222,5 +364,26 @@ impl DirectoryObservations for MacDirectory {
         } else {
             Ok(TimedFilteredBatch::Progress)
         }
+    }
+
+    fn begin_correlated_filtered(&mut self) -> Result<(), PortError> {
+        if self.correlated || self.filtered.is_some() || self.finished {
+            return Err(correlated_stream_conflict());
+        }
+        self.correlated = true;
+        self.correlated_records.clear();
+        self.correlated_next_child_id = Some(0);
+        self.correlated_pending_observation = None;
+        self.correlated_stream_error = None;
+        self.correlated_ended = false;
+        Ok(())
+    }
+
+    fn next_correlated_event(
+        &mut self,
+        include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+        clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<CorrelatedDirectoryEvent, PortError> {
+        self.correlated_event(include, clock)
     }
 }

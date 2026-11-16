@@ -3,8 +3,9 @@
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch, ObservedEntry,
-        ObservedKind, OpenedScopeRoot, ScopeRootPort,
+        AnchoredDirectory, CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase,
+        FilterDecision, FilteredBatch, ObservedEntry, ObservedKind, OpenedScopeRoot, ScopeRootPort,
+        TimedObservedEntry,
     },
 };
 use du_platform_os::macos_observation::MacScopeRoots;
@@ -316,5 +317,99 @@ fn filtered_enumeration_decides_names_before_recording() -> TestResult {
             .map_err(|e| format!("{e:?}"))?;
         assert!(matches!(batch, FilteredBatch::Undecidable));
     }
+    Ok(())
+}
+
+#[test]
+fn correlated_attempt_retains_every_decision_and_matches_admitted_observations() -> TestResult {
+    let (_guard, path) = fixture()?;
+    for name in ["admit", "exclude", "undecidable"] {
+        fs::write(path.join(name), b"fixture")?;
+    }
+    let mut root = open(&path)?;
+    root.directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
+    let mut callbacks = std::collections::BTreeMap::new();
+    let mut observations = std::collections::BTreeMap::<u64, TimedObservedEntry>::new();
+    let mut end_count = None;
+    loop {
+        match root
+            .directory
+            .next_correlated_event(
+                &mut |name| match name {
+                    b"admit" => FilterDecision::Admit,
+                    b"exclude" => FilterDecision::Exclude,
+                    b"undecidable" => FilterDecision::Undecidable,
+                    _ => FilterDecision::Undecidable,
+                },
+                &|| None,
+            )
+            .map_err(|error| format!("{error:?}"))?
+        {
+            CorrelatedDirectoryEvent::FilterCallback {
+                child_id,
+                raw_name,
+                decision,
+                phase,
+            } => {
+                assert!(
+                    callbacks
+                        .insert(child_id, (raw_name, decision, phase))
+                        .is_none()
+                );
+            }
+            CorrelatedDirectoryEvent::Observation { child_id, entry } => {
+                assert!(callbacks.contains_key(&child_id));
+                assert!(observations.insert(child_id, entry).is_none());
+            }
+            CorrelatedDirectoryEvent::Progress => {}
+            CorrelatedDirectoryEvent::End {
+                child_count_exclusive,
+            } => {
+                end_count = Some(child_count_exclusive);
+                break;
+            }
+        }
+    }
+
+    assert_eq!(end_count, Some(u64::try_from(callbacks.len())?));
+    assert_eq!(callbacks.len(), 3);
+    for (expected_id, (&child_id, (name, decision, phase))) in callbacks.iter().enumerate() {
+        assert_eq!(child_id, u64::try_from(expected_id)?);
+        assert_eq!(*phase, FilterCallbackPhase::AfterMetadata);
+        let expected_decision = match name.as_slice() {
+            b"admit" => FilterDecision::Admit,
+            b"exclude" => FilterDecision::Exclude,
+            b"undecidable" => FilterDecision::Undecidable,
+            _ => return Err("unexpected callback name".into()),
+        };
+        assert_eq!(*decision, expected_decision);
+        match decision {
+            FilterDecision::Admit => {
+                let observation = observations
+                    .get(&child_id)
+                    .ok_or("admitted child has no observation")?;
+                assert_eq!(observation.entry.name, *name);
+                assert!(observation.observed_at.is_none());
+            }
+            FilterDecision::Exclude | FilterDecision::Undecidable => {
+                assert!(!observations.contains_key(&child_id));
+            }
+        }
+    }
+    assert_eq!(observations.len(), 1);
+    assert!(
+        root.directory
+            .next_correlated_event(&mut |_| FilterDecision::Admit, &|| None)
+            .is_err()
+    );
+    assert!(root.directory.next_batch().is_err());
+    assert!(
+        root.directory
+            .next_filtered(&mut |_| FilterDecision::Admit)
+            .is_err()
+    );
+    assert!(root.directory.begin_correlated_filtered().is_err());
     Ok(())
 }
