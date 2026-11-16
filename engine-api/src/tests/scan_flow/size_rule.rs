@@ -90,6 +90,7 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
         engine,
         roots,
         terminal,
+        versions,
         ..
     } = fixture::scan_harness_with_size_rule_source(source)?;
     let draft = draft();
@@ -105,6 +106,86 @@ fn unknown_rule_creates_no_job_and_consumes_no_scope_root() -> TestResult {
     assert_eq!(roots.reads.load(Ordering::Acquire), reads_before);
     // No job ran, so nothing finished and nothing was published.
     assert!(terminal.recv_timeout(Duration::from_millis(200)).is_err());
+    // The job table is empty: the runtime never saw a submission.
+    let jobs = call(
+        &engine,
+        "job.list",
+        Channel::Gui,
+        ENVELOPE_VERSION,
+        json!({}),
+    )?;
+    assert!(jobs.error.is_none());
+    assert_eq!(jobs.body, json!([]));
+    // No lineage is bound for the scope: binding it now returns the candidate we offer
+    // instead of an earlier lineage. The probe runs last because binding is permanent.
+    let request: du_core_contracts::analysis_ipc::ScanStartRequest =
+        serde_json::from_value(json!({"draft": draft, "reviewFingerprint": fingerprint}))?;
+    let scope_fingerprint = crate::scope::verify(
+        &request.draft,
+        &request.review_fingerprint,
+        &*roots,
+        None,
+        false,
+    )
+    .and_then(|verified| verified.scope_fingerprint.resolve())
+    .map_err(|error| format!("{error:?}"))?;
+    let candidate = Id::parse("018f0000-0000-7000-8000-00000000f003")?;
+    let bound = versions
+        .bind_current_analysis(&scope_fingerprint, candidate.clone())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(bound, candidate);
+    Ok(())
+}
+
+#[test]
+fn a_duplicate_start_returns_the_running_job_with_its_pinned_rule() -> TestResult {
+    let (source, reads) = scripted(&[DEFAULT_SIZE_RULE_ID, DEFAULT_SIZE_RULE_ID, "size.agg.nope"]);
+    let ScanHarness {
+        engine,
+        release,
+        terminal,
+        versions,
+        ..
+    } = fixture::scan_harness_with_size_rule_source(source)?;
+    let draft = draft();
+    let fingerprint = review_fingerprint(&engine, &draft)?;
+    let receipt: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
+    assert!(!receipt.existing);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+
+    // The scan is still running, so the same scope returns the existing job.
+    let duplicate: ScanStart = serde_json::from_value(start(&engine, &draft, &fingerprint)?.body)?;
+    assert!(duplicate.existing);
+    assert_eq!(duplicate.job_ref, receipt.job_ref);
+    assert_eq!(duplicate.scope_version, receipt.scope_version);
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+    // An unregistered changed value is rejected before deduplication is checked.
+    let rejected = start(&engine, &draft, &fingerprint)?;
+    let error = rejected.error.ok_or("an unknown rule was admitted")?;
+    assert_eq!(error.code, du_core_contracts::ErrorCode::InvalidArgument);
+    assert_eq!(error.reason_key, "space.rule_unknown");
+    assert_eq!(reads.load(Ordering::SeqCst), 3);
+
+    release.send(())?;
+    let (summary, _) = scan_finished(&terminal)?;
+    assert_eq!(summary.job_id, receipt.job_ref);
+    let version = versions
+        .pin_current(&summary.result_version_id.ok_or("missing version")?)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(version.size_rule().id, DEFAULT_SIZE_RULE_ID);
+    assert_eq!(version.size_rule().revision, 1);
+
+    // Once sealed, the changed unregistered value is still rejected.
+    let rejected = start(&engine, &draft, &fingerprint)?;
+    assert_eq!(
+        rejected
+            .error
+            .ok_or("the changed rule was admitted")?
+            .reason_key,
+        "space.rule_unknown"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 4);
     Ok(())
 }
 

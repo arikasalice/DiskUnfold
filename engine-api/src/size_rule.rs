@@ -116,6 +116,17 @@ impl SizeRules {
         Self::assemble(builder, source)
     }
 
+    /// Returns a rule selector that shares this frozen registry and reads `source`.
+    ///
+    /// A composition root can use the same registry for settings validation and scan
+    /// execution while keeping the selected rule source at the scan admission boundary.
+    pub fn with_source(&self, source: SizeRuleSource) -> Self {
+        Self {
+            registry: self.registry.clone(),
+            source,
+        }
+    }
+
     /// Lists the registered rule identities ordered by ID, then revision.
     pub fn identities(&self) -> Vec<SizeRuleIdentity> {
         self.registry.identities().collect()

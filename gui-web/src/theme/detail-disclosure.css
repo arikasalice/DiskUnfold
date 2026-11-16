@@ -10,6 +10,14 @@
   text-align: start;
 }
 
+/* The toggle fills its row and the content starts right below it, so a ring
+   around the toggle would cover the first line of the content. It is drawn
+   inside the toggle instead. */
+.du-detail-disclosure > .du-action[data-focus-visible],
+.du-detail-disclosure > .du-action:focus-visible {
+  outline-offset: -2px;
+}
+
 .du-detail-disclosure__content {
   display: grid;
   gap: 12px;

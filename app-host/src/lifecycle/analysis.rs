@@ -115,8 +115,7 @@ pub(super) fn register_desktop(
     });
     #[cfg(not(windows))]
     let recent_capacity = None;
-    let size_rules = size_rules::assemble(settings.clone().size_rule_source())
-        .map_err(|error| report_pre_window_error(capabilities, error))?;
+    let size_rules = settings.clone().size_rules();
     let services = register_analysis_with_rules(
         builder,
         ports,
@@ -289,6 +288,9 @@ mod ipc_calls;
 mod linux_scan_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod macos_scan_tests;
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
+mod native_cancel_seal_tests;
+#[cfg(test)]
 mod size_rules;
 #[cfg(test)]
 mod tests;

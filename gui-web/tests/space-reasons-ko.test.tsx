@@ -152,6 +152,7 @@ function Summary({ client }: { client: AnalysisClient }) {
       scan={undefined}
       wait={undefined}
       roots={[path]}
+      exclusions={[]}
       preferences={{
         display: { system: "iec", unit: "auto" },
         basis: "allocated",

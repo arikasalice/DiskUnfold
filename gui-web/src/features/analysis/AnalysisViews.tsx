@@ -4,7 +4,12 @@ import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
 import { Notice, Readout, Text } from "../../components";
 import { scanJobReasonText, scanProblemText } from "../../ipc";
-import type { AnalysisClient, JobState, OsPath } from "../../ipc";
+import type {
+  AnalysisClient,
+  JobState,
+  OsPath,
+  ScopeExclusion,
+} from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
 import { PinnedResult, RootPaths } from "./ResultSummary";
 import { ScanOutputHeader } from "./ScanOutputHeader";
@@ -38,6 +43,7 @@ export function ScanOutput({
   running,
   problem,
   roots,
+  exclusions,
   actions,
 }: {
   client: AnalysisClient;
@@ -53,6 +59,8 @@ export function ScanOutput({
   running: boolean;
   problem: string | undefined;
   roots: readonly OsPath[];
+  /** The exclusion rules of the scope the scan was started with, if known. */
+  exclusions: readonly ScopeExclusion[] | undefined;
   actions: ReactNode;
 }) {
   const text = useLocaleText();
@@ -108,6 +116,7 @@ export function ScanOutput({
             scan={job}
             wait={sizeWait(running, state)}
             roots={roots}
+            exclusions={exclusions}
             preferences={preferences}
             displayChoice={displayChoice}
             onDisplayChoice={onDisplayChoice}

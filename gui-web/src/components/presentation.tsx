@@ -21,6 +21,7 @@ import {
 import { ProgressBar } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
 import type { TimestampParts } from "../i18n/regional-format";
+import { ExplainedText } from "./explained-text";
 import { STATUS_TONES } from "./status-table";
 import type { StatusRow, StatusShape, StatusTone } from "./status-table";
 import "../theme/status-badge.css";
@@ -155,11 +156,14 @@ export function StatusBadge({
   tone = "neutral",
   status,
   live = false,
+  id,
 }: {
   children?: ReactNode;
   tone?: StatusTone;
   status?: StatusRow;
   live?: boolean;
+  /** Lets another element name itself with this badge. */
+  id?: string;
 }) {
   const text = useLocaleText();
   const shape = status?.shape ?? STATUS_TONES[tone].shape;
@@ -167,6 +171,7 @@ export function StatusBadge({
   const shown = status?.tone ?? tone;
   return (
     <span
+      id={id}
       className={`du-badge du-badge--${shown}`}
       data-status-shape={shape}
       role={live ? "status" : undefined}
@@ -306,6 +311,8 @@ export function Readout({
   label: string;
   rows: {
     label: string;
+    /** Explains the label on pointer hover or keyboard focus (see `ExplainedText`). */
+    explanation?: string;
     value: ReactNode;
     identifier?: boolean;
     emphasized?: boolean;
@@ -330,7 +337,15 @@ export function Readout({
               .join(" ") || undefined
           }
         >
-          <dt>{row.label}</dt>
+          <dt>
+            {row.explanation ? (
+              <ExplainedText explanation={row.explanation}>
+                {row.label}
+              </ExplainedText>
+            ) : (
+              row.label
+            )}
+          </dt>
           <dd>
             {row.value}
             {row.notes?.map((note, index) => (

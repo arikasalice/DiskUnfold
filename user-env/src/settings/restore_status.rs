@@ -42,6 +42,7 @@ pub struct RestoreStatus {
     /// True only after a successful schema migration.
     pub migrated: bool,
     /// Outcomes for registered descriptors; unknown keys are not interpreted.
+    /// Hidden settings are not reported.
     pub items: BTreeMap<String, RestoreItem>,
 }
 
@@ -62,7 +63,10 @@ impl Default for RestoreStatus {
 
 impl RestoreStatus {
     pub(super) fn record_items(&mut self, registry: &Registry, snapshot: &SettingsSnapshot) {
-        for key in registry.descriptors.keys() {
+        for (key, descriptor) in &registry.descriptors {
+            if descriptor.presentation.hidden {
+                continue;
+            }
             let invalid = self.invalid_keys.iter().any(|candidate| candidate == key);
             let stored = !invalid && snapshot.values.contains_key(key);
             let source = if stored {

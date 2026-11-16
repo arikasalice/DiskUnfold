@@ -42,7 +42,7 @@ export const SCAN_ISSUE_FILTERS = [
   {
     value: "untraversed_link",
     key: "ui.analysis.issues_untraversed_links",
-    fallback: "Untraversed links",
+    fallback: "Links not followed",
   },
 ] as const;
 

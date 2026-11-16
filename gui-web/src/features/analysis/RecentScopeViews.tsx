@@ -22,6 +22,7 @@ import type {
 import { useRecentScopes } from "./use-recent-scopes";
 import { formatDate, PathValue, targetStatus } from "./RecentScopeDisplay";
 import { revealConfirmGroup } from "./recent-confirm-scroll";
+import { ExclusionRules } from "./ExclusionRules";
 
 export type View = "closed" | "list" | "detail";
 export function detailRow(
@@ -384,17 +385,11 @@ function SavedConditions({ draft }: { draft: ScopeDraft }) {
         </div>
         <Text kind="muted">{text("ui.analysis.exclusions", "Exclusions")}</Text>
         <div>
-          {draft.exclusions.length === 0
-            ? text("ui.analysis.none", "None")
-            : draft.exclusions.map((item, index) => (
-                <PathValue
-                  key={index}
-                  value={
-                    item.kind === "path" ? item.path.display : item.pattern
-                  }
-                  lossy={item.kind === "path" && item.path.lossy}
-                />
-              ))}
+          {draft.exclusions.length === 0 ? (
+            text("ui.analysis.none", "None")
+          ) : (
+            <ExclusionRules rules={draft.exclusions} />
+          )}
         </div>
         <Text kind="muted">
           {text("ui.analysis.volume_boundary", "Volume boundary")}

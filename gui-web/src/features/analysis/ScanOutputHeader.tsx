@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -70,7 +70,8 @@ function awaitedFinalResult(
  */
 function useOverdue(awaited: string | undefined, delay: number): boolean {
   const [overdue, setOverdue] = useState<string>();
-  useEffect(() => {
+  useLayoutEffect(() => {
+    setOverdue(undefined);
     if (awaited === undefined) return;
     const timer = window.setTimeout(() => setOverdue(awaited), delay);
     return () => window.clearTimeout(timer);
