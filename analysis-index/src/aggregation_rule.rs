@@ -124,11 +124,9 @@ impl RegisteredRule {
     ) -> Vec<SpaceAggregate> {
         match self {
             Self::SubtreeUnique => {
-                let mut aggregates =
-                    space::aggregate(&built.items, &built.structures, completeness);
+                let mut aggregates = space::aggregate(&built.items, completeness);
                 physical::apply(
                     &built.items,
-                    &built.structures,
                     built.physical.as_deref(),
                     completeness,
                     limit,
@@ -147,10 +145,9 @@ impl RegisteredRule {
     ) -> SpaceAggregate {
         match self {
             Self::SubtreeUnique => {
-                let mut total = space::scope_total(&built.items, &built.structures, completeness);
+                let mut total = space::scope_total(&built.items, completeness);
                 physical::scope_total(
                     &built.items,
-                    &built.structures,
                     built.physical.as_deref(),
                     completeness,
                     limit,

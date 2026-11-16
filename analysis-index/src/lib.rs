@@ -9,6 +9,7 @@ mod freshness_ledger;
 mod freshness_outcomes;
 pub mod group;
 mod issues;
+mod item_kind;
 mod physical;
 pub mod publication_cadence;
 mod publication_events;
