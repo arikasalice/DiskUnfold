@@ -210,7 +210,6 @@ pub struct BuildHandle {
     observations: observation_store::ObservationStore,
     /// Case evidence by store node of the directory it was recorded for.
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
-    /// Excluded-child records by store node of the folder they were reported for.
     /// Unread-folder marks by store node of the folder they were reported for.
     unread_folders: BTreeMap<u32, folder_collection::UnreadReason>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
