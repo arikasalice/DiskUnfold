@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,7 +14,9 @@ import type {
   LocaleProfile,
   VizCatalog,
   VizRenderRequest,
+  VizRenderResponse,
   VizRows,
+  VizRowsRequest,
 } from "../src/ipc";
 import { modelFixture } from "../preview/model-fixture";
 import { realLocales } from "./locale-real";
@@ -38,6 +41,21 @@ const catalog: VizCatalog = {
   legendRuleRevision: 1,
 };
 const names = ["Videos", "Photos", "Documents"];
+
+type VisualizationAnswers = {
+  render?: (request: VizRenderRequest) => unknown | Promise<unknown>;
+  rows?: (request: VizRowsRequest) => unknown | Promise<unknown>;
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
 
 function frameFor(request: VizRenderRequest) {
   const { frame } = modelFixture();
@@ -126,7 +144,10 @@ function rowsFor(
   };
 }
 
-function desktop(language: "en" | "ko") {
+function desktop(
+  language: "en" | "ko",
+  visualization: VisualizationAnswers = {},
+) {
   const supported = (["en", "ko"] as const).map((code) => ({
     language: code,
     selfNameKey: `locale.language.${code}`,
@@ -146,7 +167,7 @@ function desktop(language: "en" | "ko") {
   };
   const calls: { name: string; body: unknown }[] = [];
   let lastRequest: VizRenderRequest | undefined;
-  const answer = (envelope: CallEnvelope): unknown => {
+  const answer = (envelope: CallEnvelope): unknown | Promise<unknown> => {
     const body = envelope.body as Record<string, unknown>;
     switch (envelope.name) {
       case "i18n.get_profile":
@@ -269,9 +290,14 @@ function desktop(language: "en" | "ko") {
         return { viewChannel: "view" };
       case "viz.render":
         lastRequest = body as unknown as VizRenderRequest;
-        return frameFor(lastRequest);
-      case "viz.rows":
-        return rowsFor(lastRequest, body.resultRevision as string);
+        return visualization.render?.(lastRequest) ?? frameFor(lastRequest);
+      case "viz.rows": {
+        const request = body as unknown as VizRowsRequest;
+        return (
+          visualization.rows?.(request) ??
+          rowsFor(lastRequest, request.resultRevision)
+        );
+      }
       case "viz.cancel":
         return { controlResult: "no_effect" };
       default:
@@ -284,11 +310,170 @@ function desktop(language: "en" | "ko") {
       name: envelope.name,
       correlationId: envelope.correlationId,
       contractVersion: 1,
-      body: answer(envelope),
+      body: await answer(envelope),
     };
   });
   return { client, calls };
 }
+
+test.each(["success", "failure"] as const)(
+  "F06 #109: prior ordinary row %s leaves the fallback auto-read pending",
+  async (ordinaryOutcome) => {
+    const ordinaryRows = deferred<VizRows>();
+    const fallbackReads: ReturnType<typeof deferred<VizRows>>[] = [];
+    const fallbackRequests: VizRowsRequest[] = [];
+    let firstRender: VizRenderRequest | undefined;
+    let renderCount = 0;
+    const { client, calls } = desktop("en", {
+      render: (request) => {
+        renderCount += 1;
+        if (renderCount === 1) {
+          firstRender = request;
+          return frameFor(request);
+        }
+        return {
+          kind: "unavailable",
+          requestSeq: request.requestSeq,
+          resultRevision: request.resultRevision ?? "result",
+          observedAt: null,
+          completeness: "partial",
+          reasonKey: "viz.unavailable.no_baseline",
+          availableFormats: [],
+          fallback: {
+            modelRef: "fallback-model",
+            resultRevision: request.resultRevision ?? "result",
+          },
+        } satisfies VizRenderResponse;
+      },
+      rows: (request) => {
+        if (request.modelRef === "synthetic-layout")
+          return ordinaryRows.promise;
+        const read = deferred<VizRows>();
+        fallbackRequests.push(request);
+        fallbackReads.push(read);
+        return read.promise;
+      },
+    });
+    const label = (key: string) => realLocales.en.text(key, "");
+    render(<DesktopLocale client={client} />);
+    fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+    fireEvent.click(
+      screen.getByRole("button", { name: label("ui.analysis.review") }),
+    );
+    const start = await screen.findByRole<HTMLButtonElement>("button", {
+      name: label("ui.analysis.start"),
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    fireEvent.click(start);
+    fireEvent.click(
+      await screen.findByRole("button", { name: label("ui.analysis.browse") }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: label("ui.visualization.show_space_distribution"),
+      }),
+    );
+    await screen.findByRole("group", { name: "Space distribution" });
+    const ordinaryRequests = () =>
+      calls
+        .filter(({ name }) => name === "viz.rows")
+        .map(({ body }) => body as VizRowsRequest)
+        .filter(({ modelRef }) => modelRef === "synthetic-layout");
+    await waitFor(() => expect(fallbackRequests).toHaveLength(1));
+    expect(ordinaryRequests().length).toBeGreaterThan(0);
+    for (const request of ordinaryRequests())
+      expect(request).toMatchObject({
+        modelRef: "synthetic-layout",
+        resultRevision: "result",
+        start: 0,
+        count: 100,
+      });
+    const fallbackRequest = {
+      modelRef: "fallback-model",
+      resultRevision: "result",
+      start: 0,
+      count: 100,
+    };
+    expect(fallbackRequests[0]).toEqual(fallbackRequest);
+    const rowCallBodies = calls
+      .filter(({ name }) => name === "viz.rows")
+      .map(({ body }) => body as VizRowsRequest);
+    expect(
+      rowCallBodies.findIndex(({ modelRef }) => modelRef === "fallback-model"),
+    ).toBeGreaterThan(
+      rowCallBodies.findIndex(
+        ({ modelRef }) => modelRef === "synthetic-layout",
+      ),
+    );
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Loading items in this result",
+      }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      if (ordinaryOutcome === "success")
+        ordinaryRows.resolve(rowsFor(firstRender!, "result"));
+      else ordinaryRows.reject(new Error("previous ordinary rows failed"));
+    });
+    const afterOrdinaryRows = {
+      fallbackRequests: fallbackRequests.length,
+      loading:
+        screen.queryByRole("progressbar", {
+          name: "Loading items in this result",
+        }) !== null,
+      retry: screen.queryByRole("button", { name: "Retry rows" }) !== null,
+    };
+    for (const staleRead of fallbackReads.slice(0, -1))
+      await act(async () => staleRead.resolve(rowsFor(firstRender!, "result")));
+
+    await act(async () =>
+      fallbackReads[fallbackReads.length - 1]!.reject(
+        new Error("latest fallback failed"),
+      ),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Retry rows" }));
+    await screen.findByRole("button", { name: "Retrying rows…" });
+    await waitFor(() =>
+      expect(fallbackReads).toHaveLength(
+        afterOrdinaryRows.fallbackRequests + 1,
+      ),
+    );
+    expect(fallbackRequests[fallbackRequests.length - 1]).toEqual(
+      fallbackRequest,
+    );
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Loading items in this result",
+      }),
+    ).toBeTruthy();
+
+    const retryResponse = rowsFor(firstRender!, "result");
+    const recoveredRow = retryResponse.rows.find(
+      (row) => row.itemRef !== null,
+    )!;
+    await act(async () =>
+      fallbackReads[fallbackReads.length - 1]!.resolve({
+        ...retryResponse,
+        rows: [{ ...recoveredRow, displayName: "Recovered fallback row" }],
+        totalCount: 1,
+      }),
+    );
+    expect(await screen.findByText("Recovered fallback row")).toBeTruthy();
+    expect(
+      screen.queryByRole("progressbar", {
+        name: "Loading items in this result",
+      }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry rows" })).toBeNull();
+    expect(afterOrdinaryRows).toEqual({
+      fallbackRequests: 1,
+      loading: true,
+      retry: false,
+    });
+    expect(fallbackRequests).toHaveLength(2);
+  },
+);
 
 beforeEach(() => {
   vi.stubGlobal(
