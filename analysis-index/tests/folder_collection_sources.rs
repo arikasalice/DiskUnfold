@@ -9,8 +9,8 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultVersionRead},
 };
 use folder_support::{
-    CONFIRMED_NO, OTHER_VOLUME, REVISIT, UNVERIFIABLE, bounded, dirs, err, forest, gap, id, item,
-    root, state, unentered, unenumerated,
+    OTHER_VOLUME, REVISIT, UNPROVEN, UNVERIFIABLE, bounded, dirs, err, forest, gap, id, item, root,
+    state, unentered, unenumerated,
 };
 
 #[test]
@@ -63,7 +63,7 @@ fn replacement_answers_from_its_own_records_and_leaves_the_base_pinned() -> Resu
         .map_err(err)?;
     assert_eq!(new.origin(), "incremental");
     // Nothing is inherited: the candidate recorded no gap and no issue for "a".
-    assert_eq!(state(&new, 0, &["a"])?, CONFIRMED_NO);
+    assert_eq!(state(&new, 0, &["a"])?, UNPROVEN);
     assert_eq!(
         state(&new, 0, &["denied"])?,
         bounded(FolderBoundary::AlreadyCounted)
@@ -110,8 +110,8 @@ fn page_call_keeps_order_and_single_call_agrees() -> Result<(), String> {
             bounded(FolderBoundary::OtherVolume),
             FolderCollection::NotAFolder,
             unenumerated("scan.path_denied"),
-            CONFIRMED_NO,
-            CONFIRMED_NO,
+            UNPROVEN,
+            UNPROVEN,
         ]
     );
     for (reference, answer) in refs.iter().zip(&page) {
@@ -197,7 +197,7 @@ fn a_folder_is_never_unenumerated_and_bounded_at_once() -> Result<(), String> {
                 yes += usize::from(is_yes);
                 bounded_count += usize::from(boundary.name().is_some());
                 assert!(
-                    !(is_yes && boundary != FolderBoundary::NoBoundary),
+                    !(is_yes && boundary.name().is_some()),
                     "item {}",
                     item.item_no
                 );
