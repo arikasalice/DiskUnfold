@@ -36,11 +36,16 @@ pub(super) type GapClock<'a> = &'a dyn Fn() -> Option<Timestamp>;
 /// an unverifiable root starts as failed and keeps one count however many of
 /// its reads fail. Debug and test builds also remember every failed path and
 /// stop on a second failure of one path, which would otherwise move another
-/// item's completed count.
+/// item's completed count. They also remember every directory marked as
+/// unread and stop on a second mark of one directory, or on a directory that
+/// has both a failed range and a mark: a gap and a mark are never left on one
+/// directory.
 pub(super) struct FailedRanges {
     roots: Vec<bool>,
     #[cfg(debug_assertions)]
     paths: std::collections::HashSet<(u32, Vec<Vec<u8>>)>,
+    #[cfg(debug_assertions)]
+    unread: std::collections::HashSet<(u32, Vec<Vec<u8>>)>,
 }
 
 impl FailedRanges {
@@ -50,12 +55,19 @@ impl FailedRanges {
             roots,
             #[cfg(debug_assertions)]
             paths: std::collections::HashSet::new(),
+            #[cfg(debug_assertions)]
+            unread: std::collections::HashSet::new(),
         }
     }
 
     /// How the range at `path` was counted before this failure, which this
     /// call records.
     pub(super) fn counted(&mut self, root_index: u32, path: &[Vec<u8>]) -> Counted {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            !self.unread.contains(&(root_index, path.to_vec())),
+            "a directory marked as unread failed"
+        );
         if !path.is_empty() {
             #[cfg(debug_assertions)]
             {
@@ -73,6 +85,30 @@ impl FailedRanges {
         } else {
             Counted::Completed
         }
+    }
+
+    /// Notes a directory marked as unread; see the type for the debug checks.
+    pub(super) fn unread(&mut self, root_index: u32, path: &[Vec<u8>]) {
+        #[cfg(debug_assertions)]
+        {
+            let key = (root_index, path.to_vec());
+            let failed = if path.is_empty() {
+                self.roots
+                    .get(root_index as usize)
+                    .copied()
+                    .unwrap_or(false)
+            } else {
+                self.paths.contains(&key)
+            };
+            debug_assert!(
+                !failed,
+                "a directory with a failed range was marked as unread"
+            );
+            let first = self.unread.insert(key);
+            debug_assert!(first, "a directory was marked as unread twice");
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = (root_index, path);
     }
 }
 
@@ -179,6 +215,18 @@ pub(super) fn record_failure(
         observed_at,
     })?;
     build.record_gap_at(root_index, path, reason.into(), gap_at)
+}
+
+/// The count and completeness to report for a directory whose listing
+/// dropped `excluded` entries by an exclusion rule; `None` for none.
+///
+/// A count above `u32::MAX` is reported as `u32::MAX` and as incomplete,
+/// because the reported number is then lower than the actual one.
+pub(super) fn excluded_children(excluded: u64, complete: bool) -> Option<(u32, bool)> {
+    if excluded == 0 {
+        return None;
+    }
+    Some(u32::try_from(excluded).map_or((u32::MAX, false), |count| (count, complete)))
 }
 
 /// The gap reason of an entry whose observation is incomplete or inconsistent.
