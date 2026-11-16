@@ -1,9 +1,7 @@
 use super::*;
 use du_core_contracts::{
     Timestamp,
-    scan_observation::{
-        CorrelatedDirectoryEvent, FilterCallbackPhase, FilterDecision,
-    },
+    scan_observation::{CorrelatedDirectoryEvent, FilterCallbackPhase, FilterDecision},
 };
 use std::{
     cell::Cell,

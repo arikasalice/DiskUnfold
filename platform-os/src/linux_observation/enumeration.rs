@@ -135,6 +135,60 @@ impl LinuxDirectory {
             }
         }
     }
+
+    fn correlated_preflight(&mut self) -> Result<Option<CorrelatedDirectoryEvent>, PortError> {
+        if !self.correlated {
+            return Err(stream_conflict());
+        }
+        if self.correlated_ended {
+            return Err(stream_conflict());
+        }
+        if let Some(error) = &self.correlated_error {
+            return Err(error.clone());
+        }
+        Ok(self
+            .correlated_pending_observation
+            .take()
+            .map(|(child_id, entry)| CorrelatedDirectoryEvent::Observation { child_id, entry }))
+    }
+
+    fn ensure_correlated_entries(&mut self) -> Result<(), PortError> {
+        if self.entries.is_none() {
+            // Keep one Dir in this object across turns. The duplicate shares
+            // the anchor's offset; no other path enumerates it.
+            let stream = match fcntl_dupfd_cloexec(&*self.anchor.fd, 0) {
+                Ok(stream) => stream,
+                Err(error) => return self.fail_correlated(errno(error)),
+            };
+            let entries = match Dir::new(stream) {
+                Ok(entries) => entries,
+                Err(error) => return self.fail_correlated(errno(error)),
+            };
+            self.entries = Some(entries);
+        }
+        Ok(())
+    }
+
+    fn correlated_end(&mut self) -> Result<CorrelatedDirectoryEvent, PortError> {
+        self.finished = true;
+        let Some(child_count_exclusive) = self.correlated_next_child_id else {
+            return self.fail_correlated(correlated_failure());
+        };
+        self.correlated_ended = true;
+        Ok(CorrelatedDirectoryEvent::End {
+            child_count_exclusive,
+        })
+    }
+
+    fn correlated_child_ids(&mut self) -> Result<(u64, u64), PortError> {
+        let Some(child_id) = self.correlated_next_child_id else {
+            return self.fail_correlated(correlated_failure());
+        };
+        let Some(next_child_id) = child_id.checked_add(1) else {
+            return self.fail_correlated(correlated_failure());
+        };
+        Ok((child_id, next_child_id))
+    }
 }
 
 impl DirectoryObservations for LinuxDirectory {
@@ -160,48 +214,18 @@ impl DirectoryObservations for LinuxDirectory {
         include: &mut dyn FnMut(&[u8]) -> FilterDecision,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<CorrelatedDirectoryEvent, PortError> {
-        if !self.correlated {
-            return Err(stream_conflict());
-        }
-        if self.correlated_ended {
-            return Err(stream_conflict());
-        }
-        if let Some(error) = &self.correlated_error {
-            return Err(error.clone());
-        }
-        if let Some((child_id, entry)) = self.correlated_pending_observation.take() {
-            return Ok(CorrelatedDirectoryEvent::Observation { child_id, entry });
+        if let Some(event) = self.correlated_preflight()? {
+            return Ok(event);
         }
 
         loop {
-            if self.entries.is_none() {
-                // Keep one Dir in this object across turns. The duplicate
-                // shares the anchor's offset; no other path enumerates it.
-                let stream = match fcntl_dupfd_cloexec(&*self.anchor.fd, 0) {
-                    Ok(stream) => stream,
-                    Err(error) => return self.fail_correlated(errno(error)),
-                };
-                let entries = match Dir::new(stream) {
-                    Ok(entries) => entries,
-                    Err(error) => return self.fail_correlated(errno(error)),
-                };
-                self.entries = Some(entries);
-            }
+            self.ensure_correlated_entries()?;
             let next = match self.entries.as_mut() {
                 Some(entries) => entries.read(),
                 None => return self.fail_correlated(correlated_failure()),
             };
             let entry = match next {
-                None => {
-                    self.finished = true;
-                    let Some(child_count_exclusive) = self.correlated_next_child_id else {
-                        return self.fail_correlated(correlated_failure());
-                    };
-                    self.correlated_ended = true;
-                    return Ok(CorrelatedDirectoryEvent::End {
-                        child_count_exclusive,
-                    });
-                }
+                None => return self.correlated_end(),
                 Some(Ok(entry)) => entry,
                 Some(Err(error)) => return self.fail_correlated(errno(error)),
             };
@@ -211,12 +235,7 @@ impl DirectoryObservations for LinuxDirectory {
                 continue;
             }
 
-            let Some(child_id) = self.correlated_next_child_id else {
-                return self.fail_correlated(correlated_failure());
-            };
-            let Some(next_child_id) = child_id.checked_add(1) else {
-                return self.fail_correlated(correlated_failure());
-            };
+            let (child_id, next_child_id) = self.correlated_child_ids()?;
             let callback_name = match correlated_copy_name(raw_name) {
                 Ok(name) => name,
                 Err(error) => return self.fail_correlated(error),

@@ -116,17 +116,42 @@ fn correlated_end_counts_all_dense_child_ids_and_keeps_only_admitted_observation
 #[test]
 fn correlated_empty_directory_ends_with_zero_child_count() -> Result<(), Box<dyn std::error::Error>>
 {
+    const MAX_EMPTY_DIRECTORY_CALLS: usize = 8;
+
     let fixture = tempfile::tempdir()?;
     let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
     directory
         .begin_correlated_filtered()
         .map_err(|error| format!("{error:?}"))?;
-    assert!(matches!(
-        directory.next_correlated_event(&mut |_| FilterDecision::Admit, &|| None),
-        Ok(CorrelatedDirectoryEvent::End {
-            child_count_exclusive: 0
-        })
-    ));
+    let mut calls = 0usize;
+    let mut progress_events = 0u64;
+    let child_count_exclusive = loop {
+        if calls == MAX_EMPTY_DIRECTORY_CALLS {
+            return Err(format!(
+                "empty directory did not reach End within {MAX_EMPTY_DIRECTORY_CALLS} calls; last event was Progress ({progress_events} Progress events)"
+            )
+            .into());
+        }
+        calls += 1;
+        let event = directory
+            .next_correlated_event(&mut |_| FilterDecision::Admit, &|| None)
+            .map_err(|error| format!("empty directory enumeration failed before EOF: {error:?}"))?;
+        match event {
+            CorrelatedDirectoryEvent::Progress => {
+                progress_events = progress_events.saturating_add(1);
+            }
+            CorrelatedDirectoryEvent::End {
+                child_count_exclusive,
+            } => break child_count_exclusive,
+            event => {
+                return Err(format!("empty directory emitted a child event: {event:?}").into());
+            }
+        }
+    };
+    assert_eq!(
+        child_count_exclusive, 0,
+        "empty directory ended after {progress_events} Progress events"
+    );
     assert!(
         directory
             .next_correlated_event(&mut |_| FilterDecision::Admit, &|| None)
