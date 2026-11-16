@@ -412,14 +412,7 @@ impl Page {
         // A missing byte count in a known child is not an enumeration gap.
         // Folder-level enumeration evidence is not retained by the current source.
         let completeness = match self.result.folder {
-            Some(folder) => folder.parent_item().map_or_else(
-                || self.result.version.completeness(),
-                |item| crate::space::folder_completeness(&self.result.version, item),
-            ),
-            // A query over the whole version is not a subtree: a Missing version stays Missing.
-            None if self.result.version.completeness() == ResultCompleteness::Missing => {
-                ResultCompleteness::Missing
-            }
+            Some(_) => self.result.version.completeness(),
             None => self.result.version.space(0).map_or_else(
                 || self.result.version.completeness(),
                 |aggregate| aggregate.completeness,

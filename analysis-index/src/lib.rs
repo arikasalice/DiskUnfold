@@ -298,11 +298,9 @@ impl BuildHandle {
                 return Err(error);
             }
         };
-        // Folder aggregates use the per-folder source state; see `space::folder_source`.
-        let folder_source = space::folder_source(completeness, !self.gaps.is_empty());
         let mut aggregates =
             self.size_rule
-                .aggregate(&built, folder_source, self.shared_table_limit);
+                .aggregate(&built, completeness, self.shared_table_limit);
         let gaps = forest::mark_gaps(&built, &self.observations, &self.gaps, &mut aggregates);
         let exact_gaps = match gaps {
             Ok(exact) => exact,
@@ -329,7 +327,7 @@ impl BuildHandle {
             Some(total)
         };
         let (observation_ranges, scope_observation_range) =
-            observation_range::build(&built, &aggregates, folder_source);
+            observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
         // Linear in items and gaps, so it runs here and never under the state lock below.
         let freshness_outcomes = (finish && self.events.tracks_freshness()).then(|| {

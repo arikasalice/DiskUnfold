@@ -319,11 +319,9 @@ fn another_root_gap_stays_visible_without_rewriting_source_state() -> Result<(),
     .map_err(|e| format!("{e:?}"))?;
     assert_eq!(model.summary.source_gaps[0].root_index, 1);
     assert_eq!(model.summary.aggregate.inaccessible_ranges, None);
-    // The scope root has no unread range below it, so its own state is Complete even
-    // though the version is Missing; the other root's gap stays listed above.
     assert_eq!(
         model.histogram.source_completeness,
-        ResultCompleteness::Complete
+        ResultCompleteness::Missing
     );
     Ok(())
 }
