@@ -17,7 +17,9 @@ fn correlated_stream_errors_are_terminal_and_cannot_fall_back() -> TestResult {
         Arc::from(&b"uuid:test"[..]),
         None,
     );
-    directory.begin_correlated_filtered()?;
+    directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
     let first = directory
         .next_correlated_event(&mut |_| FilterDecision::Admit, &|| None)
         .err()

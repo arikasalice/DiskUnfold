@@ -332,8 +332,7 @@ fn correlated_attempt_retains_every_decision_and_matches_admitted_observations()
         .map_err(|error| format!("{error:?}"))?;
     let mut callbacks = std::collections::BTreeMap::new();
     let mut observations = std::collections::BTreeMap::<u64, TimedObservedEntry>::new();
-    let mut end_count = None;
-    loop {
+    let end_count = loop {
         match root
             .directory
             .next_correlated_event(
@@ -366,14 +365,11 @@ fn correlated_attempt_retains_every_decision_and_matches_admitted_observations()
             CorrelatedDirectoryEvent::Progress => {}
             CorrelatedDirectoryEvent::End {
                 child_count_exclusive,
-            } => {
-                end_count = Some(child_count_exclusive);
-                break;
-            }
+            } => break child_count_exclusive,
         }
-    }
+    };
 
-    assert_eq!(end_count, Some(u64::try_from(callbacks.len())?));
+    assert_eq!(end_count, u64::try_from(callbacks.len())?);
     assert_eq!(callbacks.len(), 3);
     for (expected_id, (&child_id, (name, decision, phase))) in callbacks.iter().enumerate() {
         assert_eq!(child_id, u64::try_from(expected_id)?);

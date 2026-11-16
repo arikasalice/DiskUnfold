@@ -70,6 +70,10 @@ pub enum FilterCallbackPhase {
 /// excluded and undecidable records. It is scoped to one attempt and is not an
 /// event sequence or filesystem identity. F02 assigns and transports event
 /// sequences independently.
+// Keep payloads inline to avoid one extra heap allocation per admitted child.
+// Consequently, every event has the size of the Observation variant; any future bounded
+// transport must account for the enum's full inline size per retained event.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CorrelatedDirectoryEvent {
     /// The callback decision and raw name for this record.

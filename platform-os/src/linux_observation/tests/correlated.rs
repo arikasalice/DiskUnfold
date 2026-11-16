@@ -2,7 +2,7 @@ use super::*;
 use du_core_contracts::{
     Timestamp,
     scan_observation::{
-        CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase, FilterDecision,
+        CorrelatedDirectoryEvent, FilterCallbackPhase, FilterDecision,
     },
 };
 use std::{
@@ -27,11 +27,10 @@ fn correlated_stream_joins_filter_and_observation_for_more_than_one_batch() -> T
     let mut callbacks = HashMap::new();
     let mut observations = HashSet::new();
     let mut next_child_id = 0;
-    let mut end_count = None;
-    let mut include = |_| FilterDecision::Admit;
-    let mut clock = || Some(observed_at.clone());
+    let mut include = |_: &[u8]| FilterDecision::Admit;
+    let clock = || Some(observed_at.clone());
 
-    loop {
+    let end_count = loop {
         match root
             .directory
             .next_correlated_event(&mut include, &clock)
@@ -62,15 +61,12 @@ fn correlated_stream_joins_filter_and_observation_for_more_than_one_batch() -> T
             CorrelatedDirectoryEvent::Progress => {}
             CorrelatedDirectoryEvent::End {
                 child_count_exclusive,
-            } => {
-                end_count = Some(child_count_exclusive);
-                break;
-            }
+            } => break child_count_exclusive,
         }
-    }
+    };
 
     assert_eq!(next_child_id, ENTRY_COUNT as u64);
-    assert_eq!(end_count, Some(ENTRY_COUNT as u64));
+    assert_eq!(end_count, ENTRY_COUNT as u64);
     assert!(callbacks.is_empty());
     assert_eq!(observations, expected);
     assert!(
@@ -86,8 +82,8 @@ fn correlated_empty_directory_ends_only_after_a_real_read() -> TestResult {
     let temp = tempfile::tempdir()?;
     let mut root = open(temp.path())?;
     root.directory.begin_correlated_filtered().map_err(fail)?;
-    let mut include = |_| FilterDecision::Admit;
-    let mut clock = || None;
+    let mut include = |_: &[u8]| FilterDecision::Admit;
+    let clock = || None;
 
     assert!(matches!(
         root.directory
@@ -115,7 +111,6 @@ fn correlated_exclusion_has_no_later_observation_for_its_child_id() -> TestResul
     let mut callbacks = HashMap::new();
     let mut observed = HashSet::new();
     let mut next_child_id = 0;
-    let mut end_count = None;
     let mut include = |name: &[u8]| {
         if name == b"skip" {
             FilterDecision::Exclude
@@ -123,9 +118,9 @@ fn correlated_exclusion_has_no_later_observation_for_its_child_id() -> TestResul
             FilterDecision::Admit
         }
     };
-    let mut clock = || None;
+    let clock = || None;
 
-    loop {
+    let end_count = loop {
         match root
             .directory
             .next_correlated_event(&mut include, &clock)
@@ -157,15 +152,12 @@ fn correlated_exclusion_has_no_later_observation_for_its_child_id() -> TestResul
             CorrelatedDirectoryEvent::Progress => {}
             CorrelatedDirectoryEvent::End {
                 child_count_exclusive,
-            } => {
-                end_count = Some(child_count_exclusive);
-                break;
-            }
+            } => break child_count_exclusive,
         }
-    }
+    };
 
     assert_eq!(next_child_id, 2);
-    assert_eq!(end_count, Some(2));
+    assert_eq!(end_count, 2);
     assert!(callbacks.is_empty());
     let expected_observed: HashSet<_> = [b"keep".to_vec()].into_iter().collect();
     assert_eq!(observed, expected_observed);
@@ -237,13 +229,12 @@ fn undecidable_callbacks_remain_child_scoped_and_are_not_end() -> TestResult {
     fs::write(temp.path().join("second"), b"2")?;
     let mut root = open(temp.path())?;
     root.directory.begin_correlated_filtered().map_err(fail)?;
-    let mut include = |_| FilterDecision::Undecidable;
-    let mut clock = || None;
+    let mut include = |_: &[u8]| FilterDecision::Undecidable;
+    let clock = || None;
     let mut next_child_id = 0;
     let mut callback_count = 0;
-    let mut end_count = None;
 
-    loop {
+    let end_count = loop {
         match root
             .directory
             .next_correlated_event(&mut include, &clock)
@@ -267,16 +258,13 @@ fn undecidable_callbacks_remain_child_scoped_and_are_not_end() -> TestResult {
             CorrelatedDirectoryEvent::Progress => {}
             CorrelatedDirectoryEvent::End {
                 child_count_exclusive,
-            } => {
-                end_count = Some(child_count_exclusive);
-                break;
-            }
+            } => break child_count_exclusive,
         }
-    }
+    };
 
     assert_eq!(callback_count, 2);
     assert_eq!(next_child_id, 2);
-    assert_eq!(end_count, Some(2));
+    assert_eq!(end_count, 2);
     Ok(())
 }
 
