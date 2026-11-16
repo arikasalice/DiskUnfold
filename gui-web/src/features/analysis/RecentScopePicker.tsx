@@ -131,7 +131,7 @@ export function RecentScopePicker({
   return (
     <section
       className="du-recent-scopes"
-      aria-label={text("ui.analysis.recent_ranges", "Recent analysis ranges")}
+      aria-label={text("ui.analysis.recent_ranges", "Recent analysis scopes")}
     >
       <Action
         ref={pickerOpener}
@@ -140,14 +140,14 @@ export function RecentScopePicker({
         aria-expanded={view !== "closed"}
         onPress={openList}
       >
-        {text("ui.analysis.recent_ranges", "Recent analysis ranges")}
+        {text("ui.analysis.recent_ranges", "Recent analysis scopes")}
       </Action>
       {view !== "closed" && (
         <section
           className="du-recent-scopes__panel"
           aria-label={text(
             "ui.analysis.recent_ranges",
-            "Recent analysis ranges",
+            "Recent analysis scopes",
           )}
         >
           <header className="du-recent-scopes__header">
@@ -158,7 +158,7 @@ export function RecentScopePicker({
                 className="du-recent-scopes__focus-heading"
               >
                 <Heading level={3}>
-                  {text("ui.analysis.recent_ranges", "Recent analysis ranges")}
+                  {text("ui.analysis.recent_ranges", "Recent analysis scopes")}
                 </Heading>
               </div>
             ) : (
@@ -168,7 +168,7 @@ export function RecentScopePicker({
                 className="du-recent-scopes__focus-heading"
               >
                 <Heading level={3}>
-                  {text("ui.analysis.review_saved_range", "Review saved range")}
+                  {text("ui.analysis.review_saved_range", "Review saved scope")}
                 </Heading>
               </div>
             )}
@@ -179,12 +179,12 @@ export function RecentScopePicker({
               >
                 {text(
                   "ui.analysis.back_to_recent_ranges",
-                  "Back to recent ranges",
+                  "Back to recent scopes",
                 )}
               </Action>
             )}
             <Action variant="quiet" onPress={close}>
-              {text("ui.analysis.close_recent_ranges", "Close recent ranges")}
+              {text("ui.analysis.close_recent_ranges", "Close recent scopes")}
             </Action>
           </header>
 

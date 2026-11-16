@@ -15,6 +15,13 @@ const COMPLETENESS: [ResultCompleteness; 4] = [
     ResultCompleteness::Cancelled,
 ];
 const LIMITS: [usize; 9] = [0, 1, 2, 3, 5, 9, 40, 1_000_000, usize::MAX];
+const RESULT_KINDS: [ResultItemKind; 5] = [
+    ResultItemKind::Directory,
+    ResultItemKind::File,
+    ResultItemKind::UntraversedLink,
+    ResultItemKind::Unknown,
+    ResultItemKind::UnknownStructure,
+];
 
 /// A fixed pseudo-random sequence, so every run checks the same forests.
 struct Rng(u64);
@@ -38,8 +45,15 @@ impl Rng {
 
 struct Forest {
     items: Vec<ResultItem>,
-    structures: Vec<bool>,
     observations: Option<Vec<Option<Arc<SpaceObservation>>>>,
+}
+
+/// Test oracle for the established result-kind boundary, independent of production code.
+fn expected_is_structure(kind: ResultItemKind) -> bool {
+    matches!(
+        kind,
+        ResultItemKind::Directory | ResultItemKind::UnknownStructure
+    )
 }
 
 fn value(basis: SizeBasis, amount: SizeAmount, evidence: SizeEvidence) -> SizeValue {
@@ -122,22 +136,19 @@ fn forest(rng: &mut Rng) -> Forest {
     let count = 20 + rng.below(181);
     let pool = 2 + rng.below(count);
     let mut items = Vec::with_capacity(count);
-    let mut structures = Vec::with_capacity(count);
     let mut observations = Vec::with_capacity(count);
     let mut directories: Vec<u32> = Vec::new();
     for number in 0..count {
         let item_no = u32::try_from(number).unwrap_or_default();
-        let structure = number == 0 || rng.chance(35);
+        let kind = RESULT_KINDS
+            .get(number)
+            .copied()
+            .unwrap_or_else(|| RESULT_KINDS[rng.below(RESULT_KINDS.len())]);
         let parent =
             (number > 0 && !rng.chance(3)).then(|| directories[rng.below(directories.len())]);
-        if structure {
+        if expected_is_structure(kind) {
             directories.push(item_no);
         }
-        let kind = match (structure, rng.chance(10)) {
-            (true, false) => ResultItemKind::Directory,
-            (true, true) => ResultItemKind::UnknownStructure,
-            (false, _) => ResultItemKind::File,
-        };
         items.push(ResultItem {
             item_no,
             parent,
@@ -145,8 +156,7 @@ fn forest(rng: &mut Rng) -> Forest {
             size: None,
             kind,
         });
-        structures.push(structure);
-        observations.push(if structure {
+        observations.push(if expected_is_structure(kind) {
             None
         } else {
             observation(rng, pool)
@@ -154,7 +164,6 @@ fn forest(rng: &mut Rng) -> Forest {
     }
     Forest {
         items,
-        structures,
         observations: (!rng.chance(5)).then_some(observations),
     }
 }
@@ -171,6 +180,69 @@ fn is_below(items: &[ResultItem], ancestor: usize, mut item: usize) -> bool {
     }
 }
 
+/// Logical expectations for generated forests, whose items all have no size observation.
+fn expected_logical(
+    items: &[ResultItem],
+    ancestor: usize,
+    completeness: ResultCompleteness,
+) -> SpaceAggregate {
+    let mut missing_items = 0;
+    let mut untraversed_links = 0;
+    for (index, item) in items.iter().enumerate() {
+        if !is_below(items, ancestor, index) {
+            continue;
+        }
+        match item.kind {
+            ResultItemKind::Directory | ResultItemKind::UnknownStructure => {}
+            ResultItemKind::UntraversedLink => untraversed_links += 1,
+            ResultItemKind::File | ResultItemKind::Unknown => missing_items += 1,
+        }
+    }
+    let completeness = match completeness {
+        ResultCompleteness::Complete if missing_items > 0 || untraversed_links > 0 => {
+            ResultCompleteness::Missing
+        }
+        other => other,
+    };
+    let amount = if completeness == ResultCompleteness::Complete {
+        SizeAmount::Exact {
+            bytes: ByteSize::from(0),
+        }
+    } else {
+        SizeAmount::Unknown
+    };
+    let evidence = if amount == SizeAmount::Unknown {
+        SizeEvidence::Unknown
+    } else {
+        SizeEvidence::Measured
+    };
+    SpaceAggregate {
+        logical: value(SizeBasis::Logical, amount, evidence),
+        allocated: value(
+            SizeBasis::Allocated,
+            SizeAmount::Unknown,
+            SizeEvidence::Unknown,
+        ),
+        unique_physical: value(
+            SizeBasis::UniquePhysical,
+            SizeAmount::Unknown,
+            SizeEvidence::Unknown,
+        ),
+        completeness,
+        allocated_completeness: ResultCompleteness::Missing,
+        unique_physical_completeness: ResultCompleteness::Missing,
+        missing_items,
+        untraversed_links,
+        inaccessible_ranges: None,
+        limitations: std::borrow::Cow::Borrowed(&[
+            "space.allocated_not_collected",
+            "space.sharing_not_collected",
+            "space.aux_not_included",
+            "space.observation_detail_insufficient",
+        ]),
+    }
+}
+
 /// What the single-table calculation yields for every item.
 fn reference(
     forest: &Forest,
@@ -178,11 +250,16 @@ fn reference(
     limit: usize,
     reversed: bool,
 ) -> Vec<SpaceAggregate> {
-    let mut expected = space::aggregate(&forest.items, &forest.structures, completeness);
+    let mut expected: Vec<_> = (0..forest.items.len())
+        .map(|index| expected_logical(&forest.items, index, completeness))
+        .collect();
     for (index, output) in expected.iter_mut().enumerate() {
         let mut sum = Physical::with_limit(limit);
         let files: Vec<usize> = (0..forest.items.len())
-            .filter(|file| !forest.structures[*file] && is_below(&forest.items, index, *file))
+            .filter(|file| {
+                !expected_is_structure(forest.items[*file].kind)
+                    && is_below(&forest.items, index, *file)
+            })
             .collect();
         let order: Box<dyn Iterator<Item = &usize>> = if reversed {
             Box::new(files.iter().rev())
@@ -199,6 +276,82 @@ fn reference(
         sum.finish(completeness, output);
     }
     expected
+}
+
+#[test]
+fn every_result_kind_keeps_its_subtree_propagation() {
+    let items: Vec<_> = RESULT_KINDS
+        .into_iter()
+        .enumerate()
+        .map(|(index, kind)| ResultItem {
+            item_no: u32::try_from(index).unwrap_or_default(),
+            parent: (index > 0).then_some(0),
+            name: Vec::new(),
+            size: None,
+            kind,
+        })
+        .collect();
+    let observation = |file, bytes| {
+        Some(Arc::new(SpaceObservation {
+            allocated: Some(value(
+                SizeBasis::Allocated,
+                SizeAmount::Exact {
+                    bytes: ByteSize::from(bytes),
+                },
+                SizeEvidence::OsReported,
+            )),
+            identity: Some(FileIdentity {
+                volume: vec![1],
+                file: vec![file],
+            }),
+            link_count: Some(1),
+            sharing: SharingEvidence::None,
+        }))
+    };
+    let forest = Forest {
+        items,
+        observations: Some(vec![
+            None,
+            observation(1, 11),
+            observation(2, 17),
+            observation(3, 23),
+            None,
+        ]),
+    };
+    let expected = reference(&forest, ResultCompleteness::Complete, 3, false);
+    let mut actual = space::aggregate(&forest.items, ResultCompleteness::Complete);
+    apply(
+        &forest.items,
+        forest.observations.as_deref(),
+        ResultCompleteness::Complete,
+        3,
+        &mut actual,
+    );
+
+    assert_eq!(actual, expected);
+    assert_eq!(expected[0].missing_items, 2);
+    assert_eq!(expected[0].untraversed_links, 1);
+    assert_eq!(
+        expected[0].allocated.amount,
+        SizeAmount::Exact {
+            bytes: ByteSize::from(51)
+        }
+    );
+    for (index, (missing, links, bytes)) in
+        [(2, 1, 51), (1, 0, 11), (0, 1, 17), (1, 0, 23), (0, 0, 0)]
+            .into_iter()
+            .enumerate()
+    {
+        assert_eq!(expected[index].missing_items, missing, "item {index}");
+        assert_eq!(expected[index].untraversed_links, links, "item {index}");
+        assert_eq!(
+            expected[index].allocated.amount,
+            SizeAmount::Exact {
+                bytes: ByteSize::from(bytes)
+            },
+            "item {index}"
+        );
+    }
 }
 
 #[derive(Default)]
@@ -239,10 +392,9 @@ fn whole_build_totals_equal_one_table_per_subtree() -> Result<(), String> {
         let limit = LIMITS[rng.below(LIMITS.len())];
         for completeness in COMPLETENESS {
             let expected = reference(&forest, completeness, limit, seed % 2 == 0);
-            let mut actual = space::aggregate(&forest.items, &forest.structures, completeness);
+            let mut actual = space::aggregate(&forest.items, completeness);
             apply(
                 &forest.items,
-                &forest.structures,
                 forest.observations.as_deref(),
                 completeness,
                 limit,

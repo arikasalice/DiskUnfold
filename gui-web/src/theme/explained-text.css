@@ -1,0 +1,16 @@
+/* A text with an explanation: a dotted line below it and the help cursor
+   say that pointing at it or moving focus to it explains it. */
+.du-explained {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--du-muted);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.du-explained:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

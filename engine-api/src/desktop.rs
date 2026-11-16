@@ -31,7 +31,8 @@ mod visualization;
 use crate::jobs;
 pub use crate::scan::{ScanDiagnosticsFactory, SharedTableLimit, SharedTableLimitSource};
 pub use assembly::{
-    DesktopServices, register, register_services, register_services_with_recent_scope_worker,
+    DesktopServices, DesktopSources, register, register_services,
+    register_services_with_recent_scope_worker, register_services_with_sources,
     register_with_scan_diagnostics, register_with_shared_table_limit,
 };
 pub use du_scan_engine::scan_job::ScanDiagnostics;
