@@ -39,6 +39,8 @@ struct State {
 pub(super) struct Probe {
     state: Mutex<State>,
     changed: Condvar,
+    #[cfg(test)]
+    wait_timeout_override: Mutex<Option<bool>>,
 }
 
 impl Probe {
@@ -110,26 +112,26 @@ impl Probe {
 
     pub(super) fn wait_for_four_workers(&self) -> Result<(), String> {
         let state = self.state.lock().map_err(|_| "probe lock")?;
-        let (state, _) = self
-            .changed
-            .wait_timeout_while(state, GATE_TIMEOUT, |state| {
-                !state.gate_released && active_workers(state).len() < WORKER_COUNT
-            })
-            .map_err(|_| "probe wait")?;
-        let active = active_parked(&state);
-        let workers = distinct_workers(&active);
-        if !worker_barrier_is_ready(workers.len(), state.gate_released) {
-            return Err(format!(
-                "four-worker evidence is insufficient: {} distinct workers remained actively parked at the barrier timeout or release",
-                workers.len(),
-            ));
-        }
-        if workers.len() != WORKER_COUNT {
-            return Err(format!(
-                "expected exactly {WORKER_COUNT} distinct adapter workers, observed {}",
-                workers.len()
-            ));
-        }
+        #[cfg(test)]
+        let injected_timeout = self
+            .wait_timeout_override
+            .lock()
+            .map_err(|_| "probe wait")?
+            .take();
+        #[cfg(not(test))]
+        let injected_timeout: Option<bool> = None;
+        let (state, timeout_timed_out) = if let Some(timed_out) = injected_timeout {
+            (state, timed_out)
+        } else {
+            let (state, timeout) = self
+                .changed
+                .wait_timeout_while(state, GATE_TIMEOUT, |state| {
+                    !state.gate_released && active_workers(state).len() < WORKER_COUNT
+                })
+                .map_err(|_| "probe wait")?;
+            (state, timeout.timed_out())
+        };
+        let active = validate_four_worker_wait(&state, timeout_timed_out)?;
         for (directory, _) in &active {
             let observed: BTreeMap<_, _> = state
                 .entries
@@ -289,6 +291,34 @@ fn active_workers(state: &State) -> HashSet<ThreadId> {
     distinct_workers(&active_parked(state))
 }
 
+fn validate_four_worker_wait(
+    state: &State,
+    timeout_timed_out: bool,
+) -> Result<Vec<(RelativePath, ThreadId)>, String> {
+    let active = active_parked(state);
+    let workers = distinct_workers(&active);
+    if !worker_barrier_is_ready(workers.len(), state.gate_released) {
+        let boundary = if timeout_timed_out {
+            "barrier timeout"
+        } else if state.gate_released {
+            "gate release"
+        } else {
+            "wait completion"
+        };
+        return Err(format!(
+            "four-worker evidence is insufficient: {} distinct workers remained actively parked at {boundary}",
+            workers.len(),
+        ));
+    }
+    if workers.len() != WORKER_COUNT {
+        return Err(format!(
+            "expected exactly {WORKER_COUNT} distinct adapter workers, observed {}",
+            workers.len()
+        ));
+    }
+    Ok(active)
+}
+
 fn worker_barrier_is_ready(active_worker_count: usize, gate_released: bool) -> bool {
     !gate_released && active_worker_count >= WORKER_COUNT
 }
@@ -418,21 +448,4 @@ fn gate_error() -> PortError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::worker_barrier_is_ready;
-
-    #[test]
-    fn timeout_boundary_accepts_four_active_workers_before_release() {
-        assert!(worker_barrier_is_ready(4, false));
-    }
-
-    #[test]
-    fn timeout_boundary_rejects_fewer_than_four_active_workers() {
-        assert!(!worker_barrier_is_ready(3, false));
-    }
-
-    #[test]
-    fn early_release_rejects_four_active_workers() {
-        assert!(!worker_barrier_is_ready(4, true));
-    }
-}
+mod tests;
