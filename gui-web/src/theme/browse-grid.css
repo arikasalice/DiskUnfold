@@ -83,10 +83,12 @@
   /* The size and time columns keep room for one unbroken value ("최소 390.6
      KiB", "2026.11.15 08:55:16"), and the type column for one word, while
      the name column still fits a short name at the narrowest table. The
-     same tracks in every row keep the columns aligned. */
+     same tracks in every row keep the columns aligned. The name column also
+     holds the "Analyze first" place while a scan runs, so it takes the most
+     room. */
   grid-template-columns:
-    minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))
-    minmax(10em, 16fr) minmax(0, 14fr);
+    minmax(0, 46fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))
+    minmax(10em, 16fr);
 }
 
 .du-browse-grid__body {
@@ -170,6 +172,24 @@
     color: var(--du-muted);
     font-size: 0.875em;
   }
+
+  /* A card has no hover to reveal a row action: "Analyze first" stays in the
+     row menu and the selection bar, and only a badge keeps its place, sized
+     to itself, at the end of the name line. */
+  .du-browse-grid .du-row-slot:not([data-holds="badge"]),
+  .du-browse-grid .du-row-slot .du-row-slot__reserve {
+    display: none;
+  }
+
+  /* The last cell takes a whole line; its label stays beside its value. */
+  .du-browse-results
+    .du-browse-grid__row
+    > [role="gridcell"]:last-child:not(:first-child) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+  }
 }
 
 @container (max-width: 300px) {
@@ -224,6 +244,20 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* The name, then the "Analyze first" place at the end before the row menu.
+   The name gives way to the place: it wraps or shortens, the place does not. */
+.du-browse-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.du-browse-name > :first-child {
+  flex: 0 1 auto;
+  min-inline-size: 0;
 }
 
 .du-feedback-name {

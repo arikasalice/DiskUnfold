@@ -30,7 +30,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: matrix
         shell: bash
-        run: echo "matrix=$(node release-packaging/quality/matrix.mjs)" >> "$GITHUB_OUTPUT"
+        env:
+          # Fork pull requests always use GitHub-hosted runners: the override is passed only for
+          # pushes and same-repository pull requests.
+          DU_RUNNER_OVERRIDES: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.DU_RUNNER_OVERRIDES || '' }}
+        run: |
+          set -euo pipefail
+          matrix="$(node release-packaging/quality/matrix.mjs)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: targets
@@ -187,6 +194,7 @@ jobs:
       - if: success() || failure()
         run: |
           node --test release-packaging/quality/coverage.test.mjs
+          node --test release-packaging/quality/matrix.test.mjs
           node --test release-packaging/quality/fuzz.test.mjs
           node release-packaging/quality/fuzz.mjs --check
       - name: Duplication report (50 tokens)

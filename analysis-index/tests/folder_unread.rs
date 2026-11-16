@@ -12,7 +12,7 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultVersionRead},
 };
 use folder_support::{
-    CONFIRMED_NO, OTHER_VOLUME, bounded, dirs, err, folder_path, forest, gap, id, state, unentered,
+    OTHER_VOLUME, UNPROVEN, bounded, dirs, err, folder_path, forest, gap, id, state, unentered,
     unenumerated, unknown,
 };
 
@@ -108,8 +108,8 @@ fn marked_folders_report_unenumerated_with_the_mark_reason() -> Result<(), Strin
         assert_eq!(state(version, 1, &[])?, unenumerated("scan.cancelled"));
     }
     // Ancestors and siblings of a marked folder are not marked.
-    assert_eq!(state(&sealed, 0, &["a"])?, CONFIRMED_NO);
-    assert_eq!(state(&sealed, 0, &["d"])?, CONFIRMED_NO);
+    assert_eq!(state(&sealed, 0, &["a"])?, UNPROVEN);
+    assert_eq!(state(&sealed, 0, &["d"])?, UNPROVEN);
     assert_eq!(state(&interim, 0, &["d"])?, unknown("scan.in_progress"));
     Ok(())
 }
@@ -181,7 +181,7 @@ fn the_invariant_holds_with_marks_gaps_and_boundaries_together() -> Result<(), S
             && matches!(unenumerated, Unenumerated::Yes { .. })
         {
             yes += 1;
-            assert_eq!(boundary, FolderBoundary::NoBoundary);
+            assert!(boundary.name().is_none());
         }
     }
     assert_eq!(yes, 3);

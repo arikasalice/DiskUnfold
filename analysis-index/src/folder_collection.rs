@@ -9,22 +9,19 @@
 //!    [`REASON_DATA_INSUFFICIENT`] and the boundary is [`FolderBoundary::NotProvided`].
 //! 2. The folder has an exact gap (a gap whose whole path is this item), in any
 //!    publication and any completeness: unenumerated is Yes with the reason of the first
-//!    recorded gap, and the boundary is [`FolderBoundary::NoBoundary`]. A gap whose path
+//!    recorded gap, and the boundary is unknown. A gap whose path
 //!    is not an item has no row and marks nothing.
 //! 3. The folder carries an unread mark ([`crate::BuildHandle::set_directory_unread`]): unenumerated
 //!    is Yes with [`REASON_CANCELLED`] or [`REASON_DISCONNECTED`] and the boundary is
-//!    [`FolderBoundary::NoBoundary`]. A gap on the same folder wins (rule 2), so the gap's
+//!    unknown boundary. A gap on the same folder wins (rule 2), so the gap's
 //!    reason is reported. The mark outranks a boundary issue on the same folder.
 //! 4. The folder has a `scan.boundary_other_volume` issue ([`BOUNDARY_OTHER_VOLUME`]) or a
 //!    `scan.revisit_blocked` issue ([`BOUNDARY_ALREADY_COUNTED`]): the boundary is that
 //!    kind and unenumerated is No. With both issues the other-volume boundary is reported.
-//! 5. No mark and the publication is not the sealed one of its build: both are Unknown with
+//! 5. A publication that is not the sealed one of its build is Unknown with
 //!    [`REASON_IN_PROGRESS`].
-//! 6. No mark and the sealed version is Complete or Missing: unenumerated is No and the
-//!    boundary is [`FolderBoundary::NoBoundary`].
-//! 7. No mark and the sealed version is Partial or Cancelled: both are Unknown with
-//!    [`REASON_DATA_INSUFFICIENT`], because an unmarked folder cannot yet be told from an
-//!    empty one. Unread marks let such a version answer for the folders they name.
+//! 6. Otherwise both are Unknown with [`REASON_DATA_INSUFFICIENT`]. A sealed result
+//!    alone does not prove that a particular folder was enumerated.
 //!
 //! Rules 2 to 4 are exclusive, so a folder is never both unenumerated and bounded.
 //!
@@ -34,24 +31,20 @@
 //!
 //! # Excluded children
 //!
-//! A sample never provides an excluded count. A reported folder of a real scan answers
-//! `count` and `exact = complete && the folder is not unread`,
-//! where unread means a gap or an unread mark on the folder. An unreported folder that is
-//! unread answers 0 as a lower bound in every sealed version of a real scan, whatever its
-//! completeness: its entries were not read, so nothing was counted. An unreported folder
-//! that is not unread answers exactly 0 in a real sealed Complete or Missing version. Any
-//! other unreported folder answers `None`.
+//! Excluded counts are not provided: the current producer does not establish that
+//! repeated enumeration cannot count the same direct child twice. Neither a reported
+//! count nor an absent record proves an exact count or a positive lower bound.
 //!
 //! # Cost
 //!
-//! Gaps use the existing item index. Boundary issues are resolved to item numbers once per
-//! publication outside the store lock (see `FolderMarks::bind`). Each lookup is O(log n)
-//! and performs no allocation; reason keys are borrowed from the version.
+//! Gaps use the existing item index. Boundary issues are resolved
+//! to item numbers once per publication outside the store lock (see `FolderMarks::bind`).
+//! Each lookup is O(log n) and performs no allocation; reason keys are borrowed from the version.
 pub use crate::folder_marks::{UnreadFolderCounts, UnreadReason};
 use crate::{QueryError, ResultVersion, result_read::ensure_directory};
 use du_core_contracts::{
     ItemRef,
-    result::{ResultCompleteness, ResultItem, ResultItemKind},
+    result::{ResultItem, ResultItemKind},
 };
 
 use crate::folder_marks::BoundaryKind;
@@ -176,28 +169,7 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
-        if !self.data_source.is_real() {
-            return Ok(None);
-        }
-        let not_read = self.recorded_unread(item.item_no).is_some();
-        if let Some(record) = self.folder_marks.excluded(item.item_no) {
-            return Ok(Some(ExcludedChildren {
-                count: record.count,
-                exact: record.complete && !not_read,
-            }));
-        }
-        // An unread folder of a finished real scan counted nothing: "at least zero",
-        // also in a version sealed Partial or Cancelled.
-        if not_read && self.data_source.is_real() && self.folder_marks.sealed() {
-            return Ok(Some(ExcludedChildren {
-                count: 0,
-                exact: false,
-            }));
-        }
-        Ok(self.sealed_scan().then_some(ExcludedChildren {
-            count: 0,
-            exact: true,
-        }))
+        Ok(None)
     }
 
     /// How many folders of this version carry each unread mark.
@@ -205,16 +177,6 @@ impl ResultVersion {
     /// Computed when the version was published; the call is O(1).
     pub fn unread_folder_counts(&self) -> UnreadFolderCounts {
         self.folder_marks.unread_counts()
-    }
-
-    /// Whether this is the sealed publication of a real scan that finished its walk.
-    fn sealed_scan(&self) -> bool {
-        self.data_source.is_real()
-            && self.folder_marks.sealed()
-            && matches!(
-                self.completeness,
-                ResultCompleteness::Complete | ResultCompleteness::Missing
-            )
     }
 
     fn collection_of(&self, item: &ResultItem) -> FolderCollection<'_> {
@@ -233,13 +195,16 @@ impl ResultVersion {
                 FolderBoundary::NotProvided,
             )
         } else if let Some(reason_key) = self.recorded_unread(item.item_no) {
-            (Unenumerated::Yes { reason_key }, FolderBoundary::NoBoundary)
+            (
+                Unenumerated::Yes { reason_key },
+                FolderBoundary::Unknown {
+                    reason_key: REASON_DATA_INSUFFICIENT,
+                },
+            )
         } else if let Some(kind) = self.folder_marks.boundary(item.item_no) {
             (Unenumerated::No, boundary_of(kind))
         } else if !self.folder_marks.sealed() {
             return unknown(REASON_IN_PROGRESS);
-        } else if self.sealed_scan() {
-            (Unenumerated::No, FolderBoundary::NoBoundary)
         } else {
             return unknown(REASON_DATA_INSUFFICIENT);
         };

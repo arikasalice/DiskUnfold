@@ -17,10 +17,6 @@ fn excluded(
         .map_err(err)
 }
 
-fn some(count: u32, exact: bool) -> Option<ExcludedChildren> {
-    Some(ExcludedChildren { count, exact })
-}
-
 #[test]
 fn record_validation_matches_the_directory_case_contract() -> Result<(), String> {
     let sink = IngestSink::default();
@@ -62,12 +58,12 @@ fn record_validation_matches_the_directory_case_contract() -> Result<(), String>
     let version = build
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(err)?;
-    assert_eq!(excluded(&version, 0, &["dir"])?, some(1, true));
+    assert_eq!(excluded(&version, 0, &["dir"])?, None);
     Ok(())
 }
 
 #[test]
-fn a_later_record_replaces_the_earlier_one_in_future_publications() -> Result<(), String> {
+fn reported_counts_are_omitted_in_interim_and_final_versions() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 1)?;
     dirs(&mut build, 0, &[&["dir"]])?;
@@ -81,13 +77,13 @@ fn a_later_record_replaces_the_earlier_one_in_future_publications() -> Result<()
     let sealed = build
         .seal(id(3), ResultCompleteness::Complete)
         .map_err(err)?;
-    assert_eq!(excluded(&interim, 0, &["dir"])?, some(3, false));
-    assert_eq!(excluded(&sealed, 0, &["dir"])?, some(5, true));
+    assert_eq!(excluded(&interim, 0, &["dir"])?, None);
+    assert_eq!(excluded(&sealed, 0, &["dir"])?, None);
     Ok(())
 }
 
 #[test]
-fn recorded_count_is_exact_only_for_a_complete_folder_without_a_gap() -> Result<(), String> {
+fn reported_counts_are_omitted_without_a_distinctness_guarantee() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 2)?;
     dirs(
@@ -110,16 +106,16 @@ fn recorded_count_is_exact_only_for_a_complete_folder_without_a_gap() -> Result<
     let version = build
         .seal(id(2), ResultCompleteness::Partial)
         .map_err(err)?;
-    assert_eq!(excluded(&version, 0, &["whole"])?, some(4, true));
-    assert_eq!(excluded(&version, 0, &["cut"])?, some(2, false));
-    assert_eq!(excluded(&version, 0, &["denied"])?, some(7, false));
-    assert_eq!(excluded(&version, 0, &["empty"])?, some(0, true));
-    assert_eq!(excluded(&version, 1, &[])?, some(9, true));
+    assert_eq!(excluded(&version, 0, &["whole"])?, None);
+    assert_eq!(excluded(&version, 0, &["cut"])?, None);
+    assert_eq!(excluded(&version, 0, &["denied"])?, None);
+    assert_eq!(excluded(&version, 0, &["empty"])?, None);
+    assert_eq!(excluded(&version, 1, &[])?, None);
     Ok(())
 }
 
 #[test]
-fn unrecorded_folders_are_zero_in_a_sealed_complete_or_missing_version() -> Result<(), String> {
+fn unrecorded_folders_are_unknown_in_a_sealed_complete_or_missing_version() -> Result<(), String> {
     for (number, completeness) in [
         (2, ResultCompleteness::Complete),
         (3, ResultCompleteness::Missing),
@@ -129,10 +125,78 @@ fn unrecorded_folders_are_zero_in_a_sealed_complete_or_missing_version() -> Resu
         dirs(&mut build, 0, &[&["a"], &["denied"]])?;
         gap(&mut build, 0, &["denied"], "scan.path_denied")?;
         let version = build.seal(id(number), completeness).map_err(err)?;
-        assert_eq!(excluded(&version, 0, &["a"])?, some(0, true));
-        assert_eq!(excluded(&version, 0, &[])?, some(0, true));
+        assert_eq!(excluded(&version, 0, &["a"])?, None);
+        assert_eq!(excluded(&version, 0, &[])?, None);
         // Unread entries cannot be shown to hold no excluded child.
-        assert_eq!(excluded(&version, 0, &["denied"])?, some(0, false));
+        assert_eq!(excluded(&version, 0, &["denied"])?, None);
+    }
+    Ok(())
+}
+
+#[test]
+fn undecided_and_other_folder_counts_are_omitted() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = forest(&sink, 1, 1)?;
+    dirs(&mut build, 0, &[&["a"], &["a", "nested"], &["b"]])?;
+    for (parts, count) in [(&["a"][..], 3), (&["b"][..], 0)] {
+        build
+            .set_excluded_children(0, &folder_path(parts), count, true)
+            .map_err(err)?;
+    }
+    gap(&mut build, 0, &["a", "unknown"], "scan.unclassified")?;
+    gap(
+        &mut build,
+        0,
+        &["a", "nested", "unknown"],
+        "scan.unclassified",
+    )?;
+    let version = build
+        .seal(id(2), ResultCompleteness::Complete)
+        .map_err(err)?;
+    assert_eq!(excluded(&version, 0, &["a"])?, None);
+    assert_eq!(excluded(&version, 0, &["b"])?, None);
+    assert_eq!(excluded(&version, 0, &["a", "nested"])?, None);
+    Ok(())
+}
+
+#[test]
+fn later_undecided_child_does_not_change_a_pinned_version() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = forest(&sink, 1, 1)?;
+    dirs(&mut build, 0, &[&["a"]])?;
+    build
+        .set_excluded_children(0, &folder_path(&["a"]), 1, true)
+        .map_err(err)?;
+    let interim = build.publish_partial(id(2)).map_err(err)?;
+    gap(&mut build, 0, &["a", "unknown"], "scan.unclassified")?;
+    let sealed = build
+        .seal(id(3), ResultCompleteness::Complete)
+        .map_err(err)?;
+    assert_eq!(excluded(&interim, 0, &["a"])?, None);
+    assert_eq!(excluded(&sealed, 0, &["a"])?, None);
+    Ok(())
+}
+
+#[test]
+fn unreported_boundary_does_not_claim_an_exact_zero() -> Result<(), String> {
+    for (visited, alias) in [("a", "b"), ("b", "a")] {
+        let sink = IngestSink::default();
+        let mut build = forest(&sink, 1, 1)?;
+        dirs(&mut build, 0, &[&[visited], &[alias], &["volume"]])?;
+        build
+            .set_excluded_children(0, &folder_path(&[visited]), 1, true)
+            .map_err(err)?;
+        folder_support::unentered(&mut build, 0, &[alias], folder_support::REVISIT)?;
+        folder_support::unentered(&mut build, 0, &["volume"], folder_support::OTHER_VOLUME)?;
+        let interim = build.publish_partial(id(2)).map_err(err)?;
+        let sealed = build
+            .seal(id(3), ResultCompleteness::Complete)
+            .map_err(err)?;
+        for version in [&interim, &sealed] {
+            assert_eq!(excluded(version, 0, &[visited])?, None);
+            assert_eq!(excluded(version, 0, &[alias])?, None);
+            assert_eq!(excluded(version, 0, &["volume"])?, None);
+        }
     }
     Ok(())
 }
@@ -169,7 +233,7 @@ fn unrecorded_folders_are_unknown_in_progress_partial_cancelled_and_sample() -> 
 }
 
 #[test]
-fn partial_seal_reports_only_the_recorded_folders() -> Result<(), String> {
+fn partial_seal_omits_recorded_and_unrecorded_counts() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 1)?;
     dirs(&mut build, 0, &[&["a"], &["b"]])?;
@@ -179,7 +243,7 @@ fn partial_seal_reports_only_the_recorded_folders() -> Result<(), String> {
     let version = build
         .seal(id(2), ResultCompleteness::Partial)
         .map_err(err)?;
-    assert_eq!(excluded(&version, 0, &["a"])?, some(1, true));
+    assert_eq!(excluded(&version, 0, &["a"])?, None);
     assert_eq!(excluded(&version, 0, &["b"])?, None);
     Ok(())
 }

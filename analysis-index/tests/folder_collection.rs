@@ -9,22 +9,22 @@ use du_analysis_index::{
 };
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use folder_support::{
-    CONFIRMED_NO, OTHER_VOLUME, REVISIT, UNVERIFIABLE, bounded, dirs, err, forest, gap, id, state,
+    OTHER_VOLUME, REVISIT, UNPROVEN, UNVERIFIABLE, bounded, dirs, err, forest, gap, id, state,
     unentered, unenumerated, unknown,
 };
 
 #[test]
-fn unmarked_folders_of_a_sealed_complete_version_are_confirmed() -> Result<(), String> {
+fn unmarked_folders_of_a_sealed_complete_version_are_unknown() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 2)?;
     dirs(&mut build, 0, &[&["a"], &["a", "b"]])?;
     let version = build
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(err)?;
-    assert_eq!(state(&version, 0, &[])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 0, &["a"])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 0, &["a", "b"])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 1, &[])?, CONFIRMED_NO);
+    assert_eq!(state(&version, 0, &[])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &["a", "b"])?, UNPROVEN);
+    assert_eq!(state(&version, 1, &[])?, UNPROVEN);
     Ok(())
 }
 
@@ -46,10 +46,10 @@ fn exact_gap_marks_the_folder_with_its_first_reason() -> Result<(), String> {
     );
     assert_eq!(state(&version, 0, &["a", "b"])?, unenumerated(UNVERIFIABLE));
     assert_eq!(state(&version, 1, &[])?, unenumerated("scan.path_vanished"));
-    // The gap is on the child and on the other root only; ancestors and siblings stay confirmed.
-    assert_eq!(state(&version, 0, &[])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 0, &["sibling"])?, CONFIRMED_NO);
-    // A gap turns a sealed Complete input into a Missing version, which still confirms.
+    // A descendant's gap does not establish the ancestor's or sibling's listing state.
+    assert_eq!(state(&version, 0, &[])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &["sibling"])?, UNPROVEN);
+    // A gap turns a sealed Complete input into a Missing version.
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
     Ok(())
 }
@@ -64,8 +64,8 @@ fn gap_on_a_name_that_is_not_an_item_does_not_mark_the_parent() -> Result<(), St
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(err)?;
     assert_eq!(version.scope_gaps().len(), 1);
-    assert_eq!(state(&version, 0, &["a"])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 0, &[])?, CONFIRMED_NO);
+    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &[])?, UNPROVEN);
     Ok(())
 }
 
@@ -104,8 +104,8 @@ fn boundary_issues_name_the_boundary_and_confirm_the_folder_was_not_read() -> Re
         state(&version, 1, &[])?,
         bounded(FolderBoundary::AlreadyCounted)
     );
-    assert_eq!(state(&version, 0, &["a"])?, CONFIRMED_NO);
-    assert_eq!(state(&version, 1, &["x"])?, CONFIRMED_NO);
+    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
+    assert_eq!(state(&version, 1, &["x"])?, UNPROVEN);
     assert_eq!(
         FolderBoundary::OtherVolume.name(),
         Some(BOUNDARY_OTHER_VOLUME)
@@ -236,7 +236,7 @@ fn interim_publication_is_in_progress_and_the_seal_of_the_same_build_answers() -
         state(&interim, 0, &["denied"])?,
         unenumerated("scan.path_denied")
     );
-    assert_eq!(state(&sealed, 0, &["a"])?, CONFIRMED_NO);
+    assert_eq!(state(&sealed, 0, &["a"])?, UNPROVEN);
     Ok(())
 }
 
@@ -270,13 +270,39 @@ fn partial_and_cancelled_seals_cannot_tell_an_unmarked_folder() -> Result<(), St
 }
 
 #[test]
-fn sealed_missing_input_confirms_unmarked_folders() -> Result<(), String> {
+fn sealed_missing_input_does_not_confirm_unmarked_folders() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 1)?;
     dirs(&mut build, 0, &[&["a"]])?;
     let version = build
         .seal(id(2), ResultCompleteness::Missing)
         .map_err(err)?;
-    assert_eq!(state(&version, 0, &["a"])?, CONFIRMED_NO);
+    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
+    Ok(())
+}
+
+#[test]
+fn completed_folder_record_does_not_prove_all_children_were_classified() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = forest(&sink, 1, 1)?;
+    dirs(&mut build, 0, &[&["read"], &["uncertain"], &["other"]])?;
+    build
+        .set_excluded_children(0, &folder_support::folder_path(&["read"]), 0, true)
+        .map_err(err)?;
+    build
+        .set_excluded_children(0, &folder_support::folder_path(&["uncertain"]), 1, true)
+        .map_err(err)?;
+    gap(
+        &mut build,
+        0,
+        &["uncertain", "undecidable"],
+        "scan.unclassified",
+    )?;
+    let version = build
+        .seal(id(2), ResultCompleteness::Complete)
+        .map_err(err)?;
+    assert_eq!(state(&version, 0, &["read"])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &["uncertain"])?, UNPROVEN);
+    assert_eq!(state(&version, 0, &["other"])?, UNPROVEN);
     Ok(())
 }
