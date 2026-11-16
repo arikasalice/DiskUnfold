@@ -1,7 +1,7 @@
 #![cfg(target_os = "macos")]
 use du_core_contracts::scan_observation::{
-    AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch, MetadataObservation,
-    ObservedEntry, ObservedKind, OpenedScopeRoot, ScopeRootPort,
+    DirectoryObservations, FilterDecision, FilteredBatch, MetadataObservation, ObservedEntry,
+    ObservedKind, OpenedScopeRoot, ScopeRootPort,
 };
 use du_platform_os::macos_observation::MacScopeRoots;
 use std::{
