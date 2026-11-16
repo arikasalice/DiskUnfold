@@ -1,0 +1,41 @@
+/* The exclusion rules of a scope: one rule on each line and, when rules are
+   folded, their toggle on the line below. */
+.du-exclusion-rules,
+.du-exclusion-rules__list {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  min-inline-size: 0;
+}
+
+/* Says that the text after it is a name pattern, not a path. */
+.du-exclusion-rules__kind {
+  display: inline;
+  color: var(--du-muted);
+  font-weight: 400;
+}
+
+/* The toggle reads as a line of the value, not as a button of the panel:
+   its text stands in line with the rules above it. */
+.du-analysis__result .du-readout .du-exclusion-rules > .du-action--quiet {
+  min-block-size: 0;
+  margin-inline: -2px;
+  padding: 0 2px;
+  font-weight: 620;
+}
+
+/* In the result summary a value stands at the end of its line, so every
+   rule and the toggle end there. */
+.du-analysis__result .du-readout .du-exclusion-rules,
+.du-analysis__result .du-readout .du-exclusion-rules__list {
+  justify-items: end;
+  text-align: end;
+}
+
+/* The saved conditions of a recent scope draw paths like their included
+   locations. */
+.du-recent-scopes__conditions .du-exclusion-rules__list {
+  gap: 6px;
+  font-weight: 630;
+  white-space: pre-wrap;
+}

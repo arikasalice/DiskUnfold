@@ -309,4 +309,42 @@ mod tests {
         assert_eq!(failure.as_ref(), expected.as_ref());
         Ok(())
     }
+
+    #[test]
+    fn retiring_a_document_cancels_its_pending_post() {
+        let state = Rc::new(RefCell::new(DocumentSession::new()));
+        {
+            let mut document = state.borrow_mut();
+            document.active = true;
+            document.ready = true;
+            document.sending = true;
+            document.generation = 1;
+        }
+        let cancellable = state.borrow().cancellable.clone();
+
+        retire_session(&state, false);
+
+        let document = state.borrow();
+        assert!(!document.active);
+        assert!(!document.ready);
+        assert!(!document.sending);
+        assert!(!document.closed);
+        assert!(cancellable.is_cancelled());
+    }
+
+    #[test]
+    fn stale_async_completion_cannot_clear_a_new_documents_send() {
+        let state = Rc::new(RefCell::new(DocumentSession::new()));
+        {
+            let mut document = state.borrow_mut();
+            document.generation = 2;
+            document.sending = true;
+        }
+
+        finish_event_batch(&state, 1);
+        assert!(state.borrow().sending);
+
+        finish_event_batch(&state, 2);
+        assert!(!state.borrow().sending);
+    }
 }

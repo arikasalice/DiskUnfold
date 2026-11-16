@@ -33,6 +33,7 @@ pub(super) fn process_entry(
         admit(frame, entry, &path, &shared.visited, policy, !stopping)
     };
     if admission == Admission::Excluded {
+        frame.excluded = frame.excluded.saturating_add(1);
         return Ok(None);
     }
     let enter = admission == Admission::Enter;
@@ -49,12 +50,19 @@ pub(super) fn process_entry(
     }
     if !continue_child(frame, &path, reservation, shared, context)? {
         // An entered directory left unread on a disconnected volume is a gap
-        // of its own; a cancelled one is only listed as recorded.
-        let closed = context.checkpoint() != Checkpoint::Cancel
-            && shared.disconnects.closed(frame.root_index);
-        if enter && closed && !super::disconnected::unread(frame.root_index, path, sender, context)
-        {
-            return Err(());
+        // of its own; a cancelled one is recorded and marked as unread.
+        let cancelled = context.checkpoint() == Checkpoint::Cancel;
+        if enter {
+            let sent = if cancelled {
+                super::cancel_drain::unread(frame.root_index, path, sender)
+            } else if shared.disconnects.closed(frame.root_index) {
+                super::disconnected::unread(frame.root_index, path, sender, context)
+            } else {
+                true
+            };
+            if !sent {
+                return Err(());
+            }
         }
         return Ok(None);
     }

@@ -34,7 +34,7 @@ test("the folder table turns into cards between an 800px and a 700px window", ()
   expect(listWidth(800) - 17).toBeGreaterThan(cards);
   // The column minimums stay as the guard for zoom and long text.
   expect(browse).toContain(
-    "minmax(0, 32fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))\n    minmax(10em, 16fr) minmax(0, 14fr);",
+    "minmax(0, 46fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))\n    minmax(10em, 16fr);",
   );
   // The other users of the same switch move with it.
   expect(BROWSE_CARD_WIDTH).toBe(cards);

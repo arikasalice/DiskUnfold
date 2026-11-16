@@ -1,14 +1,9 @@
 /*
- * Shown only on the hovered or focused row. The action overlays the end of the
- * status text instead of taking a share of its width, so a hidden action does
- * not wrap the text and a shown one moves neither the row height nor any cell.
+ * Shown only on the hovered or focused row, in the place a RowSlot keeps for
+ * it, so showing it moves neither the row height nor any other control.
  */
-.du-row-status > .du-row-action {
+.du-row-slot > .du-row-action {
   visibility: hidden;
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: 0;
-  transform: translateY(-50%);
   min-block-size: 30px;
   padding-block: 3px;
 }
@@ -18,12 +13,48 @@
   visibility: visible;
 }
 
-.du-row-status {
-  position: relative;
-  min-inline-size: 0;
+/*
+ * The reserved labels and the shown badge or action share one grid area, so
+ * the place is as wide as the widest of them. It never shrinks or wraps; the
+ * name beside it gives way instead. The badge or action stands at the end of
+ * the place, next to the control that follows it.
+ */
+.du-row-slot {
+  display: inline-grid;
+  flex: none;
+  align-items: center;
+  justify-items: end;
+  margin-inline-start: auto;
+  white-space: nowrap;
 }
 
-.du-row-status[data-requested] > :first-child {
-  color: var(--du-info-text);
-  font-weight: 650;
+.du-row-slot > *,
+.du-row-slot__reserve > * {
+  grid-area: 1 / 1;
+}
+
+.du-row-slot__reserve {
+  display: grid;
+  visibility: hidden;
+}
+
+.du-row-slot > .du-badge {
+  max-inline-size: none;
+}
+
+.du-row-slot__badge::before {
+  content: "";
+  flex: none;
+  inline-size: 14px;
+  margin-inline-end: 4px;
+}
+
+.du-row-slot__badge::after,
+.du-row-slot__action::after {
+  content: attr(data-label);
+}
+
+.du-row-slot__action {
+  min-block-size: 30px;
+  padding-block: 3px;
 }

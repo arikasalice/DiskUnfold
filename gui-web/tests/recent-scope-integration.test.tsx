@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { App } from "../src/app/App";
@@ -81,13 +82,13 @@ function fixture(stale = false) {
 
 async function applySavedRange() {
   fireEvent.click(
-    screen.getByRole("button", { name: "Recent analysis ranges" }),
+    screen.getByRole("button", { name: "Recent analysis scopes" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Review range 1" }),
+    await screen.findByRole("button", { name: "Review scope 1" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Use this range" }),
+    await screen.findByRole("button", { name: "Use this scope" }),
   );
   return screen.getByRole("button", { name: "Start analysis" });
 }
@@ -107,7 +108,12 @@ test("explicit scan uses the restored native paths, conditions and review", asyn
   ).toBe(path.display);
   expect(screen.getByText("Selected mounts")).toBeDefined();
   expect(screen.getByText("C:\\saved\\mounted")).toBeDefined();
-  expect(screen.getByText("fixture.tmp, C:\\saved\\excluded")).toBeDefined();
+  // Each exclusion rule stands on its own line; a name pattern is marked.
+  expect(
+    within(screen.getByRole("region", { name: "Reviewed scope" }))
+      .getAllByRole("listitem")
+      .map((rule) => rule.textContent),
+  ).toEqual(["Name pattern fixture.tmp", "C:\\saved\\excluded"]);
   fireEvent.click(start);
   await waitFor(() =>
     expect(calls.find(({ name }) => name === "scan.start")?.body).toEqual({
@@ -127,19 +133,19 @@ test("reopening a saved scope protects a partially filled draft", async () => {
   fireEvent.change(primary, { target: { value: "C:\\unfinished" } });
   fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   fireEvent.click(
-    screen.getByRole("button", { name: "Recent analysis ranges" }),
+    screen.getByRole("button", { name: "Recent analysis scopes" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Review range 1" }),
+    await screen.findByRole("button", { name: "Review scope 1" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Use this range" }),
+    await screen.findByRole("button", { name: "Use this scope" }),
   );
   expect(
     screen.getByRole("button", { name: "Replace current scope" }),
   ).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-  fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close recent scopes" }));
   expect(primary.value).toBe("C:\\unfinished");
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
@@ -154,7 +160,7 @@ test("a stale restored scope cannot be re-reviewed as ordinary path input", asyn
   render(<App analysis={client} />);
   fireEvent.click(await applySavedRange());
   await screen.findByText(
-    "Reopen the saved range or select its paths again before analyzing.",
+    "Reopen the saved scope or select its paths again before analyzing.",
   );
   expect(
     (

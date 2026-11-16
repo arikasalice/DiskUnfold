@@ -38,7 +38,8 @@ pub(super) fn close_frame(
     policy: Policy<'_>,
 ) -> bool {
     let sent = drain(&mut frame, shared, sender, context, policy)
-        && unread(frame.root_index, frame.path.clone(), sender, context);
+        && unread(frame.root_index, frame.path.clone(), sender, context)
+        && super::send_excluded(&frame, false, sender);
     complete(shared, frame.root_index, &frame.path, context);
     sent
 }
@@ -74,6 +75,7 @@ fn drain(
         path.push(timed.entry.name.clone());
         let admission = super::admit(frame, &timed.entry, &path, &shared.visited, policy, false);
         if admission == Admission::Excluded {
+            frame.excluded = frame.excluded.saturating_add(1);
             continue;
         }
         let item = Event::Item(frame.root_index, path.clone(), Box::new(timed), admission);
