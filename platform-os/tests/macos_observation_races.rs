@@ -320,30 +320,28 @@ fn filtered_enumeration_decides_names_before_recording() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn correlated_attempt_retains_every_decision_and_matches_admitted_observations() -> TestResult {
-    let (_guard, path) = fixture()?;
-    for name in ["admit", "exclude", "undecidable"] {
-        fs::write(path.join(name), b"fixture")?;
+type CorrelatedCallbackMap =
+    std::collections::BTreeMap<u64, (Vec<u8>, FilterDecision, FilterCallbackPhase)>;
+type CorrelatedObservationMap = std::collections::BTreeMap<u64, TimedObservedEntry>;
+
+fn correlated_decision(name: &[u8]) -> FilterDecision {
+    match name {
+        b"admit" => FilterDecision::Admit,
+        b"exclude" => FilterDecision::Exclude,
+        b"undecidable" => FilterDecision::Undecidable,
+        _ => FilterDecision::Undecidable,
     }
-    let mut root = open(&path)?;
-    root.directory
-        .begin_correlated_filtered()
-        .map_err(|error| format!("{error:?}"))?;
-    let mut callbacks = std::collections::BTreeMap::new();
-    let mut observations = std::collections::BTreeMap::<u64, TimedObservedEntry>::new();
+}
+
+fn collect_correlated_events(
+    directory: &mut dyn DirectoryObservations,
+) -> Result<(u64, CorrelatedCallbackMap, CorrelatedObservationMap), String> {
+    let mut callbacks = CorrelatedCallbackMap::new();
+    let mut observations = CorrelatedObservationMap::new();
+    let mut include = correlated_decision;
     let end_count = loop {
-        match root
-            .directory
-            .next_correlated_event(
-                &mut |name| match name {
-                    b"admit" => FilterDecision::Admit,
-                    b"exclude" => FilterDecision::Exclude,
-                    b"undecidable" => FilterDecision::Undecidable,
-                    _ => FilterDecision::Undecidable,
-                },
-                &|| None,
-            )
+        match directory
+            .next_correlated_event(&mut include, &|| None)
             .map_err(|error| format!("{error:?}"))?
         {
             CorrelatedDirectoryEvent::FilterCallback {
@@ -368,6 +366,20 @@ fn correlated_attempt_retains_every_decision_and_matches_admitted_observations()
             } => break child_count_exclusive,
         }
     };
+    Ok((end_count, callbacks, observations))
+}
+
+#[test]
+fn correlated_attempt_retains_every_decision_and_matches_admitted_observations() -> TestResult {
+    let (_guard, path) = fixture()?;
+    for name in ["admit", "exclude", "undecidable"] {
+        fs::write(path.join(name), b"fixture")?;
+    }
+    let mut root = open(&path)?;
+    root.directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
+    let (end_count, callbacks, observations) = collect_correlated_events(&mut *root.directory)?;
 
     assert_eq!(end_count, u64::try_from(callbacks.len())?);
     assert_eq!(callbacks.len(), 3);

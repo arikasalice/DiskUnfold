@@ -4,7 +4,7 @@ use du_core_contracts::{
     scan_observation::{CorrelatedDirectoryEvent, FilterCallbackPhase, FilterDecision},
 };
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
 };
 
@@ -169,9 +169,10 @@ fn correlated_metadata_error_stays_bound_to_child_and_time_remains_unknown() -> 
     fs::write(&path, b"value")?;
     let mut root = open(temp.path())?;
     root.directory.begin_correlated_filtered().map_err(fail)?;
+    let removal_result = RefCell::new(None);
     let mut include = |name: &[u8]| {
         assert_eq!(name, b"vanished");
-        fs::remove_file(&path).expect("remove after enumeration and before metadata");
+        *removal_result.borrow_mut() = Some(fs::remove_file(&path));
         FilterDecision::Admit
     };
     let clock_calls = Cell::new(0);
@@ -193,6 +194,11 @@ fn correlated_metadata_error_stays_bound_to_child_and_time_remains_unknown() -> 
         } => child_id,
         other => return Err(format!("unexpected first event: {other:?}").into()),
     };
+    match removal_result.borrow_mut().take() {
+        Some(Ok(())) => {}
+        Some(Err(error)) => return Err(error.into()),
+        None => return Err("filter callback did not attempt the removal".into()),
+    }
     match root
         .directory
         .next_correlated_event(&mut include, &clock)

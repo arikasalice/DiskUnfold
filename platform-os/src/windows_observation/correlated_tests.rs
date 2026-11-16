@@ -1,4 +1,4 @@
-use super::{PROBES, open_verified};
+use super::{PROBES, WindowsDirectory, open_verified};
 use du_core_contracts::{
     Timestamp,
     scan_observation::{
@@ -12,43 +12,34 @@ fn native_name(name: &str) -> Vec<u8> {
     name.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
-#[test]
-fn correlated_end_counts_all_dense_child_ids_and_keeps_only_admitted_observations()
--> Result<(), Box<dyn std::error::Error>> {
-    let fixture = tempfile::tempdir()?;
-    for name in ["admit", "exclude", "undecidable"] {
-        fs::write(fixture.path().join(name), b"fixture")?;
-    }
-    let decisions = [
-        (native_name("admit"), FilterDecision::Admit),
-        (native_name("exclude"), FilterDecision::Exclude),
-        (native_name("undecidable"), FilterDecision::Undecidable),
-    ];
-    let timestamp = Timestamp::from_unix_millis(1234).ok_or("invalid test timestamp")?;
-    let clock_calls = Cell::new(0usize);
-    let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
-    directory
-        .begin_correlated_filtered()
-        .map_err(|error| format!("{error:?}"))?;
+struct CorrelatedEvents {
+    callbacks: BTreeMap<u64, (Vec<u8>, FilterDecision, FilterCallbackPhase)>,
+    observations: BTreeMap<u64, TimedObservedEntry>,
+    child_count_exclusive: u64,
+}
 
-    PROBES.with(|count| count.set(0));
+fn collect_correlated_events(
+    directory: &mut WindowsDirectory,
+    decisions: &[(Vec<u8>, FilterDecision)],
+    timestamp: &Timestamp,
+    clock_calls: &Cell<usize>,
+) -> Result<CorrelatedEvents, Box<dyn std::error::Error>> {
     let mut callbacks = BTreeMap::new();
-    let mut observations = BTreeMap::<u64, TimedObservedEntry>::new();
+    let mut observations = BTreeMap::new();
     let child_count_exclusive = loop {
+        let mut include = |name: &[u8]| {
+            decisions
+                .iter()
+                .find(|(candidate, _)| candidate.as_slice() == name)
+                .map(|(_, decision)| *decision)
+                .unwrap_or(FilterDecision::Undecidable)
+        };
+        let clock = || {
+            clock_calls.set(clock_calls.get() + 1);
+            Some(timestamp.clone())
+        };
         match directory
-            .next_correlated_event(
-                &mut |name| {
-                    decisions
-                        .iter()
-                        .find(|(candidate, _)| candidate.as_slice() == name)
-                        .map(|(_, decision)| *decision)
-                        .unwrap_or(FilterDecision::Undecidable)
-                },
-                &|| {
-                    clock_calls.set(clock_calls.get() + 1);
-                    Some(timestamp.clone())
-                },
-            )
+            .next_correlated_event(&mut include, &clock)
             .map_err(|error| format!("{error:?}"))?
         {
             CorrelatedDirectoryEvent::FilterCallback {
@@ -73,6 +64,39 @@ fn correlated_end_counts_all_dense_child_ids_and_keeps_only_admitted_observation
             } => break child_count_exclusive,
         }
     };
+
+    Ok(CorrelatedEvents {
+        callbacks,
+        observations,
+        child_count_exclusive,
+    })
+}
+
+#[test]
+fn correlated_end_counts_all_dense_child_ids_and_keeps_only_admitted_observations()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    for name in ["admit", "exclude", "undecidable"] {
+        fs::write(fixture.path().join(name), b"fixture")?;
+    }
+    let decisions = [
+        (native_name("admit"), FilterDecision::Admit),
+        (native_name("exclude"), FilterDecision::Exclude),
+        (native_name("undecidable"), FilterDecision::Undecidable),
+    ];
+    let timestamp = Timestamp::from_unix_millis(1234).ok_or("invalid test timestamp")?;
+    let clock_calls = Cell::new(0usize);
+    let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
+    directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
+
+    PROBES.with(|count| count.set(0));
+    let CorrelatedEvents {
+        callbacks,
+        observations,
+        child_count_exclusive,
+    } = collect_correlated_events(&mut directory, &decisions, &timestamp, &clock_calls)?;
 
     assert_eq!(child_count_exclusive, 3);
     assert_eq!(callbacks.keys().copied().collect::<Vec<_>>(), vec![0, 1, 2]);

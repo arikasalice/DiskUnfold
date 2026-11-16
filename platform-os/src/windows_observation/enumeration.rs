@@ -311,7 +311,7 @@ mod correlated_offset_tests {
         let minimum =
             std::mem::offset_of!(FILE_ID_BOTH_DIR_INFO, FileName) + std::mem::size_of::<u16>();
         let aligned = (minimum + 7) & !7;
-        let misaligned = if aligned - 1 >= minimum {
+        let misaligned = if aligned > minimum {
             aligned - 1
         } else {
             aligned + 1
