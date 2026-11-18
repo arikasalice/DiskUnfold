@@ -54,6 +54,7 @@ pub(super) fn read(
             Step::Legacy => {
                 if frame.correlated.token().is_some() {
                     correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
+                    frame.correlated.fallback_to_legacy();
                 }
                 return Read::Legacy;
             }

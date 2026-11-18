@@ -504,6 +504,14 @@ impl Attempt {
         self.state = State::Unselected;
     }
 
+    /// Keeps subsequent reads on the legacy path after an unsupported correlated selection.
+    pub(in crate::scan::parallel) fn fallback_to_legacy(&mut self) {
+        self.release_buffers();
+        self.token = None;
+        self.next_seq = 0;
+        self.state = State::Legacy;
+    }
+
     pub(in crate::scan::parallel) fn final_sequence(&mut self) -> Option<u64> {
         let seq = self.next_seq;
         self.next_seq = self.next_seq.checked_add(1)?;
