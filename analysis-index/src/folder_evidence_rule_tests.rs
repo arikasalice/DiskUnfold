@@ -3,7 +3,7 @@ use crate::{FolderAttemptFinal, FolderAttemptInput, FolderAttemptStatus, IngestS
 use du_core_contracts::{
     Id, PathBytes, PathEncoding,
     ports::{PortError, PortErrorKind},
-    result::{ResultNativePath, ResultScopeRoot, ResultVersionRead},
+    result::{ResultNativePath, ResultScopeRoot},
     scan_observation::{
         CorrelatedDirectoryEvent, FilterCallbackPhase, FilterDecision, MetadataObservation,
         ObservedEntry, ObservedKind, TimedObservedEntry,
