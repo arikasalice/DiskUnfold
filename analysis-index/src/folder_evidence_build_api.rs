@@ -52,8 +52,8 @@ impl BuildHandle {
             .get(root_index as usize)
             .ok_or(FolderAttemptError::InvalidDirectory)?;
         let root_encoding = match &root.path.encoding {
-            du_core_contracts::values::PathEncoding::Unix => 0,
-            du_core_contracts::values::PathEncoding::WindowsUtf16le => 1,
+            du_core_contracts::PathEncoding::Unix => 0,
+            du_core_contracts::PathEncoding::WindowsUtf16le => 1,
         };
         self.folder_attempts.begin(
             root_index,

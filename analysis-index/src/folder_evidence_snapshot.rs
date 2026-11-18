@@ -28,6 +28,7 @@ pub(crate) struct FolderEvidenceSnapshot {
     _overhead_lease: FolderEvidenceLease,
 }
 
+#[derive(Debug)]
 pub(crate) struct PinnedFolderEvent {
     pub(crate) _attempt_id: u64,
     pub(crate) _event_seq: u64,

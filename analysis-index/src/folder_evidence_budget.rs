@@ -215,21 +215,23 @@ impl FolderEvidenceBudget {
         }
         let key_capacity = key.capacity();
 
-        let slot_id = registry.scopes.iter().position(|slot| slot.is_none());
-        let Some(slot_id) = slot_id else {
-            let required = registry.scopes.len().checked_add(1)?;
-            if required > registry.scopes.capacity() {
-                let target = registry
-                    .scopes
-                    .capacity()
-                    .saturating_mul(2)
-                    .max(16)
-                    .max(required);
-                let next_capacity_lease = self.grow_scope_registry(&mut registry, target)?;
-                registry.capacity_lease = Some(next_capacity_lease);
+        let slot_id = match registry.scopes.iter().position(|slot| slot.is_none()) {
+            Some(slot_id) => slot_id,
+            None => {
+                let required = registry.scopes.len().checked_add(1)?;
+                if required > registry.scopes.capacity() {
+                    let target = registry
+                        .scopes
+                        .capacity()
+                        .saturating_mul(2)
+                        .max(16)
+                        .max(required);
+                    let next_capacity_lease = self.grow_scope_registry(&mut registry, target)?;
+                    registry.capacity_lease = Some(next_capacity_lease);
+                }
+                registry.scopes.push(None);
+                registry.scopes.len().checked_sub(1)?
             }
-            registry.scopes.push(None);
-            registry.scopes.len().checked_sub(1)?
         };
 
         registry.scopes[slot_id] = Some(FolderScope {
