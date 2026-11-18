@@ -235,6 +235,10 @@ pub(super) struct Frame {
     pub(super) batch_pending: bool,
     pub(super) case_observed: bool,
     pub(super) boundary: Boundary,
+    /// Entries an exclusion rule dropped directly below this directory so
+    /// far, over all of its batches. It is reported once, when the listing
+    /// ends or stops; a name the rule could not decide is not counted.
+    pub(super) excluded: u64,
 }
 
 impl Frame {
@@ -285,6 +289,7 @@ impl Frame {
             batch_pending: false,
             case_observed: false,
             boundary: Boundary::Unknown,
+            excluded: 0,
         }
     }
 

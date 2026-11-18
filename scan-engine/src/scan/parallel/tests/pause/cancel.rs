@@ -3,6 +3,7 @@ use du_core_contracts::{Timestamp, scan_observation::TimedObservedEntry};
 
 #[cfg(windows)]
 mod native_files;
+mod saturated;
 
 struct LateBatch {
     entered: mpsc::Sender<()>,

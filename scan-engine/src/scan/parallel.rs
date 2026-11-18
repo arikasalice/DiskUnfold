@@ -10,7 +10,10 @@ mod lanes;
 mod queue;
 pub(crate) use control::ScanControlSession;
 pub use control::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
-use du_analysis_index::{BuildError, BuildHandle, publication_cadence::PublicationCadence};
+use du_analysis_index::{
+    BuildError, BuildHandle, folder_collection::UnreadReason,
+    publication_cadence::PublicationCadence,
+};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
@@ -98,6 +101,18 @@ enum Event {
     /// A name withheld by an undecidable exclusion rule; it was never observed.
     Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
+    /// Entries an exclusion rule dropped directly below a registered
+    /// directory, sent once when its listing ends (`complete`) or stops, and
+    /// only for a nonzero count.
+    Excluded {
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        count: u32,
+        complete: bool,
+    },
+    /// A registered directory that cancellation left unopened or partly read.
+    /// Sent once per directory, after the event that registered it.
+    Unread(u32, Vec<Vec<u8>>),
     Failure {
         root_index: u32,
         path: Vec<Vec<u8>>,

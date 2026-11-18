@@ -89,6 +89,22 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
+            Event::Excluded {
+                root_index,
+                path,
+                count,
+                complete,
+            } => {
+                build.set_excluded_children(root_index, &path, count, complete)?;
+                self.cadence.changed();
+                Ok(())
+            }
+            Event::Unread(root_index, path) => {
+                self.counted_roots.unread(root_index, &path);
+                build.set_directory_unread(root_index, &path, UnreadReason::Cancelled)?;
+                self.cadence.changed();
+                Ok(())
+            }
             Event::Item(root_index, path, timed, row) => {
                 let gap_at = || context.utc_now();
                 let item = (root_index, path, &*timed);
