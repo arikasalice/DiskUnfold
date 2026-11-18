@@ -23,8 +23,6 @@ use du_core_contracts::{
         AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, TimedObservedEntry,
     },
 };
-#[cfg(test)]
-use frame::Directory;
 use frame::Frame;
 #[cfg(test)]
 use std::collections::VecDeque;

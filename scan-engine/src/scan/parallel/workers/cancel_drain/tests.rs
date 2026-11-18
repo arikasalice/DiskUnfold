@@ -133,12 +133,8 @@ fn deferred_entries_are_not_sent_twice() -> Result<(), String> {
         }),
     });
     let pending = make_frame(Vec::new(), vec![entry], Boundary::Unknown);
-    assert!(frame(
-        pending,
-        &Visited::default(),
-        &sender,
-        Policy::Legacy(&|_| true)
-    ));
+    let shared = single_root();
+    assert!(frame(pending, &shared, &sender, Policy::Legacy(&|_| true)));
     // The deferred directory is only marked as unread, never sent again as an item.
     assert!(matches!(
         receiver.try_recv(),
@@ -173,8 +169,8 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
     );
     // The item, then unread marks for the entered child and the drained root.
     let (sender, receiver) = mpsc::sync_channel(3);
-    let visited = Visited::default();
-    assert!(frame(pending, &visited, &sender, Policy::Legacy(&|_| true)));
+    let shared = single_root();
+    assert!(frame(pending, &shared, &sender, Policy::Legacy(&|_| true)));
     assert!(matches!(
         receiver.try_recv(),
         Ok(Event::Item(_, _, _, Admission::Enter, _))
@@ -185,7 +181,7 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
         boundary: Boundary::Volume(1),
     };
     assert_eq!(
-        admission::decide(false, &directory, parent, &visited),
+        admission::decide(false, &directory, parent, &shared.visited),
         Admission::Enter
     );
     Ok(())
@@ -210,14 +206,10 @@ fn full_channel_applies_backpressure_until_consumer_drains() -> Result<(), Strin
         }),
     });
     let item = make_frame(vec![entry], Vec::new(), Boundary::Unknown);
+    let shared = single_root();
     let (done_tx, done_rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
-        let ok = frame(
-            item,
-            &Visited::default(),
-            &sender,
-            Policy::Legacy(&|_| true),
-        );
+        let ok = frame(item, &shared, &sender, Policy::Legacy(&|_| true));
         let _ = done_tx.send(ok);
     });
     assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());

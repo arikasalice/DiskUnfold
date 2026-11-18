@@ -248,6 +248,7 @@ fn try_clone_string(source: &str) -> Option<String> {
 }
 
 impl Permit {
+    #[cfg(test)]
     pub(super) fn bytes(&self) -> usize {
         self.bytes
     }

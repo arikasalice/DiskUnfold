@@ -6,6 +6,7 @@ use preparation::Prepared;
 ///
 /// A root recorded as a revisit of an earlier root gets no frame and no
 /// outstanding work, so it is never enumerated or prioritized.
+#[cfg(test)]
 pub(super) fn create(
     prepared: Prepared,
     devices: DevicePlan,

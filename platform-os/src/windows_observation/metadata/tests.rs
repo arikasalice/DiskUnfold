@@ -101,14 +101,14 @@ fn root_ancestors_run_from_the_volume_root_down_to_the_parent()
 
 #[test]
 fn correlated_metadata_rejects_a_file_id_that_differs_from_the_enumeration_record()
--> Result<(), Box<dyn std::error::Error>> {
+-> Result<(), String> {
     use super::super::{info, relative, wide};
     use du_core_contracts::ports::PortErrorKind;
     use du_core_contracts::scan_observation::DirectoryObservations;
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
 
-    let fixture = tempfile::tempdir()?;
-    std::fs::write(fixture.path().join("entry"), b"fixture")?;
+    let fixture = tempfile::tempdir().map_err(|error| error.to_string())?;
+    std::fs::write(fixture.path().join("entry"), b"fixture").map_err(|error| error.to_string())?;
     let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
     let entry = directory
         .next_batch()
@@ -116,8 +116,10 @@ fn correlated_metadata_rejects_a_file_id_that_differs_from_the_enumeration_recor
         .into_iter()
         .next()
         .ok_or("entry was not enumerated")?;
-    let file = relative(&directory.handle, &wide(&entry.name)?, false, false)?;
-    let opened_id = super::super::identity(&info(&file)?);
+    let name = wide(&entry.name).map_err(|error| format!("{error:?}"))?;
+    let file =
+        relative(&directory.handle, &name, false, false).map_err(|error| format!("{error:?}"))?;
+    let opened_id = super::super::identity(&info(&file).map_err(|error| format!("{error:?}"))?);
     let mismatched = directory.observe_correlated(
         entry.name.clone(),
         opened_id ^ 1,
