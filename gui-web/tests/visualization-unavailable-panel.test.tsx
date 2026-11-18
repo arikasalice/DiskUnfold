@@ -148,7 +148,7 @@ test("a first answer that is unavailable shows only the panel", async () => {
   expect(chart(container)).toBeNull();
   expect(controller.getSnapshot().graph).toBeNull();
   expect(
-    screen.queryByText("Rows have not been retrieved for this graph."),
+    screen.queryByText("Items in this folder have not been loaded yet."),
   ).toBeNull();
 });
 

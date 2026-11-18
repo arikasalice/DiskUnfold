@@ -1,7 +1,7 @@
 export const visualizationMessages = {
   en: {
     loading: "Loading chart",
-    loadingGraphRows: "Loading rows from this chart",
+    loadingGraphRows: "Loading items in this folder",
     previousRows: "Previous rows",
     nextRows: "Next rows",
     working: "Calculating the chart.",
@@ -92,7 +92,7 @@ export const visualizationMessages = {
     sankey: "Sankey",
     updateFailed: "The chart could not be loaded.",
     openFailed: "The chart could not be opened.",
-    rowsNotRetrieved: "Rows have not been retrieved for this chart.",
+    rowsNotRetrieved: "Items in this folder have not been loaded yet.",
     invalidReferences:
       "The chart contains inconsistent item references. Reload this result.",
     storageVisualization: "Storage chart",
@@ -201,7 +201,7 @@ export const visualizationMessages = {
   },
   ko: {
     loading: "그래프 불러오는 중",
-    loadingGraphRows: "이 그래프의 행을 불러오는 중",
+    loadingGraphRows: "이 폴더의 항목을 불러오는 중",
     previousRows: "이전 행",
     nextRows: "다음 행",
     working: "그래프를 계산하는 중입니다.",
@@ -290,7 +290,7 @@ export const visualizationMessages = {
     sankey: "생키",
     updateFailed: "그래프를 불러오지 못했습니다.",
     openFailed: "그래프를 열지 못했습니다.",
-    rowsNotRetrieved: "이 그래프의 행을 아직 불러오지 않았습니다.",
+    rowsNotRetrieved: "이 폴더의 항목을 아직 불러오지 않았습니다.",
     invalidReferences:
       "그래프의 항목 참조가 일치하지 않습니다. 이 결과를 다시 불러오세요.",
     storageVisualization: "저장 공간 그래프",

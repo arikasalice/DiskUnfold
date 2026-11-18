@@ -467,7 +467,7 @@ test("row progress requires an explicit in-flight request for this model and rev
     />,
   );
   expect(
-    screen.getByRole("progressbar", { name: "Loading rows from this chart" }),
+    screen.getByRole("progressbar", { name: "Loading items in this folder" }),
   ).toBeDefined();
   rerender(
     <VisualizationModelPresenter

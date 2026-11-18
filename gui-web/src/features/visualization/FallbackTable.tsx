@@ -41,10 +41,11 @@ export function FallbackTable({
   }, [controller, reference.modelRef, reference.resultRevision, requested]);
   return (
     <>
-      {state.pendingRows && <Progress label={text.message("loadingNewer")} />}
+      {state.pendingRows && (
+        <Progress label={text.message("loadingGraphRows")} />
+      )}
       {state.fallbackPage && (
         <ModelRows
-          expanded
           page={state.fallbackPage}
           text={text}
           onPage={(request) => {
