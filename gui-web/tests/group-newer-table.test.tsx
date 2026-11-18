@@ -215,7 +215,7 @@ test("newer table groups use their own frame and return to their own row", async
   );
 
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in the latest result" }));
   const groupRows = screen.getAllByRole("button", {
     name: "View items in Shared group",
   });
@@ -327,7 +327,7 @@ test("graph and newer table rows with one group ref use and return to their own 
   );
   await act(async () => visualization.render(renderRequest(graph)));
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in the latest result" }));
 
   const rows = screen.getAllByRole("button", {
     name: "View items in Shared group",

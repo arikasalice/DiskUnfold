@@ -46,6 +46,7 @@ export function FallbackTable({
       )}
       {state.fallbackPage && (
         <ModelRows
+          expanded
           page={state.fallbackPage}
           text={text}
           onPage={(request) => {

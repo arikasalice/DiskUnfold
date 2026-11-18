@@ -459,9 +459,6 @@ test.each(["success", "failure"] as const)(
         totalCount: 1,
       }),
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Items in this folder" }),
-    );
     expect(await screen.findByText("Recovered fallback row")).toBeTruthy();
     expect(
       screen.queryByRole("progressbar", {

@@ -572,7 +572,7 @@ test("session carries one pinned model through typed rows and group rows", async
     <VisualizationSession {...props} canDisplay={() => false} autoLoadRows />,
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Items in this result" }),
+    await screen.findByRole("button", { name: "Items in this folder" }),
   );
   const groupAction = await screen.findByRole("button", {
     name: /View items in Group A/,
@@ -627,7 +627,7 @@ test("group controller drops a late typed group_rows response after unmount", as
     <VisualizationSession {...props} canDisplay={() => false} autoLoadRows />,
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Items in this result" }),
+    await screen.findByRole("button", { name: "Items in this folder" }),
   );
   fireEvent.click(
     await screen.findByRole("button", { name: /View items in Group A/ }),

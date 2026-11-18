@@ -67,6 +67,8 @@ export function SeparateModelTable({
 }) {
   const graph = state.graph;
   const table = state.table;
+  // Without a chart this is the folder's only table; beside a pinned chart it is the newer result.
+  const alone = !graph;
   const sectionRef = useRef<HTMLElement>(null);
   const headingId = useId();
   return (
@@ -85,7 +87,7 @@ export function SeparateModelTable({
           aria-labelledby={headingId}
         >
           <Heading level={2} id={headingId}>
-            {text.message("newerRegion")}
+            {text.message(alone ? "rowsFromGraph" : "newerRegion")}
           </Heading>
           <Text>
             {text.message("newTableObservation")}{" "}
@@ -101,7 +103,9 @@ export function SeparateModelTable({
             </Text>
           )}
           {state.pendingRows && (
-            <Progress label={text.message("loadingNewer")} />
+            <Progress
+              label={text.message(alone ? "loadingGraphRows" : "loadingNewer")}
+            />
           )}
           {!state.tablePage && !state.pendingRows && !state.failedRows && (
             <Action
@@ -120,7 +124,7 @@ export function SeparateModelTable({
           {state.tablePage && (
             <ModelRows
               page={state.tablePage}
-              title={text.message("newerTitle")}
+              title={text.message(alone ? "rowsFromGraph" : "newerTitle")}
               model={table.model}
               text={text}
               onPage={(request) => {
