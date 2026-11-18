@@ -1,4 +1,5 @@
 import type { VisualizationMessageKey } from "./messages";
+import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import type {
   SizeValue,
@@ -18,6 +19,16 @@ export type VizText = {
   quantity: (value: VizQuantity) => string;
   size: (value: SizeValue) => string;
   observedAt: (value: string | null) => string;
+  /**
+   * Words a reason key the collector reported (`scan.*`). Optional: without it
+   * such a key gets the general "reason unavailable" phrase.
+   */
+  scanReason?: (key: string) => string;
+  /**
+   * Words a canonical ratio string as a percentage. Optional: without it the
+   * ratio is shown as the engine wrote it.
+   */
+  ratio?: (value: string) => string;
 };
 
 /** Applies placeholders even for injected text functions that only accept keys. */
@@ -55,10 +66,8 @@ export function rawSourceSize(
     size.state === "unknown"
       ? format("unavailableValue")
       : size.state === "lower_bound"
-        ? format("lowerBound", {
-            value: format("byteCount", { count: size.bytes }),
-          })
-        : format("byteCount", { count: size.bytes });
+        ? format("rawBytesAtLeast", { count: size.bytes })
+        : format("rawBytes", { count: size.bytes });
   return `${value} · ${evidence}`;
 }
 
@@ -72,14 +81,16 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row?.displayName ?? text.message("itemNamePending");
+  const name = row
+    ? rowName(row, model, text)
+    : text.message("itemNamePending");
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);
   const accessibleLabel = [
     name,
     value,
-    row?.ratio ?? text.message("ratioUnavailable"),
+    row ? rowRatioText(row, text) : text.message("ratioUnavailable"),
     text.quantity(denominator.value),
     text.key(denominator.basis),
     text.key(legend?.labelKey ?? shape.legendClassKey),
@@ -88,9 +99,35 @@ export function shapeLabels(
   ].join(" · ");
   return {
     accessibleLabel,
-    displayLabel:
-      model.representation.labelMode === "name_only"
+    // A shape whose row has not arrived is named for assistive technology only;
+    // the drawing carries no label rather than a placeholder.
+    displayLabel: !row
+      ? ""
+      : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
+    ...(row
+      ? {
+          displayName: name,
+          ...(model.representation.labelMode === "name_only"
+            ? {}
+            : { displayValue: value }),
+        }
+      : {}),
   };
+}
+/**
+ * The ratio of a table row in words. Only a row whose value is exact has one; a
+ * missing value or a lower bound makes the ratio unavailable too.
+ */
+export function rowRatioText(
+  row: Pick<VizRow, "ratio" | "size" | "quantity">,
+  text: VizText,
+): string {
+  const exact = row.quantity
+    ? row.quantity.state === "exact"
+    : row.size.state === "exact";
+  return row.ratio && exact
+    ? (text.ratio?.(row.ratio) ?? row.ratio)
+    : text.message("unavailableValue");
 }

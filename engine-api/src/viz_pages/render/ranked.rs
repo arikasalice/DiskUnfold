@@ -34,6 +34,7 @@ impl ModelPages {
                 model,
                 fingerprint,
                 presentations,
+                None,
                 cancelled,
             ),
             None => production::project_fallback(
@@ -55,6 +56,7 @@ impl ModelPages {
                 .is_none()
                 .then_some(projection::Error::UnavailableAttribution),
             layout: layout.map(Arc::new),
+            other: None,
         })
     }
 }

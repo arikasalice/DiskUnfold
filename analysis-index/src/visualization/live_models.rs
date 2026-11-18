@@ -25,6 +25,8 @@ pub struct GroupRows {
 struct ModelRows {
     rows: Arc<[VizRow]>,
     groups: HashMap<String, Arc<GroupRows>>,
+    /// The child rows of each expanded folder, by the shape reference of the folder.
+    tables: HashMap<String, Arc<[VizRow]>>,
 }
 /// Complete row storage built without holding the result cache lock.
 pub struct PreparedRows(ModelRows);
@@ -43,6 +45,7 @@ impl PreparedRows {
         Self(ModelRows {
             rows: rows.into(),
             groups: prepared_groups,
+            tables: HashMap::new(),
         })
     }
 
@@ -53,6 +56,29 @@ impl PreparedRows {
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<Self, PrepareError> {
         build_model_rows(rows, groups, Some(cancelled)).map(Self)
+    }
+
+    /// Adds a group built after the rows were prepared, such as the group of a folder
+    /// opened before publication. The key must be new to this model; the group's size
+    /// range is checked against its members exactly as for prepared groups.
+    pub fn add_group(&mut self, key: String, mut group: GroupRows) -> Result<(), Error> {
+        if key.is_empty() || self.0.groups.contains_key(&key) {
+            return Err(Error::Duplicate);
+        }
+        let _ = guard_group_size_range(&mut group, &mut None);
+        self.0.groups.insert(key, Arc::new(group));
+        Ok(())
+    }
+
+    /// Adds the table of an expanded folder: its drawn children and the row of its
+    /// group, if it has one, in the order they are shown. The key is the shape
+    /// reference of the folder and must be new to this model.
+    pub fn add_table(&mut self, key: String, rows: Vec<VizRow>) -> Result<(), Error> {
+        if key.is_empty() || self.0.tables.contains_key(&key) {
+            return Err(Error::Duplicate);
+        }
+        self.0.tables.insert(key, rows.into());
+        Ok(())
     }
 }
 
@@ -74,6 +100,7 @@ fn build_model_rows(
     Ok(ModelRows {
         rows: rows.into(),
         groups: prepared_groups,
+        tables: HashMap::new(),
     })
 }
 
@@ -189,6 +216,16 @@ impl ResultVersion {
         let cache = self.viz_models.lock().map_err(|_| Error::Unavailable)?;
         let model = cache.entries.get(reference).ok_or(Error::Missing)?;
         Ok(model.groups.get(group).cloned())
+    }
+    /// Pins the table of an expanded folder, or none when the folder has no table.
+    pub fn pin_viz_table(
+        &self,
+        reference: &str,
+        folder_shape: &str,
+    ) -> Result<Option<Arc<[VizRow]>>, Error> {
+        let cache = self.viz_models.lock().map_err(|_| Error::Unavailable)?;
+        let model = cache.entries.get(reference).ok_or(Error::Missing)?;
+        Ok(model.tables.get(folder_shape).cloned())
     }
     /// Independently expires one model without releasing the source result.
     pub fn remove_viz_rows(&self, reference: &str) -> Result<(), Error> {

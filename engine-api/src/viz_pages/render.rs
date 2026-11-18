@@ -1,8 +1,10 @@
 //! Composes the admitted live single-parent visualization and its page registry.
 mod deferred;
+mod evidence;
 mod ranked;
 pub use deferred::DeferredRender;
 use deferred::PrepareMode;
+use evidence::{check, fingerprint, normalize, presentation};
 pub(crate) use ranked::RankedInput;
 
 use std::{
@@ -12,17 +14,18 @@ use std::{
 
 use du_analysis_index::visualization::{
     geometry::Rect,
+    live_models::GroupRows,
     projection::{self, Options, Source},
     typed_layout::Dispatcher,
 };
 use du_core_contracts::{
     Id, ItemRef, SizeBasis,
-    visualization::{LayoutStrategyKey, render::VizFallback},
+    visualization::{LayoutStrategyKey, render::VizFallback, rows::VizRow},
 };
 
 use super::{
     ModelPages, PreparedModelInput, prepare_scoped_model_input,
-    production::{self, RowPresentation},
+    production::{self, OtherPresentation, RowPresentation},
 };
 use crate::{api::Channel, current_analysis, viz_catalog};
 
@@ -37,6 +40,9 @@ pub struct Request<'a> {
     pub format: &'a str,
     pub strategy: Option<&'a LayoutStrategyKey>,
     pub max_shapes: usize,
+    /// Presentation of the group that merges small siblings. Without it the small
+    /// siblings are only counted, so no group shape or row is made.
+    pub other: Option<&'a OtherPresentation>,
 }
 /// Facts supplied by the path-comparison and presentation owners for one item.
 ///
@@ -96,6 +102,13 @@ pub enum Error {
     Cancelled,
 }
 
+/// What an expansion adds to the rows of a model: the members of each group it made,
+/// and the table of each folder it opened, keyed by the shape reference of the folder.
+#[derive(Default)]
+pub(crate) struct Expanded {
+    pub(crate) groups: Vec<(String, GroupRows)>,
+    pub(crate) tables: Vec<(String, Vec<VizRow>)>,
+}
 /// An unpublished model candidate bound to the source pinned during preparation.
 /// Commit revalidates source and registry; the caller must preserve the dispatcher.
 pub struct PreparedRender {
@@ -103,9 +116,31 @@ pub struct PreparedRender {
     input: PreparedModelInput,
     pub(super) layout: Option<Arc<projection::Model>>,
     fallback_reason: Option<projection::Error>,
+    /// The presentation of the group that merges small siblings, kept for the groups
+    /// and the group rows of folders that are expanded after the projection.
+    pub(super) other: Option<Box<OtherPresentation>>,
 }
 
 impl PreparedRender {
+    /// Adds the groups and the tables of expanded folders to the rows before the model
+    /// is published.
+    pub(super) fn add_expansion(&mut self, expanded: Expanded) -> Result<(), Error> {
+        let rows = self
+            .input
+            .rows
+            .as_mut()
+            .ok_or(Error::Cache(super::Error::InvalidModel))?;
+        for (key, group) in expanded.groups {
+            rows.add_group(key, group)
+                .map_err(|_| Error::Cache(super::Error::InvalidModel))?;
+        }
+        for (key, table) in expanded.tables {
+            rows.add_table(key, table)
+                .map_err(|_| Error::Cache(super::Error::InvalidModel))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn bind_condition(&mut self, fingerprint: String) {
         self.input.condition_fingerprint = fingerprint;
     }
@@ -249,6 +284,7 @@ impl ModelPages {
                 format: request.format,
                 strategy: Some(&descriptor.strategy),
                 max_shapes: request.max_shapes,
+                group_tail: request.other.is_some(),
             },
             cancelled,
         );
@@ -272,6 +308,7 @@ impl ModelPages {
                     input,
                     layout: None,
                     fallback_reason: Some(reason),
+                    other: None,
                 }));
             }
             Err(error) => return Err(Error::Projection(error)),
@@ -281,6 +318,7 @@ impl ModelPages {
             &model,
             fingerprint,
             presentations,
+            request.other,
             cancelled,
         )
         .map_err(Error::Registration)?;
@@ -292,6 +330,7 @@ impl ModelPages {
             input,
             layout: Some(Arc::new(model)),
             fallback_reason: None,
+            other: request.other.cloned().map(Box::new),
         }))
     }
 
@@ -337,6 +376,7 @@ impl ModelPages {
             input,
             layout,
             fallback_reason,
+            other: _,
         } = candidate;
         if !owner
             .upgrade()
@@ -407,72 +447,5 @@ fn registration_error(error: super::Error) -> Error {
     match error {
         super::Error::Cancelled => Error::Cancelled,
         _ => Error::Registration(production::Error::Pages(error)),
-    }
-}
-
-fn normalize(
-    evidence: Vec<ChildEvidence>,
-    revision: &Id,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<BTreeMap<u32, ChildEvidence>, Error> {
-    let mut normalized = BTreeMap::new();
-    for mut child in evidence {
-        check(cancelled)?;
-        child.display_flags.sort_unstable();
-        child.display_flags.dedup();
-        if &child.item.result_version != revision
-            || normalized.insert(child.item.item_no, child).is_some()
-        {
-            return Err(Error::InvalidEvidence);
-        }
-    }
-    Ok(normalized)
-}
-
-fn fingerprint(
-    request: &Request<'_>,
-    strategy: &LayoutStrategyKey,
-    evidence: &BTreeMap<u32, ChildEvidence>,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<String, Error> {
-    let mut hash = blake3::Hasher::new();
-    hash.update(b"diskunfold.live-viz.unfiltered.v1\0");
-    let bounds = request.bounds;
-    let envelope = (
-        request.parent,
-        &request.basis,
-        [bounds.left, bounds.top, bounds.right, bounds.bottom],
-        request.format,
-        (&strategy.id, strategy.revision),
-        request.max_shapes,
-    );
-    serde_json::to_writer(&mut hash, &envelope).map_err(|_| Error::Fingerprint)?;
-    for child in evidence.values() {
-        check(cancelled)?;
-        hash.update(b"\n");
-        let row = (
-            &child.item,
-            &child.path_compare_key,
-            &child.legend_class_key,
-            &child.display_flags,
-        );
-        serde_json::to_writer(&mut hash, &row).map_err(|_| Error::Fingerprint)?;
-    }
-    Ok(hash.finalize().to_hex().to_string())
-}
-
-fn presentation(child: ChildEvidence) -> RowPresentation {
-    RowPresentation {
-        item: child.item,
-        legend_class_key: child.legend_class_key,
-        display_flags: child.display_flags,
-    }
-}
-
-fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
-    if cancelled() {
-        Err(Error::Cancelled)
-    } else {
-        Ok(())
     }
 }

@@ -1990,6 +1990,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       location,
       display: { system: "iec", unit: "auto" },
       sizeBasis: "allocated",
+      locationTrail: ["Root"],
     });
     expect(receivedCatalog).toEqual(catalog);
     const request: VisualizationViewRequest = {
@@ -2073,7 +2074,9 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
     navigationScopeRef: location,
     aggregateScopeRef: location,
     sizeBasis: "allocated",
-    viewport: { width: 640, height: 400, scale: 1.25 },
+    // The chart box is the measured area less what starts above it (40 px) and the
+    // button row under it (48 px) until they are reported, and 16 px.
+    viewport: { width: 640, height: 296, scale: 1.25 },
     visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
   });
   expect(activeObserver?.disconnected).toBe(false);
@@ -2095,7 +2098,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       calls
         .filter(({ name }) => name === "viz.render")
         .some(({ body }) =>
-          JSON.stringify(body).includes('"width":321,"height":211,"scale":2'),
+          JSON.stringify(body).includes('"width":321,"height":240,"scale":2'),
         ),
     ).toBe(true),
   );
@@ -2106,7 +2109,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
     requestSeq: expect.any(Number),
     resultRevision: "result",
     sizeBasis: "allocated",
-    viewport: { width: 321, height: 211, scale: 2 },
+    viewport: { width: 321, height: 240, scale: 2 },
     visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
   });
   expect(
@@ -2120,7 +2123,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
         .filter(({ name }) => name === "viz.render")
         .some(({ body }) =>
           JSON.stringify(body).includes(
-            '"width":321,"height":211,"scale":1.75',
+            '"width":321,"height":240,"scale":1.75',
           ),
         ),
     ).toBe(true),
@@ -2133,7 +2136,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       calls
         .filter(({ name }) => name === "viz.render")
         .some(({ body }) =>
-          JSON.stringify(body).includes('"width":20,"height":12,"scale":1.75'),
+          JSON.stringify(body).includes('"width":20,"height":240,"scale":1.75'),
         ),
     ).toBe(true),
   );
@@ -2142,7 +2145,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
     .find(({ body }) => JSON.stringify(body).includes('"width":20'));
   expect(smallRender?.body).toMatchObject({
     sizeBasis: "allocated",
-    viewport: { width: 20, height: 12, scale: 1.75 },
+    viewport: { width: 20, height: 240, scale: 1.75 },
   });
   fireEvent.click(screen.getByRole("button", { name: "Back to folders" }));
   await waitFor(() =>
@@ -2181,7 +2184,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedAggregate = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be loaded.");
   expect(
     screen.queryByRole("group", { name: "Space distribution" }),
   ).toBeNull();
@@ -2200,7 +2203,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedModelBasis = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be loaded.");
   expect(
     document
       .querySelector<HTMLElement>(".du-visualization-viewport")

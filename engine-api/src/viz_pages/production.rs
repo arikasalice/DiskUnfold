@@ -19,12 +19,38 @@ use std::{
     sync::Arc,
 };
 
+mod folder_table;
+mod groups;
+pub(crate) use folder_table::rows as folder_table_rows;
+pub(crate) use groups::nested_group_rows;
+
 /// Classification and flags already evaluated by their owning producer for one item.
+#[derive(Clone)]
 pub struct RowPresentation {
     pub item: ItemRef,
     pub legend_class_key: String,
     pub display_flags: Vec<String>,
 }
+
+/// Owner-provided presentation of the group that merges small items: the Other bar
+/// of a ranking, or the merged small siblings of a treemap.
+#[derive(Clone)]
+pub struct OtherPresentation {
+    /// Opaque reference scoped to this model. A treemap makes one group per parent
+    /// and derives each reference itself, so it does not read this value.
+    pub group_ref: String,
+    /// Display name supplied by the presentation owner.
+    pub display_name: String,
+    /// Message-bundle key for the name of the group row, or none. When present the
+    /// group row carries it as labelKey and the display name must be the same key
+    /// string, as the fallback for a consumer that does not know labelKey.
+    pub label_key: Option<String>,
+    /// Classification selected by the presentation owner.
+    pub legend_class_key: String,
+    /// Display flags supplied by their owner.
+    pub display_flags: Vec<String>,
+}
+
 /// Assembly refuses inputs when required source or presentation evidence is unavailable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -33,25 +59,32 @@ pub enum Error {
     MissingClassification,
     InvalidQuantity,
     InvalidRatio,
-    UnsupportedGroups,
+    /// The projection merged small siblings but no group presentation was supplied,
+    /// or the supplied one is unusable.
+    MissingGroupPresentation,
+    /// A group's members, total or position disagree with the projection's rows.
+    InvalidGroup,
     Cancelled,
     Pages(PagesError),
 }
 
-/// Registers rows of one ungrouped scope-denominator projection in the live model store.
+/// Registers rows of one scope-denominator projection in the live model store.
 ///
 /// The caller keeps `model` for geometry and supplies the same canonical fingerprint
 /// used for the layout. Classifications and flags must come from the pinned model's
-/// owning producers; this function does not classify, synthesize groups, or do I/O.
+/// owning producers; this function does not classify or do I/O. When the projection
+/// merged its small siblings into a group, other supplies that group's presentation;
+/// the members then leave the table and are read through the group instead.
 pub fn register_projection(
     pages: &ModelPages,
     version: Arc<ResultVersion>,
     model: &projection::Model,
     fingerprint: String,
     presentations: Vec<RowPresentation>,
+    other: Option<&OtherPresentation>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<String, Error> {
-    let input = project_rows(version, model, fingerprint, presentations, cancelled)?;
+    let input = project_rows(version, model, fingerprint, presentations, other, cancelled)?;
     pages.register(input).map_err(Error::Pages)
 }
 
@@ -60,6 +93,7 @@ pub(super) fn project_rows(
     model: &projection::Model,
     fingerprint: String,
     presentations: Vec<RowPresentation>,
+    other: Option<&OtherPresentation>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<ModelInput, Error> {
     if cancelled() {
@@ -101,11 +135,12 @@ pub(super) fn project_rows(
     if cancelled() {
         return Err(Error::Cancelled);
     }
+    let (rows, groups) = groups::assemble(&version, model, rows, other, &denominator, cancelled)?;
     Ok(ModelInput {
         version,
         condition_fingerprint: fingerprint,
         rows,
-        groups: HashMap::new(),
+        groups,
     })
 }
 
@@ -186,9 +221,6 @@ fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<
     {
         return Err(Error::SourceMismatch);
     }
-    if model.totals.grouped_bytes != 0 {
-        return Err(Error::UnsupportedGroups);
-    }
     let original =
         original_size(version, model.parent.item_no, &model.basis).ok_or(Error::SourceMismatch)?;
     if original != &model.totals.scope
@@ -255,6 +287,7 @@ fn make_row(
         legend_class_key: presentation.legend_class_key,
         display_flags: presentation.display_flags,
         label_key: None,
+        member_count: None,
     };
     projected
         .validate_revision(version.version_id())

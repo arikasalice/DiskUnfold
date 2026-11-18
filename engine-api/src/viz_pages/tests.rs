@@ -183,7 +183,8 @@ fn replacement_before_registration_cannot_commit_old_model() -> Result<(), Strin
                 model_ref: reference,
                 result_revision: current.version_id().clone(),
                 start: 0,
-                count: 1
+                count: 1,
+                parent_shape_ref: None,
             })
             .is_ok()
     );
@@ -231,6 +232,7 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
             result_revision: id(2)?,
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         };
         std::thread::spawn(move || {
             p.rows_at_admission(&request, || {
@@ -246,6 +248,7 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
         result_revision: id(2)?,
         start: 0,
         count: 1,
+        parent_shape_ref: None,
     });
     let mut b = source.open(id(3)?).map_err(|e| format!("{e:?}"))?;
     b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
@@ -266,7 +269,8 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
                 model_ref: model,
                 result_revision: id(2)?,
                 start: 0,
-                count: 1
+                count: 1,
+                parent_shape_ref: None,
             })
             .err(),
         Some(Error::StaleVersion)

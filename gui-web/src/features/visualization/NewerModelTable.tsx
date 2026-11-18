@@ -8,6 +8,9 @@ import type {
 import type { VizRow } from "../../ipc";
 import type { VizText } from "../../viz";
 
+/** Rows read for the first table page; a model with more shapes reads one per shape. */
+const FIRST_ROWS = 100;
+
 export function useFirstRows(
   controller: VisualizationController,
   state: VisualizationSnapshot,
@@ -28,7 +31,7 @@ export function useFirstRows(
       modelRef: table.model.modelRef,
       resultRevision: table.resultRevision,
       start: 0,
-      count: 100,
+      count: Math.max(FIRST_ROWS, table.model.shapes.length),
     });
   }, [
     autoLoadRows,
@@ -64,6 +67,8 @@ export function SeparateModelTable({
 }) {
   const graph = state.graph;
   const table = state.table;
+  // Without a chart this is the folder's only table; beside a pinned chart it is the newer result.
+  const alone = !graph;
   const sectionRef = useRef<HTMLElement>(null);
   const headingId = useId();
   return (
@@ -82,7 +87,7 @@ export function SeparateModelTable({
           aria-labelledby={headingId}
         >
           <Heading level={2} id={headingId}>
-            {text.message("newerRegion")}
+            {text.message(alone ? "rowsFromGraph" : "newerRegion")}
           </Heading>
           <Text>
             {text.message("newTableObservation")}{" "}
@@ -98,7 +103,9 @@ export function SeparateModelTable({
             </Text>
           )}
           {state.pendingRows && (
-            <Progress label={text.message("loadingNewer")} />
+            <Progress
+              label={text.message(alone ? "loadingGraphRows" : "loadingNewer")}
+            />
           )}
           {!state.tablePage && !state.pendingRows && !state.failedRows && (
             <Action
@@ -111,13 +118,13 @@ export function SeparateModelTable({
                 });
               }}
             >
-              {text.message("loadNewer")}
+              {text.message(alone ? "loadFolderRows" : "loadNewer")}
             </Action>
           )}
           {state.tablePage && (
             <ModelRows
               page={state.tablePage}
-              title={text.message("newerTitle")}
+              title={text.message(alone ? "rowsFromGraph" : "newerTitle")}
               model={table.model}
               text={text}
               onPage={(request) => {

@@ -47,6 +47,7 @@ fn retained_fallback_keeps_its_rows_when_the_source_advances() -> Result<(), Str
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let before = session.rows(&request).map_err(|e| format!("{e:?}"))?;
     let item = before.rows[0].item_ref.clone().ok_or("missing item")?;
@@ -126,6 +127,7 @@ fn explicit_pin_survives_new_publication_and_release_expires_it() -> Result<(), 
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let before = session.rows(&rows).map_err(|e| format!("{e:?}"))?;
     let item = before.rows[0].item_ref.clone().ok_or("missing item")?;
@@ -158,6 +160,22 @@ fn explicit_pin_survives_new_publication_and_release_expires_it() -> Result<(), 
     assert_eq!(
         session.pinned_rows(&wrong),
         Err(viz_pages::Error::StaleVersion)
+    );
+    // The retained model answers a folder reference as the live one does: this model
+    // opened no folder, so one of its shapes is no expanded folder, and a name it does
+    // not have is not found.
+    let folder = |shape: &str| VizRowsRequest {
+        parent_shape_ref: Some(shape.into()),
+        ..rows.clone()
+    };
+    let shape = rendered.model.shapes[0].meta.shape_ref.clone();
+    assert_eq!(
+        session.pinned_rows(&folder(&shape)),
+        Err(viz_pages::Error::NotExpanded)
+    );
+    assert_eq!(
+        session.pinned_rows(&folder("no-such-shape")),
+        Err(viz_pages::Error::ItemUnavailable)
     );
     assert_eq!(
         session.pinned_locate("wrong", &item),

@@ -376,9 +376,10 @@ fn the_other_group_names_a_message_key_for_treemap_and_bar_only() {
     for format in ["treemap", "bar"] {
         let other = groups::other_group(format);
         assert_eq!(
-            other.map(|group| (group.display_name, group.display_flags)),
+            other.map(|group| (group.display_name, group.label_key, group.display_flags)),
             Some((
                 policy::GROUP_OTHER_NAME_KEY.to_owned(),
+                Some(policy::GROUP_OTHER_NAME_KEY.to_owned()),
                 vec![policy::FLAG_OTHER_GROUP.to_owned()]
             ))
         );

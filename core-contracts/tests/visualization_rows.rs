@@ -166,6 +166,35 @@ fn label_key_is_valid_only_on_a_group_row() -> Result<(), Box<dyn std::error::Er
 }
 
 #[test]
+fn label_key_is_refused_on_a_row_without_any_reference() -> Result<(), Box<dyn std::error::Error>> {
+    // A row with neither an item nor a group reference is invalid by itself. A label
+    // key does not make it a group row: it is refused on the wire, by the local check
+    // and inside a page alike.
+    let mut neither = row();
+    neither["itemRef"] = Value::Null;
+    neither["labelKey"] = json!("ui.visualization.group.other");
+    assert!(
+        serde_json::from_value::<VizRow>(neither.clone()).is_err(),
+        "{neither}"
+    );
+    let mut built: VizRow = serde_json::from_value(group_row())?;
+    built.validate()?;
+    built.item_ref = None;
+    built.group_ref = None;
+    built.label_key = Some("ui.visualization.group.other".into());
+    assert!(built.validate().is_err());
+    let page = json!({
+        "rows": [neither],
+        "totalCount": 1,
+        "resultRevision": ID,
+        "observedAt": null,
+        "completeness": "complete"
+    });
+    assert!(serde_json::from_value::<VizRows>(page).is_err());
+    Ok(())
+}
+
+#[test]
 fn canonical_ratio_has_no_lossy_or_ambiguous_representation() {
     for v in [
         "0",

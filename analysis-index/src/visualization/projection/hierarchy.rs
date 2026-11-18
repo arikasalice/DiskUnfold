@@ -1,8 +1,22 @@
-use super::*;
+use super::{
+    DescendantShape, Error, Group, GroupMember, Model, group_ref, level,
+    level::{Level, Request},
+};
+use crate::{
+    ResultVersion,
+    visualization::{geometry::Rect, model_links::validate_model_links, typed_layout::Dispatcher},
+};
+use du_core_contracts::{
+    ItemRef,
+    result::{ResultItemKind, ResultVersionRead},
+    visualization::{geometry::Geometry, model::ShapeMeta},
+};
 
 /// Extends an admitted shape with its immediate children from the same reader.
-/// Root rows and aggregate totals remain unchanged. A branch without attribution
-/// stays omitted rather than receiving invented geometry.
+/// Root rows and aggregate totals remain unchanged. Children below the minimum area
+/// merge into one group, or are only counted, exactly as at the root. A branch that
+/// cannot be partitioned, or that finds no shape slot left, stays hidden behind its
+/// unchanged child count rather than receiving invented geometry.
 pub fn add_child_partition(
     model: &mut Model,
     version: &ResultVersion,
@@ -35,48 +49,41 @@ pub fn add_child_partition(
         right: points[1].x,
         bottom: points[1].y,
     };
-    let input = match Input::admit_cancellable(
-        version,
-        &parent.item,
-        model.basis.clone(),
-        bounds,
-        cancelled,
-    ) {
-        Ok(input) => input,
-        Err(crate::visualization::treemap::AdmissionError::NoAttribution) => return Ok(()),
-        Err(crate::visualization::treemap::AdmissionError::Cancelled) => {
-            return Err(Error::Cancelled);
-        }
-        Err(_) => return Err(Error::InvalidSource),
-    };
-    let selected = dispatcher
-        .execute(
-            &model.strategy.format,
-            Some(&model.strategy.strategy),
-            &input,
-            cancelled,
-        )
-        .map_err(|error| match error {
-            typed_layout::DispatchError::Layout(typed_layout::Error::Cancelled) => Error::Cancelled,
-            other => Error::Dispatch(other),
-        })?;
-    if model
-        .shapes
-        .len()
-        .saturating_add(model.descendants.len())
-        .saturating_add(selected.output.shapes.len())
-        > max_shapes
-    {
+    // A model without a remaining slot keeps every deeper branch as a hidden count.
+    let slots = max_shapes.saturating_sub(model.shape_count());
+    if slots == 0 {
         return Ok(());
     }
-    let (descendants, skipped) =
-        build_descendants(&parent, bounds, &input, selected.output, cancelled)?;
-    let omitted = descendants
+    let level = match level::build(
+        Request {
+            version,
+            parent: &parent.item,
+            basis: &model.basis,
+            bounds,
+            dispatcher,
+            format: &model.strategy.format,
+            strategy: Some(&model.strategy.strategy),
+            min_area: model.detail.min_area,
+            slots,
+            allow_group: model.detail.group_tail,
+        },
+        cancelled,
+    ) {
+        Ok(level) => level,
+        Err(Error::UnavailableAttribution) => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let added = build_shapes(&parent, bounds, &level, cancelled)?;
+    let omitted = added
+        .descendants
         .iter()
         .map(|shape| version.children(shape.item.item_no).len())
         .sum::<usize>()
-        + skipped;
-    model.descendants.extend(descendants);
+        + level.skipped.len()
+        + level.omitted;
+    model.detail.unknown_items += level.unattributed.len() as u64;
+    model.detail.groups.extend(added.group);
+    model.descendants.extend(added.descendants);
     let previous = version.children(parent.item.item_no).len();
     let row = &mut model.rows[parent.row_index];
     row.omitted_children = row
@@ -139,13 +146,13 @@ pub fn finish_child_partitions(
     model: &Model,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(), Error> {
-    let mut metadata =
-        Vec::with_capacity(model.shapes.len().saturating_add(model.descendants.len()));
+    let mut metadata = Vec::with_capacity(model.shape_count());
     for meta in model
         .shapes
         .iter()
         .map(|s| &s.meta)
         .chain(model.descendants.iter().map(|s| &s.meta))
+        .chain(model.detail.groups.iter().map(|g| &g.meta))
     {
         if cancelled() {
             return Err(Error::Cancelled);
@@ -163,72 +170,81 @@ pub fn finish_child_partitions(
     Ok(())
 }
 
-fn build_descendants(
+struct Added {
+    descendants: Vec<DescendantShape>,
+    group: Option<Group>,
+}
+
+// A child shape must lie inside its parent's rectangle.
+fn contained(geometry: &Geometry, bounds: Rect) -> bool {
+    let points = geometry.points();
+    geometry.primitive() == "rect"
+        && points.len() == 2
+        && points[0].x >= bounds.left
+        && points[0].y >= bounds.top
+        && points[1].x <= bounds.right
+        && points[1].y <= bounds.bottom
+}
+
+fn build_shapes(
     parent: &ParentShape,
     bounds: Rect,
-    input: &Input,
-    output: typed_layout::Output,
+    level: &Level,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(Vec<DescendantShape>, usize), Error> {
-    let mut visited = vec![false; input.rows().len()];
-    let mut descendants = Vec::with_capacity(output.shapes.len());
-    for child in output.shapes {
+) -> Result<Added, Error> {
+    let depth = parent.meta.visible_depth + 1;
+    let mut descendants = Vec::with_capacity(level.shapes.len());
+    for (row_index, geometry) in &level.shapes {
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        let source = input
-            .rows()
-            .get(child.row_index)
-            .ok_or(Error::InvalidLayout)?;
-        if source.item().result_version != parent.item.result_version
-            || source.bytes() == 0
-            || std::mem::replace(&mut visited[child.row_index], true)
-        {
-            return Err(Error::InvalidLayout);
-        }
-        let points = child.geometry.points();
-        if child.geometry.primitive() != "rect"
-            || points.len() != 2
-            || points[0].x < bounds.left
-            || points[0].y < bounds.top
-            || points[1].x > bounds.right
-            || points[1].y > bounds.bottom
+        let source = level.rows.get(*row_index).ok_or(Error::InvalidLayout)?;
+        if source.child.item.result_version != parent.item.result_version
+            || source.bytes == 0
+            || !contained(geometry, bounds)
         {
             return Err(Error::InvalidLayout);
         }
         descendants.push(DescendantShape {
-            item: source.item().clone(),
-            size: source.value().clone(),
+            item: source.child.item.clone(),
+            size: source.child.value.clone(),
             meta: ShapeMeta {
-                shape_ref: format!(
-                    "s{:x}-{}",
-                    source.item().item_no,
-                    parent.meta.visible_depth + 1
-                ),
+                shape_ref: format!("s{:x}-{depth}", source.child.item.item_no),
                 parent_shape_ref: Some(parent.meta.shape_ref.clone()),
-                visible_depth: parent.meta.visible_depth + 1,
+                visible_depth: depth,
                 root_branch_ref: parent.meta.root_branch_ref.clone(),
             },
-            geometry: child.geometry,
+            geometry: geometry.clone(),
         });
     }
-    for skip in &output.skipped {
-        let source = input
-            .rows()
-            .get(skip.row_index)
-            .ok_or(Error::InvalidLayout)?;
-        if std::mem::replace(&mut visited[skip.row_index], true)
-            || !matches!(
-                (skip.reason, source.bytes()),
-                (NoArea::ExactZero | NoArea::LowerBoundZero, 0)
-                    | (NoArea::CoordinatePrecision, 1..)
-            )
-        {
-            return Err(Error::InvalidLayout);
+    let group = match &level.group {
+        Some(group) => {
+            if !contained(&group.geometry, bounds) {
+                return Err(Error::InvalidLayout);
+            }
+            Some(Group {
+                parent: parent.item.clone(),
+                group_ref: group_ref(&parent.item),
+                meta: ShapeMeta {
+                    shape_ref: format!("g{:x}-{depth}", parent.item.item_no),
+                    parent_shape_ref: Some(parent.meta.shape_ref.clone()),
+                    visible_depth: depth,
+                    root_branch_ref: parent.meta.root_branch_ref.clone(),
+                },
+                geometry: group.geometry.clone(),
+                members: level.rows[level.retained..level.positive]
+                    .iter()
+                    .map(|row| GroupMember {
+                        item: row.child.item.clone(),
+                        size: row.child.value.clone(),
+                    })
+                    .collect(),
+                total: group.total.clone(),
+                size_range: group.size_range.clone(),
+                slot: 0,
+            })
         }
-    }
-    if visited.iter().any(|v| !v) {
-        return Err(Error::InvalidLayout);
-    }
-    Ok((descendants, output.skipped.len()))
+        None => None,
+    };
+    Ok(Added { descendants, group })
 }

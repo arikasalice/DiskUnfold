@@ -62,7 +62,7 @@ export function GroupMembersPresenter({
   onNext,
   onRetry,
 }: GroupMembersPresenterProps) {
-  const resolvedTitle = title ?? text.message("otherMembers");
+  const resolvedTitle = title ?? text.message("group.other_unknown");
   const headingId = useId();
   const loading = status === "loading";
 

@@ -228,6 +228,30 @@ fn reject_nonadditive_byte_geometry(
     assert_eq!(candidate.pages().groups["g0"].rows.len(), 2);
     Ok(())
 }
+/// The bin counts its members in items, an exact count is the total of its own page, and
+/// the member rows, which are items, carry none.
+fn check_member_count(
+    row: &du_core_contracts::visualization::rows::VizRow,
+    page: &du_engine_api::viz_pages::GroupPage,
+) -> Result<(), String> {
+    let count = row.member_count.as_ref().ok_or("member count")?;
+    assert_eq!(count.unit(), "items");
+    if let du_core_contracts::visualization::quantity::VizAmount::Exact { value } = count.amount() {
+        assert_eq!(value.get(), i128::from(page.total_count));
+    }
+    assert!(page.rows.iter().all(|row| row.member_count.is_none()));
+    Ok(())
+}
+/// A bin whose members are not all known has an unknown count, never an exact zero.
+fn assert_counts_unknown(rows: &[du_core_contracts::visualization::rows::VizRow]) {
+    for row in rows {
+        let count = row.member_count.as_ref();
+        assert!(count.is_some_and(|count| matches!(
+            count.amount(),
+            du_core_contracts::visualization::quantity::VizAmount::Unknown { .. }
+        )));
+    }
+}
 fn id(n: u8) -> Id {
     Id::from_v7_bytes([n; 16])
 }
@@ -350,6 +374,9 @@ fn candidate_pages_share_members_and_obey_source_and_model_lifetimes() -> Result
             .iter()
             .all(|row| row.size.amount == SizeAmount::Unknown)
     );
+    // A bin whose members are not all known says so: its count is unknown, with the
+    // reason, and is never exact zero.
+    assert_counts_unknown(&unknown.pages.rows);
     assert_eq!(candidate.model.histogram.bins[0].members, vec![1]);
     let pages = ModelPages::new(
         sink.clone(),
@@ -369,6 +396,7 @@ fn candidate_pages_share_members_and_obey_source_and_model_lifetimes() -> Result
             result_revision: id(2),
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(other_rows.rows[0].display_name, "different label");
@@ -378,6 +406,7 @@ fn candidate_pages_share_members_and_obey_source_and_model_lifetimes() -> Result
         result_revision: id(2),
         start: 0,
         count: 2,
+        parent_shape_ref: None,
     };
     let rows = pages.rows(&rows_request).map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.rows[0].group_ref.as_deref(), Some("group-0"));
@@ -388,6 +417,7 @@ fn candidate_pages_share_members_and_obey_source_and_model_lifetimes() -> Result
     let group = pages
         .group_rows(&reference, "group-0", 0, 5)
         .map_err(|e| format!("{e:?}"))?;
+    check_member_count(&rows.rows[0], &group)?;
     assert_eq!(
         group.rows[0].item_ref.as_ref().ok_or("item")?.item_no,
         candidate.model.histogram.bins[0].members[0]

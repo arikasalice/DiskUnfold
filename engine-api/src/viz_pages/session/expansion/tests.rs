@@ -81,6 +81,7 @@ fn fixture() -> Result<(CurrentAnalysis, projection::Model, Dispatcher), String>
             format: "treemap",
             strategy: None,
             max_shapes: 100,
+            group_tail: true,
         },
         &mut || false,
     )
@@ -97,6 +98,16 @@ fn policy(
         legend_class_key: "test".into(),
         display_flags: vec![],
     })
+}
+// The group presentation the projection above was made for (it merges small siblings).
+fn other() -> OtherPresentation {
+    OtherPresentation {
+        group_ref: "test.other".into(),
+        display_name: "Other".into(),
+        label_key: None,
+        legend_class_key: "test".into(),
+        display_flags: vec![],
+    }
 }
 fn reference(source: &CurrentAnalysis, name: &[u8]) -> Result<ItemRef, String> {
     let i = source
@@ -124,6 +135,7 @@ fn local_expansion_keeps_other_branch_and_root_rows() -> Result<(), String> {
             max_shapes: 100,
         },
         &mut policy,
+        Some(&other()),
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;
@@ -141,6 +153,7 @@ fn local_expansion_keeps_other_branch_and_root_rows() -> Result<(), String> {
             max_shapes: 100,
         },
         &mut policy,
+        Some(&other()),
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;
@@ -288,6 +301,7 @@ fn boundary_and_hidden_ancestor_requests_are_validated() -> Result<(), String> {
             max_shapes: 100,
         },
         &mut policy,
+        Some(&other()),
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;
@@ -305,6 +319,7 @@ fn boundary_and_hidden_ancestor_requests_are_validated() -> Result<(), String> {
             max_shapes: 100,
         },
         &mut policy,
+        Some(&other()),
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;

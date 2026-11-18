@@ -226,6 +226,7 @@ fn check_gate(basis: Basis) -> Result<(), String> {
             result_revision: id(2),
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         });
         assert_eq!(frame.is_ok(), mode == "done");
         assert_eq!(rows.is_ok(), mode == "done");

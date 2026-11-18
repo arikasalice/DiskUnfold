@@ -1,4 +1,5 @@
 use super::*;
+use crate::viz_pages::production::{self, OtherPresentation, RowPresentation};
 use du_analysis_index::visualization::{projection, typed_layout::Dispatcher};
 use du_core_contracts::visualization::request::VizExpansion;
 use std::collections::{HashMap, VecDeque};
@@ -112,8 +113,9 @@ pub(super) fn extend(
         &ResultItem,
         &mut dyn FnMut() -> bool,
     ) -> Result<ChildPolicyEvidence, render::Error>,
+    other: Option<&OtherPresentation>,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(), render::Error> {
+) -> Result<render::Expanded, render::Error> {
     let entries = normalize_expansions(
         source,
         &model.parent,
@@ -132,12 +134,13 @@ pub(super) fn extend(
         .base_depth
         .saturating_add(entries.get(&model.parent.item_no).copied().unwrap_or(0));
     let roots = model.shapes.len();
+    let mut expanded = render::Expanded::default();
     let mut queue: VecDeque<_> = (0..roots).map(|index| (index, initial)).collect();
     while let Some((index, inherited)) = queue.pop_front() {
         if cancelled() {
             return Err(render::Error::Cancelled);
         }
-        if model.shapes.len().saturating_add(model.descendants.len()) >= policy.max_shapes {
+        if model.shape_count() >= policy.max_shapes {
             break;
         }
         let (item, depth) = if index < roots {
@@ -169,13 +172,26 @@ pub(super) fn extend(
         let folder = du_analysis_index::browse::open(source.version(), Some(&item))
             .map_err(|_| render::Error::InvalidEvidence)?;
         // The caller records the facts each call returns to describe descendant shapes.
+        let mut presentations = HashMap::new();
         for child in folder.children {
             if cancelled() {
                 return Err(render::Error::Cancelled);
             }
-            evidence(source, child, cancelled)?;
+            let child_evidence = evidence(source, child, cancelled)?;
+            presentations.insert(
+                child.item_no,
+                RowPresentation {
+                    item: ItemRef {
+                        result_version: source.result_version().clone(),
+                        item_no: child.item_no,
+                    },
+                    legend_class_key: child_evidence.legend_class_key.clone(),
+                    display_flags: child_evidence.display_flags.clone(),
+                },
+            );
         }
         let before = model.descendants.len();
+        let groups_before = model.detail.groups.len();
         projection::add_child_partition(
             model,
             source.version(),
@@ -188,12 +204,41 @@ pub(super) fn extend(
             projection::Error::Cancelled => render::Error::Cancelled,
             other => render::Error::Projection(other),
         })?;
+        // A folder that drew a shape or a group has a table of its own; one that was
+        // refused or whose children all stayed behind its count has none, and the page
+        // of such a folder is refused as that of a folder that was not expanded.
+        let added = &model.descendants[before..];
+        let group = model.detail.groups.get(groups_before);
+        if !added.is_empty() || group.is_some() {
+            let table = production::folder_table_rows(
+                source.version(),
+                model,
+                &item,
+                added,
+                group,
+                &presentations,
+                other,
+            )
+            .map_err(render::Error::Registration)?;
+            let shape = match index.checked_sub(roots) {
+                None => &model.shapes[index].meta,
+                Some(nested) => &model.descendants[nested].meta,
+            };
+            expanded.tables.push((shape.shape_ref.clone(), table));
+        }
         queue.extend((before..model.descendants.len()).map(|added| (roots + added, limit)));
+        for group in &model.detail.groups[groups_before..] {
+            let rows =
+                production::nested_group_rows(source.version(), model, group, &mut presentations)
+                    .map_err(render::Error::Registration)?;
+            expanded.groups.push((group.group_ref.clone(), rows));
+        }
     }
     projection::finish_child_partitions(model, cancelled).map_err(|error| match error {
         projection::Error::Cancelled => render::Error::Cancelled,
         other => render::Error::Projection(other),
-    })
+    })?;
+    Ok(expanded)
 }
 
 #[cfg(test)]

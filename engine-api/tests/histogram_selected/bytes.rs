@@ -198,6 +198,7 @@ fn check_case(unknown: bool, mixed: bool) -> Result<(), String> {
             result_revision: id(2),
             start: 0,
             count: 2,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
@@ -343,6 +344,7 @@ fn check_fallback(
             result_revision: id(2),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.rows.len(), bins.len());

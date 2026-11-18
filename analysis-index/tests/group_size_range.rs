@@ -45,6 +45,7 @@ fn row(value: SizeValue) -> Result<VizRow, String> {
         legend_class_key: "x".into(),
         display_flags: vec![],
         label_key: None,
+        member_count: None,
     })
 }
 

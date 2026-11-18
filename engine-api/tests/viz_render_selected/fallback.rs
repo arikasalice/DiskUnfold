@@ -1,4 +1,5 @@
 use super::*;
+use du_analysis_index::visualization::geometry::NoArea;
 use du_core_contracts::visualization::{quantity::VizAmount, rows::VizRows};
 
 #[test]
@@ -74,6 +75,7 @@ fn observed_logical_subtrees_draw_during_an_active_scan_without_exact_ratios() -
             result_revision: id(3),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.total_count, 3);
@@ -88,7 +90,8 @@ fn observed_logical_subtrees_draw_during_an_active_scan_without_exact_ratios() -
 }
 
 #[test]
-fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Result<(), String> {
+fn an_unmeasured_sibling_gets_no_area_and_the_partial_rows_and_denominator_stay()
+-> Result<(), String> {
     let sink = IngestSink::default();
     let lineage = sink
         .bind_current_analysis("scope", id(1))
@@ -133,14 +136,21 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
         Arc::new(Identity(AtomicU8::new(11))),
         bundle::implemented_dispatcher().map_err(|error| format!("{error:?}"))?,
     );
-    let render = || render_fallback(&session, &parent);
-    let fallback = render()?;
-    assert_eq!(fallback, render()?);
+    let render = || render_model(&session, &parent);
+    let rendered = render()?;
+    assert_eq!(rendered.model_ref, render()?.model_ref);
+    // The measured sibling is drawn; the unmeasured one is counted, never given area.
+    assert_eq!(rendered.model.shapes.len(), 1);
+    assert_eq!(rendered.model.detail.unknown_items, 1);
+    let unmeasured = &rendered.model.rows[1];
+    assert_eq!(unmeasured.omission, Some(NoArea::Unknown));
+    assert_eq!(unmeasured.size.amount, SizeAmount::Unknown);
     let rows_request = VizRowsRequest {
-        model_ref: fallback.model_ref,
-        result_revision: fallback.result_revision,
+        model_ref: rendered.model_ref,
+        result_revision: rendered.model.result_revision.clone(),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let page = session
         .rows(&rows_request)
@@ -173,13 +183,14 @@ fn unavailable_geometry_keeps_the_original_partial_rows_and_denominator() -> Res
         result_version: id(4),
         item_no: 0,
     };
-    let later_fallback = render_fallback(&session, &later_parent)?;
+    let later_model = render_model(&session, &later_parent)?;
     let later_page = session
         .rows(&VizRowsRequest {
-            model_ref: later_fallback.model_ref,
-            result_revision: later_fallback.result_revision,
+            model_ref: later_model.model_ref,
+            result_revision: later_model.model.result_revision.clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|error| format!("{error:?}"))?;
     assert_partial_page(&later_page, &later, 3, 125);
@@ -202,17 +213,15 @@ fn assert_partial_page(page: &VizRows, version: &ResultVersion, count: u64, byte
     }
 }
 
-fn render_fallback(
+fn render_model(
     session: &Session,
     parent: &ItemRef,
-) -> Result<du_core_contracts::visualization::render::VizFallback, String> {
-    match session.render_selected(
-        request(parent, 1_000_000),
-        |_, item, _| Ok(policy(item)),
-        &mut || false,
-    ) {
-        Err(Error::NoAttribution(fallback)) => Ok(fallback),
-        Err(error) => Err(format!("expected fallback, got {error:?}")),
-        Ok(_) => Err("unattributed values unexpectedly received area".into()),
-    }
+) -> Result<du_engine_api::viz_pages::render::Rendered, String> {
+    session
+        .render_selected(
+            request(parent, 1_000_000),
+            |_, item, _| Ok(policy(item)),
+            &mut || false,
+        )
+        .map_err(|error| format!("expected a model, got {error:?}"))
 }

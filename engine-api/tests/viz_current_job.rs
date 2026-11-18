@@ -149,6 +149,7 @@ fn rejected_submission_and_stale_job_do_not_evict_current_model() -> Result<(), 
             result_revision: current.version_id().clone(),
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.result_revision, *current.version_id());

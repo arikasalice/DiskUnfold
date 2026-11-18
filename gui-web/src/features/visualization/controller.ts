@@ -6,7 +6,20 @@ import type {
   VizRenderResponse,
   VizRowsRequest,
 } from "../../ipc";
-import { matchingRowsPage, sameItem, VizModelLoader } from "../../viz";
+import {
+  matchingRowsPage,
+  plainRowName,
+  readRowsPages,
+  sameItem,
+  VizModelLoader,
+} from "../../viz";
+import { fallbackReference, fallbackRowsMatch } from "./fallback-table";
+import {
+  selectionPresent,
+  transferItem,
+  transferSelection,
+} from "./selection-transfer";
+import type { Reconciled } from "./selection-transfer";
 import type {
   ModelResponse,
   ModelRowsPage,
@@ -16,11 +29,7 @@ import type {
 
 type View = Pick<VizRenderRequest, "viewport" | "visibleWindow">;
 type Committed = { frame: ModelResponse; view: View };
-export type Reconciled = {
-  from: ItemRef;
-  to: ItemRef;
-  outcome: "same" | "moved";
-};
+export type { Reconciled } from "./selection-transfer";
 export type SelectionEvidence = {
   name: string | null;
   observedAt: ModelResponse["observedAt"];
@@ -32,6 +41,8 @@ export type VisualizationSnapshot = {
   table: ModelResponse | null;
   graphPage: ModelRowsPage | null;
   tablePage: ModelRowsPage | null;
+  /** Rows of the fallback model while an unavailable answer names one. */
+  fallbackPage: ModelRowsPage | null;
   pendingRows: VizRowsRequest | null;
   failedRows: VizRowsRequest | null;
   selection: VizSelection | null;
@@ -83,80 +94,10 @@ function selectionEvidence(
         )
       : [];
   return {
-    name:
-      rows.length === 1 && rows[0]!.displayName ? rows[0]!.displayName : null,
+    name: rows.length === 1 ? plainRowName(rows[0]!) || null : null,
     observedAt: frame.observedAt,
     sizeBasis: frame.model.representation.sizeBasis,
     origin: frame.model.origin,
-  };
-}
-function selectionPresent(selection: VizSelection, frame: ModelResponse) {
-  if (
-    selection.modelRef !== frame.model.modelRef ||
-    selection.resultRevision !== frame.resultRevision
-  )
-    return false;
-  const shapes = frame.model.shapes.filter((shape) =>
-    selection.kind === "item"
-      ? sameItem(shape.itemRef, selection.itemRef)
-      : shape.groupRef === selection.groupRef,
-  );
-  return (
-    shapes.length === 1 &&
-    (selection.kind === "group" ||
-      JSON.stringify(shapes[0]!.matchKey) ===
-        JSON.stringify(selection.matchKey))
-  );
-}
-function transferItem(
-  item: ItemRef | null,
-  revision: string,
-  evidence: readonly Reconciled[],
-) {
-  if (!item) return null;
-  if (item.resultVersion === revision) return item;
-  const matches = evidence.filter(
-    (entry) =>
-      sameItem(entry.from, item) &&
-      entry.to.resultVersion === revision &&
-      (entry.outcome === "same" || entry.outcome === "moved"),
-  );
-  return matches.length === 1 ? matches[0]!.to : null;
-}
-function transferSelection(
-  selection: VizSelection | null,
-  frame: ModelResponse,
-  evidence: readonly Reconciled[],
-): VizSelection | null {
-  if (!selection) return null;
-  if (selection.kind === "group")
-    return selection.modelRef === frame.model.modelRef &&
-      selection.resultRevision === frame.resultRevision
-      ? selection
-      : null;
-  if (
-    selection.itemRef.resultVersion !== frame.resultRevision &&
-    selection.matchKey.state !== "present"
-  )
-    return null;
-  const item = transferItem(selection.itemRef, frame.resultRevision, evidence);
-  if (!item) return null;
-  const shapes = frame.model.shapes.filter((candidate) =>
-    sameItem(candidate.itemRef, item),
-  );
-  if (shapes.length !== 1) return null;
-  const shape = shapes[0]!;
-  if (
-    selection.resultRevision === frame.resultRevision &&
-    JSON.stringify(shape.matchKey) !== JSON.stringify(selection.matchKey)
-  )
-    return null;
-  return {
-    kind: "item",
-    itemRef: item,
-    matchKey: shape.matchKey,
-    modelRef: frame.model.modelRef,
-    resultRevision: frame.resultRevision,
   };
 }
 
@@ -167,6 +108,7 @@ export class VisualizationController {
     table: null,
     graphPage: null,
     tablePage: null,
+    fallbackPage: null,
     pendingRows: null,
     failedRows: null,
     selection: null,
@@ -187,6 +129,14 @@ export class VisualizationController {
   >;
   private focusHasKey = false;
   private rowsSeq = 0;
+  private fallbackSeq = 0;
+  /**
+   * Owner of the shared pendingRows, failedRows and error: the latest rows or
+   * fallback read. A read that finishes after another one started may still
+   * commit its own page, but it never touches the shared request state.
+   */
+  private rowsOwner = 0;
+  private fallbackOwner = 0;
   private revisionCheckSeq = 0;
   private listeners = new Set<() => void>();
   constructor(private readonly port: VisualizationPort) {
@@ -196,7 +146,7 @@ export class VisualizationController {
         admit: (request, evidence) => this.admit(request, evidence),
         commit: (response, request, evidence) =>
           this.commitPatch(response, request, evidence),
-        publish: (patch, extra) => this.update({ ...extra, ...patch }),
+        publish: (patch, extra) => this.publish(patch, extra),
       },
       [],
     );
@@ -214,6 +164,28 @@ export class VisualizationController {
   private update(patch: Partial<VisualizationSnapshot>) {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((listener) => listener());
+  }
+  /**
+   * Applies one loader change. A new phase ends the fallback table of the
+   * answer before it, and an unavailable answer drops the row state of the
+   * model it hides; the previous graph itself is kept.
+   */
+  private publish(
+    patch: Partial<VisualizationSnapshot>,
+    extra?: Partial<VisualizationSnapshot>,
+  ) {
+    if (patch.phase === undefined) return this.update({ ...extra, ...patch });
+    this.fallbackSeq++;
+    // A new phase ends the fallback read, and its progress and failure with it.
+    const fallbackOwned = this.fallbackOwner === this.rowsOwner;
+    const dropRows = patch.phase === "unavailable" || fallbackOwned;
+    if (dropRows) this.rowsOwner++;
+    this.update({
+      ...extra,
+      fallbackPage: null,
+      ...(dropRows ? { pendingRows: null, failedRows: null } : {}),
+      ...patch,
+    });
   }
   offerRevision(revision: string) {
     if (revision !== this.state.graph?.frame.resultRevision)
@@ -355,6 +327,7 @@ export class VisualizationController {
         }
       : this.state.graph;
     this.rowsSeq++;
+    this.rowsOwner++;
     if (canDisplay)
       this.selectedEvidence = selection
         ? selectionEvidence(selection, response, null)
@@ -393,6 +366,7 @@ export class VisualizationController {
     return this.loader.cancelCurrent();
   }
   async rows(request: VizRowsRequest) {
+    if (this.isFallbackRequest(request)) return this.fallbackRows(request);
     const frame = this.state.table;
     if (
       !frame ||
@@ -401,13 +375,17 @@ export class VisualizationController {
     )
       throw new Error("Rows must target the current table model");
     const seq = ++this.rowsSeq;
+    const owner = ++this.rowsOwner;
     this.update({ pendingRows: request, failedRows: null });
     try {
-      const response = await this.port.rows(request);
+      const response = await readRowsPages(
+        (page) => this.port.rows(page),
+        request,
+      );
       const page = { request, response };
       if (seq !== this.rowsSeq || this.state.table !== frame) return;
       if (!pageFor(frame, page)) {
-        this.update({
+        this.ownedUpdate(owner, {
           pendingRows: null,
           failedRows: request,
           error: new Error("Mismatched visualization rows"),
@@ -431,11 +409,60 @@ export class VisualizationController {
         graphPage: pageFor(this.state.graph?.frame ?? null, page)
           ? page
           : this.state.graphPage,
-        pendingRows: null,
+        ...this.released(owner),
       });
     } catch (error) {
       if (seq === this.rowsSeq && this.state.table === frame)
-        this.update({ pendingRows: null, failedRows: request, error });
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error,
+        });
     }
+  }
+  /** Reads rows of the fallback model; a page that arrives after the answer changed is dropped. */
+  private async fallbackRows(request: VizRowsRequest) {
+    const seq = ++this.fallbackSeq;
+    const owner = ++this.rowsOwner;
+    this.fallbackOwner = owner;
+    this.update({ pendingRows: request, failedRows: null });
+    try {
+      const response = await this.port.rows(request);
+      if (seq !== this.fallbackSeq) return;
+      if (!fallbackRowsMatch(request, response)) {
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error: new Error("Mismatched visualization rows"),
+        });
+        return;
+      }
+      this.update({
+        fallbackPage: { request, response },
+        ...this.released(owner),
+      });
+    } catch (error) {
+      if (seq === this.fallbackSeq)
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error,
+        });
+    }
+  }
+  /** Applies a change to the shared row request state only for its current owner. */
+  private ownedUpdate(owner: number, patch: Partial<VisualizationSnapshot>) {
+    if (owner === this.rowsOwner) this.update(patch);
+  }
+  /** Clears the progress of a read that finished, unless a newer read owns it. */
+  private released(owner: number): Partial<VisualizationSnapshot> {
+    return owner === this.rowsOwner ? { pendingRows: null } : {};
+  }
+  private isFallbackRequest(request: VizRowsRequest) {
+    const fallback = fallbackReference(this.state);
+    return (
+      fallback?.modelRef === request.modelRef &&
+      fallback.resultRevision === request.resultRevision
+    );
   }
 }

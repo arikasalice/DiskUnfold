@@ -140,6 +140,7 @@ fn request(parent: &ItemRef, right: u32) -> Request<'_> {
         format: "treemap",
         strategy: None,
         max_shapes: 10,
+        other: None,
     }
 }
 
@@ -180,6 +181,7 @@ fn selected_render_uses_the_same_rows_and_stable_normalized_reference() -> Resul
             result_revision: fallback.result_revision,
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|error| format!("{error:?}"))?;
     for shape in &first.model.shapes {
@@ -229,6 +231,7 @@ fn render_reference_collision_keeps_previous_geometry_and_page() -> Result<(), S
             result_revision: id(3),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     for shape in &first.model.shapes {
@@ -335,6 +338,7 @@ fn cancelled_model_registration_keeps_the_previous_geometry_and_page() -> Result
             result_revision: fallback.result_revision,
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(page.rows.len(), first.model.rows.len());
@@ -459,6 +463,7 @@ fn dropping_a_session_releases_only_its_models_from_the_pinned_source() -> Resul
         result_revision: parent.result_version.clone(),
         start: 0,
         count: 1,
+        parent_shape_ref: None,
     };
     assert!(first.rows(&first_rows).is_ok());
     assert!(matches!(

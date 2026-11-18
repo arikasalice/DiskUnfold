@@ -85,6 +85,7 @@ impl UseCase for Locate {
                     .map_err(|_| EngineError::reason("support.internal_error"))?,
             }),
             Location::OutsideView => Ok(VizLocate::OutsideView {}),
+            Location::Group(group_ref) => Ok(VizLocate::Group { group_ref }),
             Location::OutsideScope => Ok(VizLocate::OutsideScope {}),
         }
     }
@@ -146,7 +147,7 @@ impl UseCase for GroupRows {
 
 fn rows_error(error: Error) -> EngineError {
     EngineError::reason(match error {
-        Error::InvalidRange | Error::InvalidGroup => "command.body_invalid",
+        Error::InvalidRange | Error::InvalidGroup | Error::NotExpanded => "command.body_invalid",
         Error::ModelExpired => "viz.model_expired",
         Error::StaleVersion => "result.version_stale",
         Error::ItemUnavailable => "ref.unavailable",
