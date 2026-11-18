@@ -1,6 +1,7 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 mod aggregation_rule;
 pub mod browse;
+mod cancelled_below;
 mod current_pin;
 mod directory_case;
 pub mod folder_collection;

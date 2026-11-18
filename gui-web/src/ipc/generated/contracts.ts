@@ -1106,7 +1106,25 @@ export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: 
 export type SpaceTotalRequest = { resultVersion?: Id, target: SpaceTarget, requestSeq: number, };
 export type ResultCompleteness = "partial" | "complete" | "missing" | "cancelled";
 export type SpaceTotalSize = { size: SizeValue, completeness: ResultCompleteness, measurementLimits: Array<string>, };
-export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null, };
+export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null,
+/**
+ * The registered aggregation rule that produced these sizes, read from the pinned
+ * result version. Absent when an older producer answered.
+ */
+sizeRule?: QueryStrategy,
+/**
+ * The exact number of folders below the target left unread because the scan was
+ * cancelled, including the target itself when it is such a folder. Other-volume and
+ * already-counted folders, gaps and disconnects are not counted. `0` confirms none only
+ * for a sealed real scan with `Complete` or `Missing` status and no cancelled marks.
+ *
+ * Absent when the source cannot prove the total: a sample, an unfinished publication, a
+ * partial or cancelled result (even when it has marks), a complete or missing result
+ * containing a cancelled mark, an incremental replacement, or a target that is not a
+ * single subtree (a query result).
+ * Absence is not zero.
+ */
+cancelledUnreadFolders?: number, };
 export type VolumeGapSelection = { volumeId?: PathBytes | null, root?: ItemRef | null, };
 export type VolumeGapRequest = { resultVersion: Id, requestSeq: number, target: VolumeGapSelection, };
 export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "unavailable", observedAt: Timestamp | null, reasonKey: string, } | { "state": "available", observedAt: Timestamp | null, totalBytes: ByteSize, usedBytes: ByteSize, freeBytes: ByteSize, evidence: SizeEvidence, };

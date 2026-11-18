@@ -3,7 +3,8 @@
 //! The marks are sparse: a folder without a boundary issue and without an
 //! unread mark holds no memory. Both tables are sorted by item number
 //! and read by binary search, so a lookup is O(log n) in the number of marked
-//! folders.
+//! folders. Cancelled marks are evidence for the named folders only; they do not
+//! establish complete coverage for a cancelled-unread total.
 use crate::{BuildError, BuildHandle, observation_store::ObservationStore, tree::BuiltItems};
 use du_core_contracts::{
     result::ResultItemKind,
