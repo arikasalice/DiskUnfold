@@ -318,9 +318,7 @@ fn scan_fixture() -> Result<Fixture, TestError> {
 
 #[test]
 fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK
-        .lock()
-        .map_err(|_| "worker lock poisoned")?;
+    let _guard = worker_test_lock();
     let Fixture {
         job,
         handle,
@@ -397,9 +395,7 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
 
 #[test]
 fn cancellation_releases_the_job_bound_priority_handle() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK
-        .lock()
-        .map_err(|_| "worker lock poisoned")?;
+    let _guard = worker_test_lock();
     let Fixture {
         job,
         handle,
