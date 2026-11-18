@@ -223,7 +223,7 @@ pub(super) fn finish(
                 correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
                 return false;
             }
-            let mut queued = QueuedEntry {
+            let queued = QueuedEntry {
                 timed: entry,
                 child_id: Some(child_id),
                 child_attempt: None,

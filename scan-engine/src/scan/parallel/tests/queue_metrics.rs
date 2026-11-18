@@ -47,6 +47,7 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
             devices,
             &ContextClock(&context),
             Some(&peak),
+            None,
         )
         .map_err(|e| format!("{e:?}"))?;
         assert_eq!(peak.shared_ready_peak(), Some(count));

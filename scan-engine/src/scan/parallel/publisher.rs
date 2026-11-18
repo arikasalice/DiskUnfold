@@ -290,7 +290,7 @@ pub(super) fn reason(error: &PortError) -> &'static str {
     super::super::issues::reason(error)
 }
 
-/// Test switch that makes F03 refuse child attempts, as it does after discarding evidence.
+// Test switch that makes F03 refuse child attempts, as it does after discarding evidence.
 #[cfg(test)]
 std::thread_local! {
     pub(super) static REJECT_CHILD_ATTEMPTS: std::cell::Cell<bool> = const {

@@ -23,6 +23,18 @@ impl AnchoredDirectory for Empty {
         })
     }
 }
+
+fn make_frame(
+    entries: Vec<TimedObservedEntry>,
+    deferred: Vec<TimedObservedEntry>,
+    boundary: Boundary,
+) -> Frame {
+    let mut frame = Frame::root(0, Box::new(Empty), boundary);
+    frame.entries = entries.into_iter().map(Into::into).collect();
+    frame.deferred = deferred.into_iter().map(Into::into).collect();
+    frame
+}
+
 struct Flip(std::sync::atomic::AtomicUsize);
 impl JobContext for Flip {
     fn checkpoint(&self) -> Checkpoint {
@@ -50,21 +62,11 @@ fn cancel_after_entry_admission_keeps_current_and_remaining_items() -> Result<()
             }),
         })
     };
-    let pending = Frame {
-        correlated: Default::default(),
-        root_index: 0,
-        path: Vec::new(),
-        directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([entry(b"first").into(), entry(b"second").into()]),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-        excluded: 0,
-    };
+    let pending = make_frame(
+        vec![entry(b"first"), entry(b"second")],
+        Vec::new(),
+        Boundary::Unknown,
+    );
     let shared = single_root();
     let seat = member(&shared)?;
     let context = Flip(std::sync::atomic::AtomicUsize::new(0));
@@ -130,21 +132,7 @@ fn deferred_entries_are_not_sent_twice() -> Result<(), String> {
             os_code: None,
         }),
     });
-    let pending = Frame {
-        correlated: Default::default(),
-        root_index: 0,
-        path: Vec::new(),
-        directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::new(),
-        deferred: VecDeque::from([entry.into()]),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-        excluded: 0,
-    };
+    let pending = make_frame(Vec::new(), vec![entry], Boundary::Unknown);
     assert!(frame(
         pending,
         &Visited::default(),
@@ -178,21 +166,11 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
             native_modified_at: None,
         }),
     };
-    let pending = Frame {
-        correlated: Default::default(),
-        root_index: 0,
-        path: Vec::new(),
-        directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([TimedObservedEntry::from(directory.clone()).into()]),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Volume(1),
-        excluded: 0,
-    };
+    let pending = make_frame(
+        vec![TimedObservedEntry::from(directory.clone())],
+        Vec::new(),
+        Boundary::Volume(1),
+    );
     // The item, then unread marks for the entered child and the drained root.
     let (sender, receiver) = mpsc::sync_channel(3);
     let visited = Visited::default();
@@ -231,21 +209,7 @@ fn full_channel_applies_backpressure_until_consumer_drains() -> Result<(), Strin
             os_code: None,
         }),
     });
-    let item = Frame {
-        correlated: Default::default(),
-        root_index: 0,
-        path: Vec::new(),
-        directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([entry.into()]),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-        excluded: 0,
-    };
+    let item = make_frame(vec![entry], Vec::new(), Boundary::Unknown);
     let (done_tx, done_rx) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         let ok = frame(
@@ -332,21 +296,7 @@ fn windows_file_cancel_drain_waits_for_full_consumer_queue() -> Result<(), Strin
             .send(Event::RootBatch(0, None, None))
             .map_err(|_| "fill")?;
     }
-    let pending = Frame {
-        correlated: Default::default(),
-        root_index: 0,
-        path: Vec::new(),
-        directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([observed.into()]),
-        deferred: VecDeque::new(),
-        root: true,
-        first_batch: false,
-        root_published: false,
-        batch_pending: false,
-        case_observed: false,
-        boundary: Boundary::Unknown,
-        excluded: 0,
-    };
+    let pending = make_frame(vec![observed], Vec::new(), Boundary::Unknown);
     let (entered, started) = mpsc::channel();
     let (finished, done) = mpsc::channel();
     let worker = std::thread::spawn(move || {

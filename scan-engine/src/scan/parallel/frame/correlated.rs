@@ -549,9 +549,11 @@ impl Attempt {
     }
 }
 
-const MAX_EVENT_RESERVATION: Option<usize> = MAX_PENDING_NAME_BYTES
-    .checked_add(MAX_EVENT_PAYLOAD_BYTES.saturating_mul(2))
-    .and_then(|bytes| bytes.checked_add(size_of::<CorrelatedDirectoryEvent>()));
+const MAX_EVENT_RESERVATION: Option<usize> =
+    match MAX_PENDING_NAME_BYTES.checked_add(MAX_EVENT_PAYLOAD_BYTES.saturating_mul(2)) {
+        Some(bytes) => bytes.checked_add(size_of::<CorrelatedDirectoryEvent>()),
+        None => None,
+    };
 
 #[cfg(test)]
 mod tests;
