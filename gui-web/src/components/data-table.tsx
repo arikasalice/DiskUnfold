@@ -17,6 +17,8 @@ export function DataTable<Row>({
   getRowKey,
   scrollLabel,
   getRowLabel,
+  flat = false,
+  rowHeight: fixedRowHeight,
 }: {
   label: string;
   columns: string[];
@@ -31,10 +33,17 @@ export function DataTable<Row>({
   scrollLabel?: string;
   /** Accessible row name, for rows whose cells alone do not identify them. */
   getRowLabel?: (row: Row, index: number) => string;
+  /**
+   * Draws every row in the page's own height, with no inner scroll area. For a
+   * table whose rows are already limited to a page.
+   */
+  flat?: boolean;
+  /** The height of one row in px; defaults to the density's. */
+  rowHeight?: number;
 }) {
   const text = useLocaleText();
   const [scrollTop, setScrollTop] = useState(0);
-  const rowHeight = density === "compact" ? 64 : ROW_HEIGHT;
+  const rowHeight = fixedRowHeight ?? (density === "compact" ? 64 : ROW_HEIGHT);
   const viewRows = density === "compact" ? 10 : VIEW_ROWS;
   const overscan = density === "compact" ? 10 : OVERSCAN;
   const widths = columns.map((_, index) => columnWidths?.[index] ?? 160);
@@ -42,19 +51,23 @@ export function DataTable<Row>({
     Math.floor(scrollTop / rowHeight),
     Math.max(0, rows.length - viewRows),
   );
-  const start = Math.max(0, first - overscan);
-  const end = Math.min(rows.length, first + viewRows + overscan);
+  const start = flat ? 0 : Math.max(0, first - overscan);
+  const end = flat
+    ? rows.length
+    : Math.min(rows.length, first + viewRows + overscan);
   const onScroll = (event: UIEvent<HTMLDivElement>) =>
     setScrollTop(event.currentTarget.scrollTop);
   return (
     <div
-      className="du-table-viewport"
+      className={
+        flat ? "du-table-viewport du-table-viewport--flat" : "du-table-viewport"
+      }
       role="region"
       aria-label={
         scrollLabel ??
         text("ui.common.scroll_area", "{name} scroll area", { name: label })
       }
-      tabIndex={0}
+      tabIndex={flat ? undefined : 0}
       onScroll={onScroll}
     >
       <table

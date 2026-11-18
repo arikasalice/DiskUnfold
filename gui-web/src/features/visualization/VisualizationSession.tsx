@@ -30,6 +30,7 @@ export function VisualizationSession({
   autoLoadRows,
   resolveRenderer,
   onApplyRevision,
+  backAction,
 }: {
   client: AnalysisClient;
   request: VisualizationViewRequest;
@@ -41,6 +42,7 @@ export function VisualizationSession({
     typeof ControlledVisualization
   >[0]["resolveRenderer"];
   onApplyRevision?: (revision: string) => void;
+  backAction?: Parameters<typeof ControlledVisualization>[0]["backAction"];
 }) {
   const localizedText = useLocalizedVizText(text);
   const [session, setSession] = useState<Session | null>(null);
@@ -167,6 +169,7 @@ export function VisualizationSession({
           autoLoadRows={autoLoadRows}
           {...(resolveRenderer ? { resolveRenderer } : {})}
           {...(onApplyRevision ? { onApplyRevision } : {})}
+          {...(backAction ? { backAction } : {})}
         />
       </>
     );

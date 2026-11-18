@@ -2,7 +2,7 @@ name: Quality
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 0.0.1]
   # Manual runs exist so a branch can warm and measure the Rust caches (see the caching policy in
   # release-packaging/quality/README.md). They never publish anything.
   workflow_dispatch:
@@ -59,7 +59,11 @@ jobs:
           cache-dependency-path: gui-web/package-lock.json
       - name: Linux native prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
+        # A slow mirror needs about 17 minutes; the limit only stops a hung download.
+        timeout-minutes: 35
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
       - name: Install pinned Rust
         shell: bash
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
@@ -103,7 +107,11 @@ jobs:
           cache-dependency-path: gui-web/package-lock.json
       - name: Linux native prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11
+        # A slow mirror needs about 17 minutes; the limit only stops a hung download.
+        timeout-minutes: 35
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11
       - name: Install pinned Rust
         shell: bash
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
@@ -221,7 +229,11 @@ jobs:
           cache: npm
           cache-dependency-path: gui-web/package-lock.json
       - name: Linux native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
+        # A slow mirror needs about 17 minutes; the limit only stops a hung download.
+        timeout-minutes: 35
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
       - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:

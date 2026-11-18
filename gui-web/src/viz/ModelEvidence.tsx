@@ -1,6 +1,6 @@
 import { DetailDisclosure, Notice, Readout } from "../components";
 import type { ModelResponse } from "./model-adapter";
-import { visualizationReason } from "./messages";
+import { explainReason } from "./reason-text";
 import { rawSourceSize } from "./model-text";
 import type { VizText } from "./model-text";
 
@@ -43,6 +43,23 @@ export function ModelEvidence({
         ]}
       />
       <Readout
+        label={text.message("evidenceStatus")}
+        rows={[
+          {
+            label: text.message("evidenceCompleteness"),
+            value: text.key(frame.completeness),
+          },
+          {
+            label: text.message("evidenceFreshness"),
+            value: text.key(model.staleness.state),
+          },
+          {
+            label: text.message("evidenceOrigin"),
+            value: text.key(model.origin),
+          },
+        ]}
+      />
+      <Readout
         label={text.message("independentTotals")}
         rows={totals.map(([label, total]) => ({
           label,
@@ -77,13 +94,13 @@ export function ModelEvidence({
         ]}
       />
       {model.summary.reasonKeys.map((key) => (
-        <Notice key={key}>{text.key(key)}</Notice>
+        <Notice key={key}>{explainReason(key, text)}</Notice>
       ))}
-      {model.staleness.reasonKey && (
-        <Notice>
-          {visualizationReason(model.staleness.reasonKey, text.message)}
-        </Notice>
-      )}
+      {/* The unwatched freshness is said once in the status line, in quiet text. */}
+      {model.staleness.reasonKey &&
+        model.staleness.reasonKey !== "viz.staleness.unwatched" && (
+          <Notice>{explainReason(model.staleness.reasonKey, text)}</Notice>
+        )}
     </DetailDisclosure>
   );
 }

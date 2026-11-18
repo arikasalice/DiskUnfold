@@ -14,13 +14,36 @@
   min-block-size: 0;
   min-inline-size: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.du-visualization-title {
+  display: grid;
+  gap: 4px;
+  padding-block: 10px 8px;
+}
+
+/* The title is the same size as the one of the folder list. */
+.du-visualization-title .du-heading--2 {
+  font-size: 20px;
 }
 
 .du-visualization-viewport {
+  /*
+   * A containing block for the absolutely placed parts inside (the hidden
+   * status regions). Without it they are placed against the page, lie outside
+   * this scroll area's clip, and make the page itself scroll.
+   */
+  position: relative;
   min-block-size: 0;
   min-inline-size: 0;
   overflow: auto;
+}
+
+/* Title and explanation of an unavailable notice, apart by one step of the scale. */
+.du-viz-notice-text {
+  display: grid;
+  gap: var(--du-space-2);
 }
 
 @media (max-height: 350px) {

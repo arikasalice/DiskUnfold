@@ -196,7 +196,6 @@ test("newer table groups use their own frame and return to their own row", async
   );
   await act(async () => visualization.render(renderRequest(graph)));
   expect(visualization.getSnapshot().error).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
   act(() =>
     visualization.select({
       kind: "group",
@@ -205,7 +204,7 @@ test("newer table groups use their own frame and return to their own row", async
       resultRevision: graph.resultRevision,
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
   await waitFor(() =>
     expect(groupPort).toHaveBeenLastCalledWith({
       modelRef: graph.model.modelRef,
@@ -216,9 +215,11 @@ test("newer table groups use their own frame and return to their own row", async
   );
 
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Items in the latest result" }),
+  );
   const groupRows = screen.getAllByRole("button", {
-    name: "View members of Shared group",
+    name: "View items in Shared group",
   });
   const newerTableRow = groupRows[groupRows.length - 1]!;
   newerTableRow.focus();
@@ -252,14 +253,14 @@ test("newer table groups use their own frame and return to their own row", async
       },
     },
   });
-  const back = screen.getByRole("button", { name: "Back to visualization" });
+  const back = screen.getByRole("button", { name: "Back to chart" });
   back.focus();
   fireEvent.keyDown(back, { key: "Enter" });
   fireEvent.keyUp(back, { key: "Enter" });
   expect(document.activeElement).toBe(newerTableRow);
 
   const refreshedRows = screen.getAllByRole("button", {
-    name: "View members of Shared group",
+    name: "View items in Shared group",
   });
   const refreshedTableRow = refreshedRows[refreshedRows.length - 1]!;
   refreshedTableRow.focus();
@@ -327,12 +328,13 @@ test("graph and newer table rows with one group ref use and return to their own 
     />,
   );
   await act(async () => visualization.render(renderRequest(graph)));
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Items in the latest result" }),
+  );
 
   const rows = screen.getAllByRole("button", {
-    name: "View members of Shared group",
+    name: "View items in Shared group",
   });
   expect(rows).toHaveLength(2);
   const graphRow = rows[0]!;
@@ -346,7 +348,7 @@ test("graph and newer table rows with one group ref use and return to their own 
     start: 0,
     count: 100,
   });
-  pressEnter(screen.getByRole("button", { name: "Back to visualization" }));
+  pressEnter(screen.getByRole("button", { name: "Back to chart" }));
   expect(document.activeElement).toBe(graphRow);
 
   pressEnter(newerTableRow);
@@ -357,7 +359,7 @@ test("graph and newer table rows with one group ref use and return to their own 
     start: 0,
     count: 100,
   });
-  pressEnter(screen.getByRole("button", { name: "Back to visualization" }));
+  pressEnter(screen.getByRole("button", { name: "Back to chart" }));
   expect(document.activeElement).toBe(newerTableRow);
 });
 
@@ -401,14 +403,19 @@ test.each([true, false])(
       />,
     );
     await act(async () => visualization.render(renderRequest(graph)));
-    const shape = await screen.findByRole("button", { name: /Shared group/ });
+    // The graph rows are open now, so their "View items in Shared group" button matches too.
+    const shape = (
+      await screen.findAllByRole("button", { name: /Shared group/ })
+    ).find(
+      (button) => !/^View items/.test(button.getAttribute("aria-label") ?? ""),
+    )!;
     pressEnter(shape);
-    pressEnter(screen.getByRole("button", { name: "View group members" }));
+    pressEnter(screen.getByRole("button", { name: "View combined items" }));
     await screen.findByText("Member from shape-model");
-    pressEnter(screen.getByRole("button", { name: "Back to visualization" }));
+    pressEnter(screen.getByRole("button", { name: "Back to chart" }));
     const target = suppliesControl
       ? shape
-      : screen.getByRole("region", { name: "Storage visualization" });
+      : screen.getByRole("region", { name: "Storage chart" });
     expect(document.activeElement).toBe(target);
   },
 );
