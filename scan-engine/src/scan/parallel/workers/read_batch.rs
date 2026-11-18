@@ -2,6 +2,7 @@
 //!
 //! The frozen exclusion rules are the first admission row. A name they cannot
 //! decide is withheld from the adapter and returned in `undecided`.
+//! A name they exclude is counted in the frame; a withheld name is not.
 use super::*;
 
 pub(super) enum ReadFailure {
@@ -12,7 +13,7 @@ pub(super) enum ReadFailure {
 }
 
 pub(super) fn next_entries(
-    frame: &Frame,
+    frame: &mut Frame,
     context: &dyn JobContext,
     policy: Policy<'_>,
     undecided: &mut Vec<Vec<u8>>,
@@ -25,29 +26,32 @@ pub(super) fn next_entries(
             .map(Some)
             .map_err(ReadFailure::Observation);
     };
+    let mut excluded = 0_u64;
+    let (root_index, path) = (frame.root_index, &frame.path);
     let mut decide = |name: &[u8]| {
         if context.checkpoint() == Checkpoint::Cancel {
-            // Stops this enumeration; the frame is dropped as cancelled.
+            // Stops this enumeration; the frame is drained and marked as unread.
             du_core_contracts::scan_observation::FilterDecision::Undecidable
         } else {
-            admission::exclusion(
-                include(frame.root_index, &frame.path, name),
-                name,
-                undecided,
-            )
+            let decision = include(root_index, path, name);
+            if decision == du_core_contracts::scan_observation::FilterDecision::Exclude {
+                excluded += 1;
+            }
+            admission::exclusion(decision, name, undecided)
         }
     };
     let batch = frame
         .directory
-        .with(|directory| directory.next_filtered_timed(&mut decide, &|| context.utc_now()))
-        .ok_or(ReadFailure::Unavailable)?
-        .map_err(|error| {
-            if error.kind == PortErrorKind::Unsupported {
-                ReadFailure::Filter
-            } else {
-                ReadFailure::Observation(error)
-            }
-        })?;
+        .with(|directory| directory.next_filtered_timed(&mut decide, &|| context.utc_now()));
+    // Names excluded before a failed or stopped read still count.
+    frame.excluded = frame.excluded.saturating_add(excluded);
+    let batch = batch.ok_or(ReadFailure::Unavailable)?.map_err(|error| {
+        if error.kind == PortErrorKind::Unsupported {
+            ReadFailure::Filter
+        } else {
+            ReadFailure::Observation(error)
+        }
+    })?;
     match batch {
         du_core_contracts::scan_observation::TimedFilteredBatch::Entries(entries)
             if !entries.is_empty() =>

@@ -288,6 +288,8 @@ mod ipc_calls;
 mod linux_scan_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod macos_scan_tests;
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
+mod native_cancel_seal_tests;
 #[cfg(test)]
 mod size_rules;
 #[cfg(test)]

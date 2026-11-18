@@ -93,12 +93,7 @@ impl Timestamp {
     ///
     /// Returns an error when the text is not a valid canonical timestamp.
     pub fn parse(value: &str) -> Result<Self, String> {
-        let shaped =
-            value.len() == 24 && value.ends_with('Z') && value.as_bytes().get(19) == Some(&b'.');
-        let millis = shaped
-            .then(|| chrono::DateTime::parse_from_rfc3339(value).ok())
-            .flatten()
-            .map(|time| time.timestamp_millis())
+        let millis = parse_fields(value)
             .and_then(Self::from_unix_millis)
             .filter(|time| time.to_string() == value);
         millis.ok_or_else(|| "invalid Timestamp".to_owned())
@@ -169,6 +164,66 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
+}
+
+/// Reads the digits of a `YYYY-MM-DDTHH:MM:SS.mmmZ` text into Unix milliseconds.
+///
+/// Only the separators and digit positions are checked here, plus coarse field
+/// ranges that keep the arithmetic well defined. [`Timestamp::parse`] compares
+/// the printed form with the input, which rejects days that do not exist in a
+/// month and every non canonical spelling.
+fn parse_fields(value: &str) -> Option<i64> {
+    let b = value.as_bytes();
+    let separators = [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'.'),
+        (23, b'Z'),
+    ];
+    if b.len() != 24 || separators.iter().any(|&(at, sep)| b[at] != sep) {
+        return None;
+    }
+    let field = |from: usize, to: usize| -> Option<i64> {
+        b[from..to].iter().try_fold(0_i64, |sum, &c| {
+            char::from(c)
+                .to_digit(10)
+                .map(|digit| sum * 10 + i64::from(digit))
+        })
+    };
+    let (year, month, day) = (field(0, 4)?, field(5, 7)?, field(8, 10)?);
+    let (hour, minute, second, milli) = (
+        field(11, 13)?,
+        field(14, 16)?,
+        field(17, 19)?,
+        field(20, 23)?,
+    );
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    Some(days * 86_400_000 + ((hour * 60 + minute) * 60 + second) * 1_000 + milli)
+}
+
+/// Converts a proleptic Gregorian date to days since 1970-01-01.
+///
+/// Inverse of [`civil_from_days`] for real dates; a day past the end of its
+/// month rolls into the next month.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = year - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let month_index = if month > 2 { month - 3 } else { month + 9 };
+    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// Accepts only JSON strings and hands their text to a validating parser.
