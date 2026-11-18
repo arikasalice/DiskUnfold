@@ -1990,6 +1990,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       location,
       display: { system: "iec", unit: "auto" },
       sizeBasis: "allocated",
+      locationTrail: ["Root"],
     });
     expect(receivedCatalog).toEqual(catalog);
     const request: VisualizationViewRequest = {
@@ -2181,7 +2182,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedAggregate = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be loaded.");
   expect(
     screen.queryByRole("group", { name: "Space distribution" }),
   ).toBeNull();
@@ -2200,7 +2201,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
 
   mismatchedModelBasis = true;
   fireEvent.click(entry);
-  await screen.findByText("Visualization could not be updated.");
+  await screen.findByText("The chart could not be loaded.");
   expect(
     document
       .querySelector<HTMLElement>(".du-visualization-viewport")

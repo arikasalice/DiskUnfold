@@ -54,7 +54,8 @@ export function RenderRetry({
                 : "newerRowsStatus",
             )
           : state.phase === "unavailable"
-            ? text.message("unavailable")
+            ? // The notice announces itself; saying it here too would show it twice.
+              ""
             : state.phase === "job"
               ? text.message("working")
               : state.phase === "cancelled"

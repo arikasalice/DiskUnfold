@@ -1,4 +1,5 @@
 import type { VisualizationMessageKey } from "./messages";
+import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import type {
   SizeValue,
@@ -18,6 +19,16 @@ export type VizText = {
   quantity: (value: VizQuantity) => string;
   size: (value: SizeValue) => string;
   observedAt: (value: string | null) => string;
+  /**
+   * Words a reason key the collector reported (`scan.*`). Optional: without it
+   * such a key gets the general "reason unavailable" phrase.
+   */
+  scanReason?: (key: string) => string;
+  /**
+   * Words a canonical ratio string as a percentage. Optional: without it the
+   * ratio is shown as the engine wrote it.
+   */
+  ratio?: (value: string) => string;
 };
 
 /** Applies placeholders even for injected text functions that only accept keys. */
@@ -60,13 +71,6 @@ export function rawSourceSize(
   return `${value} · ${evidence}`;
 }
 
-/** Localizes registered labels on group rows while preserving item names verbatim. */
-export function rowName(row: VizRow, text: Pick<VizText, "key">): string {
-  return row.groupRef !== null && row.itemRef === null && row.labelKey
-    ? text.key(row.labelKey)
-    : row.displayName;
-}
-
 export function shapeLabels(
   model: VizModel,
   shape: VizShape,
@@ -77,14 +81,18 @@ export function shapeLabels(
     (entry) => entry.key === shape.legendClassKey,
   );
   const denominator = row?.denominator ?? model.denominator;
-  const name = row ? rowName(row, text) : text.message("itemNamePending");
+  const name = row
+    ? rowName(row, model, text)
+    : text.message("itemNamePending");
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);
   const accessibleLabel = [
     name,
     value,
-    row?.ratio ?? text.message("ratioUnavailable"),
+    row?.ratio
+      ? (text.ratio?.(row.ratio) ?? row.ratio)
+      : text.message("ratioUnavailable"),
     text.quantity(denominator.value),
     text.key(denominator.basis),
     text.key(legend?.labelKey ?? shape.legendClassKey),
@@ -93,8 +101,11 @@ export function shapeLabels(
   ].join(" · ");
   return {
     accessibleLabel,
-    displayLabel:
-      model.representation.labelMode === "name_only"
+    // A shape whose row has not arrived is named for assistive technology only;
+    // the drawing carries no label rather than a placeholder.
+    displayLabel: !row
+      ? ""
+      : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
   };

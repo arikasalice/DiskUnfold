@@ -6,7 +6,6 @@ import {
   createChartRenderers,
   Notice,
   Progress,
-  StatusBadge,
   Text,
   Heading,
 } from "../../components";
@@ -18,10 +17,12 @@ import type {
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "../../viz";
-import { RowName, rowName } from "../../viz";
+import { RowName, plainRowName, rowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
 import type { VizText } from "../../viz";
+import { EmptyResult } from "./EmptyResult";
+import { ModelStatus } from "./ModelStatus";
 
 const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {
@@ -115,23 +116,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         {text.message("storageVisualization")}
       </Heading>
       <div className="du-review-context">
-        <StatusBadge
-          tone={frame.completeness === "complete" ? "neutral" : "warning"}
-        >
-          {text.key(frame.completeness)}
-        </StatusBadge>
-        <StatusBadge>{text.key(frame.model.origin)}</StatusBadge>
-        {/* Every product model is unwatched today, and a permanent warning badge reads as "do not trust this result". */}
-        {frame.model.staleness.state === "stale" && (
-          <StatusBadge tone="warning">
-            {text.key(frame.model.staleness.state)}
-          </StatusBadge>
-        )}
-        <Text>{text.observedAt(frame.observedAt)}</Text>
+        <ModelStatus frame={frame} text={text} />
       </div>
-      {frame.model.shapes.length === 0 && (
-        <Notice>{text.message("noDrawableItems")}</Notice>
-      )}
       <ChartRenderer
         modelRef={frame.model.modelRef}
         resultRevision={frame.resultRevision}
@@ -188,7 +174,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         fallback={{
           modelRef: frame.model.modelRef,
           resultRevision: frame.resultRevision,
-          content: rows,
+          content:
+            frame.model.shapes.length === 0 ? (
+              <EmptyResult frame={frame} text={text} />
+            ) : (
+              rows
+            ),
         }}
       />
       <ModelEvidence frame={frame} text={text} />
@@ -217,7 +208,8 @@ export function ModelRows({
   title,
 }: {
   page: ModelRowsPage;
-  model: VizModel;
+  /** Absent for a fallback table, which has no model of its own to look classes up in. */
+  model?: VizModel | undefined;
   text: VizText;
   onPage?: (request: VizRowsRequest) => void;
   onOpenGroup?: (
@@ -285,8 +277,10 @@ export function ModelRows({
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
           renderCells={(row) => {
             let trigger: HTMLButtonElement | null = null;
-            const name = rowName(row, text);
-            const groupLabel = name.trim() || text.message("otherItems");
+            // A fallback table has no model, so a group row keeps only a name it carries itself.
+            const name = model
+              ? rowName(row, model, text)
+              : (plainRowName(row) ?? text.message("group.other_unknown"));
             return [
               <RowName name={name} item={row.itemRef !== null} />,
               ...(hasOpenableGroups
@@ -304,12 +298,12 @@ export function ModelRows({
                               row.groupRef,
                               row.size,
                               trigger,
-                              groupLabel,
+                              name,
                               returnTargetRef?.current ?? rowsRegion.current,
                             );
                         }}
                         aria-label={vizMessage(text, "viewMembersOf", {
-                          name: groupLabel,
+                          name,
                         })}
                       >
                         {text.message("viewMembers")}
@@ -318,10 +312,12 @@ export function ModelRows({
                   ]
                 : []),
               row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-              row.ratio ?? text.message("unavailableValue"),
+              row.ratio
+                ? (text.ratio?.(row.ratio) ?? row.ratio)
+                : text.message("unavailableValue"),
               `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
               text.key(
-                model.legend.find((entry) => entry.key === row.legendClassKey)
+                model?.legend.find((entry) => entry.key === row.legendClassKey)
                   ?.labelKey ?? row.legendClassKey,
               ),
               row.displayFlags.map(text.key).join(" · "),

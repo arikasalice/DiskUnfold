@@ -5,14 +5,7 @@ import type { RegionalFormat } from "../i18n/regional-format";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import diskUnfoldIcon from "./assets/diskunfold-icon.svg";
 import "./browse-visualization.css";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Action,
   BrandMark,
@@ -56,6 +49,7 @@ import {
   BrowseVisualizationView,
   browseSelectionFromOpen,
   useBrowseVisualization,
+  useVisualizationFocus,
 } from "./browse-visualization";
 import type { BrowseVisualizationProvider } from "./browse-visualization";
 
@@ -146,7 +140,11 @@ export function App({
     browseShown.current = Boolean(browseVersion);
   }, [browseVersion]);
   const visualizationTrigger = useRef<HTMLButtonElement>(null);
-  const restoreVisualizationFocus = useRef(false);
+  const visualizationFocus = useVisualizationFocus(
+    visualizationOpen,
+    setVisualizationOpen,
+    visualizationTrigger,
+  );
   const visualization = useBrowseVisualization(
     client,
     visualizationProvider,
@@ -177,12 +175,6 @@ export function App({
       restoreBrowseFocus.current = false;
     }
   }, [browseVersion]);
-  useLayoutEffect(() => {
-    if (!visualizationOpen && restoreVisualizationFocus.current) {
-      visualizationTrigger.current?.focus();
-      restoreVisualizationFocus.current = false;
-    }
-  }, [visualizationOpen]);
   const analysisOpen = analysisVisible({
     connected: Boolean(client),
     history,
@@ -220,7 +212,7 @@ export function App({
             visible={controls.backVisible}
             autoFocus={
               browseShown.current &&
-              !restoreVisualizationFocus.current &&
+              !visualizationFocus.restoring() &&
               !groups.restoringFocus()
             }
             onPress={() => {
@@ -236,10 +228,7 @@ export function App({
             available={Boolean(visualization.assembly)}
             trigger={visualizationTrigger}
             onOpen={() => setVisualizationOpen(true)}
-            onClose={() => {
-              restoreVisualizationFocus.current = true;
-              setVisualizationOpen(false);
-            }}
+            onClose={visualizationFocus.close}
           />
           <GroupsEntryAction
             // The sample screen browses on its own; there the entry stays disabled with its reason.
@@ -343,6 +332,7 @@ export function App({
         open={visualizationOpen}
         selection={visualization.selection}
         assembly={visualization.assembly}
+        onClose={visualizationFocus.close}
       />
       <GroupsSurface
         client={client}

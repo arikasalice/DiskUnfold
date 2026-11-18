@@ -750,6 +750,9 @@ ui.browse.up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
+ui.visualization.badgeCancelled
+ui.visualization.badgeMissing
+ui.visualization.badgePartial
 ui.visualization.bar
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
@@ -766,7 +769,14 @@ ui.visualization.denominatorParentFolder
 ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
+ui.visualization.emptyResultScopeTotal value:name
+ui.visualization.emptyResultTitle
+ui.visualization.emptyResultUnknownItems count:name
 ui.visualization.estimatedEvidence
+ui.visualization.evidenceCompleteness
+ui.visualization.evidenceFreshness
+ui.visualization.evidenceOrigin
+ui.visualization.evidenceStatus
 ui.visualization.filteredOutTotal
 ui.visualization.flagLowerBound
 ui.visualization.flagOtherGroup
@@ -784,6 +794,9 @@ ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
 ui.visualization.graphUpdated
 ui.visualization.group.other
+ui.visualization.group.other_at_least count:count
+ui.visualization.group.other_count count:count
+ui.visualization.group.other_unknown
 ui.visualization.groupMeasurementContext
 ui.visualization.groupMembers
 ui.visualization.groupMissing
@@ -836,14 +849,14 @@ ui.visualization.observedAtUnknown
 ui.visualization.omittedItems
 ui.visualization.openFailed
 ui.visualization.originScan
-ui.visualization.otherItems
-ui.visualization.otherMembers
 ui.visualization.previousBasis
 ui.visualization.previousMeasure
 ui.visualization.previousName
 ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
+ui.visualization.ratioBelowMinimum value:name
+ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count
 ui.visualization.rawBytesAtLeast count:count
@@ -883,7 +896,19 @@ ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
 ui.visualization.unavailable
+ui.visualization.unavailableBodyNegativeFlow
+ui.visualization.unavailableBodyNoAttribution
+ui.visualization.unavailableBodyNoBaseline
+ui.visualization.unavailableBodyNoItemSizes
+ui.visualization.unavailableBodySingleObservation
+ui.visualization.unavailableBodyUnknown
 ui.visualization.unavailableEvidence
+ui.visualization.unavailableTitleNegativeFlow
+ui.visualization.unavailableTitleNoAttribution
+ui.visualization.unavailableTitleNoBaseline
+ui.visualization.unavailableTitleNoItemSizes
+ui.visualization.unavailableTitleSingleObservation
+ui.visualization.unavailableTitleUnknown
 ui.visualization.unavailableValue
 ui.visualization.unavailable_for_folder
 ui.visualization.unknownFormat

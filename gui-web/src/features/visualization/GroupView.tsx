@@ -171,7 +171,7 @@ function synchronizeFrame(
 }
 
 function groupTitle(origin: GroupOrigin | null, text: VizText) {
-  return origin?.groupLabel?.trim() || text.message("otherMembers");
+  return origin?.groupLabel?.trim() || text.message("group.other_unknown");
 }
 
 function getReturnTitle(

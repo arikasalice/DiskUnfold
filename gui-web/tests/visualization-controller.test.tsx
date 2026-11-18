@@ -108,9 +108,11 @@ test.each(["keyboard", "pointer"] as const)(
       fireEvent.keyDown(shapeButton, { key: " ", code: "Space" });
       fireEvent.keyUp(shapeButton, { key: " ", code: "Space" });
     } else fireEvent.click(shapeButton);
-    fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "View combined items" }),
+    );
     const back = await screen.findByRole("button", {
-      name: "Back to visualization",
+      name: "Back to chart",
     });
     expect(
       screen
@@ -165,14 +167,14 @@ test("selection while an unrelated control has focus does not become a shape ori
   const external = screen.getByRole("button", { name: "Unrelated control" });
   external.focus();
   act(() => visualization.select(selection));
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
   expect(document.activeElement?.getAttribute("aria-labelledby")).toBeTruthy();
   expect(document.activeElement).not.toBe(external);
@@ -222,19 +224,19 @@ test("an injected chart renderer cannot claim a button as a verified shape origi
   );
   await act(async () => visualization.render(request(1)));
   const fakeShape = within(
-    screen.getByRole("region", { name: "Storage visualization" }),
+    screen.getByRole("region", { name: "Storage chart" }),
   ).getAllByRole("button")[0]!;
   fakeShape.focus();
   fireEvent.click(fakeShape);
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   fireEvent.click(back);
   expect(
     await screen.findByText(
-      "The original group target is no longer available. Return to the visualization.",
+      "The original combined items are no longer available. Return to the chart.",
     ),
   ).toBeTruthy();
   expect(document.activeElement).not.toBe(fakeShape);
@@ -294,12 +296,12 @@ test("a removed graph group row returns to its rows title with an explanation", 
       count: 100,
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   fireEvent.click(
-    screen.getByRole("button", { name: "View members of Other items" }),
+    screen.getByRole("button", { name: "View items in Other items" }),
   );
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   await act(async () =>
     visualization.rows({
@@ -310,15 +312,15 @@ test("a removed graph group row returns to its rows title with an explanation", 
     }),
   );
   expect(
-    screen.queryByRole("button", { name: "View members of Other items" }),
+    screen.queryByRole("button", { name: "View items in Other items" }),
   ).toBeNull();
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
   expect(document.activeElement).toBe(
-    screen.getByRole("group", { name: "Rows from this graph" }),
+    screen.getByRole("group", { name: "Rows from this chart" }),
   );
 });
 
@@ -455,13 +457,9 @@ test("controller graph adapter renders only the committed model", async () => {
   render(
     <ControlledVisualization controller={controller} text={fixtureText} />,
   );
-  expect(
-    screen.queryByRole("region", { name: "Storage visualization" }),
-  ).toBeNull();
+  expect(screen.queryByRole("region", { name: "Storage chart" })).toBeNull();
   await act(async () => controller.render(request(1)));
-  expect(
-    screen.getByRole("region", { name: "Storage visualization" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Storage chart" })).toBeTruthy();
 });
 
 test("unverified correspondence clears selection and focus, retaining only previous-selection evidence", async () => {
@@ -597,15 +595,13 @@ test("entry point shows loading, failure and a newer table independently of the 
     pending = controller.render(request(2, "new-revision"));
   });
   expect(
-    screen.getByRole("progressbar", { name: "Loading visualization" }),
+    screen.getByRole("progressbar", { name: "Loading chart" }),
   ).toBeTruthy();
   await act(async () => {
     waiting.resolve(newer);
     await pending;
   });
-  expect(
-    screen.getByRole("region", { name: "Storage visualization" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Storage chart" })).toBeTruthy();
   expect(
     screen.getByRole("region", { name: "Items in this result" }),
   ).toBeTruthy();
@@ -633,7 +629,7 @@ test("entry point shows loading, failure and a newer table independently of the 
   fireEvent.click(screen.getByRole("button", { name: /Items in this result/ }));
   expect(screen.getByText("No rows in this page")).toBeTruthy();
   await act(async () => controller.render(request(3, "new-revision")));
-  expect(screen.getByText("Visualization could not be updated.")).toBeTruthy();
+  expect(screen.getByText("The chart could not be loaded.")).toBeTruthy();
   expect(
     screen.getByRole("region", { name: "Items in this result" }),
   ).toBeTruthy();
@@ -785,7 +781,7 @@ test("the newer fallback table loads its first page from the UI without changing
     }),
   );
   await act(async () => controller.render(request(2, "new-revision")));
-  const graph = screen.getByRole("region", { name: "Storage visualization" });
+  const graph = screen.getByRole("region", { name: "Storage chart" });
   expect(within(graph).getAllByText(/Old item/).length).toBeGreaterThan(0);
   await act(async () => {
     fireEvent.click(
@@ -855,7 +851,7 @@ test.each([false, true])(
       await wait.promise;
     });
     expect(document.activeElement).toBe(
-      moveAway ? other : screen.getByText("Rows for the displayed graph"),
+      moveAway ? other : screen.getByText("Rows for the displayed chart"),
     );
   },
 );
@@ -941,10 +937,12 @@ test("status exposes real unavailable reason and revision callback without inven
   expect(apply).toHaveBeenCalledWith("next");
   expect(controller.getSnapshot().graph?.frame.resultRevision).toBe(revision);
   await act(async () => controller.render(request(2)));
-  expect(screen.getByText(/No comparison baseline is available/)).toBeTruthy();
-  expect(screen.getByText(/Available formats/).textContent).toContain(
-    "Bar chart",
-  );
+  expect(
+    screen.getByRole("heading", {
+      name: "There is no earlier result to compare",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Available formats/)).toBeNull();
 });
 
 test("lost correspondence is explained and never moves focus to another application control", async () => {
@@ -997,9 +995,7 @@ test("retry visualization repeats only an explicit failed request with the next 
   await act(async () => controller.render(request(1)));
   expect(renderPort).toHaveBeenCalledTimes(1);
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry visualization" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry chart" }));
   });
   expect(renderPort).toHaveBeenLastCalledWith(request(2));
   expect(controller.getSnapshot().graph?.frame.requestSeq).toBe(2);
@@ -1057,11 +1053,11 @@ test.each(["success", "failure", "move-away"] as const)(
       </>,
     );
     await act(async () => controller.render(request(1)));
-    const retry = screen.getByRole("button", { name: "Retry visualization" });
+    const retry = screen.getByRole("button", { name: "Retry chart" });
     retry.focus();
     act(() => fireEvent.click(retry));
     const pending = screen.getByRole("button", {
-      name: "Retrying visualization…",
+      name: "Retrying chart…",
     });
     expect(document.activeElement).toBe(pending);
     expect(pending.getAttribute("aria-disabled")).toBe("true");
@@ -1076,13 +1072,13 @@ test.each(["success", "failure", "move-away"] as const)(
     });
     if (outcome === "failure")
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Retry visualization" }),
+        screen.getByRole("button", { name: "Retry chart" }),
       );
     else if (outcome === "move-away")
       expect(document.activeElement).toBe(outside);
     else
       expect(document.activeElement).toBe(
-        screen.getByText("Visualization result updated."),
+        screen.getByText("Latest result applied"),
       );
   },
 );
@@ -1111,10 +1107,10 @@ test("Korean visualization status uses Korean reason and format names", async ()
   };
   render(<ControlledVisualization controller={controller} text={text} />);
   await act(async () => controller.render(request(1)));
-  expect(screen.getByText(/비교 기준이 없습니다/)).toBeTruthy();
-  expect(screen.getByText(/사용 가능한 형식/).textContent).toContain(
-    "막대 그래프, 트리맵",
-  );
+  expect(
+    screen.getByRole("heading", { name: "비교할 이전 결과가 없습니다" }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/사용 가능한 형식/)).toBeNull();
 });
 
 test.each(["unknown", "duplicate", "outside"] as const)(
@@ -1166,7 +1162,7 @@ test.each(["unknown", "duplicate", "outside"] as const)(
     else
       expect(document.activeElement).toBe(
         screen.getByText(
-          "The previously focused item is unavailable in this graph.",
+          "The previously focused item is unavailable in this chart.",
         ),
       );
     expect(controller.getSnapshot().selection).toBeNull();
@@ -1218,7 +1214,7 @@ test.each([
         new RegExp(
           language === "ko"
             ? "이전 그래프를 유지"
-            : "previous graph remains displayed",
+            : "previous chart remains displayed",
         ),
       ),
     ).toBeNull();
@@ -1230,7 +1226,7 @@ test.each([
       new RegExp(
         language === "ko"
           ? "이전 그래프를 유지"
-          : "previous graph remains displayed",
+          : "previous chart remains displayed",
       ),
     );
     expect(graphNotice.textContent).toContain(first.observedAt);

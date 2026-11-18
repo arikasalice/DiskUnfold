@@ -14,7 +14,13 @@
   min-block-size: 0;
   min-inline-size: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.du-visualization-title {
+  display: grid;
+  gap: 4px;
+  padding-block-end: 8px;
 }
 
 .du-visualization-viewport {
