@@ -311,6 +311,14 @@ impl DirectoryObservations for ReturnedDirectoryRoot {
     }
 
     fn begin_correlated_filtered(&mut self) -> Result<(), PortError> {
+        if self.child {
+            // The child is read through the ordinary filtered port.
+            return Err(PortError {
+                kind: PortErrorKind::Unsupported,
+                reason_key: "os.unsupported".into(),
+                os_code: None,
+            });
+        }
         Ok(())
     }
 
