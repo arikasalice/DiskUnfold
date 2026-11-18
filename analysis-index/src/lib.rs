@@ -22,6 +22,8 @@ pub use folder_evidence_snapshot::FolderAttemptSummary;
 #[cfg(test)]
 mod folder_evidence_build_handle_tests;
 #[cfg(test)]
+mod folder_evidence_rule_tests;
+#[cfg(test)]
 mod folder_evidence_snapshot_budget_tests;
 mod forest;
 pub mod freshness;
