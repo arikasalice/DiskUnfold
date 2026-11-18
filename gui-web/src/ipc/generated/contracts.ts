@@ -1159,6 +1159,7 @@ export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: 
 export type SpaceTotalRequest = { resultVersion?: Id, target: SpaceTarget, requestSeq: number, };
 export type ResultCompleteness = "partial" | "complete" | "missing" | "cancelled";
 export type SpaceTotalSize = { size: SizeValue, completeness: ResultCompleteness, measurementLimits: Array<string>, };
+export type SpaceObservationRange = { earliest: Timestamp | null, latest: Timestamp | null, complete: boolean, };
 export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null,
 /**
  * The registered aggregation rule that produced these sizes, read from the pinned
@@ -1177,7 +1178,16 @@ sizeRule?: QueryStrategy,
  * single subtree (a query result).
  * Absence is not zero.
  */
-cancelledUnreadFolders?: number, };
+cancelledUnreadFolders?: number,
+/**
+ * Observation-time bounds of the items this total read in the pinned result version.
+ *
+ * A new producer sets it for a scope root, a folder and a query result; for a query
+ * result it covers the pinned items the set total actually reads. A group total that
+ * reuses this body does not carry it. A producer does not write null, and an explicit
+ * null decodes as absent. Absent means unknown, never zero or exact.
+ */
+observationRange?: SpaceObservationRange, };
 export type VolumeGapSelection = { volumeId?: PathBytes | null, root?: ItemRef | null, };
 export type VolumeGapRequest = { resultVersion: Id, requestSeq: number, target: VolumeGapSelection, };
 export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "unavailable", observedAt: Timestamp | null, reasonKey: string, } | { "state": "available", observedAt: Timestamp | null, totalBytes: ByteSize, usedBytes: ByteSize, freeBytes: ByteSize, evidence: SizeEvidence, };

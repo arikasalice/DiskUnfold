@@ -1,5 +1,5 @@
 //! Space query request and response bodies (space.total).
-use crate::{ByteSize, Id, ItemRef, SizeValue, browse_page_ipc::QueryStrategy};
+use crate::{ByteSize, Id, ItemRef, SizeValue, Timestamp, browse_page_ipc::QueryStrategy};
 use serde::{Deserialize, Serialize};
 
 use super::f03_request::{self, F03RequestItemRef};
@@ -104,12 +104,91 @@ pub struct SpaceTotalSize {
     pub measurement_limits: Vec<String>,
 }
 
+/// Observation-time bounds of the items a total read, from the same pinned result version.
+///
+/// `earliest` and `latest` are the minimum and maximum retained item observation times of
+/// the target, in UTC order. Both are present or both are null, and they are equal for a
+/// single time. They are never filled from the response time, file modification times or
+/// another result version. `complete` is true only when the target's range was fully
+/// confirmed and every relevant item has an observation time; partial, missing or cancelled
+/// ranges and unknown inputs to the total make it false while the confirmed bounds stay. A
+/// fully confirmed empty set is `{earliest: null, latest: null, complete: true}`.
+///
+/// The constructor and the decoder reject one missing bound and `earliest` after `latest`.
+/// Unknown fields inside the object are accepted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", try_from = "ObservationRangeWire")]
+pub struct SpaceObservationRange {
+    earliest: Option<Timestamp>,
+    latest: Option<Timestamp>,
+    complete: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ObservationRangeWire {
+    earliest: Option<Timestamp>,
+    latest: Option<Timestamp>,
+    complete: bool,
+}
+
+impl TryFrom<ObservationRangeWire> for SpaceObservationRange {
+    type Error = &'static str;
+
+    fn try_from(wire: ObservationRangeWire) -> Result<Self, Self::Error> {
+        Self::new(wire.earliest, wire.latest, wire.complete)
+    }
+}
+
+impl SpaceObservationRange {
+    /// Checks that both bounds are present or absent together and in time order.
+    ///
+    /// # Errors
+    /// Returns a message when one bound is missing or `earliest` is after `latest`.
+    pub fn new(
+        earliest: Option<Timestamp>,
+        latest: Option<Timestamp>,
+        complete: bool,
+    ) -> Result<Self, &'static str> {
+        match (&earliest, &latest) {
+            (Some(first), Some(last)) if first.unix_millis() > last.unix_millis() => {
+                Err("observation range earliest is after latest")
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                Err("observation range bounds must both be present or both be null")
+            }
+            _ => Ok(Self {
+                earliest,
+                latest,
+                complete,
+            }),
+        }
+    }
+
+    /// The earliest retained observation time, if any.
+    pub fn earliest(&self) -> Option<&Timestamp> {
+        self.earliest.as_ref()
+    }
+
+    /// The latest retained observation time, if any.
+    pub fn latest(&self) -> Option<&Timestamp> {
+        self.latest.as_ref()
+    }
+
+    /// Whether the range was fully confirmed with a time for every relevant item.
+    pub fn complete(&self) -> bool {
+        self.complete
+    }
+}
+
 /// A response bound to a single immutable result version and request sequence.
 /// Unavailable counts are null. The missing item count covers known observations.
 ///
-/// The response accepts unknown fields. `size_rule` and `cancelled_unread_folders` are
-/// optional additions to contract version 1: a reader written before them still decodes a
-/// response that carries them, and a response without them decodes with both absent.
+/// The response accepts unknown fields. `size_rule`, `cancelled_unread_folders` and
+/// `observation_range` are optional additions to contract version 1: a reader written before
+/// them still decodes a response that carries them, and a response without them decodes with
+/// them absent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -139,4 +218,13 @@ pub struct SpaceTotal {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub cancelled_unread_folders: Option<u32>,
+    /// Observation-time bounds of the items this total read in the pinned result version.
+    ///
+    /// A new producer sets it for a scope root, a folder and a query result; for a query
+    /// result it covers the pinned items the set total actually reads. A group total that
+    /// reuses this body does not carry it. A producer does not write null, and an explicit
+    /// null decodes as absent. Absent means unknown, never zero or exact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub observation_range: Option<SpaceObservationRange>,
 }

@@ -4,7 +4,7 @@ pub(crate) mod volume_gap;
 use std::sync::Arc;
 
 use du_analysis_index::{
-    IngestSink, QueryError, ResultVersion,
+    IngestSink, ObservationRange, QueryError, ResultVersion,
     query::{
         SpaceTotalError,
         page::{ResultSets, SearchReadError},
@@ -12,7 +12,9 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     ByteSize, Id, SizeAmount, SizeBasis, SizeValue,
-    analysis_ipc::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize},
+    analysis_ipc::{
+        SpaceObservationRange, SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize,
+    },
     browse_page_ipc::QueryStrategy,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead, SpaceAggregate},
 };
@@ -50,6 +52,10 @@ struct Total {
 /// A mark alone does not prove total coverage, and a mark in a complete or missing result is
 /// contradictory, so those counts are absent. Replacements do not establish coverage. A query
 /// result is a set of rows without a single subtree, so it never carries `cancelledUnreadFolders`.
+///
+/// Every target carries `observationRange` from the same pinned version: the scope range, the
+/// folder's subtree range, or the range of the pinned items the query total reads. Another
+/// version or a cancellation returns no body at all.
 impl UseCase for Total {
     const NAME: &'static str = "space.total";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
@@ -78,18 +84,25 @@ impl UseCase for Total {
                 .open_search(query_ref, request.result_version.as_ref())
                 .map_err(search_error)?;
             admit_version_source(query.version.as_ref(), caller)?;
-            let aggregate =
-                query
-                    .space_total(|| caller.is_cancelled())
-                    .map_err(|error| match error {
-                        SpaceTotalError::Item(error) => query_error(error),
-                        SpaceTotalError::Cancelled => EngineError::reason("support.internal_error"),
-                    })?;
+            let total = query
+                .space_total_with_observation_range(|| caller.is_cancelled())
+                .map_err(|error| match error {
+                    SpaceTotalError::Item(error) => query_error(error),
+                    SpaceTotalError::Cancelled => EngineError::reason("support.internal_error"),
+                })?;
             // A matched set has no single subtree to count below, so the count stays absent.
-            return Ok(response(&query.version, request.request_seq, &aggregate));
+            return Ok(SpaceTotal {
+                observation_range: Some(wire_range(total.observation_range)?),
+                ..response(&query.version, request.request_seq, &total.aggregate)
+            });
         }
         let version = pin(&self.store, request.result_version.as_ref(), caller.channel)?;
-        total(&version, request)
+        let body = total(&version, request)?;
+        // A cancelled request sends no total, like the query path above.
+        if caller.is_cancelled() {
+            return Err(EngineError::reason("support.internal_error"));
+        }
+        Ok(body)
     }
 }
 
@@ -127,10 +140,11 @@ fn query_error(error: QueryError) -> EngineError {
 }
 
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
-    let (aggregate, cancelled_unread_folders) = match request.target {
+    let (aggregate, cancelled_unread_folders, range) = match request.target {
         SpaceTarget::ScopeRoot {} => (
             version.scope_total(),
             version.cancelled_unread_folders_in_scope(),
+            version.scope_observation_range(),
         ),
         SpaceTarget::Folder { item } => {
             let detail = version.detail(&item).map_err(query_error)?;
@@ -143,7 +157,10 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
             let cancelled = version
                 .cancelled_unread_folders(&item)
                 .map_err(query_error)?;
-            (aggregate, cancelled)
+            let range = version
+                .observation_range(detail.item.item_no)
+                .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?;
+            (aggregate, cancelled, range)
         }
         SpaceTarget::QueryResult { .. } => {
             return Err(EngineError::reason("space.target_out_of_scope"));
@@ -151,14 +168,22 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
     };
     Ok(SpaceTotal {
         cancelled_unread_folders,
+        observation_range: Some(wire_range(range)?),
         ..response(version, request.request_seq, aggregate)
     })
 }
 
+/// Copies the pinned observation bounds into the wire range without other times.
+fn wire_range(range: ObservationRange<'_>) -> Result<SpaceObservationRange, EngineError> {
+    SpaceObservationRange::new(range.min.cloned(), range.max.cloned(), range.complete)
+        .map_err(|_| EngineError::reason("support.internal_error"))
+}
+
 /// Converts one F03 aggregate to the published per-basis total.
 ///
-/// Reports the size rule of `version` and leaves `cancelled_unread_folders` absent; a caller
-/// whose target is a subtree sets it.
+/// Reports the size rule of `version` and leaves `cancelled_unread_folders` and
+/// `observation_range` absent; a `space.total` caller sets them for its target. A group
+/// total reuses this body without an observation range.
 pub(crate) fn response(
     version: &ResultVersion,
     request_seq: u32,
@@ -190,6 +215,7 @@ pub(crate) fn response(
         untraversed_links: Some(ByteSize::from(aggregate.untraversed_links)),
         size_rule: Some(size_rule(version)),
         cancelled_unread_folders: None,
+        observation_range: None,
     }
 }
 
