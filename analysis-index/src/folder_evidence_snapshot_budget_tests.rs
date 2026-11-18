@@ -109,8 +109,9 @@ fn replacement_reserves_old_snapshot_and_new_event_against_one_folder_cap() -> R
         replacement.record_folder_attempt_event(token, 0, excluded(next_name)),
         Err(crate::FolderAttemptError::CapacityExceeded)
     );
+    // A replacement build only publishes when sealed.
     let current = replacement
-        .publish_partial(id(62)?)
+        .seal(id(62)?, ResultCompleteness::Partial)
         .map_err(|error| format!("{error:?}"))?;
 
     assert_eq!(
