@@ -275,6 +275,9 @@ impl BuildHandle {
     }
 
     /// Adds a link without following it, relative to the indexed forest root.
+    ///
+    /// The link's own size is unknown, so it keeps its folder and the scope total a lower
+    /// bound. Use [`Self::add_observed_untraversed_link_at`] when the link object was observed.
     pub fn add_untraversed_link_at(
         &mut self,
         root_index: u32,
@@ -287,6 +290,33 @@ impl BuildHandle {
                 size: None,
                 kind: ResultItemKind::UntraversedLink,
                 physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )
+    }
+
+    /// Adds a link without following it, with the observation of the link object itself.
+    ///
+    /// The untraversed target is only counted in `untraversed_links` and does not lower any
+    /// value or completeness. The link's own logical size and optional space evidence count
+    /// like a file's; a missing or unknown own size keeps the values a lower bound.
+    pub fn add_observed_untraversed_link_at(
+        &mut self,
+        root_index: u32,
+        observation: Observation,
+        space: Option<SpaceObservation>,
+    ) -> Result<(), BuildError> {
+        self.insert_at(
+            root_index,
+            observation.path,
+            StoredObservation {
+                size: observation.size,
+                kind: ResultItemKind::UntraversedLink,
+                physical: space.map(std::sync::Arc::new),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,

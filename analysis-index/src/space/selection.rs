@@ -72,6 +72,30 @@ pub(crate) fn sum_with_range(
     Ok((total, range))
 }
 
+/// Classifies a row summed like a file: `Some(false)` for a file, `Some(true)` for a link
+/// with a known own size (its target is only counted), `None` for any other row.
+fn summed_row(row: &du_core_contracts::result::ResultItem) -> Option<bool> {
+    match row.kind {
+        ResultItemKind::File => Some(false),
+        ResultItemKind::UntraversedLink if row.size.as_ref().is_some_and(super::known_logical) => {
+            Some(true)
+        }
+        _ => None,
+    }
+}
+
+fn observe_summed(
+    logical: &mut Accumulator,
+    link: bool,
+    size: Option<&du_core_contracts::SizeValue>,
+) {
+    if link {
+        logical.observe_link(size);
+    } else {
+        logical.observe(size);
+    }
+}
+
 fn calculate<'a>(
     version: &'a ResultVersion,
     rows: impl Iterator<Item = Result<&'a du_core_contracts::result::ResultItem, QueryError>>,
@@ -89,7 +113,8 @@ fn calculate<'a>(
             return Err(Error::Cancelled);
         }
         let row = row.map_err(Error::Item)?;
-        let file = row.kind == ResultItemKind::File;
+        let summed = summed_row(row);
+        let file = summed.is_some();
         complete &= file;
         if !file && let Some(range) = &mut range {
             range.mark_incomplete();
@@ -101,7 +126,7 @@ fn calculate<'a>(
             if !complete {
                 continue;
             }
-            logical.observe(row.size.as_ref());
+            observe_summed(&mut logical, summed == Some(true), row.size.as_ref());
             let _ = physical.observe_pinned(version, row.item_no as usize);
         }
     }

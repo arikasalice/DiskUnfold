@@ -22,7 +22,7 @@ impl BuildHandle {
             },
         )
     }
-    /// Adds a link whose target was not traversed; its unknown contribution propagates as missing.
+    /// Adds a link whose target was not traversed; its unknown own size propagates as missing.
     pub fn add_untraversed_link(&mut self, path: Vec<Vec<u8>>) -> Result<(), BuildError> {
         self.insert(
             path,

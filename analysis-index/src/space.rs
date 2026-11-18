@@ -9,6 +9,8 @@ struct Accumulator {
     bytes: Option<u64>,
     missing: u64,
     untraversed_links: u64,
+    /// A link whose own size is unknown; its value is never filled with zero.
+    unsized_link: bool,
     lower_bound: bool,
     overflow: bool,
     evidence: Option<SizeEvidence>,
@@ -35,6 +37,18 @@ impl Accumulator {
         self.evidence = Some(weaker(self.evidence.take(), value.evidence.clone()));
     }
 
+    /// Counts an untraversed link and adds the link object's own size when it is known.
+    ///
+    /// The target is outside the selected range and is only counted.
+    fn observe_link(&mut self, value: Option<&SizeValue>) {
+        self.untraversed_links += 1;
+        if value.is_some_and(known_logical) {
+            self.observe(value);
+        } else {
+            self.unsized_link = true;
+        }
+    }
+
     fn merge_bytes(&mut self, other: Option<u64>) {
         if let Some(other) = other {
             match self.bytes.unwrap_or(0).checked_add(other) {
@@ -48,6 +62,7 @@ impl Accumulator {
         self.merge_bytes(other.bytes);
         self.missing += other.missing;
         self.untraversed_links += other.untraversed_links;
+        self.unsized_link |= other.unsized_link;
         self.lower_bound |= other.lower_bound;
         self.overflow |= other.overflow;
         if let Some(evidence) = &other.evidence {
@@ -61,10 +76,7 @@ impl Accumulator {
             ResultCompleteness::Partial => ResultCompleteness::Partial,
             ResultCompleteness::Missing => ResultCompleteness::Missing,
             ResultCompleteness::Complete
-                if self.missing > 0
-                    || self.untraversed_links > 0
-                    || self.overflow
-                    || self.lower_bound =>
+                if self.missing > 0 || self.unsized_link || self.overflow || self.lower_bound =>
             {
                 ResultCompleteness::Missing
             }
@@ -154,7 +166,7 @@ pub(crate) fn aggregate(
     for item in items.iter().rev() {
         let index = item.item_no as usize;
         if item.kind == ResultItemKind::UntraversedLink {
-            sums[index].untraversed_links += 1;
+            sums[index].observe_link(item.size.as_ref());
         } else if !is_structure(item.kind) {
             sums[index].observe(item.size.as_ref());
         }
@@ -174,12 +186,19 @@ pub(crate) fn scope_total(
     let mut sum = Accumulator::default();
     for item in items {
         if item.kind == ResultItemKind::UntraversedLink {
-            sum.untraversed_links += 1;
+            sum.observe_link(item.size.as_ref());
         } else if !is_structure(item.kind) {
             sum.observe(item.size.as_ref());
         }
     }
     sum.finish(completeness)
+}
+
+/// Whether a value is a usable logical size, the same test [`Accumulator::observe`] applies.
+pub(crate) fn known_logical(value: &SizeValue) -> bool {
+    value.basis == SizeBasis::Logical
+        && value.evidence != SizeEvidence::Unknown
+        && value.amount != SizeAmount::Unknown
 }
 
 /// Marks known unread ranges without converting unknown data into zero.
