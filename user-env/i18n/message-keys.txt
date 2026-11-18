@@ -813,6 +813,7 @@ ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.legend.unclassified
+ui.visualization.loadFolderRows
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
 ui.visualization.loadedGraphRows

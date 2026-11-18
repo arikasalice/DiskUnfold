@@ -80,7 +80,7 @@ export function RenderRetry({
         <LiveStatus ref={status} focusTarget>
           {state.phase === "model"
             ? state.graph?.frame !== state.table
-              ? text.message("newerRowsStatus")
+              ? text.message(state.graph ? "newerRowsStatus" : "rowsFromGraph")
               : announce
                 ? text.message("graphUpdated")
                 : ""

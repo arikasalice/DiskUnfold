@@ -118,7 +118,7 @@ export function SeparateModelTable({
                 });
               }}
             >
-              {text.message("loadNewer")}
+              {text.message(alone ? "loadFolderRows" : "loadNewer")}
             </Action>
           )}
           {state.tablePage && (

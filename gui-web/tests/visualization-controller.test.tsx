@@ -1131,9 +1131,10 @@ test.each([false, true])(
       wait.resolve({ ...page, rows: [] });
       await wait.promise;
     });
-    expect(document.activeElement).toBe(
-      moveAway ? other : screen.getByText("Rows for the displayed chart"),
-    );
+    const status = screen
+      .getAllByText("Items in this folder")
+      .find((element) => element.closest(".du-visually-hidden"));
+    expect(document.activeElement).toBe(moveAway ? other : status);
   },
 );
 
