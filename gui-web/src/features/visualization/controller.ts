@@ -384,14 +384,12 @@ export class VisualizationController {
       );
       const page = { request, response };
       if (seq !== this.rowsSeq || this.state.table !== frame) return;
-      const owns = owner === this.rowsOwner;
       if (!pageFor(frame, page)) {
-        if (owns)
-          this.update({
-            pendingRows: null,
-            failedRows: request,
-            error: new Error("Mismatched visualization rows"),
-          });
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error: new Error("Mismatched visualization rows"),
+        });
         return;
       }
       if (
@@ -411,15 +409,15 @@ export class VisualizationController {
         graphPage: pageFor(this.state.graph?.frame ?? null, page)
           ? page
           : this.state.graphPage,
-        ...(owns ? { pendingRows: null } : {}),
+        ...this.released(owner),
       });
     } catch (error) {
-      if (
-        seq === this.rowsSeq &&
-        this.state.table === frame &&
-        owner === this.rowsOwner
-      )
-        this.update({ pendingRows: null, failedRows: request, error });
+      if (seq === this.rowsSeq && this.state.table === frame)
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error,
+        });
     }
   }
   /** Reads rows of the fallback model; a page that arrives after the answer changed is dropped. */
@@ -431,24 +429,34 @@ export class VisualizationController {
     try {
       const response = await this.port.rows(request);
       if (seq !== this.fallbackSeq) return;
-      const owns = owner === this.rowsOwner;
       if (!fallbackRowsMatch(request, response)) {
-        if (owns)
-          this.update({
-            pendingRows: null,
-            failedRows: request,
-            error: new Error("Mismatched visualization rows"),
-          });
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error: new Error("Mismatched visualization rows"),
+        });
         return;
       }
       this.update({
         fallbackPage: { request, response },
-        ...(owns ? { pendingRows: null } : {}),
+        ...this.released(owner),
       });
     } catch (error) {
-      if (seq === this.fallbackSeq && owner === this.rowsOwner)
-        this.update({ pendingRows: null, failedRows: request, error });
+      if (seq === this.fallbackSeq)
+        this.ownedUpdate(owner, {
+          pendingRows: null,
+          failedRows: request,
+          error,
+        });
     }
+  }
+  /** Applies a change to the shared row request state only for its current owner. */
+  private ownedUpdate(owner: number, patch: Partial<VisualizationSnapshot>) {
+    if (owner === this.rowsOwner) this.update(patch);
+  }
+  /** Clears the progress of a read that finished, unless a newer read owns it. */
+  private released(owner: number): Partial<VisualizationSnapshot> {
+    return owner === this.rowsOwner ? { pendingRows: null } : {};
   }
   private isFallbackRequest(request: VizRowsRequest) {
     const fallback = fallbackReference(this.state);
