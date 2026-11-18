@@ -280,7 +280,10 @@ fn record_at(
     };
     match meta.kind {
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
-        ObservedKind::Link => build.add_untraversed_link_at(root_index, path.to_vec())?,
+        ObservedKind::Link => {
+            let (observation, space) = observation_and_space(meta, path.to_vec());
+            build.add_observed_untraversed_link_at(root_index, observation, space)?;
+        }
         ObservedKind::File => record_file(build, root_index, meta, path.to_vec(), counts)?,
         // Unreachable through the admission table, which leaves every
         // consistent mount point outside the boundary; an inconsistent one
@@ -334,33 +337,40 @@ fn record_file(
     path: Vec<Vec<u8>>,
     counts: &mut JobCounts,
 ) -> Result<(), BuildError> {
+    let (observation, space) = observation_and_space(meta, path);
+    if observation.size.is_none() {
+        counts.failed += 1;
+    }
+    match space {
+        Some(space) => build.add_with_space_at(root_index, observation, space),
+        None => build.add_file_at(root_index, observation),
+    }
+}
+
+fn observation_and_space(
+    meta: &MetadataObservation,
+    path: Vec<Vec<u8>>,
+) -> (Observation, Option<SpaceObservation>) {
     let size = meta
         .size
         .as_ref()
         .ok()
         .map(|&bytes| os_size(SizeBasis::Logical, bytes));
-    if size.is_none() {
-        counts.failed += 1;
-    }
     let observation = Observation { path, size };
-    if meta.allocated.is_none() && meta.space_identity.is_none() && meta.link_count.is_none() {
-        return build.add_file_at(root_index, observation);
-    }
-    build.add_with_space_at(
-        root_index,
-        observation,
-        SpaceObservation {
-            allocated: meta
-                .allocated
-                .map(|bytes| os_size(SizeBasis::Allocated, bytes)),
-            identity: meta.space_identity.as_ref().map(|id| FileIdentity {
-                volume: id.volume.clone(),
-                file: id.file.clone(),
-            }),
-            link_count: meta.link_count,
-            sharing: SharingEvidence::Unknown,
-        },
-    )
+    let has_space =
+        meta.allocated.is_some() || meta.space_identity.is_some() || meta.link_count.is_some();
+    let space = has_space.then(|| SpaceObservation {
+        allocated: meta
+            .allocated
+            .map(|bytes| os_size(SizeBasis::Allocated, bytes)),
+        identity: meta.space_identity.as_ref().map(|id| FileIdentity {
+            volume: id.volume.clone(),
+            file: id.file.clone(),
+        }),
+        link_count: meta.link_count,
+        sharing: SharingEvidence::Unknown,
+    });
+    (observation, space)
 }
 
 fn os_size(basis: SizeBasis, bytes: u64) -> SizeValue {
