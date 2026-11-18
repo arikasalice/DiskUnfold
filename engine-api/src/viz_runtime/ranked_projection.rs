@@ -103,7 +103,10 @@ pub(super) fn to_projection(
             drawn_bytes,
             grouped_bytes: 0,
             filtered_bytes: 0,
+            drawn_lower_bound: false,
+            grouped_lower_bound: false,
         },
+        detail: projection::Detail::default(),
     }))
 }
 
@@ -164,6 +167,7 @@ fn map_bars(
                 du_analysis_index::visualization::AreaValue::Positive
             },
             omission: bar.no_area,
+            lod: projection::Lod::Drawn,
             omitted_children: if result_item.kind == ResultItemKind::Directory {
                 du_analysis_index::browse::open(source, Some(&item))
                     .map_err(|_| internal())?

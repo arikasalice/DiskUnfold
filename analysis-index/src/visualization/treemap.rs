@@ -14,7 +14,13 @@ use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
+
+mod partial;
+pub(crate) use partial::{Partial, Unattributed, admit_partial_cancellable};
 
 /// Original F03 value and item associated with an index in the resulting layout.
 #[derive(Clone, Debug)]
@@ -71,7 +77,7 @@ pub fn admit_cancellable(
     if gap_covers_parent(version, parent_no, cancelled)? {
         return Err(AdmissionError::NoAttribution);
     }
-    let mut identities = BTreeMap::new();
+    let mut identities = Identities::default();
     let mut rows = Vec::with_capacity(children.len());
     let mut total = 0_u64;
     // Logical bytes are disjoint by observed path even while the scan is open.
@@ -309,8 +315,15 @@ pub fn layout_nested_parent(
     }
 }
 
-// Identity, sibling owner, allocation, link count, observed paths.
-type Identities = BTreeMap<FileIdentity, (u32, u64, u64, u64)>;
+// Identity -> sibling owner, allocation, link count, observed paths.
+type Owners = BTreeMap<FileIdentity, (u32, u64, u64, u64)>;
+
+// Identity ownership, plus every sibling that an identity conflict made unprovable.
+#[derive(Default)]
+struct Identities {
+    owners: Owners,
+    conflicted: BTreeSet<u32>,
+}
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
@@ -340,7 +353,7 @@ fn inspect_subtree(
                         .and_then(|v| exact(v, basis))
                         .ok_or(AdmissionError::NoAttribution)?
                 } else {
-                    physical_file(version, no, sibling, identities)?
+                    physical_file(version, no, sibling, basis, identities)?
                 };
                 sum = sum
                     .checked_add(bytes)
@@ -352,10 +365,25 @@ fn inspect_subtree(
     Ok(sum)
 }
 
+/// Attributes one file to its sibling on a physical size basis and returns the bytes it
+/// adds to that sibling.
+///
+/// The file must carry the OS-reported allocation, a file identity and a link count.
+/// A file reachable from two siblings is refused for both, so no byte is used twice.
+/// Links that lie outside the scope do not refuse the file: the link count is the
+/// observed total, and the allocation is counted once inside the scope (F03).
+///
+/// Extent-sharing evidence ([`SharingEvidence`]) matters only when the basis is
+/// `UniquePhysical`. F03 sums allocated sizes exactly whatever the sharing evidence is
+/// and makes only the unique-physical value unknown (`physical/finish.rs`). The treemap
+/// follows the same rule: an allocated partition needs identity and link evidence, not
+/// extent-sharing evidence. A scan never establishes that extents are unshared, so
+/// demanding it would leave every real allocated partition unattributed.
 fn physical_file(
     version: &ResultVersion,
     no: u32,
     sibling: u32,
+    basis: &SizeBasis,
     identities: &mut Identities,
 ) -> Result<u64, AdmissionError> {
     let observation = version
@@ -373,7 +401,7 @@ fn physical_file(
         .link_count
         .filter(|n| *n > 0)
         .ok_or(AdmissionError::NoAttribution)?;
-    if observation.sharing != SharingEvidence::None {
+    if *basis == SizeBasis::UniquePhysical && observation.sharing != SharingEvidence::None {
         return Err(AdmissionError::NoAttribution);
     }
     let size = observation
@@ -382,14 +410,18 @@ fn physical_file(
         .filter(|v| v.evidence == SizeEvidence::OsReported)
         .and_then(|v| exact(v, &SizeBasis::Allocated))
         .ok_or(AdmissionError::NoAttribution)?;
-    if let Some((owner, previous, links, seen)) = identities.get_mut(identity) {
+    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(identity) {
         if *owner != sibling || *previous != size || *links != count || *seen >= count {
+            // Neither sibling can claim the shared file, whichever was read first.
+            identities.conflicted.extend([*owner, sibling]);
             return Err(AdmissionError::NoAttribution);
         }
         *seen += 1;
         Ok(0)
     } else {
-        identities.insert(identity.clone(), (sibling, size, count, 1));
+        identities
+            .owners
+            .insert(identity.clone(), (sibling, size, count, 1));
         Ok(size)
     }
 }

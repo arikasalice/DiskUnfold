@@ -1,7 +1,7 @@
 //! Per-folder collection marks retained in immutable result versions.
 //!
 //! The marks are sparse: a folder without a boundary issue and without an
-//! excluded-child record holds no memory. Every table is sorted by item number
+//! unread mark holds no memory. Both tables are sorted by item number
 //! and read by binary search, so a lookup is O(log n) in the number of marked
 //! folders. Cancelled marks are evidence for the named folders only; they do not
 //! establish complete coverage for a cancelled-unread total.
@@ -38,14 +38,6 @@ pub struct UnreadFolderCounts {
     pub disconnected: u32,
 }
 
-/// The excluded direct children the collector reported for one folder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ExcludedRecord {
-    pub(crate) count: u32,
-    /// The folder's enumeration ran to its end.
-    pub(crate) complete: bool,
-}
-
 /// Collection facts of one publication, keyed by item number.
 #[derive(Debug, Default)]
 pub(crate) struct FolderMarks {
@@ -53,8 +45,6 @@ pub(crate) struct FolderMarks {
     sealed: bool,
     /// Directory items with a boundary issue, ascending by item number, one per item.
     boundaries: Box<[(u32, BoundaryKind)]>,
-    /// Folders with an excluded-child record, ascending by item number.
-    excluded: Box<[(u32, ExcludedRecord)]>,
     /// Folders reported as left unread, ascending by item number.
     unread: Box<[(u32, UnreadReason)]>,
     unread_counts: UnreadFolderCounts,
@@ -65,9 +55,8 @@ impl BuildHandle {
     ///
     /// `root` identifies the actual input root and an empty path selects that root.
     /// `count` is the number of dropped direct children and `complete` tells whether
-    /// the folder's enumeration ran to its end (`false` when it was cut short, so
-    /// `count` is a lower bound). Only reported folders are stored. A later record for
-    /// the same folder replaces the earlier one in future publications only.
+    /// enumeration ran to its end. Current records are not published or retained because
+    /// the producer has not established that a child cannot be counted repeatedly.
     ///
     /// # Errors
     /// Returns `Unavailable` after the build finishes and `InvalidTree` when the exact
@@ -76,12 +65,10 @@ impl BuildHandle {
         &mut self,
         root: u32,
         path: &[Vec<u8>],
-        count: u32,
-        complete: bool,
+        _count: u32,
+        _complete: bool,
     ) -> Result<(), BuildError> {
-        let node = self.registered_directory(root, path)?;
-        self.excluded_children
-            .insert(node, ExcludedRecord { count, complete });
+        self.registered_directory(root, path)?;
         Ok(())
     }
 
@@ -139,10 +126,9 @@ impl FolderMarks {
         built: &BuiltItems,
         store: &ObservationStore,
         issues: &[ScanIssue],
-        records: (&BTreeMap<u32, ExcludedRecord>, &BTreeMap<u32, UnreadReason>),
+        unread: &BTreeMap<u32, UnreadReason>,
         sealed: bool,
     ) -> Self {
-        let (excluded, unread) = records;
         let mut boundaries: Vec<(u32, BoundaryKind)> = issues
             .iter()
             .filter_map(|issue| boundary_mark(built, store, issue))
@@ -150,14 +136,6 @@ impl FolderMarks {
         // Sorted by (item, kind): the first mark of an item wins when both kinds exist.
         boundaries.sort_unstable();
         boundaries.dedup_by_key(|mark| mark.0);
-        let mut excluded: Vec<(u32, ExcludedRecord)> = excluded
-            .iter()
-            .filter_map(|(node, record)| {
-                let item = built.item_of_node.get(*node as usize)?;
-                Some((*item, *record))
-            })
-            .collect();
-        excluded.sort_unstable_by_key(|entry| entry.0);
         let mut unread: Vec<(u32, UnreadReason)> = unread
             .iter()
             .filter_map(|(node, reason)| {
@@ -177,7 +155,6 @@ impl FolderMarks {
         Self {
             sealed,
             boundaries: boundaries.into_boxed_slice(),
-            excluded: excluded.into_boxed_slice(),
             unread: unread.into_boxed_slice(),
             unread_counts,
         }
@@ -205,14 +182,6 @@ impl FolderMarks {
             .binary_search_by_key(&item_no, |mark| mark.0)
             .ok()?;
         self.boundaries.get(at).map(|mark| mark.1)
-    }
-
-    pub(crate) fn excluded(&self, item_no: u32) -> Option<ExcludedRecord> {
-        let at = self
-            .excluded
-            .binary_search_by_key(&item_no, |entry| entry.0)
-            .ok()?;
-        self.excluded.get(at).map(|entry| entry.1)
     }
 }
 

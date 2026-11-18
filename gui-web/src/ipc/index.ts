@@ -233,6 +233,7 @@ export type {
   ScanStart,
   SettingsRestoreStatus,
   ScopeDraft,
+  ScopeExclusion,
   ScopeReview,
   SpaceTotal,
   SpaceTotalSize,

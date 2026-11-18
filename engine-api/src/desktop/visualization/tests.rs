@@ -1,5 +1,7 @@
 //! The default registration, served through the desktop assembly and a real result store.
+mod groups;
 mod support;
+mod totals;
 
 use std::sync::{Arc, atomic::Ordering};
 
@@ -312,6 +314,7 @@ fn bar_over_the_shape_limit_serves_the_other_group() -> TestResult {
         .find(|row| !row["groupRef"].is_null())
         .ok_or("no group row")?;
     assert_eq!(other["displayName"], policy::GROUP_OTHER_NAME_KEY);
+    assert_eq!(other["labelKey"], policy::GROUP_OTHER_NAME_KEY);
     assert_eq!(other["legendClassKey"], policy::LEGEND_CLASS_UNCLASSIFIED);
     let legend = answer["model"]["legend"].as_array().ok_or("no legend")?;
     assert_eq!(legend.len(), 1);

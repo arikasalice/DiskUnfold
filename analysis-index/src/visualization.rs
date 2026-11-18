@@ -7,6 +7,7 @@ pub mod bar_categories;
 pub mod bar_projection;
 pub mod bundle;
 mod cancellable_sort;
+pub mod detail;
 pub mod geometry;
 pub mod group_page;
 pub mod histogram;

@@ -25,9 +25,8 @@ Begin with `git status --short --branch`. Preserve existing work, isolate implem
 
 ## Agent delegation
 
-- Explicitly select `gpt-6-luna` for every new subagent at every delegation level. Assign follow-up work only to Luna subagents. The designated Terra development and Astra design leads retain their models in their own project chats.
-- Use `xhigh` reasoning effort for Luna assignments that require design judgment, complex implementation, or investigation. Keep the existing effort for routine builds, test execution, and mechanical verification.
-- Delegate builds, test execution and repeatable verification to Luna workers. Team leads own work assignment, review the logs and affected entry points, and return reproducible failures to the implementation owner.
+- The representative/team lead uses `gpt-6.1-terra` with `medium` reasoning effort. Explicitly select `gpt-6-luna` with `xhigh` reasoning effort for every new subagent at every delegation level, including routine builds, test execution and mechanical verification. Assign follow-up work only to Luna subagents.
+- Delegate builds, test execution and repeatable verification to Luna workers. Team leads own work assignment, review each subagent's result and the affected entry points, and coordinate any needed rework with the implementation owner.
 - Close completed subagent sessions when the tooling supports it. Otherwise leave them completed and do not reuse them. If a running subagent on another model cannot switch models, let it finish its current assignment and review its result before closing it. Use a new Luna subagent for any follow-up work that requires delegation.
 - Team leads give each delegate a fixed starting commit, design references, owned paths, dependencies and acceptance checks. They review each submitted diff and verify the affected entry point. Send findings with evidence and reproduction steps to the owner and review the revised result.
 - The integration lead relays cross-team findings, resolves dependencies, assigns owners for shared contracts and reviews team submissions before merging. Escalate unresolved or conflicting reviews and changes that affect another team's work to that lead. Report the commit, design IDs, test evidence, unverified scope and any decision needed.

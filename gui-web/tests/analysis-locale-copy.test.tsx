@@ -147,7 +147,7 @@ test("copy path button and live result use the selected language", async () => {
   expect(screen.getByRole("button", { name: "전체 경로" })).toBeTruthy();
 });
 
-test("item space details localize labels and keep capability codes intact", async () => {
+test("item space details localize labels and show no capability codes", async () => {
   const item: ItemRef = { resultVersion: "result-a", itemNo: 1 };
   const size: SpaceDetailSize = {
     size: {
@@ -201,7 +201,9 @@ test("item space details localize labels and keep capability codes intact", asyn
   expect(screen.getByLabelText("관찰한 항목 공간")).toBeTruthy();
   expect(screen.getByText("관찰된 논리 크기")).toBeTruthy();
   expect(screen.getByText("1 KiB · 1.024 bytes · 측정됨")).toBeTruthy();
-  expect(screen.getByText("sparse_files · supported")).toBeTruthy();
+  // No capability has a name yet: it reads as unknown, without its code.
+  expect(screen.getByText("Unknown")).toBeTruthy();
+  expect(screen.queryByText(/sparse_files|supported/)).toBeNull();
   expect(screen.getByText("2026.11.10 00:00:00Z")).toBeTruthy();
 });
 

@@ -11,6 +11,11 @@
 //! After an explicit disconnection a directory whose enumeration started is
 //! read to its end without opening children; one not started yet is closed
 //! (see `disconnected`).
+//!
+//! Each directory reports the entries an exclusion rule dropped directly
+//! below it once, when its listing ends or stops. After cancellation every
+//! registered directory left unopened or partly read is reported as unread
+//! once (see `cancel_drain`).
 use super::*;
 mod cancel_drain;
 mod disconnected;
@@ -185,7 +190,7 @@ fn process(
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     let mut undecided = Vec::new();
-    let outcome = next_entries(&frame, context, policy, &mut undecided);
+    let outcome = next_entries(&mut frame, context, policy, &mut undecided);
     if !send_undecided(&frame, undecided, sender) {
         return false;
     }
@@ -280,12 +285,18 @@ fn process_batch(
             requeue(shared, turn, frame, None, context);
             true
         }
-        Err(ReadFailure::Filter) => context.checkpoint() == Checkpoint::Cancel,
+        // Cancellation stops a filtered read; the directory was not read to its end.
+        Err(ReadFailure::Filter) => {
+            context.checkpoint() == Checkpoint::Cancel
+                && cancel_drain::frame(frame, &shared.visited, sender, policy)
+        }
         Err(ReadFailure::Unavailable) => false,
         Ok(Some(batch)) if batch.is_empty() => {
             if context.checkpoint() == Checkpoint::Cancel {
+                // The listing reached its end; the directory is not unread.
+                let sent = send_excluded(&frame, true, sender);
                 complete(shared, frame.root_index, &frame.path, context);
-                return true;
+                return sent;
             }
             finish_directory(&frame, sender, shared, context)
         }
@@ -317,6 +328,7 @@ fn process_batch(
                 stage: du_core_contracts::scan_failures::ScanFailureStage::Enumerate,
                 observed_at: context.utc_now(),
             });
+            let _ = send_excluded(&frame, false, sender);
             complete(shared, frame.root_index, &frame.path, context);
             true
         }
@@ -332,8 +344,27 @@ fn finish_directory(
     if frame.root && !frame.root_published && !send_root_batch(frame, sender, context) {
         return false;
     }
+    if !send_excluded(frame, true, sender) {
+        return false;
+    }
     complete(shared, frame.root_index, &frame.path, context);
     true
+}
+
+/// Reports the entries excluded directly below `frame` once, when its
+/// listing ended (`complete`) or stopped; nothing is sent for none.
+fn send_excluded(frame: &Frame, complete: bool, sender: &SyncSender<Event>) -> bool {
+    let Some((count, complete)) = record::excluded_children(frame.excluded, complete) else {
+        return true;
+    };
+    sender
+        .send(Event::Excluded {
+            root_index: frame.root_index,
+            path: frame.path.clone(),
+            count,
+            complete,
+        })
+        .is_ok()
 }
 
 fn publish_first_batch(

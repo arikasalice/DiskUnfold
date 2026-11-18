@@ -9,7 +9,7 @@ use du_core_contracts::{
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
 use folder_support::{
-    CONFIRMED_NO, dirs, err, folder_path, forest, gap, id, item, state, unenumerated,
+    UNPROVEN, dirs, err, folder_path, forest, gap, id, item, state, unenumerated,
 };
 
 const CANCELLED: UnreadReason = UnreadReason::Cancelled;
@@ -89,7 +89,7 @@ fn replacement_builds_count_only_their_own_marks() -> Result<(), String> {
     let new = candidate
         .seal(id(43), ResultCompleteness::Complete)
         .map_err(err)?;
-    assert_eq!(state(&new, 0, &["a"])?, CONFIRMED_NO);
+    assert_eq!(state(&new, 0, &["a"])?, UNPROVEN);
     assert_eq!(new.unread_folder_counts(), UnreadFolderCounts::default());
     assert_eq!(state(&old, 0, &["a"])?, unenumerated("scan.cancelled"));
     assert_eq!(old.unread_folder_counts(), counts(1, 0));
@@ -115,10 +115,10 @@ fn a_marked_folder_never_reports_an_exact_excluded_count() -> Result<(), String>
     let version = build
         .seal(id(2), ResultCompleteness::Missing)
         .map_err(err)?;
-    let some = |count, exact| Some(ExcludedChildren { count, exact });
-    assert_eq!(excluded(&version, &["marked"])?, some(4, false));
-    assert_eq!(excluded(&version, &["plain"])?, some(4, true));
-    assert_eq!(excluded(&version, &["bare"])?, some(0, false));
+
+    assert_eq!(excluded(&version, &["marked"])?, None);
+    assert_eq!(excluded(&version, &["plain"])?, None);
+    assert_eq!(excluded(&version, &["bare"])?, None);
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 1)?;
     dirs(&mut build, 0, &[&["marked"], &["bare"], &["plain"]])?;
@@ -134,9 +134,9 @@ fn a_marked_folder_never_reports_an_exact_excluded_count() -> Result<(), String>
     let cancelled = build
         .seal(id(3), ResultCompleteness::Cancelled)
         .map_err(err)?;
-    assert_eq!(excluded(&cancelled, &["marked"])?, some(2, false));
-    // A marked folder without a record counted nothing: at least zero, also when cancelled.
-    assert_eq!(excluded(&cancelled, &["bare"])?, some(0, false));
+    assert_eq!(excluded(&cancelled, &["marked"])?, None);
+    // An unread mark does not establish a count.
+    assert_eq!(excluded(&cancelled, &["bare"])?, None);
     // A folder without a mark, a gap or a record stays unknown in a cancelled version.
     assert_eq!(excluded(&cancelled, &["plain"])?, None);
     Ok(())

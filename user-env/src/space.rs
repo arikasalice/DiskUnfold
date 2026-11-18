@@ -1,12 +1,19 @@
 //! F03 settings descriptors for composition into the shared settings registry.
 
 use crate::{Descriptor, ValueKind};
-use du_core_contracts::settings::{SettingsSnapshot, SharedTableLimit};
+use du_core_contracts::settings::{SettingPresentation, SettingsSnapshot, SharedTableLimit};
+use du_core_contracts::size_rule::DEFAULT_SIZE_RULE_ID;
 use du_core_contracts::size_units::{IEC_UNITS, SI_UNITS};
 use serde_json::json;
 
 /// The registered key for the per-table identity capacity.
 pub const SHARED_TABLE_MAX_ENTRIES: &str = "space.shared_table_max_entries";
+/// The registered key for the size aggregation rule a new analysis uses.
+///
+/// The stored value is the JSON string of a rule ID such as `size.agg.subtree-unique`.
+/// It never names a revision; the latest registered revision is resolved when an
+/// analysis starts.
+pub const AGGREGATION_RULE: &str = "space.aggregation_rule";
 /// The registered key for the size unit system.
 pub const SIZE_UNIT_SYSTEM: &str = "display.size_unit_system";
 /// The registered key for automatic or fixed size unit selection.
@@ -71,6 +78,23 @@ pub fn descriptors() -> Vec<Descriptor> {
     result
 }
 
+/// Returns the hidden descriptor of [`AGGREGATION_RULE`].
+///
+/// `rule_ids` are the rule IDs the composition root registered. They are the only
+/// values a write accepts, because this crate cannot see the rule registry. The
+/// default is [`DEFAULT_SIZE_RULE_ID`], and registration fails unless `rule_ids`
+/// contains it. The setting is not shown on any screen until a second rule exists.
+pub fn aggregation_rule_descriptor(rule_ids: &[String]) -> Descriptor {
+    Descriptor {
+        presentation: SettingPresentation::hidden(),
+        key: AGGREGATION_RULE.into(),
+        owner: "F03".into(),
+        default: json!(DEFAULT_SIZE_RULE_ID),
+        kind: ValueKind::Choice(rule_ids.iter().map(|id| json!(id)).collect()),
+        editable: true,
+    }
+}
+
 /// Returns display descriptors using the specified platform convention.
 /// Windows uses IEC; macOS and the supported Ubuntu target use SI.
 pub fn display_descriptors(windows: bool) -> Vec<Descriptor> {
@@ -114,6 +138,9 @@ pub fn restore_shared_table_limit(snapshot: &SettingsSnapshot) -> Option<SharedT
         Some(value) => SharedTableLimit::new(usize::try_from(value.as_u64()?).ok()?),
     }
 }
+
+#[cfg(test)]
+mod aggregation_rule_tests;
 
 #[cfg(test)]
 mod tests {

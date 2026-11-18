@@ -26,16 +26,12 @@ pub(super) fn run(
         build.add_directory_at(index as u32, Vec::new())?;
     }
     if context.checkpoint() == Checkpoint::Cancel {
-        let id = ids.next_id();
-        build.seal(id.clone(), ResultCompleteness::Cancelled)?;
-        return Ok((id, true, root_count));
+        return seal_unstarted(build, ids, root_count, None);
     }
     let prepared = match preparation::prepare(&mut reports, roots, context, &disconnects) {
         Ok(prepared) => prepared,
         Err(JobFlowError::Cancelled) => {
-            let id = ids.next_id();
-            build.seal(id.clone(), ResultCompleteness::Cancelled)?;
-            return Ok((id, true, root_count));
+            return seal_unstarted(build, ids, root_count, None);
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
@@ -45,9 +41,7 @@ pub(super) fn run(
     let flows = match acquire_flows(context, limit) {
         Ok(flows) => flows,
         Err(JobFlowError::Cancelled) => {
-            let id = ids.next_id();
-            build.seal(id.clone(), ResultCompleteness::Cancelled)?;
-            return Ok((id, true, root_count));
+            return seal_unstarted(build, ids, root_count, Some(&prepared.starts));
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
@@ -119,4 +113,32 @@ pub(super) fn run(
     let id = ids.next_id();
     build.seal_at(id.clone(), completeness, context.utc_now())?;
     Ok((id, cancelled, unprocessed_roots))
+}
+
+/// Seals a collection cancelled before any worker started.
+///
+/// No root was read, so each root is marked as unread, except one already
+/// recorded as a revisit of an earlier root, which is never enumerated, and
+/// an unverifiable root, whose start already recorded a gap.
+/// `starts` is `None` when the roots were not decided yet.
+fn seal_unstarted(
+    mut build: BuildHandle,
+    ids: &dyn ResultIds,
+    root_count: usize,
+    starts: Option<&[admission::RootStart]>,
+) -> Result<(Id, bool, usize), BuildError> {
+    for index in 0..root_count {
+        let start = starts.and_then(|starts| starts.get(index)).copied();
+        if matches!(
+            start,
+            Some(admission::RootStart::Revisit | admission::RootStart::Collect(Boundary::Unknown))
+        ) {
+            continue;
+        }
+        let root = u32::try_from(index).map_err(|_| BuildError::Unavailable)?;
+        build.set_directory_unread(root, &[], UnreadReason::Cancelled)?;
+    }
+    let id = ids.next_id();
+    build.seal(id.clone(), ResultCompleteness::Cancelled)?;
+    Ok((id, true, root_count))
 }

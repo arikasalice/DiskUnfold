@@ -106,9 +106,13 @@ pub fn item(version: &ResultVersion, root_index: usize, parts: &[&str]) -> Resul
     })
 }
 
-pub const CONFIRMED_NO: FolderCollection<'static> = FolderCollection::Folder {
-    unenumerated: Unenumerated::No,
-    boundary: FolderBoundary::NoBoundary,
+pub const UNPROVEN: FolderCollection<'static> = FolderCollection::Folder {
+    unenumerated: Unenumerated::Unknown {
+        reason_key: "space.data_insufficient",
+    },
+    boundary: FolderBoundary::Unknown {
+        reason_key: "space.data_insufficient",
+    },
 };
 
 pub fn state<'a>(
@@ -124,7 +128,9 @@ pub fn state<'a>(
 pub fn unenumerated(reason_key: &str) -> FolderCollection<'_> {
     FolderCollection::Folder {
         unenumerated: Unenumerated::Yes { reason_key },
-        boundary: FolderBoundary::NoBoundary,
+        boundary: FolderBoundary::Unknown {
+            reason_key: "space.data_insufficient",
+        },
     }
 }
 

@@ -34,6 +34,7 @@ import { fixtures } from "./surface-fixtures";
 import type { SurfaceId } from "./surface-fixtures";
 import { FixtureChart, FixtureDetails, FixtureRecords } from "./GalleryContent";
 import type { SelectedRecord } from "./GalleryContent";
+import { ResultSummaryPreview } from "./ResultSummaryPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -70,11 +71,34 @@ const stateOptions: { value: SurfaceState; label: string }[] = [
   { value: "unavailable", label: "사용 불가" },
 ];
 
+/** The surface and theme named in the address, for a capture that opens on them. */
+function requested() {
+  const query = new URLSearchParams(window.location.search);
+  const surface = query.get("surface");
+  const theme = query.get("theme");
+  return {
+    surface:
+      surface !== null && Object.hasOwn(fixtures, surface)
+        ? (surface as SurfaceId)
+        : "workspace",
+    theme: theme === "light" || theme === "dark" ? theme : "system",
+  };
+}
+
+function applyTheme(value: string) {
+  if (value === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = value;
+}
+
 /** Development entry only: all data, mutations and recovery are synthetic. */
 export function Gallery() {
-  const [surface, setSurface] = useState<SurfaceId>("workspace");
+  const [surface, setSurface] = useState<SurfaceId>(() => requested().surface);
   const [state, setState] = useState<SurfaceState>("ready");
-  const [theme, setTheme] = useState("system");
+  const [theme, setTheme] = useState(() => {
+    const { theme } = requested();
+    applyTheme(theme);
+    return theme;
+  });
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SelectedRecord>();
   const [activeShape, setActiveShape] = useState<SelectedRecord>();
@@ -166,7 +190,8 @@ export function Gallery() {
     </Action>
   );
   const props = { context, primary, secondary, actions: tools };
-  const Presenter = surface === "history" ? null : presenters[surface];
+  const Presenter =
+    surface === "history" || surface === "summary" ? null : presenters[surface];
   return (
     <main className="du-gallery">
       <header className="du-gallery-notice">
@@ -199,9 +224,7 @@ export function Gallery() {
           ]}
           onChange={(value) => {
             setTheme(value);
-            if (value === "system")
-              delete document.documentElement.dataset.theme;
-            else document.documentElement.dataset.theme = value;
+            applyTheme(value);
           }}
         />
       </div>
@@ -219,8 +242,14 @@ export function Gallery() {
           description={fixture.description}
           context={context}
         >
-          {primary}
-          {secondary}
+          {surface === "summary" ? (
+            <ResultSummaryPreview />
+          ) : (
+            <>
+              {primary}
+              {secondary}
+            </>
+          )}
         </ReviewSurface>
       )}
       <LiveStatus>{feedback}</LiveStatus>
