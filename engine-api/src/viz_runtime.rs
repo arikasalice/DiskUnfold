@@ -145,7 +145,9 @@ pub trait EvidenceProducer: Send + Sync + 'static {
     ) -> Result<Option<SourcePolicyFacts>, EngineError> {
         Ok(None)
     }
-    /// Supplies model-local Other presentation for the pinned ranked-bar request.
+    /// Supplies the presentation of the group that merges small items, for a ranked
+    /// bar and for a treemap request: the Other bar, or the merged small siblings of
+    /// each parent. A treemap without it only counts those siblings.
     fn ranked_other(
         &self,
         _source: &CurrentAnalysis,

@@ -196,13 +196,12 @@ fn a_real_scan_draws_the_treemap_on_the_allocated_and_the_logical_basis() -> Res
 }
 
 // Two links of one file in sibling folders cannot both be given the file's bytes. The
-// Two links of one file in sibling folders cannot both be given the file's bytes. The
-// allocated basis refuses the whole parent and serves the same rows as a table; the
-// logical basis counts bytes by path and draws all three folders. When attribution is
-// decided child by child, the two folders become unknown items and the parent a model:
-// this expectation then changes with it.
+// allocated basis decides child by child: the two folders that share the file are unknown
+// items without a shape, the folder that shares nothing is drawn, and the parent stays a
+// model. The bytes of the shared file stay in the scope total and in no drawn shape. The
+// logical basis counts bytes by path and draws all three folders.
 #[test]
-fn a_file_linked_from_two_sibling_folders_leaves_a_table_on_the_allocated_basis()
+fn a_file_linked_from_two_sibling_folders_is_unknown_for_both_on_the_allocated_basis()
 -> Result<(), Failure> {
     let assembled = assemble()?;
     let folder = tempfile::tempdir()?;
@@ -218,14 +217,39 @@ fn a_file_linked_from_two_sibling_folders_leaves_a_table_on_the_allocated_basis(
     let revision = scan(&assembled, folder.path())?;
 
     let allocated = render(&assembled, &revision, "allocated")?;
-    assert_eq!(allocated["kind"], "unavailable", "{allocated}");
-    assert_eq!(allocated["reasonKey"], "viz.unavailable.no_attribution");
-    assert!(allocated["fallback"]["modelRef"].is_string(), "{allocated}");
+    assert_eq!(allocated["kind"], "model", "{allocated}");
+    let model = &allocated["model"];
     let rows = rows_of(&assembled, &allocated)?;
     assert_eq!(rows["totalCount"], 3);
+    let row_bytes = |name: &str| -> Result<u64, Failure> {
+        let row = rows["rows"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["displayName"] == name))
+            .ok_or("no row of this name")?;
+        bytes(&row["size"]["bytes"])
+    };
+    // Only the folder that shares nothing is drawn; the other two are counted, not drawn.
+    let shapes = model["shapes"].as_array().ok_or("shapes are not a list")?;
+    assert_eq!(shapes.len(), 1, "{allocated}");
+    let other = rows["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["displayName"] == "other"))
+        .ok_or("no row of the folder that shares nothing")?;
+    assert_eq!(shapes[0]["itemRef"], other["itemRef"]);
+    assert_eq!(model["summary"]["unknownItems"]["value"], "2");
+    // The scope total is the F03 value, which counts the shared file once. The drawn total
+    // is the one folder, and what is left of the scope is that file.
+    let scope = bytes(&model["totals"]["scope"]["quantity"]["value"])?;
+    assert_eq!(scope, space_total(&assembled, &revision, "allocated", 1)?);
+    let drawn = bytes(&model["totals"]["drawn"]["quantity"]["value"])?;
+    assert_eq!(drawn, row_bytes("other")?);
+    assert_eq!(bytes(&model["totals"]["grouped"]["quantity"]["value"])?, 0);
+    assert_eq!(scope - drawn, row_bytes("left")?);
+    assert_eq!(row_bytes("left")?, row_bytes("right")?);
 
     let logical = render(&assembled, &revision, "logical")?;
     assert_eq!(logical["kind"], "model", "{logical}");
     assert_eq!(logical["model"]["shapes"].as_array().map(Vec::len), Some(3));
+    assert_eq!(logical["model"]["summary"]["unknownItems"]["value"], "0");
     Ok(())
 }

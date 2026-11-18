@@ -137,7 +137,7 @@ pub(super) fn extend(
         if cancelled() {
             return Err(render::Error::Cancelled);
         }
-        if model.shapes.len().saturating_add(model.descendants.len()) >= policy.max_shapes {
+        if model.shape_count() >= policy.max_shapes {
             break;
         }
         let (item, depth) = if index < roots {

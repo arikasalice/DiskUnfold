@@ -1,8 +1,10 @@
 //! Composes the admitted live single-parent visualization and its page registry.
 mod deferred;
+mod evidence;
 mod ranked;
 pub use deferred::DeferredRender;
 use deferred::PrepareMode;
+use evidence::{check, fingerprint, normalize, presentation};
 pub(crate) use ranked::RankedInput;
 
 use std::{
@@ -22,7 +24,7 @@ use du_core_contracts::{
 
 use super::{
     ModelPages, PreparedModelInput, prepare_scoped_model_input,
-    production::{self, RowPresentation},
+    production::{self, OtherPresentation, RowPresentation},
 };
 use crate::{api::Channel, current_analysis, viz_catalog};
 
@@ -37,6 +39,9 @@ pub struct Request<'a> {
     pub format: &'a str,
     pub strategy: Option<&'a LayoutStrategyKey>,
     pub max_shapes: usize,
+    /// Presentation of the group that merges small siblings. Without it the small
+    /// siblings are only counted, so no group shape or row is made.
+    pub other: Option<&'a OtherPresentation>,
 }
 /// Facts supplied by the path-comparison and presentation owners for one item.
 ///
@@ -249,6 +254,7 @@ impl ModelPages {
                 format: request.format,
                 strategy: Some(&descriptor.strategy),
                 max_shapes: request.max_shapes,
+                group_tail: request.other.is_some(),
             },
             cancelled,
         );
@@ -281,6 +287,7 @@ impl ModelPages {
             &model,
             fingerprint,
             presentations,
+            request.other,
             cancelled,
         )
         .map_err(Error::Registration)?;
@@ -407,72 +414,5 @@ fn registration_error(error: super::Error) -> Error {
     match error {
         super::Error::Cancelled => Error::Cancelled,
         _ => Error::Registration(production::Error::Pages(error)),
-    }
-}
-
-fn normalize(
-    evidence: Vec<ChildEvidence>,
-    revision: &Id,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<BTreeMap<u32, ChildEvidence>, Error> {
-    let mut normalized = BTreeMap::new();
-    for mut child in evidence {
-        check(cancelled)?;
-        child.display_flags.sort_unstable();
-        child.display_flags.dedup();
-        if &child.item.result_version != revision
-            || normalized.insert(child.item.item_no, child).is_some()
-        {
-            return Err(Error::InvalidEvidence);
-        }
-    }
-    Ok(normalized)
-}
-
-fn fingerprint(
-    request: &Request<'_>,
-    strategy: &LayoutStrategyKey,
-    evidence: &BTreeMap<u32, ChildEvidence>,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<String, Error> {
-    let mut hash = blake3::Hasher::new();
-    hash.update(b"diskunfold.live-viz.unfiltered.v1\0");
-    let bounds = request.bounds;
-    let envelope = (
-        request.parent,
-        &request.basis,
-        [bounds.left, bounds.top, bounds.right, bounds.bottom],
-        request.format,
-        (&strategy.id, strategy.revision),
-        request.max_shapes,
-    );
-    serde_json::to_writer(&mut hash, &envelope).map_err(|_| Error::Fingerprint)?;
-    for child in evidence.values() {
-        check(cancelled)?;
-        hash.update(b"\n");
-        let row = (
-            &child.item,
-            &child.path_compare_key,
-            &child.legend_class_key,
-            &child.display_flags,
-        );
-        serde_json::to_writer(&mut hash, &row).map_err(|_| Error::Fingerprint)?;
-    }
-    Ok(hash.finalize().to_hex().to_string())
-}
-
-fn presentation(child: ChildEvidence) -> RowPresentation {
-    RowPresentation {
-        item: child.item,
-        legend_class_key: child.legend_class_key,
-        display_flags: child.display_flags,
-    }
-}
-
-fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {
-    if cancelled() {
-        Err(Error::Cancelled)
-    } else {
-        Ok(())
     }
 }
