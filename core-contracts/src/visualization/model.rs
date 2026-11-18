@@ -138,23 +138,6 @@ pub struct VizTotal {
 ///
 /// The three sums never overlap. What none of them holds is the `remainder`.
 ///
-/// The `remainder` is what the scope holds beyond `drawn`, `grouped` and `filtered_out`:
-/// siblings left out because they are below the minimum area or lack coordinate
-/// precision, and the share of the scope that no single item can carry, such as a file
-/// shared between siblings that the scope counts once. The engine computes it and a
-/// consumer displays it; a consumer never computes it. It is exact only when the scope
-/// and the other three totals are exact, and an exact remainder is never negative.
-/// Otherwise it is unknown, with a reason, because a difference of lower bounds is not a
-/// value. A model without the field is valid and says nothing about the remainder.
-///
-/// `remainder_reason_keys` says what the remainder holds, with
-/// [`REMAINDER_TOO_SMALL`] and [`REMAINDER_UNATTRIBUTED`]. A producer omits it when the
-/// remainder is absent or exactly zero and lists at least one key when the remainder is
-/// exact and not zero. When the remainder is unknown it lists the causes it knows or
-/// omits the list; why the remainder is unknown is said by the reason of its quantity.
-/// The list is valid only with `remainder`, its keys are not empty, sorted and without
-/// duplicates, and a key that is not registered is preserved.
-///
 /// [`VizModel::validate_revision`] adds the five values only when they are all exact and
 /// in one unit, so the totals of a model that counts items are never added to bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,6 +148,13 @@ pub struct VizTotals {
     pub drawn: VizTotal,
     pub grouped: VizTotal,
     pub filtered_out: VizTotal,
+    /// What the scope holds beyond `drawn`, `grouped` and `filteredOut`.
+    ///
+    /// Siblings below the minimum area or coordinate precision, and space no single item
+    /// can carry, such as a file shared between siblings that the scope counts once. The
+    /// engine computes it; a consumer only displays it. Exact only when the scope and the
+    /// other three totals are exact, and then never negative; otherwise unknown with a
+    /// reason. Omitted rather than null; a model without it says nothing about it.
     #[serde(
         default,
         deserialize_with = "optional_present",
@@ -172,6 +162,12 @@ pub struct VizTotals {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub remainder: Option<VizTotal>,
+    /// What the remainder holds: `viz.remainder.too_small` or `viz.remainder.unattributed`.
+    ///
+    /// Omitted when the remainder is absent or exactly zero, at least one key when it is
+    /// exact and not zero, and the known causes or nothing when it is unknown (its reason
+    /// says why). Valid only with `remainder`; keys are not empty, sorted and without
+    /// duplicates, and an unregistered key is preserved. Omitted rather than null.
     #[serde(
         default,
         deserialize_with = "optional_present",
