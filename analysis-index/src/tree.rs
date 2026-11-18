@@ -1,14 +1,14 @@
 //! Deterministic forest numbering and hierarchy construction.
+use crate::item_kind::is_directory;
 use crate::observation_store::ObservationStore;
 use crate::{BuildError, SpaceObservation, StoredObservation};
 use du_core_contracts::Timestamp;
-use du_core_contracts::result::{ResultItem, ResultItemKind};
+use du_core_contracts::result::ResultItem;
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
 use std::sync::Arc;
 
 pub(crate) struct BuiltItems {
     pub(crate) items: Vec<ResultItem>,
-    pub(crate) structures: Vec<bool>,
     pub(crate) physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
@@ -41,7 +41,6 @@ pub(crate) fn build_items(
             u32::try_from(item).map_err(|_| BuildError::CapacityExceeded)?;
     }
     let mut items = Vec::with_capacity(order.len());
-    let mut structures = Vec::with_capacity(order.len());
     let mut root_indices: Vec<u32> = Vec::with_capacity(order.len());
     let mut columns = Columns::for_store(store, order.len());
     for (item, node) in order.iter().enumerate() {
@@ -60,12 +59,10 @@ pub(crate) fn build_items(
             size: observation.size.clone(),
             kind: observation.kind,
         });
-        structures.push(is_structure(observation.kind));
         columns.push(observation);
     }
     Ok(BuiltItems {
         items,
-        structures,
         physical: columns.physical,
         modified_times: columns.modified_times,
         native_modified_times: columns.native_modified_times,
@@ -90,7 +87,7 @@ fn number_nodes(
         let root_index = u32::try_from(index).map_err(|_| BuildError::CapacityExceeded)?;
         let node = store.root_node(root_index).ok_or(BuildError::InvalidTree)?;
         let root = store.observation(node).ok_or(BuildError::InvalidTree)?;
-        if strict_roots && root.kind != ResultItemKind::Directory {
+        if strict_roots && !is_directory(root.kind) {
             return Err(BuildError::InvalidTree);
         }
         order.push(node);
@@ -192,13 +189,6 @@ impl Columns {
             values.push(observation.observed_at.clone());
         }
     }
-}
-
-fn is_structure(kind: ResultItemKind) -> bool {
-    matches!(
-        kind,
-        ResultItemKind::Directory | ResultItemKind::UnknownStructure
-    )
 }
 
 #[cfg(test)]

@@ -332,6 +332,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryStrategy::decl(&config),
         IdentityCapability::decl(&config),
         CorrespondenceKey::decl(&config),
+        FolderBoundary::decl(&config),
         FolderFlags::decl(&config),
         FolderQueryRow::decl(&config),
         SearchQueryRow::decl(&config),

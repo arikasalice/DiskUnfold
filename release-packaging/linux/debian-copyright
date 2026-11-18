@@ -185,7 +185,6 @@ Files: third-party/cargo/arrayvec-0.7.8/*
  third-party/cargo/block-buffer-0.10.4/*
  third-party/cargo/bumpalo-3.20.3/*
  third-party/cargo/cfg-if-1.0.5/*
- third-party/cargo/chrono-0.4.45/*
  third-party/cargo/cpufeatures-0.2.17/*
  third-party/cargo/crypto-common-0.1.7/*
  third-party/cargo/digest-0.10.7/*
@@ -208,7 +207,6 @@ Files: third-party/cargo/arrayvec-0.7.8/*
  third-party/cargo/itoa-1.0.19/*
  third-party/cargo/js-sys-0.3.107/*
  third-party/cargo/libc-0.2.191/*
- third-party/cargo/num-traits-0.2.19/*
  third-party/cargo/proc-macro-crate-3.5.0/*
  third-party/cargo/proc-macro2-1.0.107/*
  third-party/cargo/quote-1.0.47/*
@@ -266,7 +264,6 @@ Copyright: Authors of cargo displaydoc 0.2.7: Jane Lusby <jlusby@yaah.dev>
  Copyright (c) 2014 Chris Wong
  Copyright (c) 2014 Paho Lurie-Gregg
  Copyright (c) 2014 The Rust Project Developers
- Copyright (c) 2014, Kang Seonghoon.
  Copyright (c) 2015 The Rust Project Developers
  Copyright (c) 2015 The rust-openssl-verify Developers
  Copyright (c) 2016 Alex Crichton
