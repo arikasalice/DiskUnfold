@@ -438,5 +438,4 @@ fn revisit_with_metadata_error_is_held() -> Result<(), String> {
     Ok(())
 }
 
-#[path = "folder_evidence_build_handle_growth_tests.rs"]
 mod growth_tests;

@@ -115,20 +115,20 @@ impl FolderEvidenceBudget {
     ) -> Option<FolderEvidenceLease> {
         let requested_bytes = target_capacity.checked_mul(size_of::<Option<FolderScope>>())?;
         let mut lease = self.reserve(requested_bytes)?;
-        let mut replacement = Vec::new();
-        replacement.try_reserve_exact(target_capacity).ok()?;
+        let mut grown = Vec::new();
+        grown.try_reserve_exact(target_capacity).ok()?;
         if !lease.reconcile_capacity(
             self,
             None,
             size_of::<Option<FolderScope>>(),
-            replacement.capacity(),
+            grown.capacity(),
         ) {
             return None;
         }
 
         let mut previous = std::mem::take(&mut registry.scopes);
-        replacement.append(&mut previous);
-        registry.scopes = replacement;
+        grown.append(&mut previous);
+        registry.scopes = grown;
         drop(previous);
         Some(lease)
     }
@@ -403,7 +403,6 @@ impl FolderEvidenceLease {
 }
 
 #[cfg(test)]
-#[path = "folder_evidence_budget_tests.rs"]
 mod tests;
 
 impl Drop for FolderEvidenceLease {

@@ -4,8 +4,8 @@ use crate::{
         FolderAttemptError, FolderAttemptFinal, FolderAttemptInput, FolderAttemptStatus,
         FolderAttemptToken,
     },
-    folder_evidence_budget::FolderEvidenceBudget,
-    folder_evidence_receiver::AttemptState,
+    folder_evidence_attempt::AttemptState,
+    folder_evidence_budget::{FolderEvidenceBudget, FolderEvidenceLease},
     observation_store::ObservationStore,
 };
 use du_core_contracts::{
@@ -43,6 +43,25 @@ pub(crate) fn valid_attempt(
     let Ok(child_count) = usize::try_from(child_count_exclusive) else {
         return Err(FolderAttemptError::CapacityExceeded);
     };
+    // The lease stays bound until validation ends so the scratch rows remain charged.
+    let (_scratch_lease, mut children, mut name_order) =
+        reserve_scratch(attempt, child_count, budget)?;
+    if !collect_children(attempt, &mut children, &mut name_order) {
+        return Ok(false);
+    }
+    if !children_terminal(attempt, &children, attempts, store) {
+        return Ok(false);
+    }
+    Ok(unique_names(&children, &mut name_order))
+}
+
+type Scratch<'a> = (FolderEvidenceLease, Vec<ChildEvidence<'a>>, Vec<usize>);
+
+fn reserve_scratch<'a>(
+    attempt: &AttemptState,
+    child_count: usize,
+    budget: &Arc<FolderEvidenceBudget>,
+) -> Result<Scratch<'a>, FolderAttemptError> {
     let Some(scratch_bytes) =
         child_count.checked_mul(size_of::<ChildEvidence<'_>>() + size_of::<usize>())
     else {
@@ -75,13 +94,21 @@ pub(crate) fn valid_attempt(
     if !scratch_lease.reconcile_bytes(budget, Some(&attempt.scope), actual_scratch_bytes) {
         return Err(FolderAttemptError::CapacityExceeded);
     }
+    Ok((scratch_lease, children, name_order))
+}
 
+/// Indexes every stored event by child ID; returns false on any gap, duplicate, or terminal.
+fn collect_children<'a>(
+    attempt: &'a AttemptState,
+    children: &mut [ChildEvidence<'a>],
+    name_order: &mut Vec<usize>,
+) -> bool {
     for (index, event) in attempt.events.iter().enumerate() {
         if u64::try_from(index).ok() != Some(event.event_seq) {
-            return Ok(false);
+            return false;
         }
         let Some(input) = event.input.as_ref() else {
-            return Ok(false);
+            return false;
         };
         match input {
             FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::FilterCallback {
@@ -91,17 +118,17 @@ pub(crate) fn valid_attempt(
                 phase: _,
             }) => {
                 let Ok(child_index) = usize::try_from(*child_id) else {
-                    return Ok(false);
+                    return false;
                 };
                 let Some(child) = children.get_mut(child_index) else {
-                    return Ok(false);
+                    return false;
                 };
                 if child
                     .callback
                     .replace((raw_name.as_slice(), *decision, event.event_seq))
                     .is_some()
                 {
-                    return Ok(false);
+                    return false;
                 }
                 name_order.push(child_index);
             }
@@ -109,80 +136,93 @@ pub(crate) fn valid_attempt(
                 child_id,
                 entry,
             }) => {
-                let Ok(child_index) = usize::try_from(*child_id) else {
-                    return Ok(false);
-                };
-                let Some(child) = children.get_mut(child_index) else {
-                    return Ok(false);
+                let Some(child) = child_slot(children, *child_id) else {
+                    return false;
                 };
                 if child
                     .observation
                     .replace((entry, event.event_seq))
                     .is_some()
                 {
-                    return Ok(false);
+                    return false;
                 }
             }
             FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::Progress) => {}
             FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::End { .. })
             | FolderAttemptInput::PendingCleared { .. }
             | FolderAttemptInput::TransportFailure
-            | FolderAttemptInput::Cancelled => return Ok(false),
+            | FolderAttemptInput::Cancelled => return false,
             FolderAttemptInput::Final { child_id, outcome } => {
-                let Ok(child_index) = usize::try_from(*child_id) else {
-                    return Ok(false);
-                };
-                let Some(child) = children.get_mut(child_index) else {
-                    return Ok(false);
+                let Some(child) = child_slot(children, *child_id) else {
+                    return false;
                 };
                 if child
                     .final_outcome
                     .replace((*outcome, event.event_seq))
                     .is_some()
                 {
-                    return Ok(false);
+                    return false;
                 }
             }
         }
     }
+    true
+}
 
-    for child in &children {
+fn child_slot<'s, 'a>(
+    children: &'s mut [ChildEvidence<'a>],
+    child_id: u64,
+) -> Option<&'s mut ChildEvidence<'a>> {
+    children.get_mut(usize::try_from(child_id).ok()?)
+}
+
+/// Checks that each child reached exactly the terminal its filter decision allows.
+fn children_terminal(
+    attempt: &AttemptState,
+    children: &[ChildEvidence<'_>],
+    attempts: &[AttemptState],
+    store: &ObservationStore,
+) -> bool {
+    for child in children {
         let Some((raw_name, decision, callback_seq)) = child.callback else {
-            return Ok(false);
+            return false;
         };
         match decision {
             du_core_contracts::scan_observation::FilterDecision::Exclude => {
                 // The common adapter contract makes Exclude the only terminal for this child.
                 if child.final_outcome.is_some() || child.observation.is_some() {
-                    return Ok(false);
+                    return false;
                 }
             }
             du_core_contracts::scan_observation::FilterDecision::Admit => {
                 let Some((observation, observation_seq)) = child.observation else {
-                    return Ok(false);
+                    return false;
                 };
                 if observation.entry.name.as_slice() != raw_name {
-                    return Ok(false);
+                    return false;
                 }
                 if !callback_precedes_observation(callback_seq, observation_seq) {
-                    return Ok(false);
+                    return false;
                 }
                 let Some((outcome, final_seq)) = child.final_outcome else {
-                    return Ok(false);
+                    return false;
                 };
                 if final_seq <= callback_seq || final_seq <= observation_seq {
-                    return Ok(false);
+                    return false;
                 }
                 if !valid_final(attempt.token, outcome, observation, attempts, store) {
-                    return Ok(false);
+                    return false;
                 }
             }
             du_core_contracts::scan_observation::FilterDecision::Undecidable => {
-                return Ok(false);
+                return false;
             }
         }
     }
+    true
+}
 
+fn unique_names(children: &[ChildEvidence<'_>], name_order: &mut [usize]) -> bool {
     name_order.sort_unstable_by(|left, right| {
         let left_name = children[*left]
             .callback
@@ -194,11 +234,11 @@ pub(crate) fn valid_attempt(
             .unwrap_or_default();
         left_name.cmp(right_name)
     });
-    Ok(!name_order.windows(2).any(|pair| {
+    !name_order.windows(2).any(|pair| {
         let left = children[pair[0]].callback.map(|(name, _, _)| name);
         let right = children[pair[1]].callback.map(|(name, _, _)| name);
         left == right
-    }))
+    })
 }
 
 fn callback_precedes_observation(callback_seq: u64, observation_seq: u64) -> bool {

@@ -267,5 +267,4 @@ fn complete_observation_input_keeps_existing_exact_folder_total() -> Result<(), 
     Ok(())
 }
 
-#[path = "folder_evidence_failure_tests.rs"]
 mod failure_tests;

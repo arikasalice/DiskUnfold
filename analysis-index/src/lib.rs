@@ -6,6 +6,7 @@ mod current_pin;
 mod directory_case;
 pub mod folder_collection;
 mod folder_evidence_api;
+mod folder_evidence_attempt;
 mod folder_evidence_budget;
 mod folder_evidence_build_api;
 mod folder_evidence_copy;

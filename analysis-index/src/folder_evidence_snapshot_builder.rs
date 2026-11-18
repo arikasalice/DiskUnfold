@@ -1,6 +1,7 @@
 //! Builds a bounded, immutable folder-evidence plate for one result version.
 use crate::{
     BuildError,
+    folder_evidence_attempt::AttemptState,
     folder_evidence_budget::{FolderEvidenceBudget, FolderEvidenceLease, FolderScopeHandle},
     folder_evidence_receiver::FolderAttemptLedger,
     folder_evidence_snapshot::{FolderAttemptSummary, FolderEvidenceSnapshot, PinnedFolderEvent},
@@ -16,285 +17,182 @@ impl FolderAttemptLedger {
         if self.attempts.is_empty() {
             return Ok(None);
         }
+        match self.pin_snapshot(built) {
+            Ok(snapshot) => Ok(Some(snapshot)),
+            Err(error) => {
+                self.hold_all();
+                Err(error)
+            }
+        }
+    }
+
+    /// Charges and copies every attempt; any failure leaves the caller to hold all attempts.
+    fn pin_snapshot(&self, built: &BuiltItems) -> Result<FolderEvidenceSnapshot, BuildError> {
         let mut event_count = 0usize;
         for state in &self.attempts {
-            let Some(next_event_count) = event_count.checked_add(state.events.len()) else {
-                self.hold_all();
-                return Err(BuildError::CapacityExceeded);
-            };
-            event_count = next_event_count;
+            event_count = capacity(event_count.checked_add(state.events.len()))?;
         }
-        let Some(attempt_lease_bytes) = self
-            .attempts
-            .len()
-            .checked_mul(size_of::<FolderEvidenceLease>())
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let Some(overhead_bytes) =
-            attempt_lease_bytes.checked_add(size_of::<Option<FolderEvidenceSnapshot>>())
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let Some(mut overhead_lease) = self.budget.reserve(overhead_bytes) else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
+        let attempt_lease_bytes = capacity(
+            self.attempts
+                .len()
+                .checked_mul(size_of::<FolderEvidenceLease>()),
+        )?;
+        let overhead_bytes =
+            capacity(attempt_lease_bytes.checked_add(size_of::<Option<FolderEvidenceSnapshot>>()))?;
+        let mut overhead_lease = capacity(self.budget.reserve(overhead_bytes))?;
         let mut attempt_leases = Vec::new();
-        if attempt_leases
+        attempt_leases
             .try_reserve_exact(self.attempts.len())
-            .is_err()
-        {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        }
+            .map_err(|_| BuildError::CapacityExceeded)?;
         if !overhead_lease.reconcile_capacity(
             &self.budget,
             None,
             size_of::<FolderEvidenceLease>(),
             attempt_leases.capacity(),
         ) {
-            self.hold_all();
             return Err(BuildError::CapacityExceeded);
         }
-        let Some(attempt_capacity_bytes) = attempt_leases
-            .capacity()
-            .checked_mul(size_of::<FolderEvidenceLease>())
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let Some(snapshot_base_overhead) =
-            size_of::<Option<FolderEvidenceSnapshot>>().checked_add(attempt_capacity_bytes)
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let mut attempt_leases_valid = true;
-        'attempts: for state in &self.attempts {
-            let Some(event_bytes) = state
-                .events
-                .len()
-                .checked_mul(size_of::<PinnedFolderEvent>())
-            else {
-                attempt_leases_valid = false;
-                break;
-            };
-            let mut payload_bytes = 0usize;
-            for event in &state.events {
-                let Some(input) = &event.input else {
-                    continue;
-                };
-                let Some(bytes) = input.managed_payload_len() else {
-                    attempt_leases_valid = false;
-                    break 'attempts;
-                };
-                let Some(next_bytes) = payload_bytes.checked_add(bytes) else {
-                    attempt_leases_valid = false;
-                    break 'attempts;
-                };
-                payload_bytes = next_bytes;
-            }
-            let Some(folder_bytes) = size_of::<FolderAttemptSummary>()
-                .checked_add(event_bytes)
-                .and_then(|bytes| bytes.checked_add(payload_bytes))
-            else {
-                attempt_leases_valid = false;
-                break;
-            };
-            let Some(lease) = self.budget.reserve_for_folder(&state.scope, folder_bytes) else {
-                attempt_leases_valid = false;
-                break;
-            };
-            attempt_leases.push(lease);
-        }
-        if !attempt_leases_valid {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
+        let attempt_capacity_bytes = capacity(
+            attempt_leases
+                .capacity()
+                .checked_mul(size_of::<FolderEvidenceLease>()),
+        )?;
+        let snapshot_base_overhead = capacity(
+            size_of::<Option<FolderEvidenceSnapshot>>().checked_add(attempt_capacity_bytes),
+        )?;
+        for state in &self.attempts {
+            attempt_leases.push(self.reserve_attempt(state)?);
         }
         let mut summaries = Vec::new();
-        if summaries.try_reserve_exact(self.attempts.len()).is_err() {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        }
+        summaries
+            .try_reserve_exact(self.attempts.len())
+            .map_err(|_| BuildError::CapacityExceeded)?;
         // Each attempt lease already charges one row; the snapshot lease owns only spare capacity.
-        let Some(summary_slack) =
-            snapshot_vec_slack::<FolderAttemptSummary>(summaries.capacity(), self.attempts.len())
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let Some(summary_overhead) = snapshot_base_overhead.checked_add(summary_slack) else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        if reconcile_snapshot_bytes(&mut overhead_lease, &self.budget, None, summary_overhead)
-            .is_err()
-        {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        }
+        let summary_slack = capacity(snapshot_vec_slack::<FolderAttemptSummary>(
+            summaries.capacity(),
+            self.attempts.len(),
+        ))?;
+        let summary_overhead = capacity(snapshot_base_overhead.checked_add(summary_slack))?;
+        reconcile_snapshot_bytes(&mut overhead_lease, &self.budget, None, summary_overhead)?;
         let mut pinned_events = Vec::new();
-        if pinned_events.try_reserve_exact(event_count).is_err() {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        }
-        let Some(event_slack) =
-            snapshot_vec_slack::<PinnedFolderEvent>(pinned_events.capacity(), event_count)
-        else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        let Some(actual_overhead_bytes) = summary_overhead.checked_add(event_slack) else {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        };
-        if reconcile_snapshot_bytes(
+        pinned_events
+            .try_reserve_exact(event_count)
+            .map_err(|_| BuildError::CapacityExceeded)?;
+        let event_slack = capacity(snapshot_vec_slack::<PinnedFolderEvent>(
+            pinned_events.capacity(),
+            event_count,
+        ))?;
+        let actual_overhead_bytes = capacity(summary_overhead.checked_add(event_slack))?;
+        reconcile_snapshot_bytes(
             &mut overhead_lease,
             &self.budget,
             None,
             actual_overhead_bytes,
-        )
-        .is_err()
-        {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
+        )?;
+        for (state, lease) in self.attempts.iter().zip(attempt_leases.iter_mut()) {
+            self.pin_attempt(state, lease, built, &mut summaries, &mut pinned_events)?;
         }
-        let mut binding_valid = true;
-        let mut allocation_failed = false;
-        for (attempt_index, state) in self.attempts.iter().enumerate() {
-            let Some(folder_item) = built.item_of_node.get(state.token.folder_node as usize) else {
-                binding_valid = false;
-                break;
-            };
-            summaries.push(FolderAttemptSummary {
-                attempt_id: state.token.attempt_id,
-                root_index: state.token.root_index,
-                folder_item: *folder_item,
-                status: state.status,
-                event_watermark_exclusive: state.end.map(|end| end.event_watermark_exclusive),
-                child_count_exclusive: state.end.map(|end| end.child_count_exclusive),
-            });
-            let base_snapshot_bytes = match state
-                .events
-                .len()
-                .checked_mul(size_of::<PinnedFolderEvent>())
-                .and_then(|event_bytes| size_of::<FolderAttemptSummary>().checked_add(event_bytes))
-            {
-                Some(bytes) => bytes,
-                None => {
-                    allocation_failed = true;
-                    break;
-                }
-            };
-            let mut source_payload_bytes = 0usize;
-            for event in &state.events {
-                let Some(input) = event.input.as_ref() else {
-                    continue;
-                };
-                let Some(bytes) = input.managed_payload_len() else {
-                    allocation_failed = true;
-                    break;
-                };
-                let Some(next) = source_payload_bytes.checked_add(bytes) else {
-                    allocation_failed = true;
-                    break;
-                };
-                source_payload_bytes = next;
-            }
-            if allocation_failed {
-                break;
-            }
-            let mut cloned_payload_bytes = 0usize;
-            for event in &state.events {
-                let input = match &event.input {
-                    Some(input) => match super::folder_evidence_copy::try_clone_input(input) {
-                        Some(input) => {
-                            let Some(bytes) = input.managed_payload_capacity() else {
-                                allocation_failed = true;
-                                break;
-                            };
-                            let Some(next) = cloned_payload_bytes.checked_add(bytes) else {
-                                allocation_failed = true;
-                                break;
-                            };
-                            cloned_payload_bytes = next;
-                            if cloned_payload_bytes > source_payload_bytes {
-                                let Some(required_bytes) =
-                                    base_snapshot_bytes.checked_add(cloned_payload_bytes)
-                                else {
-                                    allocation_failed = true;
-                                    break;
-                                };
-                                let Some(lease) = attempt_leases.get_mut(attempt_index) else {
-                                    allocation_failed = true;
-                                    break;
-                                };
-                                if reconcile_snapshot_bytes(
-                                    lease,
-                                    &self.budget,
-                                    Some(&state.scope),
-                                    required_bytes,
-                                )
-                                .is_err()
-                                {
-                                    allocation_failed = true;
-                                    break;
-                                }
-                            }
-                            Some(input)
-                        }
-                        None => {
-                            allocation_failed = true;
-                            break;
-                        }
-                    },
-                    None => None,
-                };
-                pinned_events.push(PinnedFolderEvent {
-                    _attempt_id: state.token.attempt_id,
-                    _event_seq: event.event_seq,
-                    _input: input,
-                });
-            }
-            if !allocation_failed {
-                let Some(required_bytes) = base_snapshot_bytes.checked_add(cloned_payload_bytes)
-                else {
-                    allocation_failed = true;
-                    break;
-                };
-                let Some(lease) = attempt_leases.get_mut(attempt_index) else {
-                    allocation_failed = true;
-                    break;
-                };
-                if reconcile_snapshot_bytes(lease, &self.budget, Some(&state.scope), required_bytes)
-                    .is_err()
-                {
-                    allocation_failed = true;
-                    break;
-                }
-            }
-            if !binding_valid || allocation_failed {
-                break;
-            }
-        }
-        if allocation_failed {
-            self.hold_all();
-            return Err(BuildError::CapacityExceeded);
-        }
-        if !binding_valid {
-            self.hold_all();
-            return Err(BuildError::InvalidTree);
-        }
-        Ok(Some(FolderEvidenceSnapshot::new(
+        Ok(FolderEvidenceSnapshot::new(
             summaries,
             pinned_events,
             attempt_leases,
             overhead_lease,
-        )))
+        ))
     }
+
+    /// Reserves one attempt's summary row, event rows, and stored payload bytes.
+    fn reserve_attempt(&self, state: &AttemptState) -> Result<FolderEvidenceLease, BuildError> {
+        let event_bytes = capacity(
+            state
+                .events
+                .len()
+                .checked_mul(size_of::<PinnedFolderEvent>()),
+        )?;
+        let payload_bytes = capacity(managed_payload_bytes(state))?;
+        let folder_bytes = capacity(
+            size_of::<FolderAttemptSummary>()
+                .checked_add(event_bytes)
+                .and_then(|bytes| bytes.checked_add(payload_bytes)),
+        )?;
+        capacity(self.budget.reserve_for_folder(&state.scope, folder_bytes))
+    }
+
+    /// Pins one attempt's summary and copied events, growing its lease to the copied size.
+    fn pin_attempt(
+        &self,
+        state: &AttemptState,
+        lease: &mut FolderEvidenceLease,
+        built: &BuiltItems,
+        summaries: &mut Vec<FolderAttemptSummary>,
+        pinned_events: &mut Vec<PinnedFolderEvent>,
+    ) -> Result<(), BuildError> {
+        let folder_item = built
+            .item_of_node
+            .get(state.token.folder_node as usize)
+            .ok_or(BuildError::InvalidTree)?;
+        summaries.push(FolderAttemptSummary {
+            attempt_id: state.token.attempt_id,
+            root_index: state.token.root_index,
+            folder_item: *folder_item,
+            status: state.status,
+            event_watermark_exclusive: state.end.map(|end| end.event_watermark_exclusive),
+            child_count_exclusive: state.end.map(|end| end.child_count_exclusive),
+        });
+        let base_snapshot_bytes = capacity(
+            state
+                .events
+                .len()
+                .checked_mul(size_of::<PinnedFolderEvent>())
+                .and_then(|event_bytes| size_of::<FolderAttemptSummary>().checked_add(event_bytes)),
+        )?;
+        let source_payload_bytes = capacity(managed_payload_bytes(state))?;
+        let mut cloned_payload_bytes = 0usize;
+        for event in &state.events {
+            let input = match &event.input {
+                Some(input) => {
+                    let input = capacity(super::folder_evidence_copy::try_clone_input(input))?;
+                    cloned_payload_bytes = capacity(
+                        input
+                            .managed_payload_capacity()
+                            .and_then(|bytes| cloned_payload_bytes.checked_add(bytes)),
+                    )?;
+                    if cloned_payload_bytes > source_payload_bytes {
+                        let required_bytes =
+                            capacity(base_snapshot_bytes.checked_add(cloned_payload_bytes))?;
+                        reconcile_snapshot_bytes(
+                            lease,
+                            &self.budget,
+                            Some(&state.scope),
+                            required_bytes,
+                        )?;
+                    }
+                    Some(input)
+                }
+                None => None,
+            };
+            pinned_events.push(PinnedFolderEvent {
+                _attempt_id: state.token.attempt_id,
+                _event_seq: event.event_seq,
+                _input: input,
+            });
+        }
+        let required_bytes = capacity(base_snapshot_bytes.checked_add(cloned_payload_bytes))?;
+        reconcile_snapshot_bytes(lease, &self.budget, Some(&state.scope), required_bytes)
+    }
+}
+
+fn capacity<T>(value: Option<T>) -> Result<T, BuildError> {
+    value.ok_or(BuildError::CapacityExceeded)
+}
+
+fn managed_payload_bytes(state: &AttemptState) -> Option<usize> {
+    let mut total = 0usize;
+    for event in &state.events {
+        if let Some(input) = &event.input {
+            total = total.checked_add(input.managed_payload_len()?)?;
+        }
+    }
+    Some(total)
 }
 
 fn snapshot_vec_slack<T>(actual_capacity: usize, accounted_items: usize) -> Option<usize> {

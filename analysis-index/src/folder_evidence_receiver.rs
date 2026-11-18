@@ -1,4 +1,5 @@
 //! Production BuildHandle receiver for draft correlated directory-attempt events.
+use crate::folder_evidence_attempt::{AttemptState, EndRecord, StoredAttemptEvent};
 use crate::observation_store::ObservationStore;
 use crate::{
     folder_evidence_api::{
@@ -14,29 +15,6 @@ use std::{mem::size_of, sync::Arc};
 
 const MAX_ATTEMPTS_PER_BUILD: usize = 4096;
 const INITIAL_ATTEMPT_REGISTRY_CHUNK: usize = 8;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct EndRecord {
-    pub(crate) event_watermark_exclusive: u64,
-    pub(crate) child_count_exclusive: u64,
-    pub(crate) outcome: Result<(), FolderAttemptError>,
-}
-
-pub(crate) struct StoredAttemptEvent {
-    pub(crate) event_seq: u64,
-    pub(crate) input: Option<FolderAttemptInput>,
-    _payload_lease: Option<FolderEvidenceLease>,
-}
-
-pub(crate) struct AttemptState {
-    pub(crate) token: FolderAttemptToken,
-    pub(crate) status: FolderAttemptStatus,
-    pub(crate) events: Vec<StoredAttemptEvent>,
-    pub(crate) end: Option<EndRecord>,
-    pub(crate) event_capacity_lease: Option<FolderEvidenceLease>,
-    pub(crate) payload_bytes: usize,
-    pub(crate) scope: FolderScopeHandle,
-}
 
 pub(crate) struct FolderAttemptLedger {
     generation: u64,
@@ -405,20 +383,15 @@ fn try_grow_attempt_slots(
 ) -> Option<FolderEvidenceLease> {
     let requested_bytes = target.checked_mul(size_of::<AttemptState>())?;
     let mut lease = budget.reserve(requested_bytes)?;
-    let mut replacement = Vec::new();
-    replacement.try_reserve_exact(target).ok()?;
-    if replacement.capacity() > MAX_ATTEMPTS_PER_BUILD
-        || !lease.reconcile_capacity(
-            budget,
-            None,
-            size_of::<AttemptState>(),
-            replacement.capacity(),
-        )
+    let mut grown = Vec::new();
+    grown.try_reserve_exact(target).ok()?;
+    if grown.capacity() > MAX_ATTEMPTS_PER_BUILD
+        || !lease.reconcile_capacity(budget, None, size_of::<AttemptState>(), grown.capacity())
     {
         return None;
     }
-    replacement.append(attempts);
-    let previous = std::mem::replace(attempts, replacement);
+    grown.append(attempts);
+    let previous = std::mem::replace(attempts, grown);
     drop(previous);
     Some(lease)
 }
@@ -431,22 +404,21 @@ fn try_grow_event_buffer(
 ) -> Option<FolderEvidenceLease> {
     let requested_bytes = target.checked_mul(size_of::<StoredAttemptEvent>())?;
     let mut lease = budget.reserve_for_folder(scope, requested_bytes)?;
-    let mut replacement = Vec::new();
-    replacement.try_reserve_exact(target).ok()?;
+    let mut grown = Vec::new();
+    grown.try_reserve_exact(target).ok()?;
     if !lease.reconcile_capacity(
         budget,
         Some(scope),
         size_of::<StoredAttemptEvent>(),
-        replacement.capacity(),
+        grown.capacity(),
     ) {
         return None;
     }
-    replacement.append(events);
-    let previous = std::mem::replace(events, replacement);
+    grown.append(events);
+    let previous = std::mem::replace(events, grown);
     drop(previous);
     Some(lease)
 }
 
 #[cfg(test)]
-#[path = "folder_evidence_receiver_tests.rs"]
 mod tests;

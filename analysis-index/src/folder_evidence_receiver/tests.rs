@@ -443,11 +443,8 @@ fn folder_payload_budget_failure_holds_before_accepting_event() -> Result<(), St
     Ok(())
 }
 
-#[path = "folder_evidence_replacement_tests.rs"]
 mod replacement_tests;
 
-#[path = "folder_evidence_receiver_boundary_tests.rs"]
 mod registry_boundary_tests;
 
-#[path = "folder_evidence_phase_tests.rs"]
 mod phase_tests;
