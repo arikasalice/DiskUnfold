@@ -6,17 +6,21 @@ pub(super) fn run(
     roots: Vec<Box<dyn AnchoredDirectory>>,
     control: Control<'_>,
     counts: &mut JobCounts,
-    devices: DevicePlan,
     clock: &dyn MonotonicClock,
-    diagnostics: Option<&crate::scan_job::ScanDiagnostics>,
+    options: ScanOptions<'_>,
 ) -> Result<(Id, bool, usize), BuildError> {
     let Control {
         ids,
         context,
         limit,
         policy,
-        scan_control,
     } = control;
+    let ScanOptions {
+        devices,
+        diagnostics,
+        scan_control,
+        correlated_budget,
+    } = options;
     let root_count = roots.len();
     let volumes = build.root_volumes();
     let disconnects = disconnect::Disconnects::new(root_count, &volumes);
@@ -45,7 +49,20 @@ pub(super) fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
-    let shared = scheduler::create(prepared, devices, diagnostics, disconnects, scan_control)?;
+    let correlated_budget =
+        correlated_budget.unwrap_or_else(correlated_budget::CorrelatedBudget::new);
+    let shared = scheduler::create_with_budget(
+        prepared,
+        devices,
+        diagnostics,
+        disconnects,
+        scan_control,
+        correlated_budget,
+    )?;
+    let channel_bytes = size_of::<Event>().saturating_mul(BUFFERED_OBSERVATIONS);
+    // The base result channel still drives ordinary scans if this optional evidence pool
+    // cannot budget its single inline ring. Correlated selection then falls back before read.
+    let _channel_permit = shared.correlated_budget.reserve_channel(channel_bytes);
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
     let mut progress = Progress {
         failed_roots: vec![false; root_count],

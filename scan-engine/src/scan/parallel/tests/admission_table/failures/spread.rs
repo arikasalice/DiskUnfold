@@ -229,19 +229,19 @@ fn spread(
 
 #[test]
 fn cousins_of_a_disconnected_folder_are_read_or_left_as_gaps() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     spread(cousins, &["p", "a"], Some(166))
 }
 
 #[test]
 fn a_disconnection_five_levels_deep_keeps_every_ancestor_exact() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     spread(deep, &["l1", "l2", "l3", "l4", "l5"], Some(232))
 }
 
 #[test]
 fn a_middle_batch_disconnection_keeps_the_earlier_batches() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     spread(middle_batch, &["m"], Some(315))?;
     // The batch after the disconnection is never read.
     let (collected, faults) = parallel_seeded(middle_batch(), (4, 9), false, false)?;
@@ -259,7 +259,7 @@ fn a_middle_batch_disconnection_keeps_the_earlier_batches() -> Result<(), String
 
 #[test]
 fn a_read_failing_after_the_middle_batch_keeps_both_batches() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     // Both batches were returned without disconnection evidence, so their
     // folders may be opened before the failing read.
     spread(read_after_middle_batch, &["m"], None)

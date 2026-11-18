@@ -31,7 +31,7 @@ fn tree() -> Arc<Tree> {
 
 #[test]
 fn excluded_counts_are_not_exposed_without_unique_enumeration_evidence() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         let label = format!("{collector:?}");
         let (outcome, version) = collect(&tree(), collector)?;
@@ -54,7 +54,7 @@ fn excluded_counts_are_not_exposed_without_unique_enumeration_evidence() -> Resu
 /// Neither cancellation nor a completed listing establishes an excluded count.
 #[test]
 fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         let label = format!("{collector:?}");
         let mut nodes = HashMap::from([(ROOT, Node::Batches(vec![vec![dir("d", 10)]]))]);
@@ -78,7 +78,7 @@ fn folders_without_exclusions_are_not_reported() -> Result<(), String> {
 /// read to its end, as a started folder on a disconnected volume is.
 #[test]
 fn a_folder_closed_by_a_disconnection_does_not_expose_a_count() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let mut lost = file("lost", 202);
     lost.metadata = Err(PortError {
         kind: PortErrorKind::Io,

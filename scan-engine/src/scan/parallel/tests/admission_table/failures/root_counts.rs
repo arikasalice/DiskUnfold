@@ -53,7 +53,7 @@ fn root_disconnects_later() -> HashMap<u64, Listing> {
 
 #[test]
 fn each_single_root_case_is_counted_once_by_both_collectors() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let read = compare(read_root, false)?;
     assert_eq!(counts(&read), (1, 0));
     assert_eq!(read.run.completeness, ResultCompleteness::Complete);
@@ -96,7 +96,7 @@ fn each_single_root_case_is_counted_once_by_both_collectors() -> Result<(), Stri
 
 #[test]
 fn a_root_cancelled_before_admission_is_not_counted() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = sink_with_result(&ids)?;
     let (_, root) = FaultDir::root(read_root());
@@ -226,7 +226,7 @@ fn forest(roots: Vec<Root>, workers: usize) -> Result<Collected, String> {
 
 #[test]
 fn a_revisited_root_is_completed_without_a_gap() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for workers in WORKERS {
         let run = forest(vec![Root::new(7), Root::new(7)], workers)?;
         assert_counted_once(&run, "revisit");
@@ -240,7 +240,7 @@ fn a_revisited_root_is_completed_without_a_gap() -> Result<(), String> {
 
 #[test]
 fn roots_on_a_volume_closed_before_they_start_are_each_one_failure() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for workers in WORKERS {
         let mut first = Root::new(7);
         first.start_disconnected = true;

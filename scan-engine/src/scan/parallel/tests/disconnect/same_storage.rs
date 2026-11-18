@@ -85,7 +85,7 @@ fn assert_read_to_its_end(beside: &Beside) {
 
 #[test]
 fn another_volume_of_the_same_device_keeps_being_read() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let roots = vec![observed_root("C:\\A", 1), observed_root("D:\\B", 2)];
     assert_read_to_its_end(&beside_a_disconnect(roots)?);
     Ok(())
@@ -93,7 +93,7 @@ fn another_volume_of_the_same_device_keeps_being_read() -> Result<(), Box<dyn st
 
 #[test]
 fn a_root_without_a_volume_identity_keeps_being_read() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let mut roots = vec![observed_root("C:\\A", 1), observed_root("C:\\B", 1)];
     for root in &mut roots {
         root.volume_id = Vec::new();

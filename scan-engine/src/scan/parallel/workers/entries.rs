@@ -3,7 +3,8 @@
 //! An admitted child is queued with a shared reference to this directory's
 //! handle and is opened relative to it only when a worker claims it.
 use super::*;
-use crate::scan::parallel::frame::OpenFailure;
+use crate::scan::parallel::frame::{OpenFailure, QueuedEntry};
+mod correlated;
 
 #[derive(Clone, Copy)]
 struct ChildReservation {
@@ -11,70 +12,195 @@ struct ChildReservation {
     registered: bool,
 }
 
+pub(super) struct EntryServices<'a> {
+    pub(super) shared: &'a Shared,
+    pub(super) sender: &'a SyncSender<Event>,
+    pub(super) context: &'a dyn JobContext,
+    pub(super) policy: Policy<'a>,
+}
+
 pub(super) fn process_entry(
     frame: &mut Frame,
-    timed: TimedObservedEntry,
+    queued: QueuedEntry,
     recorded: bool,
-    shared: &Shared,
-    sender: &SyncSender<Event>,
-    context: &dyn JobContext,
-    policy: Policy<'_>,
+    force_no_descend: bool,
+    services: &EntryServices<'_>,
 ) -> Result<Option<Frame>, ()> {
-    let entry = &timed.entry;
-    let mut path = frame.path.clone();
-    path.push(entry.name.clone());
+    let QueuedEntry {
+        timed,
+        child_id,
+        child_attempt,
+        payload_permit,
+    } = queued;
+    let mut timed = Some(timed);
+    let mut payload_permit = payload_permit;
+    let correlated_entry = child_id.is_some();
+    let mut child_attempt = child_attempt.unwrap_or_default();
+    let (path, mut path_permit) =
+        correlated::entry_path(frame, &timed, correlated_entry, services)?;
+    let entry = &timed.as_ref().ok_or(())?.entry;
+    let metadata_failed = entry.metadata.is_err();
     // Deferred root entries were admitted, reserved and sent in the first pass.
     let admission = if recorded {
         Admission::Enter
     } else {
         // After cancellation or disconnection the entry will not be opened.
-        let stopping = context.checkpoint() == Checkpoint::Cancel
-            || shared.disconnects.closed(frame.root_index);
-        admit(frame, entry, &path, &shared.visited, policy, !stopping)
+        let stopping = services.context.checkpoint() == Checkpoint::Cancel
+            || services.shared.disconnects.closed(frame.root_index);
+        admit(
+            frame,
+            entry,
+            &path,
+            &services.shared.visited,
+            services.policy,
+            !stopping,
+        )
     };
     if admission == Admission::Excluded {
+        if let Some(child_id) = child_id {
+            frame.correlated.finish_child(child_id);
+        }
         frame.excluded = frame.excluded.saturating_add(1);
         return Ok(None);
     }
     let enter = admission == Admission::Enter;
-    let reservation = reserve_child(frame, enter, &path, recorded, shared, context)?;
+    let reservation = reserve_child(
+        frame,
+        enter && !force_no_descend,
+        &path,
+        recorded,
+        services.shared,
+        services.context,
+    )?;
+    let (mut child_entry, mut child_entry_permit) = correlated::copy_child_entry(
+        entry,
+        correlated_entry,
+        enter,
+        recorded,
+        reservation.can_descend,
+        services,
+    );
     if !recorded {
-        sender
-            .send(Event::Item(
-                frame.root_index,
-                path.clone(),
-                Box::new(timed.clone()),
-                admission,
-            ))
-            .map_err(|_| ())?;
+        correlated::publish_item(
+            frame,
+            &mut timed,
+            &mut payload_permit,
+            &path,
+            admission,
+            correlated_entry,
+            services,
+        )?;
     }
-    if !continue_child(frame, &path, reservation, shared, context)? {
-        // An entered directory left unread on a disconnected volume is a gap
-        // of its own; a cancelled one is recorded and marked as unread.
-        let cancelled = context.checkpoint() == Checkpoint::Cancel;
-        if enter {
-            let sent = if cancelled {
-                super::cancel_drain::unread(frame.root_index, path, sender)
-            } else if shared.disconnects.closed(frame.root_index) {
-                super::disconnected::unread(frame.root_index, path, sender, context)
-            } else {
-                true
-            };
-            if !sent {
-                return Err(());
-            }
-        }
-        return Ok(None);
+    // Item is sent before Begin on this channel. Its acknowledgement proves the
+    // folder observation exists before the child token is registered.
+    correlated::register_child_attempt(
+        frame,
+        &mut child_attempt,
+        enter,
+        reservation.can_descend,
+        &path,
+        services,
+    );
+    correlated::record_final(
+        frame,
+        child_id,
+        recorded,
+        admission,
+        metadata_failed,
+        child_attempt.token(),
+        services,
+    );
+    if let Some(child_id) = child_id {
+        frame.correlated.finish_child(child_id);
+    }
+    if !continue_child(frame, &path, reservation, services.shared, services.context)? {
+        return stopped_child(
+            frame,
+            path.to_vec(),
+            enter,
+            force_no_descend,
+            &mut child_attempt,
+            services,
+        );
     }
     if frame.root && !frame.root_published {
-        frame.deferred.push_back(timed);
+        let (deferred_timed, deferred_permit) = if correlated_entry && !recorded {
+            let entry = child_entry.take().ok_or(())?;
+            (TimedObservedEntry::from(entry), child_entry_permit.take())
+        } else {
+            (timed.take().ok_or(())?, payload_permit.take())
+        };
+        frame.deferred.push_back(QueuedEntry {
+            timed: deferred_timed,
+            child_id,
+            child_attempt: enter.then_some(child_attempt),
+            payload_permit: enter.then_some(deferred_permit).flatten(),
+        });
         return Ok(None);
     }
     let Some(parent) = frame.directory.anchor().cloned() else {
         return Err(());
     };
-    let child = Frame::child(frame.root_index, path, parent, timed.entry);
-    Ok(schedule(shared, context, child, reservation.registered))
+    let (child_entry, child_permit) = if correlated_entry && !recorded {
+        (child_entry.take().ok_or(())?, child_entry_permit.take())
+    } else {
+        (timed.take().ok_or(())?.entry, payload_permit.take())
+    };
+    let child = Frame::child(
+        frame.root_index,
+        path.to_vec(),
+        parent,
+        child_entry,
+        child_permit,
+        path_permit.take(),
+        child_attempt,
+    );
+    Ok(schedule(
+        services.shared,
+        services.context,
+        child,
+        reservation.registered,
+    ))
+}
+
+fn stopped_child(
+    frame: &Frame,
+    path: Vec<Vec<u8>>,
+    enter: bool,
+    force_no_descend: bool,
+    child_attempt: &mut super::frame::correlated::Attempt,
+    services: &EntryServices<'_>,
+) -> Result<Option<Frame>, ()> {
+    if !enter {
+        return Ok(None);
+    }
+    // Cancellation and disconnection keep their distinct unread evidence.
+    let cancelled = services.context.checkpoint() == Checkpoint::Cancel;
+    if cancelled {
+        correlated_transport::cancel(services.sender, services.shared, child_attempt);
+    } else {
+        correlated_transport::fail_best_effort(services.sender, services.shared, child_attempt);
+    }
+    let sent = if cancelled {
+        super::cancel_drain::unread(frame.root_index, path, services.sender)
+    } else if services.shared.disconnects.closed(frame.root_index) {
+        super::disconnected::unread(frame.root_index, path, services.sender, services.context)
+    } else if force_no_descend {
+        services
+            .sender
+            .send(Event::Failure {
+                root_index: frame.root_index,
+                path,
+                root: false,
+                reason: "scan.unclassified",
+                stage: du_core_contracts::scan_failures::ScanFailureStage::Traverse,
+                observed_at: services.context.utc_now(),
+            })
+            .is_ok()
+    } else {
+        true
+    };
+    if sent { Ok(None) } else { Err(()) }
 }
 
 fn reserve_child(
@@ -144,6 +270,7 @@ pub(super) fn open_pending(
         Err(OpenFailure::Unavailable) => return Some(false),
         Err(OpenFailure::Port(error)) => error,
     };
+    correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
     let reason = reason(&error);
     shared.disconnects.observe_reason(frame.root_index, reason);
     let sent = sender

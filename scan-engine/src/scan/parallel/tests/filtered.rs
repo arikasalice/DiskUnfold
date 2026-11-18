@@ -7,9 +7,11 @@ struct FilteredRoot {
     probes: Arc<AtomicUsize>,
 }
 
+mod correlated;
+
 #[test]
 fn frozen_policy_receives_forest_root_index() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -72,7 +74,7 @@ fn frozen_policy_receives_forest_root_index() -> Result<(), Box<dyn std::error::
 
 #[test]
 fn metadata_job_uses_the_injected_frozen_policy() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Arc::new(Ids(AtomicUsize::new(1)));
     let context = Arc::new(Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -158,7 +160,7 @@ impl AnchoredDirectory for FilteredRoot {
 #[test]
 fn skipped_batch_is_not_eof_and_unsupported_fails_closed() -> Result<(), Box<dyn std::error::Error>>
 {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -327,7 +329,7 @@ impl AnchoredDirectory for PartialRoot {
 #[test]
 fn undecidable_name_stays_unread_and_unsupported_after_partial_withdraws()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for unsupported in [false, true] {
         let ids = Ids(AtomicUsize::new(1));
         let context = Context {

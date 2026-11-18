@@ -30,7 +30,7 @@ impl AnchoredDirectory for TimedRoot {
 #[test]
 fn forest_retains_each_root_time_and_leaves_unavailable_values_unknown()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let build = sink.open_forest(

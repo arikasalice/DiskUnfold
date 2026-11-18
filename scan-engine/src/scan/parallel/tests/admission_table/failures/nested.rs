@@ -80,7 +80,7 @@ fn check(
 
 #[test]
 fn a_disconnected_child_batch_closes_only_the_child() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let issues = vec![
         range(&["a"], Stage::Enumerate, REASON),
         entry_issue(&["a", "lost"], Kind::CollectionFailed, REASON),
@@ -109,7 +109,7 @@ fn a_disconnected_child_batch_closes_only_the_child() -> Result<(), String> {
 
 #[test]
 fn a_disconnected_child_open_closes_only_the_child() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let issues = vec![range(&["a"], Stage::OpenDirectory, REASON)];
     // The root and z.txt are completed; a is one failure.
     check(
@@ -136,7 +136,7 @@ fn fingerprint(collected: &Collected) -> Fingerprint {
 
 #[test]
 fn delayed_parallel_runs_give_one_result_for_a_disconnected_child() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for listings in [child_batch_disconnects, child_open_disconnects] {
         let expected = fingerprint(&sequential(listings(), false)?);
         let mut results = Vec::new();
@@ -159,7 +159,7 @@ fn delayed_parallel_runs_give_one_result_for_a_disconnected_child() -> Result<()
 
 #[test]
 fn a_sibling_is_read_to_its_end_or_left_as_a_gap_without_contents() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let child = |collected: &Collected| -> Vec<Item> {
         let rows = collected.run.summary.0.iter();
         rows.filter(|item| item.1.first() == Some(&b"a".to_vec()))

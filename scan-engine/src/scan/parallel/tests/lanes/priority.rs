@@ -83,7 +83,7 @@ fn d(name: &str) -> Vec<Vec<u8>> {
 
 #[test]
 fn a_request_during_pause_is_accepted_and_applies_after_resume() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let (gate, remote, calls) = (
         Arc::new(Gate::default()),
         Arc::new(Remote::default()),
@@ -125,7 +125,7 @@ fn a_request_during_pause_is_accepted_and_applies_after_resume() -> Result<(), T
 
 #[test]
 fn a_request_during_cancellation_assigns_no_more_work() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let (gate, remote, calls) = (
         Arc::new(Gate::default()),
         Arc::new(Remote::default()),
@@ -243,7 +243,7 @@ fn join_in_time<T>(
 
 #[test]
 fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 2,
         dirs: 3,

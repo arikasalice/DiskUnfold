@@ -170,7 +170,7 @@ fn check(run: &Run, tree: &Tree, refusals: &Refusals, label: &str) {
 
 #[test]
 fn a_failed_open_keeps_the_admitted_identity_reserved() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let tree = tree_of(aliased(), 0);
     let refusals = Arc::new(Refusals::default());
     let baseline = sequential(Refusing::root(&tree, &refusals))?;

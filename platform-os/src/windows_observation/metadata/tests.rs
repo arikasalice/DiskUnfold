@@ -98,3 +98,87 @@ fn root_ancestors_run_from_the_volume_root_down_to_the_parent()
     assert_eq!(identity.ancestors.len(), child.ancestors().count() - 1);
     Ok(())
 }
+
+#[test]
+fn correlated_metadata_rejects_a_file_id_that_differs_from_the_enumeration_record()
+-> Result<(), String> {
+    use super::super::{info, relative, wide};
+    use du_core_contracts::ports::PortErrorKind;
+    use du_core_contracts::scan_observation::DirectoryObservations;
+    use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+
+    let fixture = tempfile::tempdir().map_err(|error| error.to_string())?;
+    std::fs::write(fixture.path().join("entry"), b"fixture").map_err(|error| error.to_string())?;
+    let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
+    let entry = directory
+        .next_batch()
+        .map_err(|error| format!("{error:?}"))?
+        .into_iter()
+        .next()
+        .ok_or("entry was not enumerated")?;
+    let name = wide(&entry.name).map_err(|error| format!("{error:?}"))?;
+    let file =
+        relative(&directory.handle, &name, false, false).map_err(|error| format!("{error:?}"))?;
+    let opened_id = super::super::identity(&info(&file).map_err(|error| format!("{error:?}"))?);
+    let mismatched = directory.observe_correlated(
+        entry.name.clone(),
+        opened_id ^ 1,
+        FILE_ATTRIBUTE_NORMAL.0,
+        0,
+        Ok(true),
+    );
+
+    assert_eq!(entry.enumerated_inode, opened_id);
+    assert_eq!(mismatched.name, entry.name);
+    assert_eq!(mismatched.enumerated_inode, opened_id ^ 1);
+    assert_eq!(
+        mismatched
+            .metadata
+            .as_ref()
+            .err()
+            .map(|error| error.kind.clone()),
+        Some(PortErrorKind::IdentityChanged)
+    );
+    Ok(())
+}
+
+#[test]
+fn correlated_metadata_is_withheld_when_the_case_mode_is_unknown()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::ports::{PortError, PortErrorKind};
+    use du_core_contracts::scan_observation::DirectoryObservations;
+    use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+
+    let fixture = tempfile::tempdir()?;
+    std::fs::write(fixture.path().join("entry"), b"fixture")?;
+    let mut directory = open_verified(fixture.path()).map_err(|error| format!("{error:?}"))?;
+    let entry = directory
+        .next_batch()
+        .map_err(|error| format!("{error:?}"))?
+        .into_iter()
+        .next()
+        .ok_or("entry was not enumerated")?;
+    let withheld = directory.observe_correlated(
+        entry.name.clone(),
+        entry.enumerated_inode,
+        FILE_ATTRIBUTE_NORMAL.0,
+        0,
+        Err(PortError {
+            kind: PortErrorKind::Io,
+            reason_key: "os.query_failed".into(),
+            os_code: None,
+        }),
+    );
+
+    assert_eq!(withheld.name, entry.name);
+    assert_eq!(withheld.enumerated_inode, entry.enumerated_inode);
+    assert_eq!(
+        withheld
+            .metadata
+            .as_ref()
+            .err()
+            .map(|error| error.kind.clone()),
+        Some(PortErrorKind::Io)
+    );
+    Ok(())
+}

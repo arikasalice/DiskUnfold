@@ -23,8 +23,6 @@ use du_core_contracts::{
         AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, TimedObservedEntry,
     },
 };
-#[cfg(test)]
-use frame::Directory;
 use frame::Frame;
 #[cfg(test)]
 use std::collections::VecDeque;
@@ -38,6 +36,7 @@ use std::{
     time::Duration,
 };
 
+mod correlated_budget;
 mod disconnect;
 mod preparation;
 mod scheduler;
@@ -86,6 +85,7 @@ struct Shared {
     disconnects: disconnect::Disconnects,
     track_priority_paths: bool,
     visited: Visited,
+    correlated_budget: Arc<correlated_budget::CorrelatedBudget>,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -97,7 +97,46 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>, Admission),
+    /// Registration is independent of the attempt event sequence.
+    FolderAttemptBegin {
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        attempt_id: u64,
+        reply: mpsc::Sender<
+            Result<du_analysis_index::FolderAttemptToken, du_analysis_index::FolderAttemptError>,
+        >,
+        _permit: correlated_budget::Permit,
+    },
+    /// A result is acknowledged only after the receiving build accepts it.
+    FolderAttemptRecord {
+        token: du_analysis_index::FolderAttemptToken,
+        seq: u64,
+        input: Box<du_analysis_index::FolderAttemptInput>,
+        reply: Option<mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>>,
+        _permit: Option<correlated_budget::Permit>,
+    },
+    /// Acknowledged EOF barrier, sent only after every numbered event was acknowledged.
+    FolderAttemptEnd {
+        token: du_analysis_index::FolderAttemptToken,
+        event_watermark_exclusive: u64,
+        child_count_exclusive: u64,
+        reply: mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>,
+    },
+    Item(
+        u32,
+        Vec<Vec<u8>>,
+        Box<TimedObservedEntry>,
+        Admission,
+        Option<correlated_budget::Permit>,
+    ),
+    /// A correlated observation whose dynamic payload and path are charged to the scan budget.
+    CorrelatedItem(
+        u32,
+        Vec<Vec<u8>>,
+        Box<TimedObservedEntry>,
+        Admission,
+        correlated_budget::Permit,
+    ),
     /// A name withheld by an undecidable exclusion rule; it was never observed.
     Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
@@ -132,7 +171,13 @@ struct Control<'a> {
     context: &'a dyn JobContext,
     limit: usize,
     policy: Policy<'a>,
+}
+
+struct ScanOptions<'a> {
+    devices: DevicePlan,
+    diagnostics: Option<&'a crate::scan_job::ScanDiagnostics>,
     scan_control: Option<&'a ScanControlSession>,
+    correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
 }
 
 #[derive(Clone, Copy)]
@@ -209,7 +254,12 @@ pub(crate) fn collect_open_forest_with_groups(
         context,
         limit,
         Policy::Legacy(include),
-        (devices, None, None),
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: None,
+        },
     )
 }
 
@@ -229,7 +279,39 @@ pub(crate) fn collect_open_forest_filtered(
         context,
         limit,
         Policy::BeforeMetadata(include),
-        (devices, None, None),
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: None,
+        },
+    )
+}
+
+#[cfg(test)]
+fn collect_open_forest_filtered_with_budget(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &PreMetadataFilter<'_>,
+    options: (DevicePlan, Arc<correlated_budget::CorrelatedBudget>),
+) -> JobOutcome {
+    let (devices, budget) = options;
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        Policy::BeforeMetadata(include),
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: Some(budget),
+        },
     )
 }
 
@@ -248,7 +330,21 @@ pub(crate) fn collect_open_forest_diagnostic(
 ) -> JobOutcome {
     let include = |_: &[Vec<u8>]| true;
     let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
-    collect_with_policy(build, roots, ids, context, limit, policy, options)
+    let (devices, diagnostics, scan_control) = options;
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        policy,
+        ScanOptions {
+            devices,
+            diagnostics,
+            scan_control,
+            correlated_budget: None,
+        },
+    )
 }
 
 fn collect_with_policy(
@@ -258,11 +354,7 @@ fn collect_with_policy(
     context: &dyn JobContext,
     limit: usize,
     policy: Policy<'_>,
-    options: (
-        DevicePlan,
-        Option<&crate::scan_job::ScanDiagnostics>,
-        Option<&ScanControlSession>,
-    ),
+    options: ScanOptions<'_>,
 ) -> JobOutcome {
     struct FinishControl<'a>(Option<&'a ScanControlSession>);
     impl Drop for FinishControl<'_> {
@@ -272,28 +364,17 @@ fn collect_with_policy(
             }
         }
     }
-    let (devices, diagnostics, scan_control) = options;
-    let _finish_control = FinishControl(scan_control);
+    let _finish_control = FinishControl(options.scan_control);
     let mut counts = JobCounts::default();
     let worker_control = Control {
         ids,
         context,
         limit,
         policy,
-        scan_control,
     };
     let clock = ContextClock(context);
-    let result = build.and_then(|build| {
-        run(
-            build,
-            roots,
-            worker_control,
-            &mut counts,
-            devices,
-            &clock,
-            diagnostics,
-        )
-    });
+    let result =
+        build.and_then(|build| run(build, roots, worker_control, &mut counts, &clock, options));
     match result {
         Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,

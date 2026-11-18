@@ -1,6 +1,10 @@
 //! One bounded `getattrlistbulk` request and the parsing of its packed records.
 use super::{dataless, errors};
-use du_core_contracts::{Timestamp, ports::PortError, scan_observation::ObservedKind};
+use du_core_contracts::{
+    Timestamp,
+    ports::{PortError, PortErrorKind},
+    scan_observation::ObservedKind,
+};
 use libc::{
     ATTR_BIT_MAP_COUNT, ATTR_CMN_DEVID, ATTR_CMN_FILEID, ATTR_CMN_FLAGS, ATTR_CMN_MODTIME,
     ATTR_CMN_NAME, ATTR_CMN_OBJTYPE, ATTR_CMN_RETURNED_ATTRS, ATTR_DIR_DATALENGTH,
@@ -108,6 +112,31 @@ pub(super) fn read(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<Vec<R
     parse(buffer, count)
 }
 
+/// Correlated reads use fallible allocations so a lost record becomes a stream error.
+pub(super) fn read_correlated(
+    directory: BorrowedFd<'_>,
+    buffer: &mut [u8],
+) -> Result<Vec<Record>, PortError> {
+    let count = dataless::without_materialization(|| request(directory, buffer))??;
+    parse_correlated(buffer, count)
+}
+
+pub(super) fn allocation_error() -> PortError {
+    PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "os.query_failed".into(),
+        os_code: None,
+    }
+}
+
+pub(super) fn try_copy_bytes(bytes: &[u8]) -> Result<Vec<u8>, PortError> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(bytes.len())
+        .map_err(|_| allocation_error())?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+
 fn request(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<usize, PortError> {
     let mut list = libc::attrlist {
         bitmapcount: ATTR_BIT_MAP_COUNT,
@@ -148,7 +177,30 @@ fn request(directory: BorrowedFd<'_>, buffer: &mut [u8]) -> Result<usize, PortEr
 /// The directory then ends with that error, and the collector reports it as
 /// a directory that could not be read in full.
 pub(super) fn parse(bytes: &[u8], count: usize) -> Result<Vec<Record>, PortError> {
-    let mut records = Vec::with_capacity(count);
+    parse_with_allocation_mode(bytes, count, false)
+}
+
+pub(super) fn parse_correlated(bytes: &[u8], count: usize) -> Result<Vec<Record>, PortError> {
+    parse_with_allocation_mode(bytes, count, true)
+}
+
+fn parse_with_allocation_mode(
+    bytes: &[u8],
+    count: usize,
+    fallible: bool,
+) -> Result<Vec<Record>, PortError> {
+    if fallible && count > bytes.len() / HEADER {
+        return Err(errors::invalid());
+    }
+    let mut records = if fallible {
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(count)
+            .map_err(|_| allocation_error())?;
+        records
+    } else {
+        Vec::with_capacity(count)
+    };
     let mut offset = 0usize;
     for _ in 0..count {
         let length =
@@ -158,13 +210,13 @@ pub(super) fn parse(bytes: &[u8], count: usize) -> Result<Vec<Record>, PortError
             .filter(|_| length >= HEADER)
             .ok_or_else(errors::invalid)?;
         let record = bytes.get(offset..end).ok_or_else(errors::invalid)?;
-        records.push(record_from(record)?);
+        records.push(record_from(record, fallible)?);
         offset = end;
     }
     Ok(records)
 }
 
-fn record_from(bytes: &[u8]) -> Result<Record, PortError> {
+fn record_from(bytes: &[u8], fallible: bool) -> Result<Record, PortError> {
     let mut cursor = Cursor::new(bytes, 4);
     let [common, volume, directory, file, fork] = cursor.returned()?;
     if common & !COMMON != 0
@@ -179,7 +231,7 @@ fn record_from(bytes: &[u8]) -> Result<Record, PortError> {
     // ATTR_CMN_ERROR precedes the other attributes, as getattrlistbulk(2) shows.
     let error = cursor.optional(common & ATTR_CMN_ERROR, Cursor::u32)?;
     Ok(Record {
-        name: cursor.name()?,
+        name: cursor.name(fallible)?,
         error,
         device: cursor
             .optional(common & ATTR_CMN_DEVID, Cursor::u32)?
@@ -259,7 +311,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Reads an `attrreference_t` that points at a NUL-terminated entry name.
-    fn name(&mut self) -> Result<Vec<u8>, PortError> {
+    fn name(&mut self, fallible: bool) -> Result<Vec<u8>, PortError> {
         let base = self.at;
         let offset = i32::from_ne_bytes(self.take()?);
         let length = usize::try_from(self.u32()?).map_err(|_| errors::invalid())?;
@@ -276,7 +328,11 @@ impl<'a> Cursor<'a> {
         if *terminator != 0 || name.is_empty() || name.contains(&0) || name.contains(&b'/') {
             return Err(errors::invalid());
         }
-        Ok(name.to_vec())
+        if fallible {
+            try_copy_bytes(name)
+        } else {
+            Ok(name.to_vec())
+        }
     }
 }
 

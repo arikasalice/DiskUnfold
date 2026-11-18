@@ -121,6 +121,7 @@ impl IngestSink {
         Self {
             state: Arc::default(),
             events: Arc::new(PublicationEvents::new(versions, Some(freshness))),
+            folder_evidence_budget: Arc::default(),
         }
     }
 }

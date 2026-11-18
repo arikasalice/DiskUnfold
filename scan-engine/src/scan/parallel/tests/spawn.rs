@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn failed_second_spawn_closes_channels_and_finishes_all_flows()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let mut previous = sink.open(ids.next_id()).map_err(|e| format!("{e:?}"))?;

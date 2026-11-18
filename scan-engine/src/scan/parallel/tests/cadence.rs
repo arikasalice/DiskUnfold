@@ -15,6 +15,51 @@ impl MonotonicClock for Clock {
     }
 }
 
+#[test]
+fn folder_registration_failure_is_returned_to_sender() -> Result<(), Box<dyn std::error::Error>> {
+    let ids = Ids(AtomicUsize::new(1));
+    let sink = IngestSink::default();
+    let mut build = sink.open(ids.next_id()).map_err(|e| format!("{e:?}"))?;
+    let context = Context {
+        completed: Arc::new(AtomicUsize::new(0)),
+        abandoned: Arc::new(AtomicUsize::new(0)),
+    };
+    let clock = Clock {
+        values: Mutex::new(VecDeque::new()),
+    };
+    let mut progress = Progress {
+        failed_roots: Vec::new(),
+        root_published: Vec::new(),
+        counted_roots: record::FailedRanges::new(Vec::new()),
+        published: false,
+        cadence: PublicationCadence::default(),
+    };
+    let (reply, received) = mpsc::channel();
+    progress
+        .record(
+            Event::FolderAttemptBegin {
+                root_index: u32::MAX,
+                path: Vec::new(),
+                attempt_id: 1,
+                reply,
+                _permit: correlated_budget::CorrelatedBudget::new()
+                    .reserve(0)
+                    .ok_or("test budget")?,
+            },
+            &mut build,
+            &mut JobCounts::default(),
+            &context,
+            &ids,
+            &clock,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(matches!(
+        received.recv(),
+        Ok(Err(du_analysis_index::FolderAttemptError::InvalidDirectory))
+    ));
+    Ok(())
+}
+
 fn file_entry(name: &[u8], inode: u64) -> ObservedEntry {
     ObservedEntry {
         name: name.to_vec(),
@@ -92,6 +137,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
                 path.clone(),
                 Box::new(file_entry(&path[0], 7).into()),
                 Admission::Record,
+                None,
             ),
             &mut build,
             &mut JobCounts::default(),
@@ -135,7 +181,8 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
                     0,
                     path.clone(),
                     Box::new(file_entry(&path[0], 7).into()),
-                    Admission::Record
+                    Admission::Record,
+                    None,
                 ),
                 &mut build,
                 &mut JobCounts::default(),
@@ -231,6 +278,7 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
             path.clone(),
             Box::new(file_entry(&path[0], 7).into()),
             Admission::Record,
+            None,
         ))
         .map_err(|_| "send item")?;
     assert_eq!(signal_rx.recv_timeout(Duration::from_secs(2))?, 4);

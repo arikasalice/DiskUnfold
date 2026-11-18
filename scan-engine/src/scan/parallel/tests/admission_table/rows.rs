@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let tree = tree(0);
     let run = filtered_run(&tree, 4, true)?;
     // Only the undecidable name is a failure and a gap.
@@ -59,7 +59,7 @@ fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<
 
 #[test]
 fn worker_count_and_delay_order_keep_the_same_result() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let baseline = filtered_run(&tree(0), 1, true)?.summary;
     for (workers, seed) in RUNS {
         let tree = tree(seed);
@@ -72,7 +72,7 @@ fn worker_count_and_delay_order_keep_the_same_result() -> Result<(), String> {
 
 #[test]
 fn unverified_root_identity_is_an_unread_root_and_keeps_the_result_missing() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let tree = tree(0);
     let run = filtered_run(&tree, 2, false)?;
     assert!(run.outcome.result_version_id.is_some());
@@ -112,7 +112,7 @@ fn unverified_root_identity_is_an_unread_root_and_keeps_the_result_missing() -> 
 
 #[test]
 fn sequential_and_legacy_parallel_paths_share_the_table() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let include = |path: &[Vec<u8>]| path.first().is_none_or(|first| first != b"skip");
     let ids = Ids(AtomicUsize::new(1));
     let sequential_tree = tree(0);
@@ -185,7 +185,7 @@ fn sequential_collector_reports_an_unverified_root() -> Result<(), String> {
 
 #[test]
 fn priority_requests_and_header_keep_the_frozen_scope() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let tree = tree(0);
     let ids = Arc::new(Ids(AtomicUsize::new(1)));
     let sink = IngestSink::default();

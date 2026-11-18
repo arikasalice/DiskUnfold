@@ -106,7 +106,7 @@ fn names(collected: &Collected) -> Vec<Vec<Vec<u8>>> {
 
 #[test]
 fn without_cancellation_a_started_folder_is_read_to_its_end() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let (baseline, faults) = sequential_run(false)?;
     // Three batches and the end of the listing.
     assert_eq!(faults.reads(ROOT), 4);
@@ -129,7 +129,7 @@ fn without_cancellation_a_started_folder_is_read_to_its_end() -> Result<(), Stri
 
 #[test]
 fn cancellation_after_a_disconnection_stops_reading_at_the_next_call() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let (baseline, faults) = sequential_run(true)?;
     assert_eq!(faults.calls_after_cancel.load(SeqCst), 0);
     // The root's remaining batches are never read.

@@ -120,7 +120,7 @@ impl JobContext for Clocked {
 #[test]
 fn injected_clock_is_recorded_at_fake_observation_not_publication()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let store = IngestSink::default();
     let probes = Arc::new(AtomicUsize::new(0));
@@ -314,7 +314,7 @@ fn assert_missing_enumeration(
 
 #[test]
 fn legacy_adapter_does_not_fabricate_item_time() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let store = IngestSink::default();
     let roots: Vec<Box<dyn AnchoredDirectory>> = vec![Box::new(SmallRoot {

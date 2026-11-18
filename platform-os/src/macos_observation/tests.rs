@@ -6,6 +6,8 @@ use du_core_contracts::{
 };
 use std::sync::Arc;
 
+mod correlated;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const ERROR: u32 = 0x2000_0000;

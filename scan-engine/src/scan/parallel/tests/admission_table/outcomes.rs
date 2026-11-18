@@ -105,7 +105,7 @@ fn check(run: &Run, complete: bool, failed: u64, issues: &[Issue], gaps: &[Gap])
 
 #[test]
 fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let issues = sorted(vec![
         other_volume(0, &["foreign.bin"]),
         other_volume(0, &["mnt"]),
@@ -136,7 +136,7 @@ fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), Strin
 
 #[test]
 fn revisits_and_a_repeated_root_keep_the_result_complete() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let single = sorted(vec![revisit(0, &["a", "loop"]), revisit(0, &["twin"])]);
     let baseline = sequential(&tree_of(revisits(), 0), true)?;
     check(&baseline, true, 0, &single, &[]);
@@ -163,7 +163,7 @@ fn revisits_and_a_repeated_root_keep_the_result_complete() -> Result<(), String>
 
 #[test]
 fn unverifiable_ranges_are_gaps_and_failures() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     // A root without an identity: neither it nor its child directory is entered.
     let unidentified = [unverifiable(0, &[]), unverifiable(0, &["a"])];
     let unidentified_gaps = [unverifiable_gap(0, &[]), unverifiable_gap(0, &["a"])];

@@ -96,7 +96,7 @@ fn check(tree: &Tree, version: &ResultVersion, label: &str) -> Result<(), String
 
 #[test]
 fn a_scan_that_is_not_cancelled_leaves_no_mark() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         let (outcome, version) = collect(&Tree::new(nodes(), Trigger::Never), collector)?;
         assert!(outcome.completed_scope, "{collector:?}");
@@ -109,7 +109,7 @@ fn a_scan_that_is_not_cancelled_leaves_no_mark() -> Result<(), String> {
 
 #[test]
 fn a_cancelled_scan_marks_exactly_the_folders_not_read_to_their_end() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         for trigger in TRIGGERS {
             let tree = Tree::new(nodes(), trigger);
@@ -140,7 +140,7 @@ fn describe(trigger: Trigger) -> String {
 /// listing, and recorded from a returned batch while draining.
 #[test]
 fn each_kind_of_unread_folder_is_marked_once() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     type Marked = HashSet<Vec<Vec<u8>>>;
     let run = |trigger| -> Result<(Marked, Arc<Tree>), String> {
         let tree = Tree::new(nodes(), trigger);
@@ -173,7 +173,7 @@ fn each_kind_of_unread_folder_is_marked_once() -> Result<(), String> {
 /// recorded while it is drained and marked with it, without being opened.
 #[test]
 fn folders_recorded_while_draining_are_marked_with_their_parent() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let collectors = [
         Collector::Legacy(1),
         Collector::Legacy(4),
@@ -203,7 +203,7 @@ fn folders_recorded_while_draining_are_marked_with_their_parent() -> Result<(), 
 /// `a`, read to its end before, is not.
 #[test]
 fn sequential_marks_the_folders_on_its_stack() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for trigger in [Trigger::Read(B1, 0), Trigger::Open(B1)] {
         let tree = Tree::new(nodes(), trigger);
         let (_, version) = collect(&tree, Collector::Sequential)?;
@@ -226,7 +226,7 @@ fn sequential_marks_the_folders_on_its_stack() -> Result<(), String> {
 /// leaves no mark, and none of its folders is entered.
 #[test]
 fn an_unverifiable_root_is_not_marked() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         for trigger in [Trigger::Read(ROOT, 0), Trigger::Read(ROOT, 1)] {
             let tree = Tree::unverified(nodes(), trigger);
@@ -247,7 +247,7 @@ fn an_unverifiable_root_is_not_marked() -> Result<(), String> {
 /// A scan cancelled before any read marks its root and nothing else.
 #[test]
 fn a_scan_cancelled_before_it_starts_marks_its_root() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for collector in COLLECTORS {
         let tree = Tree::new(nodes(), Trigger::Never);
         tree.cancel.store(true, Ordering::SeqCst);
@@ -263,7 +263,7 @@ fn a_scan_cancelled_before_it_starts_marks_its_root() -> Result<(), String> {
 /// keep their disconnection gaps, and no folder has both a gap and a mark.
 #[test]
 fn a_disconnection_gap_is_never_also_marked() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let mut lost = file("lost", 502);
     lost.metadata = Err(PortError {
         kind: PortErrorKind::Io,

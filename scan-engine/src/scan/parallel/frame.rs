@@ -9,6 +9,8 @@
 //! The open is a turn of its own: the opened directory returns to its lane and
 //! its first read is assigned again, in the current priority order.
 use super::admission::Boundary;
+use super::correlated_budget::Permit;
+pub(super) mod correlated;
 use du_core_contracts::{
     ports::PortError,
     scan_observation::{AnchoredDirectory, ObservedEntry, TimedObservedEntry},
@@ -149,6 +151,7 @@ pub(super) enum Directory {
     Pending {
         parent: Anchor,
         entry: Box<ObservedEntry>,
+        _entry_permit: Option<Permit>,
     },
 }
 
@@ -163,6 +166,25 @@ pub(super) enum OpenFailure {
     Stopped,
 }
 
+/// An observation stays paired with its attempt-scoped child ID while queued.
+pub(super) struct QueuedEntry {
+    pub(super) timed: TimedObservedEntry,
+    pub(super) child_id: Option<u64>,
+    pub(super) child_attempt: Option<correlated::Attempt>,
+    pub(super) payload_permit: Option<Permit>,
+}
+
+impl From<TimedObservedEntry> for QueuedEntry {
+    fn from(timed: TimedObservedEntry) -> Self {
+        Self {
+            timed,
+            child_id: None,
+            child_attempt: None,
+            payload_permit: None,
+        }
+    }
+}
+
 impl Directory {
     /// Wraps a handle that the caller already opened and verified.
     pub(super) fn opened(directory: Box<dyn AnchoredDirectory>) -> Self {
@@ -170,10 +192,15 @@ impl Directory {
     }
 
     /// A queued child of `parent`; no OS call is made until it is opened.
-    pub(super) fn pending(parent: Anchor, entry: ObservedEntry) -> Self {
+    pub(super) fn pending(
+        parent: Anchor,
+        entry: ObservedEntry,
+        entry_permit: Option<Permit>,
+    ) -> Self {
         Self::Pending {
             parent,
             entry: Box::new(entry),
+            _entry_permit: entry_permit,
         }
     }
 
@@ -207,7 +234,7 @@ impl Directory {
     /// as `stop` holds, so a stalled parent read does not hold a cancelled
     /// worker. `stop` is called without holding any lock.
     pub(super) fn open(&mut self, stop: &dyn Fn() -> bool) -> Result<(), OpenFailure> {
-        let Self::Pending { parent, entry } = self else {
+        let Self::Pending { parent, entry, .. } = self else {
             return Ok(());
         };
         let opened = parent
@@ -224,11 +251,14 @@ impl Directory {
 
 /// One unit of directory work in a lane: a pending child or an opened directory.
 pub(super) struct Frame {
+    // Prepared per-frame state; activation waits for the receiver contract.
+    pub(super) correlated: correlated::Attempt,
     pub(super) root_index: u32,
     pub(super) path: Vec<Vec<u8>>,
+    _path_permit: Option<Permit>,
     pub(super) directory: Directory,
-    pub(super) entries: VecDeque<TimedObservedEntry>,
-    pub(super) deferred: VecDeque<TimedObservedEntry>,
+    pub(super) entries: VecDeque<QueuedEntry>,
+    pub(super) deferred: VecDeque<QueuedEntry>,
     pub(super) root: bool,
     pub(super) first_batch: bool,
     pub(super) root_published: bool,
@@ -263,10 +293,19 @@ impl Frame {
         path: Vec<Vec<u8>>,
         parent: Anchor,
         entry: ObservedEntry,
+        entry_permit: Option<Permit>,
+        path_permit: Option<Permit>,
+        correlated: correlated::Attempt,
     ) -> Self {
         let boundary = Boundary::child(&entry);
-        let mut frame =
-            Self::with_directory(root_index, path, Directory::pending(parent, entry), false);
+        let mut frame = Self::with_directory(
+            root_index,
+            path,
+            Directory::pending(parent, entry, entry_permit),
+            false,
+        );
+        frame._path_permit = path_permit;
+        frame.correlated = correlated;
         frame.boundary = boundary;
         frame
     }
@@ -278,8 +317,10 @@ impl Frame {
         root: bool,
     ) -> Self {
         Self {
+            correlated: correlated::Attempt::default(),
             root_index,
             path,
+            _path_permit: None,
             directory,
             entries: VecDeque::new(),
             deferred: VecDeque::new(),

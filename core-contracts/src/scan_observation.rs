@@ -56,10 +56,131 @@ pub enum FilterDecision {
     Undecidable,
 }
 
+/// When a correlated adapter invoked the filter relative to metadata observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterCallbackPhase {
+    BeforeMetadata,
+    AfterMetadata,
+    Unknown,
+}
+
+/// One bounded result from an opt-in correlated directory enumeration attempt.
+///
+/// `child_id` is dense and zero-based for every direct-child record, including
+/// excluded and undecidable records. It is scoped to one attempt and is not an
+/// event sequence or filesystem identity. F02 assigns and transports event
+/// sequences independently.
+// Keep payloads inline to avoid one extra heap allocation per admitted child.
+// Consequently, every event has the size of the Observation variant; any future bounded
+// transport must account for the enum's full inline size per retained event.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CorrelatedDirectoryEvent {
+    /// The callback decision and raw name for this record.
+    FilterCallback {
+        /// Dense zero-based direct-child record ID, reused for this child in this attempt.
+        child_id: u64,
+        raw_name: Vec<u8>,
+        decision: FilterDecision,
+        phase: FilterCallbackPhase,
+    },
+    /// The complete per-entry observation, including its timestamp and any metadata error.
+    Observation {
+        /// The same ID used for this direct child's filter callback.
+        child_id: u64,
+        entry: TimedObservedEntry,
+    },
+    /// A bounded call made progress but has no event to report yet.
+    Progress,
+    /// Actual directory EOF. The count is the number of child IDs the adapter issued,
+    /// including excluded, undecidable, failed, or buffer-discarded records. It is not
+    /// the number of successfully returned items or an event-sequence watermark.
+    End { child_count_exclusive: u64 },
+}
+
 /// A bounded pull interface; an empty batch marks the end of this directory.
 /// An error terminates the stream; callers must record the unread remainder.
 pub trait DirectoryObservations: Send {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError>;
+
+    /// Selects correlated enumeration before consuming entries for this attempt.
+    ///
+    /// A successful return selects this stream for the entire attempt. Callers must not
+    /// mix it with `next_batch`, `next_filtered`, or their timed variants; after any
+    /// stream error they must fail the attempt rather than bridge to a legacy port.
+    /// Implementations that cannot provide this capability return `Unsupported` before
+    /// enumeration I/O. Only that result permits fallback to the legacy path; other
+    /// errors fail the attempt. Existing adapters inherit `Unsupported` unchanged. The
+    /// attempt state remains on this directory between calls. F02 owns attempt framing,
+    /// the event sequence and its watermark, pending-state clearing, per-child final
+    /// classification (including boundaries and revisits), and attempt completion. The
+    /// adapter owns dense child IDs, the EOF child count, filter callback facts,
+    /// per-entry observations, and stream errors.
+    ///
+    /// The selection performs no enumeration I/O. Each subsequent step uses the
+    /// directory lease for that call, which its owner releases before transporting the
+    /// event. A successful selection prohibits mixing with legacy enumeration, even
+    /// after an error or cancellation; end and failure leave the attempt terminal. A
+    /// retry is a new attempt with a new child-ID scope. Only `Unsupported` from this
+    /// method permits legacy fallback.
+    fn begin_correlated_filtered(&mut self) -> Result<(), PortError> {
+        Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "os.unsupported".into(),
+            os_code: None,
+        })
+    }
+
+    /// Advances the selected attempt by one bounded event using the same stable raw-name
+    /// predicate for its lifetime.
+    ///
+    /// Each OS enumeration record receives the next dense, zero-based `child_id` before
+    /// filtering or metadata observation, including records filtered as `Exclude` or
+    /// `Undecidable`. Reuse that ID for every event about the record; IDs have no meaning
+    /// outside this attempt. Emit one `FilterCallback` for each predicate invocation.
+    /// `Exclude` has no later observation. `Undecidable` remains unresolved. A
+    /// per-entry metadata error belongs in `Observation.entry.metadata`; an error
+    /// returned by this method is a stream failure and must not be bridged to a legacy
+    /// method. Once issued, an ID remains counted if its record later fails or its
+    /// pending buffer is discarded.
+    ///
+    /// Return `End { child_count_exclusive }` only at successful actual EOF, after all
+    /// adapter events for issued IDs have been returned to F02. The count is the total
+    /// number of IDs issued, including excluded, undecidable, failed, and
+    /// buffer-discarded records; it is not a count of successful observations. It defines
+    /// the range `[0, child_count_exclusive)`. Do not return a valid `End` after ID
+    /// overflow, parse or I/O failure, cancellation, or loss of a required adapter fact.
+    /// F02 transports this count separately from its independently assigned
+    /// `event_watermark_exclusive`; neither value can substitute for the other. If F02
+    /// clears pending data or loses data during allocation or transport, it must preserve
+    /// affected IDs as unresolved before forwarding `End`, or fail the whole attempt.
+    /// F03 must independently require every ID in the count range to be Seen and have a
+    /// terminal outcome. An `Exclude` callback is itself terminal and needs no later
+    /// `Final` event; only an `Admit` callback requires corresponding `Final` evidence.
+    /// `Undecidable`, missing facts, and pending clears remain unresolved and cannot
+    /// establish successful attempt completion. A matching count alone does not prove
+    /// the filesystem was fully observed or unchanged during enumeration.
+    ///
+    /// `observed_at: None` and a `None` clock result mean the time is unknown. Do not
+    /// synthesize a scan or completion time. These point observations do not prove an
+    /// atomic snapshot or rule out concurrent filesystem changes. A failed or cancelled
+    /// attempt cannot be resumed in place; retry with a new attempt and do not combine
+    /// its IDs or events with the prior attempt.
+    ///
+    /// This default returns `Unsupported` without I/O for compatibility with existing
+    /// implementations. If selection succeeded, an error here fails that attempt;
+    /// callers must not fall back to legacy enumeration.
+    fn next_correlated_event(
+        &mut self,
+        _include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+        _clock: &dyn Fn() -> Option<Timestamp>,
+    ) -> Result<CorrelatedDirectoryEvent, PortError> {
+        Err(PortError {
+            kind: PortErrorKind::Unsupported,
+            reason_key: "os.unsupported".into(),
+            os_code: None,
+        })
+    }
 
     /// Optional timed variant. Legacy adapters preserve unknown times without calling the clock.
     fn next_batch_timed(

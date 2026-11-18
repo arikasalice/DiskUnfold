@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -32,7 +32,6 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
             context: &context,
             limit: 1,
             policy: Policy::Legacy(&|_| true),
-            scan_control: None,
         };
         let mut counts = JobCounts::default();
         let devices = DevicePlan {
@@ -44,9 +43,13 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
             dirs,
             control,
             &mut counts,
-            devices,
             &ContextClock(&context),
-            Some(&peak),
+            ScanOptions {
+                devices,
+                diagnostics: Some(&peak),
+                scan_control: None,
+                correlated_budget: None,
+            },
         )
         .map_err(|e| format!("{e:?}"))?;
         assert_eq!(peak.shared_ready_peak(), Some(count));

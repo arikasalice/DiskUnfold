@@ -13,7 +13,7 @@ fn context() -> Context {
 
 #[test]
 fn one_worker_reads_every_directory_of_a_depth_before_any_deeper_one() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 3,
         dirs: 3,
@@ -55,7 +55,7 @@ fn first_outside(calls: &[(Vec<Vec<u8>>, Call)], from: usize, area: &[u8]) -> us
 
 #[test]
 fn a_marked_area_is_assigned_before_shallower_normal_work() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 2,
         dirs: 3,

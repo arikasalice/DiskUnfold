@@ -47,7 +47,7 @@ impl AnchoredDirectory for PanickingRoot {
 #[test]
 fn worker_panics_abort_other_flows_and_restore_previous_result()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     for at_open in [false, true] {
         let ids = Arc::new(Ids(AtomicUsize::new(1)));
         let sink = IngestSink::default();

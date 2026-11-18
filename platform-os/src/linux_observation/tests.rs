@@ -19,11 +19,19 @@ use std::{
 };
 
 mod boundary;
+mod correlated;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn fail(error: PortError) -> String {
     format!("{error:?}")
+}
+
+fn link_creation_is_unavailable(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+    )
 }
 
 fn open(path: &Path) -> Result<OpenedScopeRoot, String> {
@@ -223,7 +231,14 @@ fn normalizes_paths_and_refuses_links_parents_and_files() -> TestResult {
     let temp = tempfile::tempdir()?;
     let base = temp.path();
     fs::create_dir(base.join("real"))?;
-    symlink(base.join("real"), base.join("alias"))?;
+    let alias_created = match symlink(base.join("real"), base.join("alias")) {
+        Ok(()) => true,
+        Err(error) if link_creation_is_unavailable(&error) => {
+            eprintln!("skipped Linux symlink-path assertions after creation failed: {error}");
+            false
+        }
+        Err(error) => return Err(error.into()),
+    };
     fs::write(base.join("file"), b"x")?;
     let prefix = base.as_os_str().as_bytes();
     let with = |suffix: &[u8]| [prefix, suffix].concat();
@@ -238,13 +253,11 @@ fn normalizes_paths_and_refuses_links_parents_and_files() -> TestResult {
             .map(|error| (error.kind, error.reason_key))
     };
     let unresolvable = Some((PortErrorKind::Unsupported, "path.unresolvable".to_owned()));
-    for suffix in [
-        &b"/alias"[..],
-        b"/alias/.",
-        b"/real/..",
-        b"/file",
-        b"/real\0x",
-    ] {
+    let mut refused_paths: Vec<&[u8]> = vec![b"/real/..", b"/file", b"/real\0x"];
+    if alias_created {
+        refused_paths.extend([&b"/alias"[..], b"/alias/."]);
+    }
+    for suffix in refused_paths {
         assert_eq!(refused(&with(suffix)), unresolvable, "{suffix:?}");
     }
     assert_eq!(refused(b"relative/path"), unresolvable);
@@ -303,22 +316,47 @@ fn observes_links_without_following_or_revisiting() -> TestResult {
     let temp = tempfile::tempdir()?;
     let base = temp.path().join("scope");
     fs::create_dir_all(base.join("sub"))?;
-    symlink("..", base.join("up"))?;
+    let target = temp.path().join("target");
+    fs::create_dir(&target)?;
+    fs::write(target.join("target-only"), vec![7u8; 4096])?;
+    if let Err(error) = symlink("..", base.join("up")) {
+        if link_creation_is_unavailable(&error) {
+            eprintln!("skipped Linux symbolic-link case after symlink creation failed: {error}");
+            return Ok(());
+        }
+        return Err(error.into());
+    }
     symlink("../..", base.join("sub").join("loop"))?;
     symlink("/", base.join("outside"))?;
     symlink("missing", base.join("dangling"))?;
-    let mut stack = vec![open(&base)?.directory];
+    symlink("../target", base.join("target-link"))?;
+    let mut stack = vec![(open(&base)?.directory, base.clone())];
     let mut visited = 0;
     let mut links = Vec::new();
-    while let Some(mut directory) = stack.pop() {
+    let mut observed_names = Vec::new();
+    while let Some((mut directory, directory_path)) = stack.pop() {
         visited += 1;
         for item in drain(&mut *directory)? {
+            observed_names.push(item.name.clone());
             match item.metadata.as_ref().map(|meta| meta.kind.clone()) {
                 Ok(ObservedKind::Directory) => {
-                    stack.push(directory.open_child(&item).map_err(fail)?);
+                    let child_path = directory_path.join(OsStr::from_bytes(&item.name));
+                    let child = directory.open_child(&item).map_err(fail)?;
+                    stack.push((child, child_path));
                 }
                 Ok(ObservedKind::Link) => {
                     assert_eq!(item.enumerated_kind, ObservedKind::Link);
+                    let metadata = item
+                        .metadata
+                        .as_ref()
+                        .map_err(|error| fail(error.clone()))?;
+                    if let Ok(size) = &metadata.size {
+                        let own_size = fs::symlink_metadata(
+                            directory_path.join(OsStr::from_bytes(&item.name)),
+                        )?
+                        .len();
+                        assert_eq!(*size, own_size, "reported size belongs to the link itself");
+                    }
                     assert!(directory.open_child(&item).is_err());
                     links.push(item.name);
                 }
@@ -327,8 +365,9 @@ fn observes_links_without_following_or_revisiting() -> TestResult {
         }
     }
     assert_eq!(visited, 2);
+    assert!(!observed_names.iter().any(|name| name == b"target-only"));
     links.sort();
-    let expected: [&[u8]; 4] = [b"dangling", b"loop", b"outside", b"up"];
+    let expected: [&[u8]; 5] = [b"dangling", b"loop", b"outside", b"target-link", b"up"];
     assert_eq!(links, expected);
     Ok(())
 }

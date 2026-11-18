@@ -35,7 +35,7 @@ fn swap_roots(summary: Summary) -> Summary {
 
 #[test]
 fn a_nested_root_is_collected_only_by_itself_in_any_order_and_timing() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let baseline = filtered_forest(nested(&tree(0), false), 1)?.summary;
     let (items, issues, _) = &baseline;
     // The outer root reaches the inner root and leaves it as a revisit.
@@ -73,7 +73,7 @@ fn a_nested_root_is_collected_only_by_itself_in_any_order_and_timing() -> Result
 
 #[test]
 fn an_ancestor_of_a_nested_root_stays_collectable_by_the_outer_root() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     // The nested root lies at b; its verified ancestors include b's parent and
     // an unrelated directory 101 that only the outer root may enter.
     let roots = |tree: &Arc<Tree>| {
@@ -96,7 +96,7 @@ fn an_ancestor_of_a_nested_root_stays_collectable_by_the_outer_root() -> Result<
 
 #[test]
 fn a_repeated_root_is_a_revisit_and_the_lower_index_collects() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let single = filtered_run(&tree(0), 1, true)?.summary;
     let repeated = |tree: &Arc<Tree>| {
         vec![
@@ -150,7 +150,7 @@ fn aliases() -> Listings {
 
 #[test]
 fn an_aliased_directory_is_entered_once_and_one_worker_is_deterministic() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let run_alias = |workers, seed| -> Result<(Arc<Tree>, Summary), String> {
         let tree = tree_of(aliases(), seed);
         let root = Dir::at(&tree, 500, Some(Vec::new()));

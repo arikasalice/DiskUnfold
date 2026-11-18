@@ -13,14 +13,17 @@ use super::*;
 /// The entries excluded so far are reported as an incomplete count.
 pub(super) fn frame(
     mut frame: Frame,
-    visited: &Visited,
+    shared: &Shared,
     sender: &SyncSender<Event>,
     policy: Policy<'_>,
 ) -> bool {
-    while let Some(entry) = frame.entries.pop_front() {
+    correlated_transport::cancel(sender, shared, &mut frame.correlated);
+    while let Some(mut queued) = frame.entries.pop_front() {
+        let entry = queued.timed;
+        let payload_permit = queued.payload_permit.take();
         let mut path = frame.path.clone();
         path.push(entry.entry.name.clone());
-        let admission = super::admit(&frame, &entry.entry, &path, visited, policy, false);
+        let admission = super::admit(&frame, &entry.entry, &path, &shared.visited, policy, false);
         if admission == Admission::Excluded {
             frame.excluded = frame.excluded.saturating_add(1);
             continue;
@@ -32,10 +35,16 @@ pub(super) fn frame(
                 path,
                 Box::new(entry),
                 admission,
+                payload_permit,
             ))
             .is_err()
         {
             return false;
+        }
+        if admission == Admission::Enter
+            && let Some(attempt) = queued.child_attempt.as_mut()
+        {
+            correlated_transport::cancel(sender, shared, attempt);
         }
         if let Some(path) = entered
             && !unread(frame.root_index, path, sender)
@@ -44,9 +53,13 @@ pub(super) fn frame(
         }
     }
     // Deferred root entries were recorded as entered and never opened.
-    while let Some(entry) = frame.deferred.pop_front() {
+    while let Some(mut queued) = frame.deferred.pop_front() {
+        let entry = queued.timed;
         let mut path = frame.path.clone();
         path.push(entry.entry.name);
+        if let Some(attempt) = queued.child_attempt.as_mut() {
+            correlated_transport::cancel(sender, shared, attempt);
+        }
         if !unread(frame.root_index, path, sender) {
             return false;
         }
@@ -87,7 +100,7 @@ pub(super) fn drain(
         };
         match next {
             Some(owned) => {
-                if !frame(owned, &shared.visited, sender, policy) {
+                if !frame(owned, shared, sender, policy) {
                     return false;
                 }
             }

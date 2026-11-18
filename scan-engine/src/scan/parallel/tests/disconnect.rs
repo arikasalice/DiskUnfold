@@ -54,7 +54,7 @@ impl AnchoredDirectory for ScriptedRoot {
 #[test]
 fn metadata_disconnect_drains_returned_items_and_closes_only_matching_volume()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = vec![
@@ -249,7 +249,7 @@ fn a_root_already_being_read_is_read_to_its_end_after_another_root_disconnects()
     assert_eq!(reads.load(Ordering::Acquire), 2);
     let rest: Vec<_> = received.try_iter().collect();
     assert!(rest.iter().any(
-        |event| matches!(event, Event::Item(0, path, _, _) if path == &vec![native("in-flight")])
+        |event| matches!(event, Event::Item(0, path, _, _, _) if path == &vec![native("in-flight")])
     ));
     assert!(
         !rest

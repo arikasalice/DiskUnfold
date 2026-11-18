@@ -76,7 +76,7 @@ impl JobContext for TimedContext {
 #[test]
 fn same_volume_is_observed_once_per_phase_and_failure_is_preserved()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let observed = vec![
@@ -209,7 +209,7 @@ impl JobContext for CancelContext {
 #[test]
 fn cancellation_keeps_timed_start_and_does_not_attempt_end()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let stop = Arc::new(AtomicBool::new(false));
@@ -249,7 +249,7 @@ fn cancellation_keeps_timed_start_and_does_not_attempt_end()
 
 #[test]
 fn unsupported_root_is_recorded_without_an_end_attempt() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let context = Context {
@@ -340,7 +340,7 @@ impl AnchoredDirectory for EndCancelRoot {
 #[test]
 fn cancellation_during_end_read_seals_cancelled_and_skips_remaining_volumes()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     for count in [1, 2] {
         let ids = Ids(AtomicUsize::new(1));
         let sink = IngestSink::default();
@@ -418,7 +418,7 @@ impl JobContext for CancelWhileWaiting {
 #[test]
 fn cancellation_while_waiting_for_end_flow_seals_cancelled()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let stop = Arc::new(AtomicBool::new(false));

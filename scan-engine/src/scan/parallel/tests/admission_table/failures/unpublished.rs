@@ -125,7 +125,7 @@ fn run(case: &Case, parallel: Option<(usize, bool)>) -> Result<(JobOutcome, bool
 
 #[test]
 fn a_collection_without_a_result_counts_no_item_as_completed() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let parallel = WORKERS
         .iter()
         .flat_map(|&workers| [false, true].map(|filtered| Some((workers, filtered))));

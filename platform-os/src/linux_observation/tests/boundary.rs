@@ -1,5 +1,5 @@
 //! Races, permissions and mount boundaries observed on real directories.
-use super::{TestResult, drain, entry, fail, open};
+use super::{TestResult, drain, entry, fail, link_creation_is_unavailable, open};
 use du_core_contracts::{
     ports::PortErrorKind,
     scan_observation::{
@@ -64,13 +64,28 @@ fn reports_vanished_and_replaced_entries_per_item() -> TestResult {
     fs::create_dir(base.join("dir"))?;
     let mut root = open(base)?;
     // The filter runs after enumeration and before the metadata query.
+    let link_created = std::cell::Cell::new(false);
+    let mut items = Vec::new();
     let mut race = |name: &[u8]| {
         let changed = match name {
             b"gone" => fs::remove_file(base.join("gone")),
             b"swap" => fs::rename(base.join("swap"), base.join("saved"))
                 .and_then(|()| fs::write(base.join("swap"), b"new")),
-            b"dir" => fs::rename(base.join("dir"), base.join("dir-old"))
-                .and_then(|()| symlink("dir-old", base.join("dir"))),
+            b"dir" => {
+                fs::rename(base.join("dir"), base.join("dir-old")).and_then(|()| {
+                    match symlink("dir-old", base.join("dir")) {
+                        Ok(()) => {
+                            link_created.set(true);
+                            Ok(())
+                        }
+                        Err(error) if link_creation_is_unavailable(&error) => {
+                            eprintln!("skipped Linux symlink replacement subcase: {error}");
+                            Ok(())
+                        }
+                        Err(error) => Err(error),
+                    }
+                })
+            }
             _ => Ok(()),
         };
         if changed.is_ok() {
@@ -79,7 +94,6 @@ fn reports_vanished_and_replaced_entries_per_item() -> TestResult {
             FilterDecision::Undecidable
         }
     };
-    let mut items = Vec::new();
     loop {
         match root.directory.next_filtered(&mut race).map_err(fail)? {
             FilteredBatch::Entries(batch) => items.extend(batch),
@@ -99,11 +113,18 @@ fn reports_vanished_and_replaced_entries_per_item() -> TestResult {
     assert_ne!(swap.enumerated_inode, swapped.inode);
     let dir = entry(&items, b"dir")?;
     assert_eq!(dir.enumerated_kind, ObservedKind::Directory);
-    assert_eq!(
-        dir.metadata.as_ref().map(|m| m.kind.clone()),
-        Ok(ObservedKind::Link)
-    );
-    assert!(root.directory.open_child(dir).is_err());
+    if link_created.get() {
+        assert_eq!(
+            dir.metadata.as_ref().map(|m| m.kind.clone()),
+            Ok(ObservedKind::Link)
+        );
+        assert!(root.directory.open_child(dir).is_err());
+    } else {
+        assert_eq!(
+            dir.metadata.as_ref().err().map(|error| error.kind.clone()),
+            Some(PortErrorKind::NotFound)
+        );
+    }
     let keep = entry(&items, b"keep")?;
     assert_eq!(
         keep.metadata.as_ref().map(|m| m.inode),
@@ -127,7 +148,13 @@ fn replaced_directory_is_not_opened_through_a_stale_entry() -> TestResult {
         Some(PortErrorKind::Unsupported)
     );
     fs::remove_dir(base.join("child"))?;
-    symlink("child-old", base.join("child"))?;
+    if let Err(error) = symlink("child-old", base.join("child")) {
+        if link_creation_is_unavailable(&error) {
+            eprintln!("skipped Linux stale-link subcase after creation failed: {error}");
+            return Ok(());
+        }
+        return Err(error.into());
+    }
     assert!(root.directory.open_child(child).is_err());
     Ok(())
 }

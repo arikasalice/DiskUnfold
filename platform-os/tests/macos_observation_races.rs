@@ -3,8 +3,9 @@
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch, ObservedEntry,
-        ObservedKind, OpenedScopeRoot, ScopeRootPort,
+        AnchoredDirectory, CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase,
+        FilterDecision, FilteredBatch, ObservedEntry, ObservedKind, OpenedScopeRoot, ScopeRootPort,
+        TimedObservedEntry,
     },
 };
 use du_platform_os::macos_observation::MacScopeRoots;
@@ -68,6 +69,13 @@ fn kind(entry: &ObservedEntry) -> Option<ObservedKind> {
     entry.metadata.as_ref().ok().map(|meta| meta.kind.clone())
 }
 
+fn link_creation_is_unavailable(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+    )
+}
+
 /// Descends like the collector and checks the identity facts it relies on.
 fn walk(root: Box<dyn AnchoredDirectory>) -> Result<BTreeSet<String>, String> {
     let mut seen = BTreeSet::new();
@@ -104,7 +112,13 @@ fn links_are_observed_and_never_followed() -> TestResult {
     fs::write(outside.join("secret"), b"s")?;
     fs::create_dir_all(path.join("inner/deeper"))?;
     fs::write(path.join("inner/deeper/file"), b"f")?;
-    symlink("..", path.join("up"))?;
+    if let Err(error) = symlink("..", path.join("up")) {
+        if link_creation_is_unavailable(&error) {
+            eprintln!("skipped macOS symbolic-link case after creation failed: {error}");
+            return Ok(());
+        }
+        return Err(error.into());
+    }
     symlink(&outside, path.join("out"))?;
     symlink("inner/deeper/file", path.join("flink"))?;
     symlink("inner", path.join("dlink"))?;
@@ -199,7 +213,14 @@ fn vanished_and_replaced_items_are_not_entered() -> TestResult {
     fs::rename(path.join("swap"), path.join("swapped"))?;
     fs::create_dir(path.join("swap"))?;
     fs::remove_dir(path.join("tolink"))?;
-    symlink("other", path.join("tolink"))?;
+    let link_created = match symlink("other", path.join("tolink")) {
+        Ok(()) => true,
+        Err(error) if link_creation_is_unavailable(&error) => {
+            eprintln!("skipped macOS symlink replacement subcase: {error}");
+            false
+        }
+        Err(error) => return Err(error.into()),
+    };
     fs::rename(path.join("replaced"), path.join("saved"))?;
     fs::write(path.join("replaced"), b"new")?;
     let parent = &*root.directory;
@@ -211,11 +232,13 @@ fn vanished_and_replaced_items_are_not_entered() -> TestResult {
         refused(parent, find(&entries, "swap")?)?.kind,
         PortErrorKind::IdentityChanged
     );
-    let link = refused(parent, find(&entries, "tolink")?)?;
-    assert_eq!(
-        (link.kind, link.reason_key.as_str()),
-        (PortErrorKind::Unsupported, "path.unresolvable")
-    );
+    if link_created {
+        let link = refused(parent, find(&entries, "tolink")?)?;
+        assert_eq!(
+            (link.kind, link.reason_key.as_str()),
+            (PortErrorKind::Unsupported, "path.unresolvable")
+        );
+    }
     child(parent, find(&entries, "keep")?)?;
     let fresh = all(&mut *open(&path)?.directory)?;
     assert_ne!(find(&fresh, "replaced")?.enumerated_inode, old_file);
@@ -294,5 +317,107 @@ fn filtered_enumeration_decides_names_before_recording() -> TestResult {
             .map_err(|e| format!("{e:?}"))?;
         assert!(matches!(batch, FilteredBatch::Undecidable));
     }
+    Ok(())
+}
+
+type CorrelatedCallbackMap =
+    std::collections::BTreeMap<u64, (Vec<u8>, FilterDecision, FilterCallbackPhase)>;
+type CorrelatedObservationMap = std::collections::BTreeMap<u64, TimedObservedEntry>;
+
+fn correlated_decision(name: &[u8]) -> FilterDecision {
+    match name {
+        b"admit" => FilterDecision::Admit,
+        b"exclude" => FilterDecision::Exclude,
+        b"undecidable" => FilterDecision::Undecidable,
+        _ => FilterDecision::Undecidable,
+    }
+}
+
+fn collect_correlated_events(
+    directory: &mut dyn DirectoryObservations,
+) -> Result<(u64, CorrelatedCallbackMap, CorrelatedObservationMap), String> {
+    let mut callbacks = CorrelatedCallbackMap::new();
+    let mut observations = CorrelatedObservationMap::new();
+    let mut include = correlated_decision;
+    let end_count = loop {
+        match directory
+            .next_correlated_event(&mut include, &|| None)
+            .map_err(|error| format!("{error:?}"))?
+        {
+            CorrelatedDirectoryEvent::FilterCallback {
+                child_id,
+                raw_name,
+                decision,
+                phase,
+            } => {
+                assert!(
+                    callbacks
+                        .insert(child_id, (raw_name, decision, phase))
+                        .is_none()
+                );
+            }
+            CorrelatedDirectoryEvent::Observation { child_id, entry } => {
+                assert!(callbacks.contains_key(&child_id));
+                assert!(observations.insert(child_id, entry).is_none());
+            }
+            CorrelatedDirectoryEvent::Progress => {}
+            CorrelatedDirectoryEvent::End {
+                child_count_exclusive,
+            } => break child_count_exclusive,
+        }
+    };
+    Ok((end_count, callbacks, observations))
+}
+
+#[test]
+fn correlated_attempt_retains_every_decision_and_matches_admitted_observations() -> TestResult {
+    let (_guard, path) = fixture()?;
+    for name in ["admit", "exclude", "undecidable"] {
+        fs::write(path.join(name), b"fixture")?;
+    }
+    let mut root = open(&path)?;
+    root.directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
+    let (end_count, callbacks, observations) = collect_correlated_events(&mut *root.directory)?;
+
+    assert_eq!(end_count, u64::try_from(callbacks.len())?);
+    assert_eq!(callbacks.len(), 3);
+    for (expected_id, (&child_id, (name, decision, phase))) in callbacks.iter().enumerate() {
+        assert_eq!(child_id, u64::try_from(expected_id)?);
+        assert_eq!(*phase, FilterCallbackPhase::AfterMetadata);
+        let expected_decision = match name.as_slice() {
+            b"admit" => FilterDecision::Admit,
+            b"exclude" => FilterDecision::Exclude,
+            b"undecidable" => FilterDecision::Undecidable,
+            _ => return Err("unexpected callback name".into()),
+        };
+        assert_eq!(*decision, expected_decision);
+        match decision {
+            FilterDecision::Admit => {
+                let observation = observations
+                    .get(&child_id)
+                    .ok_or("admitted child has no observation")?;
+                assert_eq!(observation.entry.name, *name);
+                assert!(observation.observed_at.is_none());
+            }
+            FilterDecision::Exclude | FilterDecision::Undecidable => {
+                assert!(!observations.contains_key(&child_id));
+            }
+        }
+    }
+    assert_eq!(observations.len(), 1);
+    assert!(
+        root.directory
+            .next_correlated_event(&mut |_| FilterDecision::Admit, &|| None)
+            .is_err()
+    );
+    assert!(root.directory.next_batch().is_err());
+    assert!(
+        root.directory
+            .next_filtered(&mut |_| FilterDecision::Admit)
+            .is_err()
+    );
+    assert!(root.directory.begin_correlated_filtered().is_err());
     Ok(())
 }

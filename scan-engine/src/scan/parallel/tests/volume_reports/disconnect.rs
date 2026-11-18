@@ -48,7 +48,7 @@ impl AnchoredDirectory for DisconnectRoot {
 #[test]
 fn disconnect_preserves_start_and_skips_only_affected_volume_end()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let first = Arc::new(AtomicUsize::new(0));
@@ -148,7 +148,7 @@ impl AnchoredDirectory for StartDisconnectedRoot {
 }
 #[test]
 fn initial_disconnection_is_retained_and_not_retried() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let calls = Arc::new(AtomicUsize::new(0));

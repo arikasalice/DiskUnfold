@@ -1,9 +1,15 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
 pub mod case_sensitivity;
+#[cfg(test)]
+mod correlated_batches;
+#[cfg(test)]
+mod correlated_tests;
 mod enumeration;
 #[cfg(test)]
 mod filter_tests;
 mod metadata;
+mod path;
+pub(super) use path::{bytes, wide};
 mod recall;
 pub mod recent_probe;
 mod reparse;
@@ -25,8 +31,8 @@ thread_local! { static PROBES: std::cell::Cell<usize> = const { std::cell::Cell:
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
-        AnchoredDirectory, DirectoryObservations, FilterDecision, FilteredBatch,
-        MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
+        AnchoredDirectory, CorrelatedDirectoryEvent, DirectoryObservations, FilterDecision,
+        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
     },
 };
 pub use scope::WindowsScopeRoots;
@@ -51,7 +57,10 @@ use windows::{
         },
     },
     Win32::{
-        Foundation::{HANDLE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING},
+        Foundation::{
+            HANDLE, OBJ_CASE_INSENSITIVE, OBJECT_ATTRIBUTE_FLAGS, RtlNtStatusToDosError,
+            UNICODE_STRING,
+        },
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
             FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
@@ -78,9 +87,23 @@ pub struct WindowsDirectory {
     restart: bool,
     pending: VecDeque<TimedObservedEntry>,
     filtered: Option<bool>,
+    correlated: bool,
+    correlated_records: VecDeque<CorrelatedWindowsRecord>,
+    correlated_next_child_id: Option<u64>,
+    correlated_pending_observation: Option<(u64, TimedObservedEntry)>,
+    correlated_error: Option<PortError>,
+    correlated_ended: bool,
     filter_failed: bool,
     finished: bool,
     ancestors: Option<AncestorChain>,
+}
+
+struct CorrelatedWindowsRecord {
+    name: Vec<u8>,
+    file_id: u64,
+    attributes: u32,
+    ea_size: u32,
+    case_insensitive: Result<bool, PortError>,
 }
 
 struct AncestorChain {
@@ -130,29 +153,6 @@ fn win_error(e: windows::core::Error) -> PortError {
 
 fn raw(file: &File) -> HANDLE {
     HANDLE(file.as_raw_handle())
-}
-fn bytes(name: &[u16]) -> Vec<u8> {
-    name.iter().flat_map(|v| v.to_le_bytes()).collect()
-}
-fn wide(name: &[u8]) -> Result<Vec<u16>, PortError> {
-    if name.is_empty() || !name.len().is_multiple_of(2) {
-        return Err(invalid());
-    }
-    let result: Vec<_> = name
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|v| u16::from_le_bytes([v[0], v[1]]))
-        .collect();
-    if result
-        .iter()
-        .any(|v| *v == 0 || *v == b'\\' as u16 || *v == b'/' as u16 || *v == b':' as u16)
-        || result == [46]
-        || result == [46, 46]
-    {
-        return Err(invalid());
-    }
-    Ok(result)
 }
 pub(crate) fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION, PortError> {
     let mut value = BY_HANDLE_FILE_INFORMATION::default();
@@ -208,6 +208,16 @@ fn entry_open_options() -> NTCREATEFILE_CREATE_OPTIONS {
 }
 
 fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Result<File, PortError> {
+    relative_with_case(parent, name, directory, stable, true)
+}
+
+fn relative_with_case(
+    parent: &File,
+    name: &[u16],
+    directory: bool,
+    stable: bool,
+    case_insensitive: bool,
+) -> Result<File, PortError> {
     let length =
         u16::try_from(name.len().checked_mul(2).ok_or_else(invalid)?).map_err(|_| invalid())?;
     let object_name = UNICODE_STRING {
@@ -219,7 +229,11 @@ fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Resul
         Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: raw(parent),
         ObjectName: &object_name,
-        Attributes: OBJ_CASE_INSENSITIVE,
+        Attributes: if case_insensitive {
+            OBJ_CASE_INSENSITIVE
+        } else {
+            OBJECT_ATTRIBUTE_FLAGS(0)
+        },
         SecurityDescriptor: std::ptr::null(),
         SecurityQualityOfService: std::ptr::null(),
     };
@@ -438,6 +452,12 @@ impl AnchoredDirectory for WindowsDirectory {
             restart: true,
             pending: VecDeque::new(),
             filtered: None,
+            correlated: false,
+            correlated_records: VecDeque::new(),
+            correlated_next_child_id: None,
+            correlated_pending_observation: None,
+            correlated_error: None,
+            correlated_ended: false,
             filter_failed: false,
             finished: false,
             ancestors: None,

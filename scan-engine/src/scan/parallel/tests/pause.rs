@@ -138,7 +138,7 @@ fn fail() -> PortError {
 #[test]
 fn pause_waits_for_inflight_batch_idle_flow_parks_and_resume_does_not_duplicate()
 -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));
     let (entered_tx, entered_rx) = mpsc::channel();
@@ -354,7 +354,7 @@ impl du_core_contracts::scan_observation::VolumeSpaceReader for VolumeReader {
 }
 #[test]
 fn initial_volume_io_is_own_flow_and_parks_after_return() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));
     let (entered_tx, entered_rx) = mpsc::channel();
@@ -423,7 +423,7 @@ impl AnchoredDirectory for PanickingBatch {
 }
 #[test]
 fn worker_panic_wakes_parked_flow_and_restores_previous_version() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));
     let (entered_tx, entered_rx) = mpsc::channel();

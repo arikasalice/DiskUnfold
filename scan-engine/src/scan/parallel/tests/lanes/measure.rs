@@ -349,7 +349,7 @@ fn queue_capacity_run() -> Result<(), TestError> {
         eprintln!("{CONFIG} is not set; run queue_capacity_grid instead");
         return Ok(());
     };
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let report = run(&Config::parse(&text)?)?;
     let fields: Vec<String> = report
         .fields
