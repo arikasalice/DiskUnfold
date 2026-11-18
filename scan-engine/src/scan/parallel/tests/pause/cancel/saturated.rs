@@ -358,6 +358,7 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
             },
             &clock,
             None,
+            None,
         )
         .map_err(|error| format!("{error:?}"));
         let _ = done_tx.send(result);

@@ -427,6 +427,7 @@ fn shared_over(
         disconnects: super::super::disconnect::Disconnects::new(count, &[]),
         track_priority_paths: false,
         visited,
+        correlated_budget: super::super::correlated_budget::CorrelatedBudget::new(),
     })
 }
 

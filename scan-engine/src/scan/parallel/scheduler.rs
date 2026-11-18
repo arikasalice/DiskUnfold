@@ -13,6 +13,24 @@ pub(super) fn create(
     disconnects: disconnect::Disconnects,
     control: Option<&ScanControlSession>,
 ) -> Result<Shared, BuildError> {
+    create_with_budget(
+        prepared,
+        devices,
+        diagnostics,
+        disconnects,
+        control,
+        correlated_budget::CorrelatedBudget::new(),
+    )
+}
+
+pub(super) fn create_with_budget(
+    prepared: Prepared,
+    devices: DevicePlan,
+    diagnostics: Option<&crate::scan_job::ScanDiagnostics>,
+    disconnects: disconnect::Disconnects,
+    control: Option<&ScanControlSession>,
+    correlated_budget: Arc<correlated_budget::CorrelatedBudget>,
+) -> Result<Shared, BuildError> {
     let Prepared {
         roots,
         starts,
@@ -41,6 +59,7 @@ pub(super) fn create(
         disconnects,
         track_priority_paths: control.is_some(),
         visited,
+        correlated_budget,
     };
     if let Some(control) = control {
         control.attach(&shared.queue, &shared.wake);
@@ -163,6 +182,7 @@ impl Shared {
             disconnects: disconnect::Disconnects::new(roots, &[]),
             track_priority_paths,
             visited: Visited::default(),
+            correlated_budget: correlated_budget::CorrelatedBudget::new(),
         }
     }
 }

@@ -444,6 +444,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
             },
             &clock,
             None,
+            None,
         )
         .map_err(|error| format!("{error:?}"));
         let _ = done_tx.send(result);

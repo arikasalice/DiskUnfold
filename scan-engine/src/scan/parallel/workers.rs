@@ -18,6 +18,8 @@
 //! once (see `cancel_drain`).
 use super::*;
 mod cancel_drain;
+mod correlated_read;
+mod correlated_transport;
 mod disconnected;
 mod dispatch;
 mod entries;
@@ -147,7 +149,7 @@ fn process(
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
     if context.checkpoint() == Checkpoint::Cancel {
-        return cancel_drain::frame(frame, &shared.visited, sender, policy);
+        return cancel_drain::frame(frame, shared, sender, policy);
     }
     if frame.directory.is_pending() {
         return open_turn(frame, shared, sender, context, policy, turn);
@@ -155,7 +157,7 @@ fn process(
     match observe_once(&mut frame, shared, sender, context) {
         Observed::Ready => {}
         Observed::Failed => return false,
-        Observed::Cancelled => return cancel_drain::frame(frame, &shared.visited, sender, policy),
+        Observed::Cancelled => return cancel_drain::frame(frame, shared, sender, policy),
         Observed::Disconnected => {
             return disconnected::close_frame(frame, shared, sender, context, policy);
         }
@@ -167,7 +169,9 @@ fn process(
         frame.entries.pop_front()
     };
     if let Some(entry) = next {
-        return match process_entry(&mut frame, entry, recorded, shared, sender, context, policy) {
+        return match process_entry(
+            &mut frame, entry, recorded, false, shared, sender, context, policy,
+        ) {
             Ok(child) => {
                 requeue(shared, turn, frame, child, context);
                 true
@@ -184,10 +188,20 @@ fn process(
         return true;
     }
     if context.checkpoint() == Checkpoint::Cancel {
-        return cancel_drain::frame(frame, &shared.visited, sender, policy);
+        return cancel_drain::frame(frame, shared, sender, policy);
     }
     if disconnected::unstarted_on_closed(&frame, shared, started) {
         return disconnected::close_frame(frame, shared, sender, context, policy);
+    }
+    if matches!(policy, Policy::BeforeMetadata(_)) {
+        match correlated_read::read(&mut frame, shared, sender, context, policy) {
+            correlated_read::Read::Legacy => {}
+            correlated_read::Read::Turn(result) => {
+                return correlated_read::finish(
+                    frame, result, shared, sender, context, policy, turn,
+                );
+            }
+        }
     }
     let mut undecided = Vec::new();
     let outcome = next_entries(&mut frame, context, policy, &mut undecided);
@@ -212,7 +226,7 @@ fn open_turn(
     if frame.directory.is_pending() {
         // Waiting for the parent handle stopped; nothing was opened.
         return shared.abort.load(Ordering::Acquire)
-            || cancel_drain::frame(frame, &shared.visited, sender, policy);
+            || cancel_drain::frame(frame, shared, sender, policy);
     }
     // The open is this turn's only OS call. The opened directory goes back
     // to its lane, so an area prioritized while the open was in flight
@@ -288,7 +302,7 @@ fn process_batch(
         // Cancellation stops a filtered read; the directory was not read to its end.
         Err(ReadFailure::Filter) => {
             context.checkpoint() == Checkpoint::Cancel
-                && cancel_drain::frame(frame, &shared.visited, sender, policy)
+                && cancel_drain::frame(frame, shared, sender, policy)
         }
         Err(ReadFailure::Unavailable) => false,
         Ok(Some(batch)) if batch.is_empty() => {

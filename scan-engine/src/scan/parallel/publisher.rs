@@ -18,7 +18,7 @@ pub(super) fn consume(
 ) -> Result<(), BuildError> {
     loop {
         if services.abort.load(Ordering::Acquire) {
-            break;
+            return drain_aborted(receiver, progress, build, counts, &services);
         }
         let wait = if services.context.checkpoint() == Checkpoint::Cancel {
             None
@@ -44,19 +44,81 @@ pub(super) fn consume(
             },
         };
         if services.abort.load(Ordering::Acquire) {
-            break;
+            return drain_aborted(receiver, progress, build, counts, &services);
         }
-        progress.record(
+        if let Err(error) = progress.record(
             event,
             build,
             counts,
             services.context,
             services.ids,
             services.clock,
-        )?;
+        ) {
+            services.abort.store(true, Ordering::Release);
+            services.context.abort_flows();
+            let _ = drain_aborted(receiver, progress, build, counts, &services);
+            return Err(error);
+        }
         services.context.report_progress(processed(counts));
     }
     Ok(())
+}
+
+/// On internal abort, keep the publisher alive until workers release their senders.
+/// Item observations and failure marks are retained; correlated evidence and EOF are refused.
+fn drain_aborted(
+    receiver: mpsc::Receiver<Event>,
+    progress: &mut Progress,
+    build: &mut BuildHandle,
+    counts: &mut JobCounts,
+    services: &Services<'_>,
+) -> Result<(), BuildError> {
+    let mut first_error = None;
+    while let Ok(event) = receiver.recv() {
+        match event {
+            Event::FolderAttemptBegin { reply, _permit, .. } => {
+                let _ = reply.send(Err(du_analysis_index::FolderAttemptError::CapacityExceeded));
+            }
+            Event::FolderAttemptEvent { reply, .. } => {
+                if let Some(reply) = reply {
+                    let _ =
+                        reply.send(Err(du_analysis_index::FolderAttemptError::CapacityExceeded));
+                }
+            }
+            Event::FolderAttemptEnd { reply, .. } => {
+                let _ = reply.send(Err(du_analysis_index::FolderAttemptError::Finished));
+            }
+            Event::RootBatch(..) => {
+                // Abort draining must not publish a new result version.
+            }
+            Event::CorrelatedItem(root, path, timed, admission, permit) => {
+                let event = Event::Item(root, path, timed, admission, Some(permit));
+                if let Err(error) = progress.record(
+                    event,
+                    build,
+                    counts,
+                    services.context,
+                    services.ids,
+                    services.clock,
+                ) {
+                    first_error.get_or_insert(error);
+                }
+            }
+            event => {
+                if let Err(error) = progress.record(
+                    event,
+                    build,
+                    counts,
+                    services.context,
+                    services.ids,
+                    services.clock,
+                ) {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 /// F24 item progress: every recorded item, failures included; the total stays
@@ -84,6 +146,48 @@ impl Progress {
         clock: &dyn MonotonicClock,
     ) -> Result<(), BuildError> {
         match event {
+            Event::FolderAttemptBegin {
+                root_index,
+                path,
+                attempt_id,
+                reply,
+                _permit,
+            } => {
+                let result = if rejects_child_attempt(&path) {
+                    Err(du_analysis_index::FolderAttemptError::CapacityExceeded)
+                } else {
+                    build.begin_folder_attempt(root_index, &path, attempt_id)
+                };
+                let _ = reply.send(result);
+                Ok(())
+            }
+            Event::FolderAttemptEvent {
+                token,
+                seq,
+                input,
+                reply,
+                _permit,
+            } => {
+                let result = build.record_folder_attempt_event(token, seq, input);
+                if let Some(reply) = reply {
+                    let _ = reply.send(result);
+                }
+                Ok(())
+            }
+            Event::FolderAttemptEnd {
+                token,
+                event_watermark_exclusive,
+                child_count_exclusive,
+                reply,
+            } => {
+                let result = build.end_folder_attempt(
+                    token,
+                    event_watermark_exclusive,
+                    child_count_exclusive,
+                );
+                let _ = reply.send(result);
+                Ok(())
+            }
             Event::DirectoryCase(root, path, evidence) => {
                 build.set_directory_case_evidence(root, &path, evidence)?;
                 self.cadence.changed();
@@ -105,7 +209,14 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
-            Event::Item(root_index, path, timed, row) => {
+            Event::Item(root_index, path, timed, row, _permit) => {
+                let gap_at = || context.utc_now();
+                let item = (root_index, path, &*timed);
+                record::record_item(build, counts, &gap_at, item, row)?;
+                self.cadence.changed();
+                Ok(())
+            }
+            Event::CorrelatedItem(root_index, path, timed, row, _permit) => {
                 let gap_at = || context.utc_now();
                 let item = (root_index, path, &*timed);
                 record::record_item(build, counts, &gap_at, item, row)?;
@@ -177,4 +288,22 @@ impl Progress {
 
 pub(super) fn reason(error: &PortError) -> &'static str {
     super::super::issues::reason(error)
+}
+
+/// Test switch that makes F03 refuse child attempts, as it does after discarding evidence.
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static REJECT_CHILD_ATTEMPTS: std::cell::Cell<bool> = const {
+        std::cell::Cell::new(false)
+    };
+}
+
+#[cfg(test)]
+fn rejects_child_attempt(path: &[Vec<u8>]) -> bool {
+    !path.is_empty() && REJECT_CHILD_ATTEMPTS.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn rejects_child_attempt(_: &[Vec<u8>]) -> bool {
+    false
 }

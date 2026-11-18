@@ -51,10 +51,11 @@ fn cancel_after_entry_admission_keeps_current_and_remaining_items() -> Result<()
         })
     };
     let pending = Frame {
+        correlated: Default::default(),
         root_index: 0,
         path: Vec::new(),
         directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([entry(b"first"), entry(b"second")]),
+        entries: VecDeque::from([entry(b"first").into(), entry(b"second").into()]),
         deferred: VecDeque::new(),
         root: true,
         first_batch: false,
@@ -130,11 +131,12 @@ fn deferred_entries_are_not_sent_twice() -> Result<(), String> {
         }),
     });
     let pending = Frame {
+        correlated: Default::default(),
         root_index: 0,
         path: Vec::new(),
         directory: Directory::opened(Box::new(Empty)),
         entries: VecDeque::new(),
-        deferred: VecDeque::from([entry]),
+        deferred: VecDeque::from([entry.into()]),
         root: true,
         first_batch: false,
         root_published: false,
@@ -177,10 +179,11 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
         }),
     };
     let pending = Frame {
+        correlated: Default::default(),
         root_index: 0,
         path: Vec::new(),
         directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([TimedObservedEntry::from(directory.clone())]),
+        entries: VecDeque::from([TimedObservedEntry::from(directory.clone()).into()]),
         deferred: VecDeque::new(),
         root: true,
         first_batch: false,
@@ -196,7 +199,7 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
     assert!(frame(pending, &visited, &sender, Policy::Legacy(&|_| true)));
     assert!(matches!(
         receiver.try_recv(),
-        Ok(Event::Item(_, _, _, Admission::Enter))
+        Ok(Event::Item(_, _, _, Admission::Enter, _))
     ));
     // A later admission of the same identity may still enter it.
     let parent = admission::Parent {
@@ -229,10 +232,11 @@ fn full_channel_applies_backpressure_until_consumer_drains() -> Result<(), Strin
         }),
     });
     let item = Frame {
+        correlated: Default::default(),
         root_index: 0,
         path: Vec::new(),
         directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([entry]),
+        entries: VecDeque::from([entry.into()]),
         deferred: VecDeque::new(),
         root: true,
         first_batch: false,
@@ -329,10 +333,11 @@ fn windows_file_cancel_drain_waits_for_full_consumer_queue() -> Result<(), Strin
             .map_err(|_| "fill")?;
     }
     let pending = Frame {
+        correlated: Default::default(),
         root_index: 0,
         path: Vec::new(),
         directory: Directory::opened(Box::new(Empty)),
-        entries: VecDeque::from([observed]),
+        entries: VecDeque::from([observed.into()]),
         deferred: VecDeque::new(),
         root: true,
         first_batch: false,
@@ -386,7 +391,7 @@ fn windows_file_cancel_drain_waits_for_full_consumer_queue() -> Result<(), Strin
     let events: Vec<_> = remaining
         .iter()
         .filter_map(|event| match event {
-            Event::Item(_, _, entry, _) => Some(entry),
+            Event::Item(_, _, entry, _, _) => Some(entry),
             _ => None,
         })
         .collect();

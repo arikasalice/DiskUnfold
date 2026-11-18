@@ -249,7 +249,7 @@ fn a_root_already_being_read_is_read_to_its_end_after_another_root_disconnects()
     assert_eq!(reads.load(Ordering::Acquire), 2);
     let rest: Vec<_> = received.try_iter().collect();
     assert!(rest.iter().any(
-        |event| matches!(event, Event::Item(0, path, _, _) if path == &vec![native("in-flight")])
+        |event| matches!(event, Event::Item(0, path, _, _, _) if path == &vec![native("in-flight")])
     ));
     assert!(
         !rest

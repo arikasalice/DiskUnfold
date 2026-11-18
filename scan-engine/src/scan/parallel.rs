@@ -38,6 +38,7 @@ use std::{
     time::Duration,
 };
 
+mod correlated_budget;
 mod disconnect;
 mod preparation;
 mod scheduler;
@@ -86,6 +87,7 @@ struct Shared {
     disconnects: disconnect::Disconnects,
     track_priority_paths: bool,
     visited: Visited,
+    correlated_budget: Arc<correlated_budget::CorrelatedBudget>,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.
@@ -97,7 +99,49 @@ impl Shared {
     }
 }
 enum Event {
-    Item(u32, Vec<Vec<u8>>, Box<TimedObservedEntry>, Admission),
+    /// Registration is independent of the attempt event sequence.
+    #[allow(dead_code)]
+    FolderAttemptBegin {
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        attempt_id: u64,
+        reply: mpsc::Sender<
+            Result<du_analysis_index::FolderAttemptToken, du_analysis_index::FolderAttemptError>,
+        >,
+        _permit: correlated_budget::Permit,
+    },
+    /// A result is acknowledged only after the receiving build accepts it.
+    #[allow(dead_code)]
+    FolderAttemptEvent {
+        token: du_analysis_index::FolderAttemptToken,
+        seq: u64,
+        input: du_analysis_index::FolderAttemptInput,
+        reply: Option<mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>>,
+        _permit: Option<correlated_budget::Permit>,
+    },
+    /// Acknowledged EOF barrier, sent only after every numbered event was acknowledged.
+    #[allow(dead_code)]
+    FolderAttemptEnd {
+        token: du_analysis_index::FolderAttemptToken,
+        event_watermark_exclusive: u64,
+        child_count_exclusive: u64,
+        reply: mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>,
+    },
+    Item(
+        u32,
+        Vec<Vec<u8>>,
+        Box<TimedObservedEntry>,
+        Admission,
+        Option<correlated_budget::Permit>,
+    ),
+    /// A correlated observation whose dynamic payload and path are charged to the scan budget.
+    CorrelatedItem(
+        u32,
+        Vec<Vec<u8>>,
+        Box<TimedObservedEntry>,
+        Admission,
+        correlated_budget::Permit,
+    ),
     /// A name withheld by an undecidable exclusion rule; it was never observed.
     Undecided(u32, Vec<Vec<u8>>),
     DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
@@ -210,6 +254,7 @@ pub(crate) fn collect_open_forest_with_groups(
         limit,
         Policy::Legacy(include),
         (devices, None, None),
+        None,
     )
 }
 
@@ -230,6 +275,30 @@ pub(crate) fn collect_open_forest_filtered(
         limit,
         Policy::BeforeMetadata(include),
         (devices, None, None),
+        None,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn collect_open_forest_filtered_with_budget(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    include: &PreMetadataFilter<'_>,
+    devices: DevicePlan,
+    budget: Arc<correlated_budget::CorrelatedBudget>,
+) -> JobOutcome {
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        Policy::BeforeMetadata(include),
+        (devices, None, None),
+        Some(budget),
     )
 }
 
@@ -248,7 +317,7 @@ pub(crate) fn collect_open_forest_diagnostic(
 ) -> JobOutcome {
     let include = |_: &[Vec<u8>]| true;
     let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
-    collect_with_policy(build, roots, ids, context, limit, policy, options)
+    collect_with_policy(build, roots, ids, context, limit, policy, options, None)
 }
 
 fn collect_with_policy(
@@ -263,6 +332,7 @@ fn collect_with_policy(
         Option<&crate::scan_job::ScanDiagnostics>,
         Option<&ScanControlSession>,
     ),
+    correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
 ) -> JobOutcome {
     struct FinishControl<'a>(Option<&'a ScanControlSession>);
     impl Drop for FinishControl<'_> {
@@ -292,6 +362,7 @@ fn collect_with_policy(
             devices,
             &clock,
             diagnostics,
+            correlated_budget,
         )
     });
     match result {

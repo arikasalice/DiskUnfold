@@ -37,6 +37,7 @@ pub(super) fn close_frame(
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> bool {
+    correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
     let sent = drain(&mut frame, shared, sender, context, policy)
         && unread(frame.root_index, frame.path.clone(), sender, context)
         && super::send_excluded(&frame, false, sender);
@@ -70,7 +71,8 @@ fn drain(
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> bool {
-    while let Some(timed) = frame.entries.pop_front() {
+    while let Some(mut queued) = frame.entries.pop_front() {
+        let timed = queued.timed;
         let mut path = frame.path.clone();
         path.push(timed.entry.name.clone());
         let admission = super::admit(frame, &timed.entry, &path, &shared.visited, policy, false);
@@ -78,20 +80,35 @@ fn drain(
             frame.excluded = frame.excluded.saturating_add(1);
             continue;
         }
-        let item = Event::Item(frame.root_index, path.clone(), Box::new(timed), admission);
+        let item = Event::Item(
+            frame.root_index,
+            path.clone(),
+            Box::new(timed),
+            admission,
+            queued.payload_permit.take(),
+        );
         if sender.send(item).is_err() {
             return false;
+        }
+        if admission == Admission::Enter
+            && let Some(attempt) = queued.child_attempt.as_mut()
+        {
+            correlated_transport::fail_best_effort(sender, shared, attempt);
         }
         if admission == Admission::Enter && !unread(frame.root_index, path, sender, context) {
             return false;
         }
     }
     // Deferred root entries were recorded, reserved and registered already.
-    while let Some(timed) = frame.deferred.pop_front() {
+    while let Some(mut queued) = frame.deferred.pop_front() {
+        let timed = queued.timed;
         let mut path = frame.path.clone();
         path.push(timed.entry.name.clone());
         if shared.track_priority_paths && !release_path(shared, frame.root_index, &path, context) {
             return false;
+        }
+        if let Some(attempt) = queued.child_attempt.as_mut() {
+            correlated_transport::fail_best_effort(sender, shared, attempt);
         }
         if !unread(frame.root_index, path, sender, context) {
             return false;

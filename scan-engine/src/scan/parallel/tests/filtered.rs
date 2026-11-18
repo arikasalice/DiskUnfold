@@ -7,6 +7,8 @@ struct FilteredRoot {
     probes: Arc<AtomicUsize>,
 }
 
+mod correlated;
+
 #[test]
 fn frozen_policy_receives_forest_root_index() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
