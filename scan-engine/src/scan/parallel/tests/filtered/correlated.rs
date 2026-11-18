@@ -145,6 +145,7 @@ impl AnchoredDirectory for BudgetExhaustionRoot {
 
 struct ReturnedDirectoryRoot {
     step: u8,
+    child: bool,
 }
 
 /// Simulates an adapter that could not prove the child's identity, such as a
@@ -227,14 +228,21 @@ fn withheld_correlated_metadata_keeps_the_item_and_does_not_prove_the_attempt()
         abandoned: Arc::new(AtomicUsize::new(0)),
     };
     let sink = IngestSink::default();
-    let outcome = collect_parallel_filtered(
-        &sink,
+    let build = sink.open_forest(
         ids.next_id(),
-        Box::new(WithheldMetadataRoot { step: 0 }),
+        vec![super::super::observed_root("C:\\R0", 1)],
+    );
+    let outcome = crate::scan::parallel::collect_open_forest_filtered(
+        build,
+        vec![Box::new(WithheldMetadataRoot { step: 0 })],
         &ids,
         &context,
         1,
         &|_, _, _| FilterDecision::Admit,
+        crate::scan::parallel::DevicePlan {
+            groups: vec![0],
+            limit: 1,
+        },
     );
     assert!(outcome.result_version_id.is_some());
     let result = sink
@@ -272,6 +280,36 @@ impl DirectoryObservations for ReturnedDirectoryRoot {
         })
     }
 
+    fn next_filtered(
+        &mut self,
+        include: &mut dyn FnMut(&[u8]) -> FilterDecision,
+    ) -> Result<FilteredBatch, PortError> {
+        use du_core_contracts::scan_observation::ObservedKind;
+        if !self.child || self.step > 0 {
+            return Ok(FilteredBatch::End);
+        }
+        self.step += 1;
+        if include(b"leaf") != FilterDecision::Admit {
+            return Ok(FilteredBatch::Undecidable);
+        }
+        Ok(FilteredBatch::Entries(vec![ObservedEntry {
+            name: b"leaf".to_vec(),
+            enumerated_inode: 8,
+            enumerated_kind: ObservedKind::File,
+            metadata: Ok(du_core_contracts::scan_observation::MetadataObservation {
+                kind: ObservedKind::File,
+                device: 1,
+                inode: 8,
+                size: Ok(4),
+                allocated: None,
+                link_count: None,
+                space_identity: None,
+                modified_at: None,
+                native_modified_at: None,
+            }),
+        }]))
+    }
+
     fn begin_correlated_filtered(&mut self) -> Result<(), PortError> {
         Ok(())
     }
@@ -307,11 +345,10 @@ impl AnchoredDirectory for ReturnedDirectoryRoot {
     }
 
     fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-        Err(PortError {
-            kind: PortErrorKind::Unsupported,
-            reason_key: "os.unsupported".into(),
-            os_code: None,
-        })
+        Ok(Box::new(Self {
+            step: 0,
+            child: true,
+        }))
     }
 }
 
@@ -451,8 +488,12 @@ fn path_budget_exhaustion_keeps_item_and_holds_correlated_attempt()
         8,
         16 * 1024 * 1024,
     );
+    let build = sink.open_forest(
+        ids.next_id(),
+        vec![super::super::observed_root("C:\\R0", 1)],
+    );
     let outcome = crate::scan::parallel::collect_open_forest_filtered_with_budget(
-        sink.open(ids.next_id()),
+        build,
         vec![Box::new(BudgetExhaustionRoot {
             step: 0,
             child: false,
@@ -503,14 +544,24 @@ fn oversized_directory_observation_holds_evidence_but_continues_f02_traversal()
         completed: Arc::new(AtomicUsize::new(0)),
         abandoned: Arc::new(AtomicUsize::new(0)),
     };
-    let outcome = collect_parallel_filtered(
-        &sink,
+    let build = sink.open_forest(
         ids.next_id(),
-        Box::new(ReturnedDirectoryRoot { step: 0 }),
+        vec![super::super::observed_root("C:\\R0", 1)],
+    );
+    let outcome = crate::scan::parallel::collect_open_forest_filtered(
+        build,
+        vec![Box::new(ReturnedDirectoryRoot {
+            step: 0,
+            child: false,
+        })],
         &ids,
         &context,
         1,
         &|_, _, _| FilterDecision::Admit,
+        crate::scan::parallel::DevicePlan {
+            groups: vec![0],
+            limit: 1,
+        },
     );
     assert!(outcome.result_version_id.is_some());
     let result = sink
@@ -566,8 +617,12 @@ fn refused_child_attempt_keeps_child_traversal_and_results()
         8,
         16 * 1024 * 1024,
     );
+    let build = sink.open_forest(
+        ids.next_id(),
+        vec![super::super::observed_root("C:\\R0", 1)],
+    );
     let outcome = crate::scan::parallel::collect_open_forest_filtered_with_budget(
-        sink.open(ids.next_id()),
+        build,
         vec![Box::new(BudgetExhaustionRoot {
             step: 0,
             child: false,
