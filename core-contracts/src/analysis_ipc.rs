@@ -18,7 +18,9 @@ pub use recent_scope::{
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,
 };
 pub use scope_draft::{ScopeDraft, ScopeExclusion};
-pub use space_query::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize};
+pub use space_query::{
+    SpaceObservationRange, SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

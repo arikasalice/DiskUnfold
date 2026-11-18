@@ -304,6 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SpaceTotalRequest::decl(&config),
         ResultCompleteness::decl(&config),
         SpaceTotalSize::decl(&config),
+        SpaceObservationRange::decl(&config),
         SpaceTotal::decl(&config),
         VolumeGapSelection::decl(&config),
         VolumeGapRequest::decl(&config),
