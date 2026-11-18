@@ -20,7 +20,7 @@ static NEXT_BUILD_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_build_id() -> Result<u64, BuildError> {
     NEXT_BUILD_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
         })
         .map_err(|_| BuildError::CapacityExceeded)

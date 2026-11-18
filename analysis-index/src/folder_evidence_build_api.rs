@@ -9,7 +9,7 @@ static NEXT_BUILD_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_build_generation() -> Result<u64, BuildError> {
     NEXT_BUILD_GENERATION
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
         })
         .map_err(|_| BuildError::CapacityExceeded)
@@ -41,7 +41,7 @@ impl BuildHandle {
                 .observations
                 .observation(folder_node)
                 .is_none_or(|observation| {
-                    observation.kind != crate::item_kind::ResultItemKind::Directory
+                    observation.kind != du_core_contracts::result::ResultItemKind::Directory
                 })
         {
             self.folder_attempts.disable_admission();
