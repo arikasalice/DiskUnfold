@@ -629,7 +629,7 @@ test("entry point shows loading, failure and a newer table independently of the 
   fireEvent.click(screen.getByRole("button", { name: /Items in this result/ }));
   expect(screen.getByText("No rows in this page")).toBeTruthy();
   await act(async () => controller.render(request(3, "new-revision")));
-  expect(screen.getByText("The chart could not be updated.")).toBeTruthy();
+  expect(screen.getByText("The chart could not be loaded.")).toBeTruthy();
   expect(
     screen.getByRole("region", { name: "Items in this result" }),
   ).toBeTruthy();

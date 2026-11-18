@@ -46,13 +46,13 @@ test.each([
     "en",
     "There are no items to draw in this scope",
     "Scope total: 0 items",
-    "12 items unavailable",
+    "Items not drawn: 12 items",
   ],
   [
     "ko",
     "이 범위에는 그릴 항목이 없습니다",
     "범위 합계: 0개",
-    "확인 불가 12개",
+    "그리지 않은 항목: 12개",
   ],
 ] as const)(
   "a model with no shapes says so with its total and unavailable count (%s)",
@@ -96,7 +96,7 @@ test("an empty model with no unavailable items shows no count", () => {
       value: "0",
     };
   });
-  expect(screen.queryByText(/^\d+ items unavailable$/)).toBeNull();
+  expect(screen.queryByText(/^Items not drawn: /)).toBeNull();
 });
 
 test("the empty result alone does not depend on loaded rows", () => {
