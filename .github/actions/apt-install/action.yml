@@ -1,0 +1,40 @@
+name: Install Linux packages with cached downloads
+description: >-
+  Installs apt packages and keeps the downloaded .deb files in the Actions cache. The Azure Ubuntu
+  mirror can take 15 minutes or more for the GTK and WebKit packages. The cache only supplies files:
+  apt still refreshes the index and checks every cached .deb against it, so a missing, stale or
+  corrupt cache falls back to downloading from the mirror.
+inputs:
+  packages:
+    description: Space separated apt package names.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      # The runner image version is part of the key because a new image changes package versions.
+      run: |
+        set -euo pipefail
+        digest="$(printf '%s\n' $PACKAGES | sort -u | sha256sum | cut -c1-16)"
+        echo "key=apt-debs-$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:-unknown}-$digest" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "5"
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.key.outputs.key }}
+    - name: Install packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/apt-debs"
+        sudo cp -n "$HOME"/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+        sudo apt-get update
+        sudo apt-get install -y $PACKAGES
+        sudo cp -n /var/cache/apt/archives/*.deb "$HOME/apt-debs/" 2>/dev/null || true
+        sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
