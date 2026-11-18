@@ -9,6 +9,7 @@ impl IngestSink {
     /// Sealing it succeeds only while `base` remains current. Readers that already pinned
     /// `base` keep their immutable snapshot after a successful replacement.
     pub fn open_replacement(&self, base: &Arc<ResultVersion>) -> Result<BuildHandle, BuildError> {
+        let build_generation = crate::folder_evidence_build_api::next_build_generation()?;
         let lineage_id = base.lineage_id.clone().ok_or(BuildError::BaseSuperseded)?;
         let lineage = Some(lineage_id);
         let baseline = self
@@ -41,6 +42,10 @@ impl IngestSink {
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,
+            folder_attempts: crate::folder_evidence_receiver::FolderAttemptLedger::new(
+                build_generation,
+                Arc::clone(&self.folder_evidence_budget),
+            ),
         })
     }
 }

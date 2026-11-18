@@ -4,7 +4,34 @@ pub mod browse;
 mod current_pin;
 mod directory_case;
 pub mod folder_collection;
+mod folder_evidence_api;
+mod folder_evidence_budget;
+mod folder_evidence_build_api;
+mod folder_evidence_copy;
+mod folder_evidence_receiver;
+mod folder_evidence_snapshot;
+mod folder_evidence_snapshot_builder;
+mod folder_evidence_validation;
 mod folder_marks;
+pub use folder_evidence_api::{
+    FolderAttemptError, FolderAttemptFinal, FolderAttemptInput, FolderAttemptStatus,
+    FolderAttemptToken,
+};
+pub use folder_evidence_snapshot::FolderAttemptSummary;
+// Draft candidate API: event validation is connected to BuildHandle, but only publishes
+// unproven summaries and never upgrades result sizes or completeness.
+#[cfg(test)]
+mod folder_attempt_contract;
+#[cfg(test)]
+mod folder_attempt_history;
+#[cfg(test)]
+mod folder_attempt_validation;
+#[cfg(test)]
+mod folder_attempts;
+#[cfg(test)]
+mod folder_evidence_build_handle_tests;
+#[cfg(test)]
+mod folder_evidence_snapshot_budget_tests;
 mod forest;
 pub mod freshness;
 mod freshness_ledger;
@@ -107,12 +134,15 @@ pub struct ResultVersion {
     /// Per-root outcomes for the freshness ledger, computed at seal time outside the store
     /// lock. `None` when the version was not sealed by a store that tracks freshness.
     freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
+    folder_evidence: Option<folder_evidence_snapshot::FolderEvidenceSnapshot>,
 }
+
 /// A single publication point. Readers retain their snapshot after releasing the lock.
 #[derive(Clone, Default)]
 pub struct IngestSink {
     state: Arc<Mutex<State>>,
     events: Arc<PublicationEvents>,
+    folder_evidence_budget: Arc<folder_evidence_budget::FolderEvidenceBudget>,
 }
 impl IngestSink {
     /// Creates the result store and binds it to the runtime notification channel.
@@ -120,8 +150,13 @@ impl IngestSink {
         Self {
             state: Arc::default(),
             events: Arc::new(PublicationEvents::new(publisher, None)),
+            folder_evidence_budget: Arc::default(),
         }
     }
+    /// Opens a rootless legacy build for ordinary observations.
+    ///
+    /// This build has no verified root identity, so `begin_folder_attempt` returns
+    /// `FolderAttemptError::InvalidDirectory`; use `open_observed` or `open_forest` instead.
     pub fn open(&self, scope_version_id: Id) -> Result<BuildHandle, BuildError> {
         self.begin(scope_version_id, Vec::new(), None)
     }
@@ -163,6 +198,7 @@ impl IngestSink {
         roots: Vec<ResultScopeRoot>,
         lineage: Option<Id>,
     ) -> Result<BuildHandle, BuildError> {
+        let build_generation = folder_evidence_build_api::next_build_generation()?;
         let mut state = self.state.lock().map_err(|_| BuildError::Unavailable)?;
         let baseline = state.begin(&lineage)?;
         Ok(BuildHandle {
@@ -187,6 +223,10 @@ impl IngestSink {
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,
+            folder_attempts: folder_evidence_receiver::FolderAttemptLedger::new(
+                build_generation,
+                Arc::clone(&self.folder_evidence_budget),
+            ),
         })
     }
 }
@@ -215,6 +255,7 @@ pub struct BuildHandle {
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     volume_reports: Vec<VolumeReport>,
     finished: bool,
+    folder_attempts: folder_evidence_receiver::FolderAttemptLedger,
 }
 impl BuildHandle {
     fn insert(
@@ -284,6 +325,7 @@ impl BuildHandle {
     ) -> Result<Arc<ResultVersion>, BuildError> {
         self.publish(version_id, completeness, observed_at, true)
     }
+
     fn publish(
         &mut self,
         version_id: Id,
@@ -336,6 +378,23 @@ impl BuildHandle {
         let (observation_ranges, scope_observation_range) =
             observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
+        if finish {
+            self.folder_attempts.hold_pending();
+        }
+        let folder_evidence = match self.folder_attempts.snapshot(&built) {
+            Ok(evidence) => evidence,
+            Err(BuildError::CapacityExceeded) => {
+                // Preserve the ordinary observations and publish without optional evidence.
+                self.folder_attempts.discard();
+                None
+            }
+            Err(error) => {
+                // Withdraw any partial from this build and restore its baseline through abort.
+                self.abort();
+                self.folder_attempts.discard();
+                return Err(error);
+            }
+        };
         let folder_marks = folder_marks::FolderMarks::bind(
             &built,
             &self.observations,
@@ -387,6 +446,7 @@ impl BuildHandle {
             volume_reports: self.volume_reports.clone(),
             observed_at,
             freshness_outcomes,
+            folder_evidence,
         });
         let order = self
             .events

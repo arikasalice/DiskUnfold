@@ -184,6 +184,11 @@ impl ObservationStore {
         Some(node)
     }
 
+    /// Finds one direct child without reconstructing its full path.
+    pub(crate) fn child_node(&self, parent: u32, name: &[u8]) -> Option<u32> {
+        self.child(parent, name)
+    }
+
     /// The deepest existing node on `path` and whether it is the whole path.
     pub(crate) fn deepest(&self, root: u32, path: &[Vec<u8>]) -> Option<(u32, bool)> {
         let mut node = self.root_node(root)?;

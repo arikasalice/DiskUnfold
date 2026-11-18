@@ -27,6 +27,13 @@ pub struct ItemDetail<'a> {
 }
 
 impl ResultVersion {
+    /// Returns pinned draft attempt summaries; they never promote size values to exact.
+    pub fn folder_attempt_summaries(&self) -> Option<&[crate::FolderAttemptSummary]> {
+        self.folder_evidence
+            .as_ref()
+            .map(|evidence| evidence.summaries())
+    }
+
     /// Returns the source that created this immutable result version.
     pub fn origin(&self) -> &'static str {
         self.origin.as_str()
