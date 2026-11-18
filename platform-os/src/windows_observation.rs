@@ -55,7 +55,10 @@ use windows::{
         },
     },
     Win32::{
-        Foundation::{HANDLE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING},
+        Foundation::{
+            HANDLE, OBJ_CASE_INSENSITIVE, OBJECT_ATTRIBUTE_FLAGS, RtlNtStatusToDosError,
+            UNICODE_STRING,
+        },
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
             FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
@@ -250,7 +253,7 @@ fn relative_with_case(
         Attributes: if case_insensitive {
             OBJ_CASE_INSENSITIVE
         } else {
-            0
+            OBJECT_ATTRIBUTE_FLAGS(0)
         },
         SecurityDescriptor: std::ptr::null(),
         SecurityQualityOfService: std::ptr::null(),
