@@ -90,25 +90,7 @@ node --test release-packaging/quality/
 
 `--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. Today a person runs `--check` and the tests by hand; no workflow under `.github` runs either of them, and no workflow runs the release review. Connecting `--check` and the tests to the merge stage and the combination review to the release tag is release owner work. This tool does not drive assistive technology; a person or a separate automated run produces the results file.
 
-## Self-hosted macOS arm64 runner
+## GitHub-hosted runners only
 
-Hosted macOS jobs can wait 20 to 50 minutes in the queue. The `targets` job reads the repository variable `DU_RUNNER_OVERRIDES`, a JSON object that maps `<os>-<cpu>` to a runner label or a list of labels, and replaces `runner` for those targets. An unset or empty variable keeps the GitHub-hosted runners. An unknown key or an empty value fails the `targets` job. `quality-output/targets.json` records the effective runners.
-
-An invalid `DU_RUNNER_OVERRIDES` value fails the `targets` job; on Windows PowerShell, set it from stdin with `'{"macos-arm64":["self-hosted","macOS","ARM64","du-m1-vm"]}' | gh variable set DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold` because PowerShell 5 strips the inner quotes of `--body`.
-
-Fork pull requests never use the self-hosted runners: the workflow passes the variable to the `targets` job only for pushes and same-repository pull requests, so fork pull requests always run on GitHub-hosted runners. The repository also requires approval before workflow runs from outside contributors.
-
-Enable:
-
-```sh
-gh variable set DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold --body '{"macos-arm64":["self-hosted","macOS","ARM64","du-m1-vm"]}'
-```
-
-Disable, for example when the Mac is offline (the next run uses `macos-15` again, no code change):
-
-```sh
-gh variable delete DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold
-```
-
-The VM needs Xcode Command Line Tools, `rustup`, `bash` and `git`. `lint` and `native` use the same label, so with one runner they run one after the other and share `~/.cargo` and the rustup default toolchain. Results from the VM count as macOS arm64 evidence only for the macOS version installed on that VM, not for other versions.
+All CI build and test jobs in `quality.yml`, `fuzz.yml` and `release.yml` use GitHub-hosted Actions runners. Do not use or configure self-hosted runners or runner overrides. The six quality matrix targets keep their fixed runner labels in `targets.json`; `matrix.mjs` rejects labels that do not match the approved GitHub-hosted OS/CPU mapping. No repository variable or workflow input can change runner selection.
 

@@ -4,27 +4,32 @@ import test from 'node:test';
 import { buildManifest } from './matrix.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./targets.json', import.meta.url), 'utf8'));
-const runnerOf = (result, key) => result.targets.find((t) => `${t.os}-${t.cpu}` === key).runner;
-const labels = ['self-hosted', 'macOS', 'ARM64', 'du-m1-vm'];
+const expectedRunners = {
+  'linux-x64': 'ubuntu-24.04',
+  'linux-arm64': 'ubuntu-24.04-arm',
+  'windows-x64': 'windows-2022',
+  'windows-arm64': 'windows-11-arm',
+  'macos-x64': 'macos-15-intel',
+  'macos-arm64': 'macos-15',
+};
 
-test('valid override replaces only the named runners', () => {
-  const result = buildManifest(manifest, JSON.stringify({ 'macos-arm64': labels, 'linux-x64': 'custom' }));
-  assert.deepEqual(runnerOf(result, 'macos-arm64'), labels);
-  assert.equal(runnerOf(result, 'linux-x64'), 'custom');
-  assert.equal(runnerOf(result, 'macos-x64'), runnerOf(manifest, 'macos-x64'));
-  assert.equal(runnerOf(manifest, 'macos-arm64'), 'macos-15');
+test('the six-target manifest keeps its GitHub-hosted runner matrix', () => {
+  assert.deepEqual(
+    Object.fromEntries(manifest.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner])),
+    expectedRunners,
+  );
+  assert.deepEqual(buildManifest(manifest), manifest);
 });
 
-test('unset, empty and blank variables keep the hosted runners', () => {
-  for (const value of [undefined, '', '  \n']) assert.deepEqual(buildManifest(manifest, value), manifest);
-});
-
-test('unknown target key is rejected', () => {
-  assert.throws(() => buildManifest(manifest, '{"macos-arm63":"x"}'), /unknown target "macos-arm63"/);
-});
-
-test('bad values are rejected', () => {
-  for (const bad of ['{"macos-arm64":""}', '{"macos-arm64":[]}', '{"macos-arm64":["a",""]}', '{"macos-arm64":["a",1]}', '{"macos-arm64":5}', '{"macos-arm64":null}', '[]', '"x"', 'null', '{bad']) {
-    assert.throws(() => buildManifest(manifest, bad), /DU_RUNNER_OVERRIDES/, bad);
+test('self-hosted and unknown runner labels are rejected', () => {
+  for (const runner of ['self-hosted', ['self-hosted', 'macOS', 'ARM64'], 'custom']) {
+    const candidate = {
+      ...manifest,
+      targets: manifest.targets.map((target) => ({
+        ...target,
+        runner: target.os === 'macos' && target.cpu === 'arm64' ? runner : target.runner,
+      })),
+    };
+    assert.throws(() => buildManifest(candidate), /Invalid target: macos-arm64/);
   }
 });
