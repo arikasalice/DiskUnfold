@@ -162,6 +162,18 @@ fn process(
             return disconnected::close_frame(frame, shared, sender, context, policy);
         }
     }
+    process_remaining(frame, shared, sender, context, policy, started, turn)
+}
+
+fn process_remaining(
+    mut frame: Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+    policy: Policy<'_>,
+    started: bool,
+    turn: &mut Turn<'_>,
+) -> bool {
     let recorded = frame.root_published && !frame.deferred.is_empty();
     let next = if recorded {
         frame.deferred.pop_front()

@@ -8,6 +8,8 @@ mod enumeration;
 #[cfg(test)]
 mod filter_tests;
 mod metadata;
+mod path;
+pub(super) use path::{bytes, wide};
 mod recall;
 pub mod recent_probe;
 mod reparse;
@@ -151,29 +153,6 @@ fn win_error(e: windows::core::Error) -> PortError {
 
 fn raw(file: &File) -> HANDLE {
     HANDLE(file.as_raw_handle())
-}
-fn bytes(name: &[u16]) -> Vec<u8> {
-    name.iter().flat_map(|v| v.to_le_bytes()).collect()
-}
-fn wide(name: &[u8]) -> Result<Vec<u16>, PortError> {
-    if name.is_empty() || !name.len().is_multiple_of(2) {
-        return Err(invalid());
-    }
-    let result: Vec<_> = name
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|v| u16::from_le_bytes([v[0], v[1]]))
-        .collect();
-    if result
-        .iter()
-        .any(|v| *v == 0 || *v == b'\\' as u16 || *v == b'/' as u16 || *v == b':' as u16)
-        || result == [46]
-        || result == [46, 46]
-    {
-        return Err(invalid());
-    }
-    Ok(result)
 }
 pub(crate) fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION, PortError> {
     let mut value = BY_HANDLE_FILE_INFORMATION::default();

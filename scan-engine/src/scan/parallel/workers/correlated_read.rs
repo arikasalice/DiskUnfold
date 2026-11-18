@@ -45,44 +45,8 @@ pub(super) fn read(
     let Policy::BeforeMetadata(include) = policy else {
         return Read::Legacy;
     };
-    if frame.correlated.unselected() {
-        match frame
-            .correlated
-            .select(&frame.directory, &shared.correlated_budget)
-        {
-            Step::Legacy => {
-                if frame.correlated.token().is_some() {
-                    correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
-                    frame.correlated.fallback_to_legacy();
-                }
-                return Read::Legacy;
-            }
-            Step::Progress => {
-                if frame.correlated.token().is_none() {
-                    let Some(attempt_id) = correlated_budget::next_attempt_id() else {
-                        frame.correlated.evidence_failed();
-                        return turn(frame, shared, TurnStep::Progress, Vec::new(), None);
-                    };
-                    match correlated_transport::begin(
-                        sender,
-                        shared,
-                        context,
-                        frame.root_index,
-                        &frame.path,
-                        attempt_id,
-                    ) {
-                        Ok(token) => frame.correlated.bind(token),
-                        Err(_) => {
-                            // The adapter is already selected. Keep its ordinary observations
-                            // flowing even when optional result registration cannot be retained.
-                            frame.correlated.evidence_failed();
-                            return turn(frame, shared, TurnStep::Progress, Vec::new(), None);
-                        }
-                    }
-                }
-            }
-            _ => return failed_turn(frame, shared),
-        }
+    if let Some(read) = select_attempt(frame, shared, sender, context) {
+        return read;
     }
     if frame.correlated.legacy() {
         return Read::Legacy;
@@ -109,6 +73,65 @@ pub(super) fn read(
         &|| context.checkpoint() == Checkpoint::Cancel || shared.abort.load(Ordering::Acquire),
     );
     frame.excluded = frame.excluded.saturating_add(excluded);
+    map_step(frame, shared, sender, context, raw_step, undecided)
+}
+
+fn select_attempt(
+    frame: &mut Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+) -> Option<Read> {
+    if frame.correlated.unselected() {
+        match frame
+            .correlated
+            .select(&frame.directory, &shared.correlated_budget)
+        {
+            Step::Legacy => {
+                if frame.correlated.token().is_some() {
+                    correlated_transport::fail_best_effort(sender, shared, &mut frame.correlated);
+                    frame.correlated.fallback_to_legacy();
+                }
+                return Some(Read::Legacy);
+            }
+            Step::Progress => {
+                if frame.correlated.token().is_none() {
+                    let Some(attempt_id) = correlated_budget::next_attempt_id() else {
+                        frame.correlated.evidence_failed();
+                        return Some(turn(frame, shared, TurnStep::Progress, Vec::new(), None));
+                    };
+                    match correlated_transport::begin(
+                        sender,
+                        shared,
+                        context,
+                        frame.root_index,
+                        &frame.path,
+                        attempt_id,
+                    ) {
+                        Ok(token) => frame.correlated.bind(token),
+                        Err(_) => {
+                            // The adapter is already selected. Keep its ordinary observations
+                            // flowing even when optional result registration cannot be retained.
+                            frame.correlated.evidence_failed();
+                            return Some(turn(frame, shared, TurnStep::Progress, Vec::new(), None));
+                        }
+                    }
+                }
+            }
+            _ => return Some(failed_turn(frame, shared)),
+        }
+    }
+    None
+}
+
+fn map_step(
+    frame: &mut Frame,
+    shared: &Shared,
+    sender: &SyncSender<Event>,
+    context: &dyn JobContext,
+    raw_step: Step,
+    undecided: Vec<Vec<u8>>,
+) -> Read {
     let mut returned_permit = None;
     let step = match raw_step {
         Step::Event {

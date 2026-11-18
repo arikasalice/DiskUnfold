@@ -248,24 +248,43 @@ impl Progress {
                 self.cadence.changed();
                 Ok(())
             }
-            Event::RootBatch(root_index, modified_at, observed_at) => {
-                let has_timestamp = modified_at.is_some() || observed_at.is_some();
-                if let Some(time) = observed_at {
-                    build.set_item_observed_at(root_index, &[], time)?;
-                }
-                if let Some(time) = modified_at {
-                    build.set_modified_at(root_index, &[], time)?;
-                }
-                if has_timestamp {
-                    self.cadence.changed();
-                }
-                self.root_published[root_index as usize] = true;
-                if !self.published && context.checkpoint() != Checkpoint::Cancel {
-                    self.publish(build, context, ids, clock)?;
-                }
-                Ok(())
-            }
+            Event::RootBatch(root_index, modified_at, observed_at) => self.record_root_batch(
+                root_index,
+                modified_at,
+                observed_at,
+                build,
+                context,
+                ids,
+                clock,
+            ),
         }
+    }
+
+    fn record_root_batch(
+        &mut self,
+        root_index: u32,
+        modified_at: Option<du_core_contracts::Timestamp>,
+        observed_at: Option<du_core_contracts::Timestamp>,
+        build: &mut BuildHandle,
+        context: &dyn JobContext,
+        ids: &dyn ResultIds,
+        clock: &dyn MonotonicClock,
+    ) -> Result<(), BuildError> {
+        let has_timestamp = modified_at.is_some() || observed_at.is_some();
+        if let Some(time) = observed_at {
+            build.set_item_observed_at(root_index, &[], time)?;
+        }
+        if let Some(time) = modified_at {
+            build.set_modified_at(root_index, &[], time)?;
+        }
+        if has_timestamp {
+            self.cadence.changed();
+        }
+        self.root_published[root_index as usize] = true;
+        if !self.published && context.checkpoint() != Checkpoint::Cancel {
+            self.publish(build, context, ids, clock)?;
+        }
+        Ok(())
     }
 
     pub(super) fn publish(
