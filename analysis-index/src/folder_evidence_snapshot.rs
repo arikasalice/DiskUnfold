@@ -22,7 +22,6 @@ pub struct FolderAttemptSummary {
 #[derive(Debug)]
 pub(crate) struct FolderEvidenceSnapshot {
     summaries: Vec<FolderAttemptSummary>,
-    #[allow(dead_code)]
     _events: Vec<PinnedFolderEvent>,
     _attempt_leases: Vec<FolderEvidenceLease>,
     _overhead_lease: FolderEvidenceLease,
