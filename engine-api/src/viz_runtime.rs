@@ -42,6 +42,7 @@ mod lifecycle;
 mod ranked_bar;
 mod ranked_group_model;
 mod ranked_projection;
+mod remainder;
 pub mod selection;
 
 /// Histogram policy and bin presentation frozen by the composition owner at admission.

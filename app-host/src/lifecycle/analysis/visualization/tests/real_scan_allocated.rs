@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use du_core_contracts::{EventEnvelope, Id, PathBytes};
+use du_core_contracts::{EventEnvelope, Id, PathBytes, visualization::model::VizModel};
 use du_engine_api::desktop::DesktopEvents;
 use serde_json::{Value, json};
 
@@ -123,6 +123,20 @@ fn bytes(value: &Value) -> Result<u64, Failure> {
     Ok(value.as_str().ok_or("not a decimal string")?.parse()?)
 }
 
+/// The model survives the wire and passes the contract checks, which include the sum of
+/// its totals.
+fn assert_valid(model: &Value, revision: &Id) -> Result<(), Failure> {
+    let parsed: VizModel = serde_json::from_value(model.clone())?;
+    parsed.validate_revision(revision).map_err(Failure::from)
+}
+
+/// The exact remainder of the model's totals.
+fn remainder(model: &Value) -> Result<u64, Failure> {
+    let quantity = &model["totals"]["remainder"]["quantity"];
+    assert_eq!(quantity["state"], "exact", "{}", model["totals"]);
+    bytes(&quantity["value"])
+}
+
 /// The F03 total of the scanned folder on `basis`.
 fn space_total(
     assembled: &Assembled,
@@ -182,6 +196,13 @@ fn a_real_scan_draws_the_treemap_on_the_allocated_and_the_logical_basis() -> Res
             scope,
             "{basis}"
         );
+        // Nothing is left out: the remainder is exactly zero and names no cause.
+        assert_eq!(remainder(model)?, 0, "{basis}");
+        assert!(
+            model["totals"].get("remainderReasonKeys").is_none(),
+            "{basis}"
+        );
+        assert_valid(model, &revision)?;
         let rows = rows_of(&assembled, &answer)?;
         assert_eq!(rows["totalCount"], 4, "{basis}");
         let listed = rows["rows"]
@@ -246,10 +267,26 @@ fn a_file_linked_from_two_sibling_folders_is_unknown_for_both_on_the_allocated_b
     assert_eq!(bytes(&model["totals"]["grouped"]["quantity"]["value"])?, 0);
     assert_eq!(scope - drawn, row_bytes("left")?);
     assert_eq!(row_bytes("left")?, row_bytes("right")?);
+    // What is left of the scope is the shared file, counted once, and no folder carries
+    // it: the remainder says so, and the summary counts the two folders it could not draw.
+    assert_eq!(remainder(model)?, row_bytes("left")?);
+    assert_eq!(
+        model["totals"]["remainderReasonKeys"],
+        json!(["viz.remainder.unattributed"])
+    );
+    assert_valid(model, &revision)?;
 
     let logical = render(&assembled, &revision, "logical")?;
     assert_eq!(logical["kind"], "model", "{logical}");
     assert_eq!(logical["model"]["shapes"].as_array().map(Vec::len), Some(3));
     assert_eq!(logical["model"]["summary"]["unknownItems"]["value"], "0");
+    // Counted by path, all three folders are drawn and nothing is left over.
+    assert_eq!(remainder(&logical["model"])?, 0);
+    assert!(
+        logical["model"]["totals"]
+            .get("remainderReasonKeys")
+            .is_none()
+    );
+    assert_valid(&logical["model"], &revision)?;
     Ok(())
 }

@@ -815,7 +815,26 @@ export type VizStalenessState = "current" | "stale" | "unknown";
 export type VizStaleness = { state: VizStalenessState, reasonKey: string | null, };
 export type VizRepresentation = { format: string, measure: string, sizeBasis: SizeBasis, classificationCriterion: string, colorCriterion: string, denominatorBasis: VizDenominatorBasis, colorMode: VizColorMode | null, labelMode: VizLabelMode | null, };
 export type VizTotal = { quantity: VizQuantity, sourceSize: SizeValue | null, };
-export type VizTotals = { scope: VizTotal, drawn: VizTotal, grouped: VizTotal, filteredOut: VizTotal, };
+export type VizTotals = { scope: VizTotal, drawn: VizTotal, grouped: VizTotal, filteredOut: VizTotal,
+/**
+ * What the scope holds beyond `drawn`, `grouped` and `filteredOut`.
+ *
+ * Siblings below the minimum area or coordinate precision, and space no single item
+ * can carry, such as a file shared between siblings that the scope counts once. The
+ * engine computes it; a consumer only displays it. Exact only when the scope and the
+ * other three totals are exact, and then never negative; otherwise unknown with a
+ * reason. Omitted rather than null; a model without it says nothing about it.
+ */
+remainder?: VizTotal,
+/**
+ * What the remainder holds: `viz.remainder.too_small` or `viz.remainder.unattributed`.
+ *
+ * Omitted when the remainder is absent or exactly zero, at least one key when it is
+ * exact and not zero, and the known causes or nothing when it is unknown (its reason
+ * says why). Valid only with `remainder`; keys are not empty, sorted and without
+ * duplicates, and an unregistered key is preserved. Omitted rather than null.
+ */
+remainderReasonKeys?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy, };
 export type VizMatchKey = { "state": "present", value: CorrespondenceKey, } | { "state": "unknown", reasonKey: string, } | { "state": "not_applicable", };
 export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null,

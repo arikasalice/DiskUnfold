@@ -81,6 +81,44 @@ fn ready(f: &Fixture, view: &Value) -> Result<Value, String> {
     f.ok("viz.render", request(view, 2))
 }
 
+fn publish_exact_values(sink: &IngestSink, values: &[u64]) -> Result<(), String> {
+    let lineage = sink
+        .bind_current_analysis("scope", id(1))
+        .map_err(|error| format!("{error:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut build = sink
+        .open_forest_in_lineage(id(2), vec![root], lineage)
+        .map_err(|error| format!("{error:?}"))?;
+    build
+        .add_directory(vec![])
+        .map_err(|error| format!("{error:?}"))?;
+    for (index, bytes) in values.iter().copied().enumerate() {
+        build
+            .add_file(Observation {
+                path: vec![format!("f{index}").into_bytes()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact {
+                        bytes: bytes.into(),
+                    },
+                }),
+            })
+            .map_err(|error| format!("{error:?}"))?;
+    }
+    build
+        .seal(id(3), ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(())
+}
+
 fn reference_of(result: &Value) -> &Value {
     &result["model"]["modelRef"]
 }
@@ -335,6 +373,66 @@ fn ranked_rows_at_and_below_the_shape_limit_remain_ungrouped() -> Result<(), Str
             2
         );
     }
+    Ok(())
+}
+
+#[test]
+fn coordinate_precision_items_do_not_double_count_members_of_other() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let values: Vec<_> = std::iter::once(1_000_000_000_000_u64)
+        .chain(1_u64..=100)
+        .collect();
+    publish_exact_values(&sink, &values)?;
+    let f = fixture(sink)?;
+    let view = f.open()?;
+    let make = |seq| {
+        let mut body = request(&view, seq);
+        // Only the largest bars can reach a coordinate on this one-unit-wide grid.
+        body["visibleWindow"]["right"] = json!(1);
+        body
+    };
+    let physical = job(&f.ok("viz.render", make(1))?)?;
+    f.entered
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|error| error.to_string())?;
+    f.release.send(()).map_err(|error| error.to_string())?;
+    f.finished(&physical, JobState::Done)?;
+
+    let response = f.ok("viz.render", make(2))?;
+    assert_eq!(response["kind"], "model");
+    let model = &response["model"];
+    assert_eq!(model["summary"]["groupedItems"]["value"], "2");
+    assert_eq!(model["summary"]["omittedItems"]["value"], "98");
+    assert_eq!(model["summary"]["unknownItems"]["value"], "0");
+    assert_eq!(model["shapes"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        model["totals"]["drawn"]["quantity"]["value"],
+        "1000000000000"
+    );
+    assert_eq!(model["totals"]["grouped"]["quantity"]["value"], "3");
+    assert_eq!(model["totals"]["remainder"]["quantity"]["value"], "5047");
+
+    let rows = f.ok(
+        "viz.rows",
+        json!({
+            "modelRef": model["modelRef"],
+            "resultRevision": id(3),
+            "start": 0,
+            "count": 10
+        }),
+    )?;
+    assert_eq!(rows["totalCount"], 100);
+    let group = f.call(
+        "viz.group_rows",
+        json!({
+            "modelRef": model["modelRef"],
+            "groupRef": "fixture.other",
+            "start": 0,
+            "count": 10
+        }),
+    );
+    assert!(group.error.is_none(), "{:?}", group.error);
+    assert_eq!(group.body["totalCount"], 2);
     Ok(())
 }
 

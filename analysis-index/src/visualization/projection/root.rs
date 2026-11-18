@@ -1,7 +1,7 @@
 //! The navigation-root level of a projection: rows, shapes, group and totals.
 use super::{
-    Detail, Error, Group, GroupMember, Lod, Model, Options, Row, Shape, Source, Totals, gaps,
-    group_ref, level,
+    Detail, Error, Group, GroupMember, Lod, Model, Options, RemainderCauses, Row, Shape, Source,
+    Totals, gaps, group_ref, level,
 };
 use crate::visualization::{
     self, detail,
@@ -149,7 +149,12 @@ pub(super) fn build(
     let unknown_items = level.unattributed.len() as u64;
     // The totals are defined on [Totals]: drawn adds the shaped root siblings above and
     // grouped adds this level's group below. No remainder is stored; it is the scope
-    // minus these, and a difference of lower bounds is not a value.
+    // minus these, and a difference of lower bounds is not a value. What it holds is
+    // in the detail, from the two counts of this level.
+    let remainder_causes = RemainderCauses {
+        too_small: omitted_items > 0,
+        unattributed: unknown_items > 0,
+    };
     let mut totals = Totals {
         scope: level.parent_value.clone(),
         drawn_bytes,
@@ -216,6 +221,7 @@ pub(super) fn build(
             unknown_items,
             omitted_items,
             reason_keys: gaps::reasons(version, parent, cancelled)?,
+            remainder_causes,
         },
     })
 }

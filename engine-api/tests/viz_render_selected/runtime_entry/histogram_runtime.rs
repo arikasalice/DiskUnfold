@@ -21,6 +21,94 @@ pub(super) fn facts(producer: &Producer) -> du_engine_api::viz_runtime::Histogra
         unknown_reason: "fixture.unknown".into(),
     }
 }
+
+fn publish_histogram_values(sink: &IngestSink, values: &[Option<SizeValue>]) -> Result<(), String> {
+    let lineage = sink
+        .bind_current_analysis("scope", id(1))
+        .map_err(|error| format!("{error:?}"))?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut build = sink
+        .open_forest_in_lineage(id(2), vec![root], lineage)
+        .map_err(|error| format!("{error:?}"))?;
+    build
+        .add_directory(vec![])
+        .map_err(|error| format!("{error:?}"))?;
+    for (index, size) in values.iter().enumerate() {
+        build
+            .add_file(Observation {
+                path: vec![format!("f{index}").into_bytes()],
+                size: size.clone(),
+            })
+            .map_err(|error| format!("{error:?}"))?;
+    }
+    build
+        .seal(id(3), ResultCompleteness::Complete)
+        .map_err(|error| format!("{error:?}"))?;
+    Ok(())
+}
+
+fn render_registered_histogram(fixture: &Fixture) -> Result<Value, String> {
+    let view = fixture.open()?;
+    let first = render(fixture, &view, 1, false)?;
+    if first["kind"] != "job" {
+        return Ok(first);
+    }
+    let physical = job(&first)?;
+    fixture
+        .entered
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|error| error.to_string())?;
+    fixture
+        .release
+        .send(())
+        .map_err(|error| error.to_string())?;
+    fixture.finished(&physical, JobState::Done)?;
+    render(fixture, &view, 2, false)
+}
+
+fn assert_fallback_table(fixture: &Fixture, response: &Value) -> Result<(), String> {
+    assert_eq!(response["kind"], "unavailable", "{response}");
+    assert_eq!(response["reasonKey"], "viz.unavailable.no_attribution");
+    let fallback = &response["fallback"];
+    let model_ref = fallback["modelRef"].as_str().ok_or("fallback model ref")?;
+    let frame = fixture
+        .session
+        .histogram_frame(model_ref)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        frame.status,
+        du_engine_api::viz_pages::histogram::HistogramStatus::NoAttribution
+    );
+    let rows = fixture.ok(
+        "viz.rows",
+        json!({
+            "modelRef": model_ref,
+            "resultRevision": id(3),
+            "start": 0,
+            "count": 10
+        }),
+    )?;
+    assert_eq!(rows["resultRevision"], json!(id(3)));
+    assert_eq!(rows["totalCount"], 6);
+    Ok(())
+}
+
+fn measured(bytes: u64) -> SizeValue {
+    SizeValue {
+        basis: SizeBasis::Logical,
+        evidence: SizeEvidence::Measured,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    }
+}
 pub(super) fn dispatcher()
 -> Result<du_analysis_index::visualization::typed_layout::Dispatcher, String> {
     let mut registry = du_analysis_index::visualization::registry::Builder::<
@@ -127,271 +215,6 @@ fn exercise(fixture: &Fixture, allocated: bool) -> Result<Value, String> {
     Ok(result)
 }
 
-#[test]
-fn runtime_publishes_byte_histogram_and_fixed_rows() -> Result<(), String> {
-    let fixture = Fixture::new([25, 75])?;
-    let first = exercise(&fixture, false)?;
-    fixture.producer.unit_iec.store(true, Ordering::SeqCst);
-    let view = fixture.open()?;
-    let second = render(&fixture, &view, 1, false)?;
-    let second = if second["kind"] == "job" {
-        fixture.finished(&job(&second)?, JobState::Done)?;
-        render(&fixture, &view, 2, false)?
-    } else {
-        second
-    };
-    let reference = second["model"]["modelRef"].as_str().ok_or("second model")?;
-    assert_ne!(first["model"]["modelRef"], second["model"]["modelRef"]);
-    assert_ne!(
-        first["model"]["conditionFingerprint"],
-        second["model"]["conditionFingerprint"]
-    );
-    assert_eq!(
-        fixture
-            .session
-            .histogram_frame(reference)
-            .map_err(|e| format!("{e:?}"))?
-            .unit_bins
-            .base,
-        1024
-    );
-    Ok(())
-}
-
-#[test]
-fn runtime_publishes_hardlink_fallback_and_fixed_rows() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let lineage = sink
-        .bind_current_analysis("scope", id(1))
-        .map_err(|e| format!("{e:?}"))?;
-    let root = ResultScopeRoot {
-        path: ResultNativePath {
-            encoding: PathEncoding::Unix,
-            raw: PathBytes::from_bytes(b"/fixture"),
-        },
-        volume_id: vec![1],
-        file_id: vec![2],
-    };
-    let mut build = sink
-        .open_forest_in_lineage(id(2), vec![root], lineage)
-        .map_err(|e| format!("{e:?}"))?;
-    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
-    for name in [b"a", b"b"] {
-        build
-            .add_with_space_at(
-                0,
-                Observation {
-                    path: vec![name.to_vec()],
-                    size: Some(SizeValue {
-                        basis: SizeBasis::Logical,
-                        evidence: SizeEvidence::Measured,
-                        amount: SizeAmount::Exact {
-                            bytes: 5_u64.into(),
-                        },
-                    }),
-                },
-                SpaceObservation {
-                    allocated: Some(SizeValue {
-                        basis: SizeBasis::Allocated,
-                        evidence: SizeEvidence::OsReported,
-                        amount: SizeAmount::Exact {
-                            bytes: 10_u64.into(),
-                        },
-                    }),
-                    identity: Some(FileIdentity {
-                        volume: vec![1],
-                        file: vec![2],
-                    }),
-                    link_count: Some(2),
-                    sharing: SharingEvidence::None,
-                },
-            )
-            .map_err(|e| format!("{e:?}"))?;
-    }
-    build
-        .seal(id(3), ResultCompleteness::Complete)
-        .map_err(|e| format!("{e:?}"))?;
-    let fixture = Fixture::from_sink(sink, Duration::ZERO, NonZeroUsize::MIN.saturating_add(3))?;
-    exercise(&fixture, true)?;
-    Ok(())
-}
-
-#[test]
-fn histogram_cancel_and_source_replacement_prevent_publication() -> Result<(), String> {
-    for replacement in [false, true] {
-        let fixture = Fixture::new([25, 75])?;
-        let view = fixture.open()?;
-        let physical = job(&render(&fixture, &view, 1, false)?)?;
-        fixture
-            .entered
-            .recv_timeout(Duration::from_secs(3))
-            .map_err(|e| e.to_string())?;
-        if replacement {
-            publish(&fixture.sink, id(2), id(4))?;
-        } else {
-            assert_eq!(fixture.detach(&view, 1)?["controlResult"], "accepted");
-        }
-        fixture.release.send(()).map_err(|e| e.to_string())?;
-        let counts = finished_counts(
-            &fixture,
-            &physical,
-            if replacement {
-                JobState::Failed
-            } else {
-                JobState::Cancelled
-            },
-        )?;
-        assert_eq!(counts.completed, 0);
-        assert_eq!(counts.unprocessed, if replacement { 0 } else { 2 });
-        if replacement {
-            let mut body = render_body(&view, 2);
-            body["format"] = json!("histogram");
-            assert_eq!(
-                fixture
-                    .call("viz.render", body)
-                    .error
-                    .ok_or("stale source accepted")?
-                    .reason_key,
-                "result.version_stale"
-            );
-        } else {
-            let next = render(&fixture, &view, 2, false)?;
-            if next["kind"] == "job" {
-                let next_job = job(&next)?;
-                assert_ne!(physical, next_job);
-                fixture.finished(&next_job, JobState::Done)?;
-                assert_eq!(render(&fixture, &view, 3, false)?["kind"], "model");
-            } else {
-                assert_eq!(next["kind"], "model");
-            }
-        }
-    }
-    Ok(())
-}
-
-#[test]
-fn histogram_unit_is_frozen_before_worker_runs() -> Result<(), String> {
-    let fixture = Fixture::new([25, 75])?;
-    let view = fixture.open()?;
-    let physical = job(&render(&fixture, &view, 1, false)?)?;
-    fixture
-        .entered
-        .recv_timeout(Duration::from_secs(3))
-        .map_err(|e| e.to_string())?;
-    fixture.producer.unit_iec.store(true, Ordering::SeqCst);
-    fixture.release.send(()).map_err(|e| e.to_string())?;
-    fixture.finished(&physical, JobState::Done)?;
-    let original = fixture
-        .session
-        .histogram_frame(&{
-            // The already committed reference belongs to the work admitted before the setting changed.
-            // Read it from the finished work by repeating the original unit selection.
-            fixture.producer.unit_iec.store(false, Ordering::SeqCst);
-            render(&fixture, &view, 2, false)?["model"]["modelRef"]
-                .as_str()
-                .ok_or("model")?
-                .to_owned()
-        })
-        .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(original.unit_bins.base, 1000);
-    fixture.producer.unit_iec.store(true, Ordering::SeqCst);
-    let response = render(&fixture, &view, 3, false)?;
-    let response = if response["kind"] == "job" {
-        fixture.finished(&job(&response)?, JobState::Done)?;
-        render(&fixture, &view, 4, false)?
-    } else {
-        response
-    };
-    let reference = response["model"]["modelRef"].as_str().ok_or("model")?;
-    assert_eq!(
-        fixture
-            .session
-            .histogram_frame(reference)
-            .map_err(|e| format!("{e:?}"))?
-            .unit_bins
-            .base,
-        1024
-    );
-    Ok(())
-}
-
-#[test]
-fn completed_count_includes_unknown_observations_and_excludes_bins() -> Result<(), String> {
-    for empty in [false, true] {
-        let sink = IngestSink::default();
-        let lineage = sink
-            .bind_current_analysis("scope", id(1))
-            .map_err(|e| format!("{e:?}"))?;
-        let root = ResultScopeRoot {
-            path: ResultNativePath {
-                encoding: PathEncoding::Unix,
-                raw: PathBytes::from_bytes(b"/fixture"),
-            },
-            volume_id: vec![1],
-            file_id: vec![2],
-        };
-        let mut build = sink
-            .open_forest_in_lineage(id(2), vec![root], lineage)
-            .map_err(|e| format!("{e:?}"))?;
-        build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
-        if !empty {
-            for (name, size) in [
-                (
-                    b'a',
-                    Some(SizeValue {
-                        basis: SizeBasis::Logical,
-                        evidence: SizeEvidence::Measured,
-                        amount: SizeAmount::Exact {
-                            bytes: 25_u64.into(),
-                        },
-                    }),
-                ),
-                (b'b', None),
-            ] {
-                build
-                    .add_file(Observation {
-                        path: vec![vec![name]],
-                        size,
-                    })
-                    .map_err(|e| format!("{e:?}"))?;
-            }
-        }
-        build
-            .seal(id(3), ResultCompleteness::Complete)
-            .map_err(|e| format!("{e:?}"))?;
-        let fixture =
-            Fixture::from_sink(sink, Duration::ZERO, NonZeroUsize::MIN.saturating_add(3))?;
-        let view = fixture.open()?;
-        let response = render(&fixture, &view, 1, false)?;
-        let physical = if response["kind"] == "job" {
-            Some(job(&response)?)
-        } else {
-            None
-        };
-        if !empty {
-            fixture
-                .entered
-                .recv_timeout(Duration::from_secs(3))
-                .map_err(|e| e.to_string())?;
-            fixture.release.send(()).map_err(|e| e.to_string())?;
-        }
-        let counts = if let Some(physical) = physical {
-            finished_counts(&fixture, &physical, JobState::Done)?
-        } else {
-            assert_eq!(response["kind"], "model");
-            loop {
-                let event = fixture
-                    .events
-                    .recv_timeout(Duration::from_secs(3))
-                    .map_err(|e| e.to_string())?;
-                if let JobEvent::Finished { summary, .. } = event {
-                    assert_eq!(summary.state, JobState::Done);
-                    break summary.counts.clone();
-                }
-            }
-        };
-        assert_eq!(counts.completed, if empty { 0 } else { 2 });
-        assert_eq!(counts.failed + counts.skipped + counts.unprocessed, 0);
-    }
-    Ok(())
-}
+mod fallbacks;
+mod lifecycle;
+mod models;

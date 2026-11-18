@@ -126,6 +126,7 @@ fn histogram_and_extension_use_the_same_common_dispatch() -> Result<(), String> 
         prepared.input().rows[0].quantity.amount(),
         VizAmount::LowerBound { .. }
     ));
+    assert_eq!(prepared.input().rows[0].quantity.unit(), "items");
     let d = dispatcher()?;
     let h = d
         .execute_common("histogram", None, prepared.input(), &mut || false)

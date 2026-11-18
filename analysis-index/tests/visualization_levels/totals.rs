@@ -216,6 +216,86 @@ fn omitted_siblings_and_an_unattributed_share_add_up_in_the_remainder() {
     assert_eq!(remainder(&model) - omitted_bytes(&model), 600);
 }
 
+/// The causes of the gap, read the way a producer reads them.
+fn causes(model: &Model) -> (bool, bool) {
+    let causes = model.detail.remainder_causes;
+    (causes.too_small, causes.unattributed)
+}
+
+#[test]
+fn the_remainder_causes_say_what_the_gap_between_the_totals_holds() {
+    // Nothing is left out and nothing lacks an area.
+    for (entries, limit) in [(many(5, 10), 16), (mixed(100), 16), (mixed(100), 400)] {
+        let version = build(&entries, ResultCompleteness::Complete);
+        let model = project(&version, SizeBasis::Logical, limit).unwrap();
+        assert_eq!(causes(&model), (false, false), "limit {limit}");
+        assert_eq!(remainder(&model), 0, "limit {limit}");
+    }
+
+    // Siblings below the minimum area, with and without a group for the tail.
+    let mut entries = files(&[("big", 9_000)]);
+    entries.extend((0..5).map(|i| (format!("s{i}"), 10)));
+    let version = build(&entries, ResultCompleteness::Complete);
+    let model = project(&version, SizeBasis::Logical, 16).unwrap();
+    assert_eq!(causes(&model), (true, false));
+    let version = build(&mixed(100), ResultCompleteness::Complete);
+    let model = project_with(&version, SizeBasis::Logical, 16, false).unwrap();
+    assert_eq!(causes(&model), (true, false));
+
+    // A group takes the whole tail: nothing is left out.
+    let model = project(&version, SizeBasis::Logical, 16).unwrap();
+    assert_eq!(causes(&model), (false, false));
+    assert_eq!(remainder(&model), 0);
+
+    // A file shared by two siblings.
+    let shared = allocated_folders(&[("a", 7, 2, 10), ("b", 8, 1, 10), ("c", 7, 2, 10)]);
+    let model = project(&shared, SizeBasis::Allocated, 16).unwrap();
+    assert_eq!(causes(&model), (false, true));
+
+    // Both at once.
+    let version = allocated_folders(&[
+        ("a", 7, 2, 600),
+        ("b", 7, 2, 600),
+        ("big", 8, 1, 8_000),
+        ("t1", 11, 1, 10),
+        ("t2", 12, 1, 10),
+    ]);
+    let model = project_with(&version, SizeBasis::Allocated, 16, false).unwrap();
+    assert_eq!(causes(&model), (true, true));
+}
+
+#[test]
+fn the_remainder_causes_follow_the_siblings_without_a_shape_or_a_group() {
+    let fixtures = [
+        build(&many(200, 10), ResultCompleteness::Complete),
+        build(&mixed(100), ResultCompleteness::Complete),
+        build(&varied(300), ResultCompleteness::Complete),
+    ];
+    for version in &fixtures {
+        for limit in [1, 2, 3, 7, 16, 100, 400] {
+            let model = project(version, SizeBasis::Logical, limit).unwrap();
+            // Too small is exactly the presence of a sibling with bytes and no place.
+            assert_eq!(
+                model.detail.remainder_causes.too_small,
+                omitted_bytes(&model) > 0,
+                "limit {limit}"
+            );
+            assert_eq!(
+                model.detail.remainder_causes.unattributed,
+                model.detail.unknown_items > 0,
+                "limit {limit}"
+            );
+            // A gap with no cause does not exist.
+            if remainder(&model) > 0 {
+                assert!(
+                    model.detail.remainder_causes != Default::default(),
+                    "limit {limit}"
+                );
+            }
+        }
+    }
+}
+
 fn with_link(completeness: ResultCompleteness) -> Arc<ResultVersion> {
     let sink = IngestSink::default();
     let mut builder = sink.open(id(1)).unwrap();

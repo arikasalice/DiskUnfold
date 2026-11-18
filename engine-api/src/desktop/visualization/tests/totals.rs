@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::support::{Harness, Publication, render_body};
 use super::{TestResult, row_bytes, rows_of, two_files};
 
-fn total(model: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn total(model: &Value, name: &str) -> Result<u64, String> {
     model["totals"][name]["quantity"]["value"]
         .as_str()
         .and_then(|value| value.parse().ok())
@@ -26,7 +26,7 @@ pub(super) fn assert_within_scope(model: &Value) -> TestResult {
     Ok(())
 }
 
-fn count(model: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn count(model: &Value, name: &str) -> Result<u64, String> {
     model["summary"][name]["value"]
         .as_str()
         .and_then(|value| value.parse().ok())
@@ -34,7 +34,7 @@ fn count(model: &Value, name: &str) -> Result<u64, String> {
 }
 
 // A large sibling that always keeps a shape, then small ones of the given size.
-fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u64>)> {
+pub(super) fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u64>)> {
     let names = (b'a'..=b'z').chain(b'A'..=b'Z');
     let sizes = large
         .iter()
@@ -46,7 +46,7 @@ fn files_of(large: &[u64], small: u64, small_count: usize) -> Vec<(u8, Option<u6
         .collect()
 }
 
-fn render(harness: &Harness, files: &[(u8, Option<u64>)]) -> Result<Value, String> {
+pub(super) fn render(harness: &Harness, files: &[(u8, Option<u64>)]) -> Result<Value, String> {
     harness.publish(&Publication {
         files,
         ..two_files(3)
@@ -134,5 +134,49 @@ fn with_nothing_omitted_or_unknown_the_drawn_total_is_the_scope() -> TestResult 
         total(model, "drawn")? + total(model, "grouped")? + total(model, "filteredOut")?,
         total(model, "scope")?
     );
+    Ok(())
+}
+
+/// The sum of the shapes of the model that are, or are not, a group.
+fn shape_bytes(model: &Value, groups: bool) -> Result<u64, String> {
+    let shapes = model["shapes"].as_array().ok_or("no shapes")?;
+    shapes
+        .iter()
+        .filter(|shape| shape["groupRef"].is_null() != groups)
+        .map(|shape| {
+            shape["size"]["bytes"]
+                .as_str()
+                .and_then(|bytes| bytes.parse::<u64>().ok())
+                .ok_or_else(|| format!("no byte size on {shape}"))
+        })
+        .sum()
+}
+
+#[test]
+fn the_other_group_of_a_bar_is_in_the_grouped_total_only() -> TestResult {
+    let harness = Harness::product(4)?;
+    // Eight files of 10 to 80 bytes: the three largest keep a bar, the other five are
+    // the group. Before, the group's 150 bytes were in both totals, so the drawn total
+    // was 360 and the two totals added up to 510 for a scope of 360.
+    let files: Vec<_> = (0..8_u8)
+        .map(|n| (b'a' + n, Some(10 * (u64::from(n) + 1))))
+        .collect();
+    harness.publish(&Publication {
+        files: &files,
+        ..two_files(3)
+    })?;
+    let view = harness.open_view()?;
+    let answer = harness.ok("viz.render", render_body(&view, 1, "bar", 3))?;
+    assert_eq!(answer["kind"], "model", "{answer}");
+    let model = &answer["model"];
+    assert_eq!(total(model, "scope")?, 360);
+    assert_eq!(total(model, "drawn")?, 210);
+    assert_eq!(total(model, "grouped")?, 150);
+    assert_eq!(total(model, "filteredOut")?, 0);
+    // The drawn total is the sum of the item bars and the group is its own shape.
+    assert_eq!(total(model, "drawn")?, shape_bytes(model, false)?);
+    assert_eq!(total(model, "grouped")?, shape_bytes(model, true)?);
+    assert_eq!(count(model, "groupedItems")?, 5);
+    assert_within_scope(model)?;
     Ok(())
 }
