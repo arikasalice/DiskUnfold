@@ -37,6 +37,7 @@ impl IngestSink {
             roots: base.roots.clone(),
             gaps: Vec::new(),
             observations: Default::default(),
+            numbered_nodes: None,
             directory_case: Default::default(),
             unread_folders: Default::default(),
             issues: Vec::new(),

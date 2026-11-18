@@ -7,6 +7,7 @@ impl BuildHandle {
     pub fn abort(&mut self) {
         if !self.finished {
             self.finished = true;
+            self.numbered_nodes = None;
             let order = self
                 .events
                 .order
