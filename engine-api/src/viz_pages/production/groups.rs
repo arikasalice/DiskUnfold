@@ -18,7 +18,10 @@ use du_analysis_index::{
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeValue,
     result::ResultVersionRead,
-    visualization::rows::{VizDenominator, VizRatio, VizRow},
+    visualization::{
+        quantity::VizQuantity,
+        rows::{VizDenominator, VizRatio, VizRow},
+    },
 };
 use std::collections::HashMap;
 
@@ -67,29 +70,7 @@ pub(super) fn assemble(
     if group.slot > table.len() {
         return Err(Error::InvalidGroup);
     }
-    let quantity = quantity(&group.total)?;
-    let ratio = ratio::calculate(&quantity, &denominator.value)
-        .as_deref()
-        .map(VizRatio::parse)
-        .transpose()
-        .map_err(|_| Error::InvalidRatio)?;
-    let mut display_flags = other.display_flags.clone();
-    display_flags.sort_unstable();
-    display_flags.dedup();
-    let row = VizRow {
-        item_ref: None,
-        group_ref: Some(group.group_ref.clone()),
-        display_name: other.display_name.clone(),
-        size: group.total.clone(),
-        quantity: Some(quantity),
-        ratio,
-        denominator: denominator.clone(),
-        legend_class_key: other.legend_class_key.clone(),
-        display_flags,
-        label_key: other.label_key.clone(),
-    };
-    row.validate_revision(version.version_id())
-        .map_err(|_| Error::InvalidGroup)?;
+    let row = group_row(version, group, other, denominator)?;
     table.insert(group.slot, row);
     groups.insert(
         group.group_ref.clone(),
@@ -147,9 +128,55 @@ pub(crate) fn nested_group_rows(
     })
 }
 
+/// The row of a group the engine made, in the table of the parent that holds it.
+///
+/// The name, class and flags are the supplied presentation; the size, the ratio and the
+/// member count come from the group itself.
+pub(super) fn group_row(
+    version: &ResultVersion,
+    group: &projection::Group,
+    other: &OtherPresentation,
+    denominator: &VizDenominator,
+) -> Result<VizRow, Error> {
+    let quantity = quantity(&group.total)?;
+    let ratio = ratio::calculate(&quantity, &denominator.value)
+        .as_deref()
+        .map(VizRatio::parse)
+        .transpose()
+        .map_err(|_| Error::InvalidRatio)?;
+    let mut display_flags = other.display_flags.clone();
+    display_flags.sort_unstable();
+    display_flags.dedup();
+    let row = VizRow {
+        item_ref: None,
+        group_ref: Some(group.group_ref.clone()),
+        display_name: other.display_name.clone(),
+        size: group.total.clone(),
+        quantity: Some(quantity),
+        ratio,
+        denominator: denominator.clone(),
+        legend_class_key: other.legend_class_key.clone(),
+        display_flags,
+        label_key: other.label_key.clone(),
+        member_count: Some(member_count(group.members.len())?),
+    };
+    row.validate_revision(version.version_id())
+        .map_err(|_| Error::InvalidGroup)?;
+    Ok(row)
+}
+
+/// The number of members of a group the engine made, which is exact: the member rows
+/// are the whole group, so it equals the total count of the group's own page.
+pub(super) fn member_count(count: usize) -> Result<VizQuantity, Error> {
+    i128::try_from(count)
+        .ok()
+        .and_then(|count| VizQuantity::exact("items", count))
+        .ok_or(Error::InvalidQuantity)
+}
+
 // A label key is the message key of the name, and the display name is required, so it
 // carries the same string for a consumer that does not read the key.
-fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
+pub(super) fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
     other
         .filter(|other| {
             !other.display_name.is_empty()

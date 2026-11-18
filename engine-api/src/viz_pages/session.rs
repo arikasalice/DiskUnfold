@@ -393,7 +393,15 @@ impl Session {
         }
         let source = pin.source.clone();
         let rows = pin.rows.clone();
+        let layout = pin.layout.clone();
+        let reference = pin.reference.clone();
         drop(slot);
+        let rows = match request.parent_shape_ref.as_deref() {
+            None => rows,
+            Some(shape) => {
+                super::folder_rows::table(&source, &reference, layout.as_deref(), shape)?
+            }
+        };
         let start = request.start as usize;
         if start > rows.len() {
             return Err(Error::InvalidRange);
@@ -473,17 +481,19 @@ impl Session {
         ) -> Result<ChildPolicyEvidence, render::Error>,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(), render::Error> {
+        let other = candidate.other.clone();
         let Some(layout) = candidate.layout.as_mut() else {
             return Ok(());
         };
-        let groups = expansion::extend(
+        let expanded = expansion::extend(
             Arc::make_mut(layout),
             source,
             &self.dispatcher,
             policy,
             &mut evidence,
+            other.as_deref(),
             cancelled,
         )?;
-        candidate.add_groups(groups)
+        candidate.add_expansion(expanded)
     }
 }

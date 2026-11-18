@@ -20,7 +20,7 @@ use du_analysis_index::visualization::{
 };
 use du_core_contracts::{
     Id, ItemRef, SizeBasis,
-    visualization::{LayoutStrategyKey, render::VizFallback},
+    visualization::{LayoutStrategyKey, render::VizFallback, rows::VizRow},
 };
 
 use super::{
@@ -102,6 +102,13 @@ pub enum Error {
     Cancelled,
 }
 
+/// What an expansion adds to the rows of a model: the members of each group it made,
+/// and the table of each folder it opened, keyed by the shape reference of the folder.
+#[derive(Default)]
+pub(crate) struct Expanded {
+    pub(crate) groups: Vec<(String, GroupRows)>,
+    pub(crate) tables: Vec<(String, Vec<VizRow>)>,
+}
 /// An unpublished model candidate bound to the source pinned during preparation.
 /// Commit revalidates source and registry; the caller must preserve the dispatcher.
 pub struct PreparedRender {
@@ -109,18 +116,26 @@ pub struct PreparedRender {
     input: PreparedModelInput,
     pub(super) layout: Option<Arc<projection::Model>>,
     fallback_reason: Option<projection::Error>,
+    /// The presentation of the group that merges small siblings, kept for the groups
+    /// and the group rows of folders that are expanded after the projection.
+    pub(super) other: Option<Box<OtherPresentation>>,
 }
 
 impl PreparedRender {
-    /// Adds groups of expanded folders to the rows before the model is published.
-    pub(super) fn add_groups(&mut self, groups: Vec<(String, GroupRows)>) -> Result<(), Error> {
+    /// Adds the groups and the tables of expanded folders to the rows before the model
+    /// is published.
+    pub(super) fn add_expansion(&mut self, expanded: Expanded) -> Result<(), Error> {
         let rows = self
             .input
             .rows
             .as_mut()
             .ok_or(Error::Cache(super::Error::InvalidModel))?;
-        for (key, group) in groups {
+        for (key, group) in expanded.groups {
             rows.add_group(key, group)
+                .map_err(|_| Error::Cache(super::Error::InvalidModel))?;
+        }
+        for (key, table) in expanded.tables {
+            rows.add_table(key, table)
                 .map_err(|_| Error::Cache(super::Error::InvalidModel))?;
         }
         Ok(())
@@ -293,6 +308,7 @@ impl ModelPages {
                     input,
                     layout: None,
                     fallback_reason: Some(reason),
+                    other: None,
                 }));
             }
             Err(error) => return Err(Error::Projection(error)),
@@ -314,6 +330,7 @@ impl ModelPages {
             input,
             layout: Some(Arc::new(model)),
             fallback_reason: None,
+            other: request.other.cloned().map(Box::new),
         }))
     }
 
@@ -359,6 +376,7 @@ impl ModelPages {
             input,
             layout,
             fallback_reason,
+            other: _,
         } = candidate;
         if !owner
             .upgrade()

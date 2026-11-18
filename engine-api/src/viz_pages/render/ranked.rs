@@ -56,6 +56,7 @@ impl ModelPages {
                 .is_none()
                 .then_some(projection::Error::UnavailableAttribution),
             layout: layout.map(Arc::new),
+            other: None,
         })
     }
 }

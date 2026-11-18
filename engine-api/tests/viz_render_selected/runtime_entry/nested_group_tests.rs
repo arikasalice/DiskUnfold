@@ -3,7 +3,7 @@ use du_core_contracts::visualization::response::VizRenderResponse;
 
 // Folder big holds a hundred files of distinct sizes 1..=100 bytes, which also keeps
 // the fixture independent of sibling tie ordering; folder other holds one large file.
-fn publish_many(sink: &IngestSink) -> Result<(), String> {
+pub(super) fn publish_many(sink: &IngestSink) -> Result<(), String> {
     let lineage = sink
         .bind_current_analysis("scope", id(1))
         .map_err(|error| format!("{error:?}"))?;
@@ -267,6 +267,24 @@ fn the_group_of_lower_bound_folders_inside_an_expanded_folder_is_read_by_positio
     assert_eq!(members["totalCount"], 40);
     assert_eq!(members["groupTotal"], group["size"]);
     assert_eq!(members["sizeRange"]["kind"], "unknown");
+    // The folder's own table lists the large file and the group, each by its reference;
+    // the group row is a lower bound and still counts its members exactly.
+    let count = json!({"unit": "items", "state": "exact", "value": "40"});
+    assert_eq!(group["memberCount"], count);
+    assert_eq!(model["summary"]["groupedItems"], count);
+    let folder = fixture.ok(
+        "viz.rows",
+        json!({"modelRef": model["modelRef"], "resultRevision": id(3), "start": 0, "count": 10, "parentShapeRef": group["parentShapeRef"]}),
+    )?;
+    assert_eq!(folder["totalCount"], 2);
+    let group_row = folder["rows"]
+        .as_array()
+        .ok_or("no folder rows")?
+        .iter()
+        .find(|row| row["groupRef"] == group["groupRef"])
+        .ok_or("no group row in the folder table")?;
+    assert_eq!(group_row["size"], group["size"]);
+    assert_eq!(group_row["memberCount"], count);
     let rows = members["rows"].as_array().ok_or("no member rows")?;
     assert!(rows.iter().all(|row| {
         row["size"]["state"] == "lower_bound"

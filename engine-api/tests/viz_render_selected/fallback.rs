@@ -75,6 +75,7 @@ fn observed_logical_subtrees_draw_during_an_active_scan_without_exact_ratios() -
             result_revision: id(3),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.total_count, 3);
@@ -149,6 +150,7 @@ fn an_unmeasured_sibling_gets_no_area_and_the_partial_rows_and_denominator_stay(
         result_revision: rendered.model.result_revision.clone(),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let page = session
         .rows(&rows_request)
@@ -188,6 +190,7 @@ fn an_unmeasured_sibling_gets_no_area_and_the_partial_rows_and_denominator_stay(
             result_revision: later_model.model.result_revision.clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|error| format!("{error:?}"))?;
     assert_partial_page(&later_page, &later, 3, 125);

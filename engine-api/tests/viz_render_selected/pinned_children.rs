@@ -41,6 +41,7 @@ fn equal_size_siblings_render_in_name_order_whatever_their_comparison_evidence()
                 result_revision: id(3),
                 start: 0,
                 count: 10,
+                parent_shape_ref: None,
             })
             .map_err(|e| format!("{e:?}"))?;
         assert_eq!(page.total_count, 2);

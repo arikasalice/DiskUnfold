@@ -147,7 +147,7 @@ impl UseCase for GroupRows {
 
 fn rows_error(error: Error) -> EngineError {
     EngineError::reason(match error {
-        Error::InvalidRange | Error::InvalidGroup => "command.body_invalid",
+        Error::InvalidRange | Error::InvalidGroup | Error::NotExpanded => "command.body_invalid",
         Error::ModelExpired => "viz.model_expired",
         Error::StaleVersion => "result.version_stale",
         Error::ItemUnavailable => "ref.unavailable",
