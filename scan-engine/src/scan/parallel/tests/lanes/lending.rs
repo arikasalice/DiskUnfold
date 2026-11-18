@@ -278,7 +278,7 @@ fn a_worker_moves_only_when_its_stack_fits_in_its_lane_queue() -> Result<(), Tes
 
 #[test]
 fn a_stalled_marked_lane_never_takes_the_last_worker_of_another_lane() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 2,
         dirs: 4,

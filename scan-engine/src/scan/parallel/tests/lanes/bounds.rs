@@ -78,7 +78,7 @@ fn wait_stalled(
 
 #[test]
 fn a_stopped_consumer_bounds_observations_queued_work_and_open_handles() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 3,
         dirs: 6,
@@ -165,7 +165,7 @@ fn a_stopped_consumer_bounds_observations_queued_work_and_open_handles() -> Resu
 
 #[test]
 fn lanes_at_their_smallest_limits_finish_without_deadlock() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 4,
         dirs: 3,

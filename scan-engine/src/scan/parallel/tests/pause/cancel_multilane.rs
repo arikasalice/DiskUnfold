@@ -389,7 +389,7 @@ fn assert_cancelled_batch_items(items: &[du_core_contracts::result::ResultItem])
 
 #[test]
 fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     assert_eq!(
         LANE_COUNT * (FIRST_BATCH_ITEMS + 1),
         BUFFERED_OBSERVATIONS,

@@ -242,7 +242,7 @@ fn gap(parts: &[&str], reason: &str) -> Gap {
 
 #[test]
 fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let baseline = compare(every_failure, false)?;
     let (denied, vanished, other) = (
         "scan.path_denied",
@@ -304,7 +304,7 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
 
 #[test]
 fn a_failed_first_root_read_leaves_no_result() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for listing in [
         Listing::FailsAfter(Vec::new(), denied()),
         Listing::Oversized,
@@ -350,7 +350,7 @@ fn root_read_disconnects() -> HashMap<u64, Listing> {
 
 #[test]
 fn a_disconnected_root_is_a_gap_in_both_collectors() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let reason = "scan.disconnected";
     let baseline = compare(root_batch_disconnects, false)?;
     // The returned directory is not opened, so it is a gap of its own.
@@ -416,7 +416,7 @@ fn cancelled_root() -> HashMap<u64, Listing> {
 
 #[test]
 fn cancellation_records_returned_entries_without_opening_them() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let baseline = compare(cancelled_root, true)?;
     assert_eq!(baseline.run.completeness, ResultCompleteness::Cancelled);
     assert!(!baseline.run.outcome.completed_scope);

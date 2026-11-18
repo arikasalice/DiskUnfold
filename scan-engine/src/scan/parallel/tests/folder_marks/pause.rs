@@ -127,7 +127,7 @@ fn paused(filtered: bool, cancel: bool) -> Result<(Arc<Tree>, Arc<ResultVersion>
 
 #[test]
 fn a_pause_that_is_resumed_leaves_no_mark() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for filtered in [false, true] {
         let (_, version) = paused(filtered, false)?;
         assert_eq!(version.completeness(), ResultCompleteness::Complete);
@@ -141,7 +141,7 @@ fn a_pause_that_is_resumed_leaves_no_mark() -> Result<(), String> {
 /// whose end was not read yet, are marked; `a` was read to its end before.
 #[test]
 fn a_cancellation_while_paused_marks_like_a_cancellation() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     for filtered in [false, true] {
         let (tree, version) = paused(filtered, true)?;
         assert_eq!(version.completeness(), ResultCompleteness::Cancelled);

@@ -22,6 +22,13 @@ mod volume_reports;
 
 static WORKER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+/// Serializes worker tests and recovers after a prior test panic.
+pub(super) fn worker_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    WORKER_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 struct Ids(AtomicUsize);
 impl ResultIds for Ids {
     fn next_id(&self) -> Id {
@@ -95,7 +102,7 @@ fn observed_root(path: &str, volume: u8) -> ResultScopeRoot {
 #[test]
 fn forest_keeps_same_names_separate_and_records_failed_root()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = vec![
@@ -162,7 +169,7 @@ fn forest_keeps_same_names_separate_and_records_failed_root()
 
 #[test]
 fn metadata_job_accepts_reviewed_roots_in_one_build() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Arc::new(Ids(AtomicUsize::new(1)));
     let sink = IngestSink::default();
     let roots = ["C:\\A", "D:\\B"]
@@ -211,7 +218,7 @@ fn metadata_job_accepts_reviewed_roots_in_one_build() -> Result<(), Box<dyn std:
 
 #[test]
 fn all_roots_failing_does_not_publish_a_result() -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = vec![observed_root("C:\\A", 1), observed_root("D:\\B", 2)];
@@ -277,7 +284,7 @@ fn cancelled_forest_reports_unprocessed_root_count_without_error_gaps()
 #[test]
 fn cancellation_after_one_root_releases_flow_and_counts_only_unfinished_roots()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     struct StopRoot(Arc<AtomicBool>);
     impl DirectoryObservations for StopRoot {
         fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {

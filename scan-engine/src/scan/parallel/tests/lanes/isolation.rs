@@ -4,7 +4,7 @@ use crate::scan::parallel::lanes::{Origin, Taken};
 
 #[test]
 fn a_stalled_lane_keeps_its_workers_while_another_lane_finishes() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 2,
         dirs: 4,

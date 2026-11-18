@@ -54,7 +54,7 @@ impl AnchoredDirectory for ScriptedRoot {
 #[test]
 fn metadata_disconnect_drains_returned_items_and_closes_only_matching_volume()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = vec![

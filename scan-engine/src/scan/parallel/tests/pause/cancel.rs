@@ -57,7 +57,7 @@ impl AnchoredDirectory for LateBatch {
 #[test]
 fn cancel_during_inflight_batch_retains_returned_observations_without_more_reads()
 -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));
     let (entered_tx, entered_rx) = mpsc::channel();
@@ -157,7 +157,7 @@ impl AnchoredDirectory for TwoBatches {
 
 #[test]
 fn cancel_while_parked_drains_batch_without_mutating_previous_partial() -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));
     let (entered_tx, entered_rx) = mpsc::channel();

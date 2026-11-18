@@ -220,7 +220,7 @@ impl AnchoredDirectory for WithheldMetadataRoot {
 #[test]
 fn withheld_correlated_metadata_keeps_the_item_and_does_not_prove_the_attempt()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -384,7 +384,7 @@ impl AnchoredDirectory for CorrelatedRoot {
 #[test]
 fn correlated_worker_records_observation_without_promoting_attempt()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     use du_core_contracts::scan_observation::FilterCallbackPhase;
     for phase in [
         FilterCallbackPhase::BeforeMetadata,
@@ -396,14 +396,23 @@ fn correlated_worker_records_observation_without_promoting_attempt()
             abandoned: Arc::new(AtomicUsize::new(0)),
         };
         let sink = IngestSink::default();
-        let outcome = collect_parallel_filtered(
-            &sink,
+        let build = sink.open_forest(
             ids.next_id(),
-            Box::new(CorrelatedRoot { step: 0, phase }),
+            vec![super::super::observed_root("C:\\R0", 1)],
+        );
+        let roots: Vec<Box<dyn AnchoredDirectory>> =
+            vec![Box::new(CorrelatedRoot { step: 0, phase })];
+        let outcome = crate::scan::parallel::collect_open_forest_filtered(
+            build,
+            roots,
             &ids,
             &context,
             1,
             &|_, _, _| FilterDecision::Admit,
+            crate::scan::parallel::DevicePlan {
+                groups: vec![0],
+                limit: 4,
+            },
         );
         assert!(outcome.result_version_id.is_some());
         let result = sink
@@ -431,7 +440,7 @@ fn correlated_worker_records_observation_without_promoting_attempt()
 #[test]
 fn path_budget_exhaustion_keeps_item_and_holds_correlated_attempt()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {
         completed: Arc::new(AtomicUsize::new(0)),
@@ -485,9 +494,9 @@ fn path_budget_exhaustion_keeps_item_and_holds_correlated_attempt()
 }
 
 #[test]
-fn oversized_directory_observation_records_child_and_parent_failures()
+fn oversized_directory_observation_holds_evidence_but_continues_f02_traversal()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let context = Context {
@@ -510,19 +519,19 @@ fn oversized_directory_observation_records_child_and_parent_failures()
         .ok_or("missing")?;
     assert_eq!(
         result.completeness(),
-        du_core_contracts::result::ResultCompleteness::Missing
+        du_core_contracts::result::ResultCompleteness::Complete
     );
     assert!(result.items().iter().any(|item| item.name == b"folder"));
+    assert!(result.items().iter().any(|item| item.name == b"leaf"));
     assert_eq!(result.unread_folder_counts().cancelled, 0);
-    assert!(result.scan_issues().iter().any(|issue| {
-        issue.relative == [b"folder".to_vec()]
-            && issue.stage == du_core_contracts::scan_failures::ScanFailureStage::Traverse
-            && issue.reason_key == "scan.unclassified"
-    }));
-    assert!(result.scan_issues().iter().any(|issue| {
-        issue.relative.is_empty()
-            && issue.stage == du_core_contracts::scan_failures::ScanFailureStage::Enumerate
-    }));
+    assert!(result.scan_issues().is_empty());
+    assert!(
+        result
+            .folder_attempt_summaries()
+            .ok_or("missing attempt summary")?
+            .iter()
+            .any(|summary| summary.status == du_analysis_index::FolderAttemptStatus::Held)
+    );
     Ok(())
 }
 
@@ -545,7 +554,7 @@ impl Drop for RejectChildAttempts {
 #[test]
 fn refused_child_attempt_keeps_child_traversal_and_results()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let _reject = RejectChildAttempts::enable();
     let ids = Ids(AtomicUsize::new(1));
     let context = Context {

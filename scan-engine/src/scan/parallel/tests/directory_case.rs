@@ -96,7 +96,7 @@ impl AnchoredDirectory for CaseDir {
 #[test]
 fn filtered_forest_retains_case_evidence_only_for_opened_directories()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots_seen = Arc::new(AtomicUsize::new(0));
@@ -184,7 +184,7 @@ fn filtered_forest_retains_case_evidence_only_for_opened_directories()
 #[test]
 fn serial_collector_records_evidence_from_opened_root_and_child()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots_seen = Arc::new(AtomicUsize::new(0));
@@ -247,7 +247,7 @@ impl JobContext for Cancelled {
 #[test]
 fn cancelled_before_collection_does_not_observe_root_case() -> Result<(), Box<dyn std::error::Error>>
 {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots_seen = Arc::new(AtomicUsize::new(0));
@@ -330,7 +330,7 @@ impl AnchoredDirectory for CaseThenCancel {
 #[test]
 fn case_observation_returned_during_cancellation_is_retained()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -371,7 +371,7 @@ fn case_observation_returned_during_cancellation_is_retained()
 #[test]
 fn case_query_failure_does_not_change_collection_counts_or_completeness()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "lock")?;
+    let _guard = worker_test_lock();
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let root = CaseDir {

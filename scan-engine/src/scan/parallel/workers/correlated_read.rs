@@ -1,5 +1,4 @@
 //! One acknowledged correlated read turn, including the adapter EOF barrier.
-use super::entries::{EntryServices, process_entry};
 use super::*;
 use crate::scan::parallel::{
     correlated_budget::{self, MAX_EVENT_PAYLOAD_BYTES},
@@ -150,8 +149,7 @@ pub(super) fn read(
                 frame.correlated.release_event();
             }
             if result.is_err() {
-                // Preserve a returned observation for normal F02 recording, but keep this
-                // folder attempt held and stop reading it on the next turn.
+                // Keep the folder attempt held while continuing ordinary F02 reads.
                 frame.correlated.evidence_failed();
             }
             TurnStep::Accepted { observation }
@@ -244,30 +242,9 @@ pub(super) fn finish(
                 frame.entries.push_back(queued);
                 cancel_drain::frame(frame, shared, sender, policy)
             } else {
-                // Preserve the returned fact first, mark any entered child unread, then
-                // report the incomplete directory. Requeueing is unsafe after abort.
+                // The observation remains valid for F02 when its optional evidence is too large.
                 frame.correlated.evidence_failed();
-                let services = EntryServices {
-                    shared,
-                    sender,
-                    context,
-                    policy,
-                };
-                match process_entry(&mut frame, queued, false, true, &services) {
-                    Ok(None) => process_batch(
-                        frame,
-                        shared,
-                        sender,
-                        (context, policy),
-                        turn,
-                        Err(ReadFailure::Observation(PortError {
-                            kind: PortErrorKind::Io,
-                            reason_key: "scan.unclassified".into(),
-                            os_code: None,
-                        })),
-                    ),
-                    _ => false,
-                }
+                accepted_observation(frame, queued, shared, sender, context, policy, turn)
             }
         }
         TurnStep::End {

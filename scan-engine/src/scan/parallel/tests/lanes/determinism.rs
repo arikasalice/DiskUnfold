@@ -43,7 +43,7 @@ fn probe(seed: u64) -> Arc<Probe> {
 
 #[test]
 fn workers_lanes_and_delays_do_not_change_the_result() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let baseline = run_forest(&probe(0), vec![0, 0, 0], 1, 4, &context())?;
     // Root 1 keeps "d3" and root 2 keeps "d1" without anything below them.
     let lost = (1 + SHAPE.dirs) * (1 + SHAPE.files) - 1;

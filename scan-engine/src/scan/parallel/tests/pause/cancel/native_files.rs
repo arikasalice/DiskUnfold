@@ -89,7 +89,7 @@ impl AnchoredDirectory for WindowsFiles {
 #[test]
 fn windows_files_cancel_after_second_batch_preserves_partial_and_returned_entries()
 -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let fixture = Fixture::new()?;
     let control = Arc::new(Control::default());
     let context = Arc::new(PauseContext(control.clone()));

@@ -36,7 +36,7 @@ fn assert_no_calls(probe: &Probe) {
 
 #[test]
 fn pause_parks_every_lane_and_resume_reads_nothing_twice() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let (gate, remote) = (Arc::new(Gate::default()), Arc::new(Remote::default()));
     let (_open, _unpark) = (Opened(gate.clone()), Unpark(remote.clone()));
     let probe = gated_probe(&gate);
@@ -61,7 +61,7 @@ fn pause_parks_every_lane_and_resume_reads_nothing_twice() -> Result<(), TestErr
 
 #[test]
 fn cancel_stops_every_lane_after_the_call_in_flight() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let (gate, remote) = (Arc::new(Gate::default()), Arc::new(Remote::default()));
     let (_open, _unpark) = (Opened(gate.clone()), Unpark(remote.clone()));
     let probe = gated_probe(&gate);
@@ -84,7 +84,7 @@ fn cancel_stops_every_lane_after_the_call_in_flight() -> Result<(), TestError> {
 
 #[test]
 fn cancel_releases_a_worker_waiting_to_open_a_child_of_a_stalled_read() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 1,
         dirs: 2,
@@ -147,7 +147,7 @@ fn cancel_releases_a_worker_waiting_to_open_a_child_of_a_stalled_read() -> Resul
 
 #[test]
 fn a_disconnected_root_closes_only_the_rest_of_its_own_lane() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let shape = Shape {
         depth: 2,
         dirs: 3,

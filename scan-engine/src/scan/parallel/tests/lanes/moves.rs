@@ -66,7 +66,7 @@ fn measure(shape: Shape, workers: usize, marked: bool) -> Result<Moves, TestErro
 
 #[test]
 fn lane_moves_of_one_scan_are_counted() -> Result<(), TestError> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     let wide = Shape {
         depth: 3,
         dirs: 4,

@@ -47,7 +47,7 @@ fn default_four_per_key_does_not_block_a_distinct_key() {
 fn saturated_device_does_not_block_other_device_and_releases_on_return()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::mpsc;
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker test lock")?;
+    let _guard = worker_test_lock();
     struct GateRoot {
         id: u8,
         events: mpsc::Sender<u8>,

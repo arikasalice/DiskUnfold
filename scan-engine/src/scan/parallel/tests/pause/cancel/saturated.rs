@@ -281,7 +281,7 @@ fn fail() -> PortError {
 #[test]
 fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_version()
 -> Result<(), String> {
-    let _guard = WORKER_TEST_LOCK.lock().map_err(|_| "worker lock")?;
+    let _guard = worker_test_lock();
     let returned_batches = Arc::new(AtomicUsize::new(0));
     let read_calls = Arc::new(AtomicUsize::new(0));
     let other_calls = Arc::new(AtomicUsize::new(0));

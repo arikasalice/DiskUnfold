@@ -247,13 +247,15 @@ impl Attempt {
                 if correlated_budget::event_payload_capacity(&payload)
                     .is_none_or(|bytes| bytes > MAX_EVENT_PAYLOAD_BYTES)
                 {
-                    self.state = State::Failed;
                     self.event_permit = None;
                     return match payload {
                         observation @ CorrelatedDirectoryEvent::Observation { .. } => {
                             Step::Returned(observation)
                         }
-                        _ => Step::Failed,
+                        _ => {
+                            self.state = State::Failed;
+                            Step::Failed
+                        }
                     };
                 }
                 let Some(next) = self.next_seq.checked_add(1) else {
@@ -265,7 +267,6 @@ impl Attempt {
                 let observation = match &payload {
                     CorrelatedDirectoryEvent::Observation { child_id, entry } => {
                         let Some(copy) = correlated_budget::try_clone_timed(entry) else {
-                            self.state = State::Failed;
                             return Step::Returned(payload);
                         };
                         Some(QueuedEntry {
