@@ -264,51 +264,60 @@ fn is_lower_bound(size: &SizeValue) -> bool {
     matches!(size.amount, SizeAmount::LowerBound { .. })
 }
 
-// Current behavior, pinned rather than endorsed: HLD table 22 asks for a lower-bound
-// sibling to be drawn with an area proportional to its lower bound. The admission
-// allows a lower bound only for a logical size in a partial result.
+// F03 values the folders above an untraversed link as lower bounds today, and keeps them
+// exact once FR5.HD1 counts a link without lowering the value; a partial result is a lower
+// bound everywhere either way. The level draws a sibling by its value, so the totals add
+// up as they are, and the state of the scope and of the drawn total is the state of the
+// values: these tests read the value from F03 and hold for both.
 #[test]
-fn an_untraversed_link_makes_a_complete_scope_a_lower_bound_that_is_not_partitioned() {
+fn a_scope_above_a_link_is_drawn_by_its_values_in_complete_and_partial_results() {
+    for completeness in [ResultCompleteness::Complete, ResultCompleteness::Partial] {
+        let version = with_link(completeness);
+        let lower = is_lower_bound(&version.space(0).unwrap().logical);
+        assert!(lower || completeness == ResultCompleteness::Complete);
+        let model = project(&version, SizeBasis::Logical, 16).unwrap();
+        // x holds a link; the link is inside x, so nothing at this level has no value.
+        assert_eq!(model.shapes.len(), 3, "{completeness:?}");
+        assert_eq!(model.detail.unknown_items, 0, "{completeness:?}");
+        assert_eq!(model.detail.omitted_items, 0, "{completeness:?}");
+        assert_eq!(
+            is_lower_bound(&model.totals.scope),
+            lower,
+            "{completeness:?}"
+        );
+        assert_eq!(model.totals.drawn_lower_bound, lower, "{completeness:?}");
+        assert_eq!(model.totals.drawn_bytes, 170, "{completeness:?}");
+        assert_eq!(bytes_of(&model.totals.scope), 170, "{completeness:?}");
+        assert_eq!(remainder(&model), 0, "{completeness:?}");
+        let x = find(&version, "x");
+        let row = model.rows.iter().find(|row| row.item == x).unwrap();
+        assert_eq!(row.lod, Lod::Drawn);
+        assert_eq!(bytes_of(&row.size), 20);
+    }
+}
+
+// The state of a total follows its own members: the scope of x has the state of its value
+// because of the link, and what is drawn in it is an exact file.
+#[test]
+fn a_scope_above_a_link_keeps_the_state_of_its_value_and_an_exact_drawn_total() {
     let version = with_link(ResultCompleteness::Complete);
     let space = |name: &str| {
         let folder = find(&version, name);
         version.space(folder.item_no).unwrap().logical.clone()
     };
-    // The link adds nothing to its folder's bytes, but the aggregates up to the scope
-    // become lower bounds; a folder without a link keeps an exact value.
-    assert!(is_lower_bound(&version.space(0).unwrap().logical));
-    assert!(is_lower_bound(&space("x")));
+    let lower = is_lower_bound(&space("x"));
+    assert_eq!(is_lower_bound(&version.space(0).unwrap().logical), lower);
     assert_eq!(space("a").amount, logical(100).amount);
-    // So the scope and the folder holding the link are refused as a whole, and only a
-    // folder without a link below it is drawn.
-    let refused = Some(projection::Error::UnavailableAttribution);
-    assert_eq!(project_in(&version, &item(&version, 0)).err(), refused);
-    assert_eq!(project_in(&version, &find(&version, "x")).err(), refused);
-    assert_eq!(
-        project_in(&version, &find(&version, "a"))
-            .unwrap()
-            .shapes
-            .len(),
-        1
-    );
-}
-
-#[test]
-fn in_a_partial_result_the_folder_holding_a_link_is_unknown_and_its_bytes_are_left_over() {
-    let version = with_link(ResultCompleteness::Partial);
-    let model = project(&version, SizeBasis::Logical, 16).unwrap();
-    // a and b are drawn by their lower bounds; x contains a link, which the subtree
-    // check cannot attribute, so it is counted without an area.
-    assert_eq!(model.shapes.len(), 2);
-    assert_eq!(model.detail.unknown_items, 1);
-    assert_eq!(model.detail.omitted_items, 0);
-    let x = find(&version, "x");
-    let row = model.rows.iter().find(|row| row.item == x).unwrap();
-    assert_eq!(row.omission, Some(NoArea::Unknown));
-    assert!(is_lower_bound(&row.size) && is_lower_bound(&model.totals.scope));
-    assert!(model.totals.drawn_lower_bound);
-    // Lower bounds add as they are: 100 + 50 drawn, 20 in x, 170 in the scope.
-    assert_eq!(model.totals.drawn_bytes, 150);
-    assert_eq!(bytes_of(&row.size), 20);
-    assert_eq!(bytes_of(&model.totals.scope), 170);
+    let model = project_in(&version, &find(&version, "x")).unwrap();
+    assert_eq!(model.shapes.len(), 1);
+    // The link has no shape: it is an item without a value, or an exact zero.
+    let link_has_no_value = space("link").amount == SizeAmount::Unknown;
+    assert_eq!(model.detail.unknown_items, u64::from(link_has_no_value));
+    assert_eq!(is_lower_bound(&model.totals.scope), lower);
+    assert!(!model.totals.drawn_lower_bound);
+    assert_eq!(model.totals.drawn_bytes, 20);
+    assert_eq!(bytes_of(&model.totals.scope), 20);
+    // A folder without a link keeps an exact scope and an exact drawn total.
+    let model = project_in(&version, &find(&version, "a")).unwrap();
+    assert!(!is_lower_bound(&model.totals.scope) && !model.totals.drawn_lower_bound);
 }

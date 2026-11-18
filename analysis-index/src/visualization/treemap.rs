@@ -85,7 +85,15 @@ pub fn admit_cancellable(
         basis == SizeBasis::Logical && version.completeness() == ResultCompleteness::Partial;
     for child in children {
         check(cancelled)?;
-        let observed = inspect_subtree(version, child.item_no, &basis, &mut identities, cancelled)?;
+        let observed = inspect_subtree(
+            version,
+            child.item_no,
+            &basis,
+            &mut identities,
+            false,
+            cancelled,
+        )?
+        .bytes;
         let raw =
             value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
         if partition_bytes(&raw, &basis, allow_lower_bound) != Some(observed) {
@@ -324,15 +332,44 @@ struct Identities {
     owners: Owners,
     conflicted: BTreeSet<u32>,
 }
+/// What the observations under one sibling add up to on a size basis.
+struct Observed {
+    /// Bytes of the observations that carry a measured value.
+    bytes: u64,
+    /// True when the subtree holds an entry that could not be read. It has no value, so
+    /// it adds no bytes and the F03 value of the subtree can only be a lower bound. A link
+    /// that was not followed is not such an entry: it is a scope boundary.
+    unmeasured: bool,
+}
+
+/// Whether a lower-bound F03 value may take part in a partition on this basis.
+///
+/// A lower bound is a value state, not a reason to withhold area: the partition draws
+/// the sibling by its lower bound and the shape, the group and the totals carry the
+/// state. Unique physical size has no admitted value yet and keeps its exact-only rule.
+fn lower_bound_partitions(basis: &SizeBasis) -> bool {
+    matches!(basis, SizeBasis::Logical | SizeBasis::Allocated)
+}
+
+/// Sums the measured bytes under a sibling.
+///
+/// An untraversed link is a counted scope boundary with no bytes of its own, so it adds
+/// nothing and leaves the subtree as measured as it was; whether F03 gives the folder
+/// above it a lower bound or an exact value is then the value's business, and the sum of
+/// the measured bytes is what that value must equal either way. With allow_unmeasured, an
+/// unread entry adds no bytes and is reported in the result; without it, such an entry
+/// refuses the sibling.
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
     basis: &SizeBasis,
     identities: &mut Identities,
+    allow_unmeasured: bool,
     cancelled: &mut dyn FnMut() -> bool,
-) -> Result<u64, AdmissionError> {
+) -> Result<Observed, AdmissionError> {
     let mut work = vec![sibling];
     let mut sum = 0_u64;
+    let mut unmeasured = false;
     while let Some(no) = work.pop() {
         check(cancelled)?;
         let item = version
@@ -359,10 +396,17 @@ fn inspect_subtree(
                     .checked_add(bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
             }
+            ResultItemKind::UntraversedLink => {}
+            ResultItemKind::Unknown if allow_unmeasured => {
+                unmeasured = true;
+            }
             _ => return Err(AdmissionError::NoAttribution),
         }
     }
-    Ok(sum)
+    Ok(Observed {
+        bytes: sum,
+        unmeasured,
+    })
 }
 
 /// Attributes one file to its sibling on a physical size basis and returns the bytes it
