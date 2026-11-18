@@ -65,8 +65,7 @@ pub fn add_child_partition(
             strategy: Some(&model.strategy.strategy),
             min_area: model.detail.min_area,
             slots,
-            // Nested groups need their member rows registered; not enabled yet.
-            allow_group: false,
+            allow_group: model.detail.group_tail,
         },
         cancelled,
     ) {

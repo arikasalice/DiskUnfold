@@ -4,7 +4,9 @@
 //! group is one row of its own, in the position of its shape, and its members are
 //! read through viz.group_rows. Nothing is recomputed: the total, the size range and
 //! the members come from the projection, and only their consistency is checked.
-use super::{Error, OtherPresentation, quantity};
+use super::{
+    Error, OtherPresentation, RowPresentation, denominator, make_row, original_size, quantity,
+};
 use du_analysis_index::{
     ResultVersion,
     visualization::{
@@ -98,6 +100,51 @@ pub(super) fn assemble(
         },
     );
     Ok((table, groups))
+}
+
+/// The member rows of the group of an expanded folder.
+///
+/// Such a group has no table row, like the other shapes inside an expanded folder; it
+/// is only readable through viz.group_rows. presentations holds the classification of
+/// every child of the folder, and the members are taken out of it.
+pub(crate) fn nested_group_rows(
+    version: &ResultVersion,
+    model: &projection::Model,
+    group: &projection::Group,
+    presentations: &mut HashMap<u32, RowPresentation>,
+) -> Result<GroupRows, Error> {
+    let denominator = denominator(&model.totals.scope, &model.basis)?;
+    let mut rows = Vec::with_capacity(group.members.len());
+    for member in &group.members {
+        let presentation = presentations
+            .remove(&member.item.item_no)
+            .ok_or(Error::MissingClassification)?;
+        let item = version
+            .items()
+            .get(member.item.item_no as usize)
+            .filter(|item| item.parent == Some(group.parent.item_no))
+            .ok_or(Error::InvalidGroup)?;
+        if presentation.item != member.item
+            || original_size(version, item.item_no, &model.basis) != Some(&member.size)
+        {
+            return Err(Error::SourceMismatch);
+        }
+        rows.push(make_row(
+            version,
+            &item.name,
+            &member.size,
+            presentation,
+            &denominator,
+        )?);
+    }
+    if rows.is_empty() {
+        return Err(Error::InvalidGroup);
+    }
+    Ok(GroupRows {
+        rows,
+        total: group.total.clone(),
+        size_range: group.size_range.clone(),
+    })
 }
 
 // A label key is the message key of the name, and the display name is required, so it

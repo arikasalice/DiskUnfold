@@ -3,10 +3,12 @@
 //! children, totals and shape limits.
 mod lower_bound;
 mod nested;
+mod nested_lower_bound;
 mod reasons;
 mod scale;
 mod totals;
 mod unread;
+mod windows;
 
 use du_analysis_index::{
     FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence, SpaceObservation,
@@ -109,13 +111,22 @@ pub fn project_with(
     max_shapes: usize,
     group_tail: bool,
 ) -> Result<Model, projection::Error> {
+    project_in(version, basis, max_shapes, group_tail, WINDOW)
+}
+pub fn project_in(
+    version: &ResultVersion,
+    basis: SizeBasis,
+    max_shapes: usize,
+    group_tail: bool,
+    bounds: Rect,
+) -> Result<Model, projection::Error> {
     let parent = item(version, 0);
     projection::project(
         Source {
             version,
             parent: &parent,
             basis,
-            bounds: WINDOW,
+            bounds,
         },
         &dispatcher(),
         Options {

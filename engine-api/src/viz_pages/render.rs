@@ -14,6 +14,7 @@ use std::{
 
 use du_analysis_index::visualization::{
     geometry::Rect,
+    live_models::GroupRows,
     projection::{self, Options, Source},
     typed_layout::Dispatcher,
 };
@@ -111,6 +112,20 @@ pub struct PreparedRender {
 }
 
 impl PreparedRender {
+    /// Adds groups of expanded folders to the rows before the model is published.
+    pub(super) fn add_groups(&mut self, groups: Vec<(String, GroupRows)>) -> Result<(), Error> {
+        let rows = self
+            .input
+            .rows
+            .as_mut()
+            .ok_or(Error::Cache(super::Error::InvalidModel))?;
+        for (key, group) in groups {
+            rows.add_group(key, group)
+                .map_err(|_| Error::Cache(super::Error::InvalidModel))?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn bind_condition(&mut self, fingerprint: String) {
         self.input.condition_fingerprint = fingerprint;
     }
