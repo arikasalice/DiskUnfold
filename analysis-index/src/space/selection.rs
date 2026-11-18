@@ -89,7 +89,10 @@ fn calculate<'a>(
             return Err(Error::Cancelled);
         }
         let row = row.map_err(Error::Item)?;
-        let file = row.kind == ResultItemKind::File;
+        // A link with a known own size is summed like a file; its target is only counted.
+        let link = row.kind == ResultItemKind::UntraversedLink
+            && row.size.as_ref().is_some_and(super::known_logical);
+        let file = row.kind == ResultItemKind::File || link;
         complete &= file;
         if !file && let Some(range) = &mut range {
             range.mark_incomplete();
@@ -101,7 +104,11 @@ fn calculate<'a>(
             if !complete {
                 continue;
             }
-            logical.observe(row.size.as_ref());
+            if link {
+                logical.observe_link(row.size.as_ref());
+            } else {
+                logical.observe(row.size.as_ref());
+            }
             let _ = physical.observe_pinned(version, row.item_no as usize);
         }
     }

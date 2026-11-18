@@ -108,11 +108,16 @@ pub(crate) fn build(
         let mut own = RangeIndices {
             min: time.map(|_| item.item_no),
             max: time.map(|_| item.item_no),
+            // A link observed with its own size is a complete observation; its untraversed
+            // target is outside the selected range.
             complete: time.is_some()
-                && !matches!(
-                    item.kind,
-                    ResultItemKind::UnknownStructure | ResultItemKind::UntraversedLink
-                ),
+                && match item.kind {
+                    ResultItemKind::UnknownStructure => false,
+                    ResultItemKind::UntraversedLink => {
+                        item.size.as_ref().is_some_and(crate::space::known_logical)
+                    }
+                    _ => true,
+                },
         };
         own.merge(ranges[index], times);
         ranges[index] = own;
