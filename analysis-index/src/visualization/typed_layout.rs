@@ -4,6 +4,7 @@
 //! metadata and model references still require their published physical contract.
 mod bar_strategy;
 mod numeric_layout;
+mod planned_input;
 pub(super) mod sankey_strategy;
 mod trend_strategy;
 pub(super) use bar_strategy::BarLayout;

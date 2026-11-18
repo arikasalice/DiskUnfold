@@ -78,7 +78,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         denominator,
         legend_class_key: other.legend_class_key.clone(),
         display_flags: other.display_flags.clone(),
-        label_key: None,
+        label_key: other.label_key.clone(),
     };
     Ok((
         row,

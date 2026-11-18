@@ -57,6 +57,7 @@ const plannedActions: Record<SurfaceId, readonly PlannedAction[]> = {
     ["evidence", "반영 근거와 충돌 확인", "평가 결과 연결 전"],
   ],
   history: [["result", "연결된 결과 열기", "기록에 연결된 결과 확인 전"]],
+  summary: [],
 };
 
 export function recordActions(

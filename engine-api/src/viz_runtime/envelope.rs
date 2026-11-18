@@ -1,4 +1,5 @@
 use super::*;
+use du_analysis_index::visualization::geometry::NoArea;
 use du_core_contracts::{
     SizeAmount, SizeValue,
     browse_page_ipc::{QueryStrategy, ResultOrigin},
@@ -115,13 +116,11 @@ pub(super) fn build_model(
     let projection = &rendered.model;
     let request = &admitted.request;
     let mut shapes = Vec::with_capacity(projection.shapes.len());
-    let mut drawn_lower_bound = false;
     for shape in &projection.shapes {
         if cancelled() {
             return Err(internal());
         }
         let row = projection.rows.get(shape.row_index).ok_or_else(internal)?;
-        drawn_lower_bound |= matches!(row.size.amount, SizeAmount::LowerBound { .. });
         let item = evidence.get(&row.item.item_no).ok_or_else(internal)?;
         let hierarchy = request.format == "treemap";
         shapes.push(VizShape {
@@ -159,6 +158,33 @@ pub(super) fn build_model(
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
         });
     }
+    for group in &projection.detail.groups {
+        if cancelled() {
+            return Err(internal());
+        }
+        // A group exists only when its presentation was supplied for this request.
+        let other = admitted.ranked_other.as_ref().ok_or_else(internal)?;
+        let mut display_flags = other.display_flags.clone();
+        if matches!(group.total.amount, SizeAmount::LowerBound { .. }) {
+            display_flags.push(crate::viz_production::policy::FLAG_LOWER_BOUND.to_owned());
+        }
+        display_flags.sort_unstable();
+        display_flags.dedup();
+        shapes.push(VizShape {
+            item_ref: None,
+            group_ref: Some(group.group_ref.clone()),
+            match_key: VizMatchKey::NotApplicable {},
+            geometry: group.geometry.clone(),
+            size: group.total.clone(),
+            quantity: None,
+            legend_class_key: other.legend_class_key.clone(),
+            display_flags,
+            shape_ref: Some(group.meta.shape_ref.clone()),
+            parent_shape_ref: Some(group.meta.parent_shape_ref.clone()),
+            visible_depth: Some(group.meta.visible_depth),
+            root_branch_ref: Some(group.meta.root_branch_ref.clone()),
+        });
+    }
     let mut classes = std::collections::BTreeMap::<String, (u64, u64, bool)>::new();
     for row in &projection.rows {
         if cancelled() {
@@ -169,6 +195,13 @@ pub(super) fn build_model(
             .entry(item.presentation.legend_class_key.clone())
             .or_default();
         total.0 = total.0.checked_add(1).ok_or_else(internal)?;
+        if row.omission == Some(NoArea::Unknown) {
+            // Counted, never added: the bytes of a sibling without a provable area
+            // are not known to be disjoint from the others, so the class total is
+            // only a lower bound.
+            total.2 = true;
+            continue;
+        }
         total.1 = total
             .1
             .checked_add(bytes(&row.size)?)
@@ -219,12 +252,12 @@ pub(super) fn build_model(
             drawn: derived_total(
                 &projection.totals.scope,
                 projection.totals.drawn_bytes,
-                drawn_lower_bound,
+                projection.totals.drawn_lower_bound,
             )?,
             grouped: derived_total(
                 &projection.totals.scope,
                 projection.totals.grouped_bytes,
-                false,
+                projection.totals.grouped_lower_bound,
             )?,
             filtered_out: derived_total(
                 &projection.totals.scope,
@@ -236,17 +269,27 @@ pub(super) fn build_model(
         relationships: projection.relationships.clone(),
         legend,
         summary: VizSummary {
-            grouped_items: quantity("items", 0)?,
+            grouped_items: quantity(
+                "items",
+                projection
+                    .detail
+                    .groups
+                    .iter()
+                    .map(|group| group.members.len() as u64)
+                    .sum(),
+            )?,
             omitted_items: quantity(
                 "items",
                 projection
                     .rows
                     .iter()
                     .map(|row| row.omitted_children as u64)
-                    .sum(),
+                    .sum::<u64>()
+                    .checked_add(projection.detail.omitted_items)
+                    .ok_or_else(internal)?,
             )?,
-            unknown_items: quantity("items", 0)?,
-            reason_keys: vec![],
+            unknown_items: quantity("items", projection.detail.unknown_items)?,
+            reason_keys: projection.detail.reason_keys.clone(),
         },
         strategy: QueryStrategy {
             id: projection.strategy.strategy.id.clone(),

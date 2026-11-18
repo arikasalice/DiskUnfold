@@ -476,13 +476,14 @@ impl Session {
         let Some(layout) = candidate.layout.as_mut() else {
             return Ok(());
         };
-        expansion::extend(
+        let groups = expansion::extend(
             Arc::make_mut(layout),
             source,
             &self.dispatcher,
             policy,
             &mut evidence,
             cancelled,
-        )
+        )?;
+        candidate.add_groups(groups)
     }
 }

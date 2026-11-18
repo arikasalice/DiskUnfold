@@ -1,14 +1,18 @@
 //! In-memory result publication and conservative per-subtree space aggregation.
 mod aggregation_rule;
 pub mod browse;
+mod cancelled_below;
 mod current_pin;
 mod directory_case;
+pub mod folder_collection;
+mod folder_marks;
 mod forest;
 pub mod freshness;
 mod freshness_ledger;
 mod freshness_outcomes;
 pub mod group;
 mod issues;
+mod item_kind;
 mod physical;
 pub mod publication_cadence;
 mod publication_events;
@@ -23,6 +27,7 @@ mod scope_observation;
 pub use scope_observation::{
     ObservationSkip, ObservationStamp, SealedScanError, fingerprint_from_hex,
 };
+pub mod size_rule_registry;
 pub mod source_registry;
 mod space;
 pub mod space_detail;
@@ -34,8 +39,7 @@ mod tree;
 mod version_store;
 pub mod visualization;
 pub mod volume_gap;
-use aggregation_rule::RegisteredRule;
-pub use aggregation_rule::SizeRuleIdentity;
+pub use aggregation_rule::{BoundSizeRule, SizeRuleIdentity};
 use du_core_contracts::result::{
     ResultCompleteness, ResultItem, ResultScopeGap, ResultScopeRoot, SpaceAggregate,
 };
@@ -76,7 +80,7 @@ pub struct ResultVersion {
     lineage_id: Option<Id>,
     scope_fingerprint: Option<String>,
     completeness: ResultCompleteness,
-    size_rule: RegisteredRule,
+    size_rule: BoundSizeRule,
     items: Vec<ResultItem>,
     aggregates: Vec<SpaceAggregate>,
     observation_ranges: Vec<observation_range::RangeIndices>,
@@ -89,6 +93,7 @@ pub struct ResultVersion {
     gaps: Vec<ResultScopeGap>,
     exact_gaps: BTreeMap<u32, Vec<usize>>,
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
+    folder_marks: folder_marks::FolderMarks,
     scope_total: Option<SpaceAggregate>,
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
@@ -171,7 +176,7 @@ impl IngestSink {
             origin: ResultOrigin::Scan,
             data_source: du_core_contracts::data_source::DataSource::Real,
             published: false,
-            size_rule: RegisteredRule::default_registration(),
+            size_rule: BoundSizeRule::builtin_default(),
             shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
             scope_fingerprint: None,
@@ -179,6 +184,7 @@ impl IngestSink {
             gaps: Vec::new(),
             observations: observation_store::ObservationStore::default(),
             directory_case: BTreeMap::new(),
+            unread_folders: BTreeMap::new(),
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,
@@ -196,7 +202,7 @@ pub struct BuildHandle {
     origin: ResultOrigin,
     data_source: du_core_contracts::data_source::DataSource,
     published: bool,
-    size_rule: RegisteredRule,
+    size_rule: BoundSizeRule,
     shared_table_limit: usize,
     scope_version_id: Id,
     scope_fingerprint: Option<String>,
@@ -205,6 +211,8 @@ pub struct BuildHandle {
     observations: observation_store::ObservationStore,
     /// Case evidence by store node of the directory it was recorded for.
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
+    /// Unread-folder marks by store node of the folder they were reported for.
+    unread_folders: BTreeMap<u32, folder_collection::UnreadReason>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
     volume_reports: Vec<VolumeReport>,
     finished: bool,
@@ -329,6 +337,13 @@ impl BuildHandle {
         let (observation_ranges, scope_observation_range) =
             observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
+        let folder_marks = folder_marks::FolderMarks::bind(
+            &built,
+            &self.observations,
+            &self.issues,
+            &self.unread_folders,
+            finish,
+        );
         // Linear in items and gaps, so it runs here and never under the state lock below.
         let freshness_outcomes = (finish && self.events.tracks_freshness()).then(|| {
             freshness_outcomes::compute(
@@ -368,6 +383,7 @@ impl BuildHandle {
             gaps: self.gaps.clone(),
             exact_gaps,
             directory_case,
+            folder_marks,
             scope_total,
             volume_reports: self.volume_reports.clone(),
             observed_at,

@@ -1,3 +1,4 @@
+use crate::item_kind::is_structure;
 use du_core_contracts::result::{ResultCompleteness, ResultItem, ResultItemKind, SpaceAggregate};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 
@@ -147,7 +148,6 @@ pub(crate) fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvi
 
 pub(crate) fn aggregate(
     items: &[ResultItem],
-    structures: &[bool],
     completeness: ResultCompleteness,
 ) -> Vec<SpaceAggregate> {
     let mut sums = vec![Accumulator::default(); items.len()];
@@ -155,7 +155,7 @@ pub(crate) fn aggregate(
         let index = item.item_no as usize;
         if item.kind == ResultItemKind::UntraversedLink {
             sums[index].untraversed_links += 1;
-        } else if !structures[index] {
+        } else if !is_structure(item.kind) {
             sums[index].observe(item.size.as_ref());
         }
         if let Some(parent) = item.parent {
@@ -169,15 +169,13 @@ pub(crate) fn aggregate(
 /// Computes a forest-wide total directly from observations, not subtree totals.
 pub(crate) fn scope_total(
     items: &[ResultItem],
-    structures: &[bool],
     completeness: ResultCompleteness,
 ) -> SpaceAggregate {
     let mut sum = Accumulator::default();
     for item in items {
-        let index = item.item_no as usize;
         if item.kind == ResultItemKind::UntraversedLink {
             sum.untraversed_links += 1;
-        } else if !structures[index] {
+        } else if !is_structure(item.kind) {
             sum.observe(item.size.as_ref());
         }
     }

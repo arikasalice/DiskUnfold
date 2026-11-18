@@ -27,6 +27,7 @@ pub mod scope;
 pub mod search;
 pub mod search_page;
 pub mod shutdown;
+pub mod size_rule;
 mod source_exposure;
 pub mod space;
 pub mod support;

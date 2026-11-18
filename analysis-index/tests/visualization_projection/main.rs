@@ -76,6 +76,7 @@ fn options(limit: usize) -> Options<'static> {
         format: "treemap",
         strategy: None,
         max_shapes: limit,
+        group_tail: true,
     }
 }
 #[test]
@@ -194,18 +195,8 @@ fn folder_branch_is_carried_to_projection_row_and_shape() -> Result<(), String> 
     Ok(())
 }
 #[test]
-fn limits_wrong_sources_and_cancellation_do_not_expose_partial_models() -> Result<(), String> {
+fn wrong_sources_and_cancellation_do_not_expose_partial_models() -> Result<(), String> {
     let (version, parent, dispatcher) = fixture()?;
-    assert_eq!(
-        projection::project(
-            source(&version, &parent, SizeBasis::Logical),
-            &dispatcher,
-            options(1),
-            &mut || false
-        )
-        .err(),
-        Some(projection::Error::ShapeLimitExceeded)
-    );
     assert_eq!(
         projection::project(
             source(&version, &parent, SizeBasis::Allocated),
@@ -287,6 +278,7 @@ fn duplicate_or_missing_row_from_strategy_is_rejected() -> Result<(), String> {
         format: "future",
         strategy: None,
         max_shapes: 10,
+        group_tail: true,
     };
     assert_eq!(
         projection::project(
@@ -389,8 +381,26 @@ fn projection_runs_one_admission_before_strategy() -> Result<(), String> {
         false
     })
     .map_err(|e| format!("{e:?}"))?;
-    // Legacy input is borrowed without an additional row conversion.
-    assert_eq!(at_entry.load(Ordering::Relaxed), admission_checks + 1);
+    // One admission pass over the children costs `admission_checks` checkpoints. The
+    // projection admits each child on its own and plans the level before it
+    // dispatches, which adds bookkeeping of at most one checkpoint per child. A
+    // second admission pass would add another `admission_checks`. The count is bounded
+    // rather than compared for equality: an exact figure would pin that bookkeeping,
+    // and the cancellation closure is the only way to observe the passes from outside.
+    let children = version
+        .items()
+        .iter()
+        .filter(|item| item.parent == Some(parent.item_no))
+        .count();
+    assert!(
+        admission_checks > children,
+        "the bound below cannot tell one pass from two"
+    );
+    let at_entry = at_entry.load(Ordering::Relaxed);
+    assert!(
+        (admission_checks..=admission_checks + children).contains(&at_entry),
+        "{at_entry} checkpoints before the strategy, one admission is {admission_checks}"
+    );
     Ok(())
 }
 
@@ -436,6 +446,7 @@ fn rejects_a_strategy_that_draws_exact_zero_with_otherwise_valid_rows() -> Resul
         format: "future",
         strategy: None,
         max_shapes: 10,
+        group_tail: true,
     };
     assert_eq!(
         projection::project(

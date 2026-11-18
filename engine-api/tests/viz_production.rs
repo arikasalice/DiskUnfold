@@ -95,6 +95,7 @@ fn fixture() -> Result<(IngestSink, Arc<ResultVersion>, projection::Model), Stri
             format: "treemap",
             strategy: None,
             max_shapes: 10,
+            group_tail: true,
         },
         &mut || false,
     )
@@ -129,6 +130,7 @@ fn actual_pinned_projection_yields_matching_page_rows_and_geometry() -> Result<(
         &model,
         "canonical".into(),
         labels(&model),
+        None,
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;
@@ -182,6 +184,7 @@ fn refuses_missing_evidence_forged_denominator_groups_and_cancel() -> Result<(),
             &model,
             "a".into(),
             vec![],
+            None,
             &mut || false
         )
         .err(),
@@ -194,6 +197,7 @@ fn refuses_missing_evidence_forged_denominator_groups_and_cancel() -> Result<(),
             &model,
             "a".into(),
             labels(&model),
+            None,
             &mut || true
         )
         .err(),
@@ -207,10 +211,11 @@ fn refuses_missing_evidence_forged_denominator_groups_and_cancel() -> Result<(),
             &model,
             "a".into(),
             labels(&model),
+            None,
             &mut || false
         )
         .err(),
-        Some(production::Error::UnsupportedGroups)
+        Some(production::Error::InvalidGroup)
     );
     model.totals.grouped_bytes = 0;
     model.totals.scope.amount = SizeAmount::Exact {
@@ -223,6 +228,7 @@ fn refuses_missing_evidence_forged_denominator_groups_and_cancel() -> Result<(),
             &model,
             "a".into(),
             labels(&model),
+            None,
             &mut || false
         )
         .err(),
@@ -241,6 +247,7 @@ fn strategy_projection_and_page_remain_bound_to_the_admitted_revision() -> Resul
         &model,
         "bound-condition".into(),
         labels(&model),
+        None,
         &mut || false,
     )
     .map_err(|e| format!("{e:?}"))?;
@@ -294,6 +301,7 @@ fn strategy_projection_and_page_remain_bound_to_the_admitted_revision() -> Resul
             &model,
             "another-condition".into(),
             labels(&model),
+            None,
             &mut || false
         )
         .err(),

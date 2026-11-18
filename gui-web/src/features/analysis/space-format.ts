@@ -25,51 +25,202 @@ const measurementLabels = {
 } satisfies Record<SpaceTotal["completeness"], string>;
 
 /** Human-readable evidence labels shared by the two space views. */
-export const evidenceLabels = {
+const evidenceLabels = {
   measured: "Measured",
   os_reported: "Reported by the file system",
   estimated: "Estimated",
   unknown: undefined,
 } satisfies Record<SizeValue["evidence"], string | undefined>;
 
-const spaceReasonLabels = new Map([
-  ["space.aux_not_included", "Auxiliary data was not collected"],
-  ["space.dedup_capacity", "The file identity limit was reached"],
-  ["space.sharing_not_collected", "Sharing evidence was not collected"],
-  ["space.sharing_unknown", "Sharing could not be verified"],
-  ["space.identity_unsupported", "File identity could not be verified"],
+type Message = readonly [key: string, fallback: string];
+
+/** The message of each item-space reason, by its reason key. */
+const spaceReasonMessages = new Map<string, Message>([
+  [
+    "space.aux_not_included",
+    ["ui.analysis.space_aux_not_included", "Auxiliary data was not collected"],
+  ],
+  [
+    "space.dedup_capacity",
+    ["ui.analysis.space_dedup_capacity", "The file identity limit was reached"],
+  ],
+  [
+    "space.sharing_not_collected",
+    [
+      "ui.analysis.space_sharing_not_collected",
+      "Sharing evidence was not collected",
+    ],
+  ],
+  [
+    "space.sharing_unknown",
+    ["ui.analysis.space_sharing_unknown", "Sharing could not be verified"],
+  ],
+  [
+    "space.identity_unsupported",
+    [
+      "ui.analysis.space_identity_unsupported",
+      "File identity could not be verified",
+    ],
+  ],
   [
     "space.out_of_range_links",
-    "Links outside the analysis scope were reported",
+    [
+      "ui.analysis.space_out_of_range_links",
+      "Links outside the analysis scope were reported",
+    ],
   ],
-  ["space.shared_reported", "The file system reported shared space"],
+  [
+    "space.shared_reported",
+    [
+      "ui.analysis.space_shared_reported",
+      "The file system reported shared space",
+    ],
+  ],
 ]);
 
-const measurementLimitLabels = new Map([
-  ["space.data_insufficient", "Some space data could not be verified"],
+/** The message of each reason that only limits a measurement. */
+const measurementLimitMessages = new Map<string, Message>([
+  [
+    "space.data_insufficient",
+    [
+      "ui.analysis.space_data_insufficient",
+      "Some space data could not be verified",
+    ],
+  ],
   [
     "space.aggregation_overflow",
-    "The space total exceeded the supported range",
+    [
+      "ui.analysis.space_aggregation_overflow",
+      "The space total exceeded the supported range",
+    ],
   ],
-  ["space.allocated_not_collected", "Allocation data was not collected"],
+  [
+    "space.allocated_not_collected",
+    [
+      "ui.analysis.space_allocated_not_collected",
+      "Allocation data was not collected",
+    ],
+  ],
   [
     "space.observation_detail_insufficient",
-    "Some observation details are unavailable",
+    [
+      "ui.analysis.space_observation_detail_insufficient",
+      "Some observation details are unavailable",
+    ],
+  ],
+  [
+    "space.hardlink_identity_unknown",
+    [
+      "ui.analysis.space_hardlink_identity_unknown",
+      "The allocated size of files that could not be identified was left out of the total.",
+    ],
   ],
 ]);
 
-/** Returns the explanation for a recognized item-space reason. */
-export function displaySpaceReason(key: string): string | undefined {
-  return spaceReasonLabels.get(key);
+const unrecognizedLimit: Message = [
+  "ui.analysis.space_measurement_limit_reported",
+  "A measurement limitation was reported",
+];
+
+/**
+ * Explains a recognized item-space reason in the active language. An
+ * unrecognized key gives no text, so the caller decides what it shows then.
+ */
+export function displaySpaceReason(
+  key: string,
+  text: LocaleText,
+): string | undefined {
+  const message = spaceReasonMessages.get(key);
+  return message && text(...message);
 }
 
-/** Preserves a visible limitation even when its reason is not recognized. */
-export function displayMeasurementLimit(key: string): string {
-  return (
-    displaySpaceReason(key) ??
-    measurementLimitLabels.get(key) ??
-    "A measurement limitation was reported"
+/**
+ * Explains a measurement limit in the active language. An unrecognized key
+ * still shows that a limitation was reported, without naming it.
+ */
+export function displayMeasurementLimit(key: string, text: LocaleText): string {
+  return text(
+    ...(spaceReasonMessages.get(key) ??
+      measurementLimitMessages.get(key) ??
+      unrecognizedLimit),
   );
+}
+
+/** Explains a space reason of either table; a key without a text gives none. */
+export function displayKnownSpaceReason(
+  key: string,
+  text: LocaleText,
+): string | undefined {
+  const message =
+    spaceReasonMessages.get(key) ?? measurementLimitMessages.get(key);
+  return message && text(...message);
+}
+
+/** Names a unit system by what its units look like. */
+export function displayUnitSystem(
+  system: SizeDisplay["system"],
+  text: LocaleText,
+): string {
+  return system === "iec"
+    ? text("ui.analysis.unit_system_binary", "Binary units (KiB, MiB)")
+    : text("ui.analysis.unit_system_decimal", "Decimal units (kB, MB)");
+}
+
+/** How the scan stands that is still to supply a size without a value. */
+export type SizeWait = "running" | "paused";
+
+/**
+ * Reasons that leave a size without a value for good. Every other reason on
+ * an unknown size also comes with the first result of a scan, before a file
+ * was read, so it does not tell whether the value is still to come.
+ */
+const lastingUnknownReasons = new Set([
+  "space.aggregation_overflow",
+  "space.dedup_capacity",
+]);
+
+/**
+ * Tells whether a size without a value is still expected from the scan, given
+ * how the scan stands (nothing once it ended). Only the logical and the
+ * allocated size are awaited: they get a value as soon as the scan has read
+ * a file, while the unique physical size can stay unknown for a whole scan.
+ */
+export function awaitedSize(
+  size: SizeValue,
+  measurementLimits: readonly string[],
+  wait: SizeWait | undefined,
+): SizeWait | undefined {
+  if (size.state !== "unknown" || size.basis === "unique_physical")
+    return undefined;
+  return measurementLimits.some((key) => lastingUnknownReasons.has(key))
+    ? undefined
+    : wait;
+}
+
+const awaitedSizeMessages: Record<
+  SizeWait,
+  { value: Message; detail: Message }
+> = {
+  running: {
+    value: ["ui.analysis.size_calculating", "Calculating…"],
+    detail: ["ui.analysis.size_calculating_detail", "Checking file sizes"],
+  },
+  paused: {
+    value: ["ui.analysis.size_no_value_yet", "No value yet"],
+    detail: [
+      "ui.analysis.size_no_value_yet_detail",
+      "It appears when the scan continues",
+    ],
+  },
+};
+
+/** What stands in the place of an awaited size, and the line below it. */
+export function displayAwaitedSize(
+  wait: SizeWait,
+  text: LocaleText,
+): { value: string; detail: string } {
+  const { value, detail } = awaitedSizeMessages[wait];
+  return { value: text(...value), detail: text(...detail) };
 }
 
 /** Separates measurement completeness and evidence from the result version. */

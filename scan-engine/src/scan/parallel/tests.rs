@@ -13,6 +13,7 @@ mod admission_table;
 mod directory_case;
 mod disconnect;
 mod filtered;
+mod folder_marks;
 mod item_times;
 mod pause;
 mod queue_metrics;

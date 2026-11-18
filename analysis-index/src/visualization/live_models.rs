@@ -54,6 +54,18 @@ impl PreparedRows {
     ) -> Result<Self, PrepareError> {
         build_model_rows(rows, groups, Some(cancelled)).map(Self)
     }
+
+    /// Adds a group built after the rows were prepared, such as the group of a folder
+    /// opened before publication. The key must be new to this model; the group's size
+    /// range is checked against its members exactly as for prepared groups.
+    pub fn add_group(&mut self, key: String, mut group: GroupRows) -> Result<(), Error> {
+        if key.is_empty() || self.0.groups.contains_key(&key) {
+            return Err(Error::Duplicate);
+        }
+        let _ = guard_group_size_range(&mut group, &mut None);
+        self.0.groups.insert(key, Arc::new(group));
+        Ok(())
+    }
 }
 
 fn build_model_rows(

@@ -351,7 +351,14 @@ mod tests {
         event_timer.remove();
         drop(lifecycle);
         manager.unregister_script_message_handler("diskunfold", None);
-        assert_eq!(view.title().as_deref(), Some("IPC passed"));
+        assert_eq!(
+            view.title().as_deref(),
+            Some("IPC passed"),
+            "document_started={}, document_ready={}, post_failures={}",
+            started.load(std::sync::atomic::Ordering::SeqCst),
+            ready.load(std::sync::atomic::Ordering::SeqCst),
+            failures.load(std::sync::atomic::Ordering::SeqCst),
+        );
         assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(ready.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(closed.load(std::sync::atomic::Ordering::SeqCst), 1);
