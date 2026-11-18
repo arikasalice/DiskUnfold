@@ -200,17 +200,6 @@
   {
     "ecosystem": "cargo",
     "owner": "du-core-contracts",
-    "name": "chrono",
-    "version": "0.4.45",
-    "source": "registry+https://github.com/rust-lang/crates.io-index",
-    "license": "MIT OR Apache-2.0",
-    "role": "runtime",
-    "distributed": true,
-    "reason": "UTC timestamp representation"
-  },
-  {
-    "ecosystem": "cargo",
-    "owner": "du-core-contracts",
     "name": "serde_json",
     "version": "1.0.154",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
