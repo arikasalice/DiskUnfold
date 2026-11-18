@@ -1512,7 +1512,8 @@ test.each([
     );
     expect(graphNotice.textContent).toContain(first.observedAt);
     const table = screen.getByRole("region", {
-      name: language === "ko" ? "최신 결과의 항목" : "Items in the latest result",
+      name:
+        language === "ko" ? "최신 결과의 항목" : "Items in the latest result",
     });
     expect(table.textContent).toContain(second.observedAt);
     expect(table.textContent).toContain(
