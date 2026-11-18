@@ -17,16 +17,16 @@ export type Opened = Extract<BrowseOpenResponse, { kind: "opened" }>;
 
 /**
  * Names the origin of a result in the reader's language. The origin is an
- * open identifier, so a value without copy is shown as reported.
+ * open identifier; a value without copy reads as unknown and is not shown.
  */
 function originText(origin: string, text: LocaleText): string {
   switch (origin) {
     case "scan":
-      return text("ui.browse.origin_scan", "Scan");
+      return text("ui.browse.origin_scan", "Current analysis");
     case "incremental":
       return text("ui.browse.origin_incremental", "Incremental update");
     default:
-      return origin;
+      return text("ui.common.unknown", "Unknown");
   }
 }
 export type ParentLocation = { item?: ItemRef };

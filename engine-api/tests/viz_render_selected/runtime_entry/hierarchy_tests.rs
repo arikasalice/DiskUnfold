@@ -77,7 +77,29 @@ fn depth_two_uses_pinned_descendants_without_changing_root_rows_or_totals() -> R
             .len()
             <= 4
     );
-    assert_eq!(limited["model"]["totals"], first["model"]["totals"]);
+    assert_totals_move_only_between_drawn_and_grouped(&first, &limited)
+}
+
+// A smaller view merges more siblings into the group, so the drawn and grouped
+// totals move between each other while the scope total and their sum stay put.
+fn assert_totals_move_only_between_drawn_and_grouped(
+    first: &Value,
+    limited: &Value,
+) -> Result<(), String> {
+    let total = |model: &Value, key: &str| -> Result<u64, String> {
+        model["model"]["totals"][key]["quantity"]["value"]
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| format!("missing {key} total"))
+    };
+    assert_eq!(
+        limited["model"]["totals"]["scope"],
+        first["model"]["totals"]["scope"]
+    );
+    assert_eq!(
+        total(limited, "drawn")? + total(limited, "grouped")?,
+        total(limited, "scope")?
+    );
     Ok(())
 }
 
@@ -166,5 +188,66 @@ fn expansion_limits_have_policy_errors_and_invalid_entries_are_rejected() -> Res
             reason
         );
     }
+    Ok(())
+}
+#[test]
+fn a_small_view_merges_siblings_into_a_group_the_page_store_can_open() -> Result<(), String> {
+    let fixture = Fixture::with_tree(
+        [25, 75],
+        Duration::from_secs(2),
+        NonZeroUsize::MIN.saturating_add(3),
+        true,
+    )?;
+    let view = fixture.open()?;
+    fixture.release.send(()).map_err(|e| e.to_string())?;
+    let mut request = render_body(&view, 1);
+    request["viewport"]["width"] = json!(4);
+    request["viewport"]["height"] = json!(4);
+    request["minAreaPx2"] = json!(4);
+    let rendered = fixture.ok("viz.render", request)?;
+    assert_eq!(rendered["kind"], "model");
+    let model = &rendered["model"];
+    let shapes = model["shapes"].as_array().ok_or("no shapes")?;
+    assert!(shapes.len() <= 4);
+    let group = shapes
+        .iter()
+        .find(|shape| shape["groupRef"].is_string())
+        .ok_or("no group shape")?;
+    assert!(group["itemRef"].is_null());
+    assert_eq!(group["matchKey"]["state"], "not_applicable");
+    let items = |value: &Value| -> Result<u64, String> {
+        value["value"]
+            .as_str()
+            .and_then(|text| text.parse().ok())
+            .ok_or_else(|| format!("not a count: {value}"))
+    };
+    let grouped = items(&model["summary"]["groupedItems"])?;
+    assert!(grouped > 0);
+    assert_eq!(items(&model["summary"]["unknownItems"])?, 0);
+    assert_eq!(model["summary"]["reasonKeys"], json!([]));
+    let members = fixture.ok(
+        "viz.group_rows",
+        json!({"modelRef": model["modelRef"], "groupRef": group["groupRef"], "start": 0, "count": 1000}),
+    )?;
+    assert_eq!(members["totalCount"], json!(grouped));
+    assert_eq!(members["groupTotal"], group["size"]);
+    let rows = fixture.ok(
+        "viz.rows",
+        json!({"modelRef": model["modelRef"], "resultRevision": id(3), "start": 0, "count": 100}),
+    )?;
+    let group_row = rows["rows"]
+        .as_array()
+        .ok_or("no rows")?
+        .iter()
+        .find(|row| row["groupRef"] == group["groupRef"])
+        .ok_or("no group row")?;
+    assert_eq!(group_row["displayName"], "Other");
+    assert!(group_row.get("labelKey").is_none());
+    let located = fixture.ok(
+        "viz.locate",
+        json!({"modelRef": model["modelRef"], "itemRef": members["rows"][0]["itemRef"]}),
+    )?;
+    assert_eq!(located["location"], "group");
+    assert_eq!(located["groupRef"], group["groupRef"]);
     Ok(())
 }

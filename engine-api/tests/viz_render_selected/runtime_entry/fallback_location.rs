@@ -1,10 +1,17 @@
 use super::*;
-use du_analysis_index::{FileIdentity, SharingEvidence, SpaceObservation};
 fn windows_name(name: &str) -> Vec<u8> {
     name.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
 fn tied_tree() -> Result<IngestSink, String> {
+    tree(false)
+}
+/// The same tree with an unread range at `a`: nothing below `a` can be said to be
+/// fully read, so `a` and its folders have no partition. The rest still draws.
+fn gapped_tree() -> Result<IngestSink, String> {
+    tree(true)
+}
+fn tree(gap_at_a: bool) -> Result<IngestSink, String> {
     let sink = IngestSink::default();
     let lineage = sink
         .bind_current_analysis("scope", id(1))
@@ -44,71 +51,18 @@ fn tied_tree() -> Result<IngestSink, String> {
         })
         .map_err(|e| format!("{e:?}"))?;
     }
-    scan.seal(id(3), ResultCompleteness::Complete)
-        .map_err(|e| format!("{e:?}"))?;
-    Ok(sink)
-}
-/// Like `tied_tree`, but the files below `a/x` and `a/y` are two links of one
-/// file: only the allocated basis cannot attribute them to either sibling.
-fn shared_link_tree() -> Result<IngestSink, String> {
-    let sink = IngestSink::default();
-    let lineage = sink
-        .bind_current_analysis("scope", id(1))
-        .map_err(|e| format!("{e:?}"))?;
-    let root = ResultScopeRoot {
-        path: ResultNativePath {
-            encoding: PathEncoding::WindowsUtf16le,
-            raw: PathBytes::from_bytes(&windows_name("C:\\fixture")),
-        },
-        volume_id: vec![1],
-        file_id: vec![2],
+    if gap_at_a {
+        scan.record_gap_at(0, vec![windows_name("a")], "scan.path_denied".into(), None)
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let completeness = if gap_at_a {
+        ResultCompleteness::Partial
+    } else {
+        ResultCompleteness::Complete
     };
-    let mut scan = sink
-        .open_forest_in_lineage(id(2), vec![root], lineage)
-        .map_err(|e| format!("{e:?}"))?;
-    for path in [
-        vec![],
-        vec![windows_name("a")],
-        vec![windows_name("a"), windows_name("x")],
-        vec![windows_name("a"), windows_name("y")],
-        vec![windows_name("outside")],
-    ] {
-        scan.add_directory(path).map_err(|e| format!("{e:?}"))?;
-    }
-    for (path, size, file, links) in [
-        (vec!["a", "x", "one"], 50_u64, 7_u8, 2_u64),
-        (vec!["a", "y", "two"], 50, 7, 2),
-        (vec!["outside", "three"], 25, 8, 1),
-    ] {
-        let amount = |basis, evidence| SizeValue {
-            basis,
-            evidence,
-            amount: SizeAmount::Exact { bytes: size.into() },
-        };
-        scan.add_with_space(
-            Observation {
-                path: path.into_iter().map(windows_name).collect(),
-                size: Some(amount(SizeBasis::Logical, SizeEvidence::Measured)),
-            },
-            SpaceObservation {
-                allocated: Some(amount(SizeBasis::Allocated, SizeEvidence::OsReported)),
-                identity: Some(FileIdentity {
-                    volume: vec![1],
-                    file: vec![file],
-                }),
-                link_count: Some(links),
-                sharing: SharingEvidence::None,
-            },
-        )
-        .map_err(|e| format!("{e:?}"))?;
-    }
-    scan.seal(id(3), ResultCompleteness::Complete)
+    scan.seal(id(3), completeness)
         .map_err(|e| format!("{e:?}"))?;
     Ok(sink)
-}
-fn allocated(mut request: Value) -> Value {
-    request["sizeBasis"] = json!("allocated");
-    request
 }
 fn item(sink: &IngestSink, name: &str) -> Result<Value, String> {
     let version = sink.pin_current(&id(3)).map_err(|e| format!("{e:?}"))?;
@@ -129,7 +83,7 @@ fn scope(view: &Value, seq: u32, parent: &Value) -> Value {
 fn fallback_selection_location_and_folder_navigation_keep_the_pinned_source() -> Result<(), String>
 {
     let fixture = Fixture::from_sink(
-        shared_link_tree()?,
+        gapped_tree()?,
         Duration::from_secs(2),
         NonZeroUsize::MIN.saturating_add(3),
     )?;
@@ -142,7 +96,8 @@ fn fallback_selection_location_and_folder_navigation_keep_the_pinned_source() ->
     let a = item(&fixture.sink, "a")?;
     let x = item(&fixture.sink, "x")?;
     let outside = item(&fixture.sink, "outside")?;
-    let fallback = fixture.ok("viz.render", allocated(scope(&view, 2, &a)))?;
+    // The unread range at `a` leaves no partition below it, so only a table remains.
+    let fallback = fixture.ok("viz.render", scope(&view, 2, &a))?;
     assert_eq!(fallback["kind"], "unavailable");
     assert_eq!(fallback["reasonKey"], "viz.unavailable.no_attribution");
     let model = fallback["fallback"]["modelRef"].clone();
@@ -152,10 +107,9 @@ fn fallback_selection_location_and_folder_navigation_keep_the_pinned_source() ->
     )?;
     assert_eq!(rows["resultRevision"], json!(id(3)));
     assert_eq!(rows["totalCount"], 2);
-    // The one file under `a` is linked from both children, so `a` counts it once.
     for row in rows["rows"].as_array().ok_or("missing rows")? {
         assert_eq!(row["size"]["bytes"], "50");
-        assert_eq!(row["denominator"]["size"]["bytes"], "50");
+        assert_eq!(row["denominator"]["size"]["bytes"], "100");
         assert_eq!(row["itemRef"]["resultVersion"], json!(id(3)));
     }
     assert_eq!(
@@ -187,14 +141,19 @@ fn fallback_selection_location_and_folder_navigation_keep_the_pinned_source() ->
             .reason_key,
         "ref.unavailable"
     );
+    // The range covers the folders below it too, so `x` is a table of the same revision.
     let child = fixture.ok("viz.render", scope(&view, 3, &x))?;
-    assert_eq!(child["kind"], "model");
+    assert_eq!(child["kind"], "unavailable");
     assert_eq!(child["resultRevision"], json!(id(3)));
+    // A folder outside the range still draws from the same pinned source.
+    let beside = fixture.ok("viz.render", scope(&view, 4, &outside))?;
+    assert_eq!(beside["kind"], "model");
+    assert_eq!(beside["resultRevision"], json!(id(3)));
     assert_eq!(
-        child["model"]["totals"]["scope"]["sourceSize"]["bytes"],
-        "50"
+        beside["model"]["totals"]["scope"]["sourceSize"]["bytes"],
+        "25"
     );
-    let returned = fixture.ok("viz.render", allocated(scope(&view, 4, &a)))?;
+    let returned = fixture.ok("viz.render", scope(&view, 5, &a))?;
     assert_eq!(returned["fallback"]["modelRef"], model);
     Ok(())
 }

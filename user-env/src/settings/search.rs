@@ -102,6 +102,9 @@ impl Registry {
         let mut hits = Vec::new();
         for entry in self.catalog(snapshot) {
             let presentation = &entry.descriptor.presentation;
+            if presentation.hidden {
+                continue;
+            }
             let mut fields = vec![
                 (Field::Key, entry.descriptor.key.as_str()),
                 (

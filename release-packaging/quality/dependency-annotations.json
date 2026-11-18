@@ -125,12 +125,6 @@
     "distributed": true,
     "reason": "binary path encoding"
   },
-  "cargo:du-core-contracts:chrono@0.4.45": {
-    "license": "MIT OR Apache-2.0",
-    "role": "runtime",
-    "distributed": true,
-    "reason": "UTC timestamp representation"
-  },
   "cargo:du-core-contracts:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",

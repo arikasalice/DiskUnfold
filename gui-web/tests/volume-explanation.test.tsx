@@ -190,9 +190,11 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   expect(observations.getByText("2.4 KiB · 2,500 bytes")).toBeTruthy();
   expect(
     differences.getByText(
-      "system · 2.4 KiB · 2,500 bytes · Reported by the file system",
+      "Unknown · 2.4 KiB · 2,500 bytes · Reported by the file system",
     ),
   ).toBeTruthy();
+  // A category key is not shown.
+  expect(differences.queryByText(/^system/)).toBeNull();
 
   rerender(
     <SummaryHarness
@@ -203,7 +205,12 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   );
   expect(observations.getByText("2,500 bytes")).toBeTruthy();
   expect(differences.getByText("2,500 bytes · Estimated")).toBeTruthy();
-  expect(differences.getByText("Unavailable")).toBeTruthy();
+  // A missing value says why when its reason has a text.
+  expect(
+    differences.getByText(
+      "Unavailable · Some space data could not be verified",
+    ),
+  ).toBeTruthy();
   expect(transport).toHaveBeenCalledTimes(1);
   expect(report.start.totalBytes).toBe("7500");
 });

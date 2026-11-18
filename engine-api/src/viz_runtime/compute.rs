@@ -93,6 +93,7 @@ impl JobBody for Compute {
                 format: &request.format,
                 strategy: Some(&self.admitted.descriptor.strategy),
                 max_shapes: self.admitted.max_shapes,
+                other: self.admitted.ranked_other.as_ref(),
             },
             &self.admitted.source,
             hierarchy,

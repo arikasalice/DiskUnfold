@@ -25,6 +25,7 @@ impl LiveOpen {
             current_correspondence,
             sort_strategies,
             predicate_strategies,
+            excluded_children,
         } = super::cursor::context::project_context(
             origin,
             opened.data_source,
@@ -46,6 +47,7 @@ impl LiveOpen {
             page: Box::new(page),
             sort_strategies,
             predicate_strategies,
+            excluded_children,
         })
     }
 }
@@ -101,6 +103,7 @@ fn row(value: Row) -> FolderQueryRow {
         flags: FolderFlags {
             unenumerated: unknown("ref.unavailable"),
             excluded: unknown("ref.unavailable"),
+            boundary: None,
         },
         correspondence: unknown("ref.unavailable"),
     }

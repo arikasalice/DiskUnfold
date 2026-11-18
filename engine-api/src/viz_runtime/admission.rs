@@ -399,7 +399,7 @@ fn bind_ranked_other(
     facts: &SourceFacts,
     key: &mut String,
 ) -> Result<Option<crate::viz_pages::ranked_group::OtherPresentation>, EngineError> {
-    let mut ranked_other = if request.format == "bar" {
+    let mut ranked_other = if matches!(request.format.as_str(), "bar" | "treemap") {
         producer.ranked_other(source, request)?
     } else {
         None
@@ -409,6 +409,7 @@ fn bind_ranked_other(
             || other.display_name.is_empty()
             || !facts.classes.contains_key(&other.legend_class_key)
             || other.display_flags.iter().any(String::is_empty)
+            || other.label_key.as_ref().is_some_and(String::is_empty)
         {
             return Err(invalid());
         }
@@ -420,6 +421,7 @@ fn bind_ranked_other(
             &other.display_name,
             &other.legend_class_key,
             &other.display_flags,
+            &other.label_key,
         ))
         .map_err(|_| internal())?;
         *key = blake3::hash(&input).to_hex().to_string();

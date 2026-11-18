@@ -14,6 +14,7 @@ import type {
   BrowseValue,
   ItemRef,
 } from "../../ipc";
+import { displaySpaceReason } from "./space-format";
 
 /**
  * A copy the user pressed that continues once on the newest result, for an
@@ -138,48 +139,10 @@ function pathReasonText(
   reasonKey: string,
   text: ReturnType<typeof useLocaleText>,
 ) {
-  switch (reasonKey) {
-    case "space.aux_not_included":
-      return text(
-        "ui.analysis.space_aux_not_included",
-        "Auxiliary data was not collected",
-      );
-    case "space.dedup_capacity":
-      return text(
-        "ui.analysis.space_dedup_capacity",
-        "The file identity limit was reached",
-      );
-    case "space.sharing_not_collected":
-      return text(
-        "ui.analysis.space_sharing_not_collected",
-        "Sharing evidence was not collected",
-      );
-    case "space.sharing_unknown":
-      return text(
-        "ui.analysis.space_sharing_unknown",
-        "Sharing could not be verified",
-      );
-    case "space.identity_unsupported":
-      return text(
-        "ui.analysis.space_identity_unsupported",
-        "File identity could not be verified",
-      );
-    case "space.out_of_range_links":
-      return text(
-        "ui.analysis.space_out_of_range_links",
-        "Links outside the analysis scope were reported",
-      );
-    case "space.shared_reported":
-      return text(
-        "ui.analysis.space_shared_reported",
-        "The file system reported shared space",
-      );
-    default:
-      return text(
-        "ui.inspection.unavailable_in_scan",
-        "Unavailable in this scan",
-      );
-  }
+  return (
+    displaySpaceReason(reasonKey, text) ??
+    text("ui.inspection.unavailable_in_scan", "Unavailable in this scan")
+  );
 }
 
 export function CopyPath(props: CopyPathProps) {

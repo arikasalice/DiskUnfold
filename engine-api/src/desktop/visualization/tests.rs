@@ -1,9 +1,12 @@
 //! The default registration, served through the desktop assembly and a real result store.
+mod groups;
+mod lower_bound;
 mod support;
+mod totals;
 
 use std::sync::{Arc, atomic::Ordering};
 
-use du_core_contracts::size_units::SI_UNITS;
+use du_core_contracts::{ErrorCode, size_units::SI_UNITS};
 use serde_json::{Value, json};
 
 use self::support::{Harness, Ports, Publication, id, render_body, view_policy};
@@ -312,6 +315,7 @@ fn bar_over_the_shape_limit_serves_the_other_group() -> TestResult {
         .find(|row| !row["groupRef"].is_null())
         .ok_or("no group row")?;
     assert_eq!(other["displayName"], policy::GROUP_OTHER_NAME_KEY);
+    assert_eq!(other["labelKey"], policy::GROUP_OTHER_NAME_KEY);
     assert_eq!(other["legendClassKey"], policy::LEGEND_CLASS_UNCLASSIFIED);
     let legend = answer["model"]["legend"].as_array().ok_or("no legend")?;
     assert_eq!(legend.len(), 1);
@@ -435,5 +439,41 @@ fn naming_neither_lineage_nor_revision_serves_the_only_current_result() -> TestR
         .remove("resultRevision");
     let answer = harness.ok("viz.render", body)?;
     assert_eq!(answer["resultRevision"], json!(id(3)));
+    Ok(())
+}
+
+#[test]
+fn a_classification_criterion_without_a_rule_table_is_an_invalid_argument() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&two_files(3))?;
+    let view = harness.open_view()?;
+    for (seq, format) in (1..).zip(["treemap", "bar", "histogram"]) {
+        let mut body = render_body(&view, seq, format, 3);
+        body["classificationCriterion"] = json!("type");
+        let error = harness
+            .call("viz.render", body)
+            .error
+            .ok_or("a render with an unserved criterion succeeded")?;
+        assert_eq!(error.reason_key, "viz.measure_unknown", "{format}");
+        assert_eq!(error.code, ErrorCode::InvalidArgument, "{format}");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_classification_criterion_is_a_required_request_field() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&two_files(3))?;
+    let view = harness.open_view()?;
+    let mut body = render_body(&view, 1, "treemap", 3);
+    body.as_object_mut()
+        .ok_or("not an object")?
+        .remove("classificationCriterion");
+    let error = harness
+        .call("viz.render", body)
+        .error
+        .ok_or("a render without a classification criterion succeeded")?;
+    assert_eq!(error.reason_key, "command.body_invalid");
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
     Ok(())
 }

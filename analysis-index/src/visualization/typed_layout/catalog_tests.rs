@@ -114,6 +114,7 @@ fn project(
             format,
             strategy,
             max_shapes: 10,
+            group_tail: true,
         },
         &mut || false,
     )

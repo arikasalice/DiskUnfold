@@ -15,6 +15,10 @@ use serde_json::{Value, json};
 
 #[cfg(any(windows, target_os = "linux"))]
 mod real_scan;
+#[cfg(any(windows, target_os = "linux"))]
+mod real_scan_allocated;
+#[cfg(windows)]
+mod real_scan_links;
 
 type Failure = Box<dyn std::error::Error>;
 
@@ -60,6 +64,31 @@ pub(super) struct Assembled {
 
 pub(super) fn assemble() -> Result<Assembled, Failure> {
     let profile = tempfile::tempdir()?;
+    assemble_in(profile)
+}
+
+/// Assembles over a profile whose settings already store `rule_id` for the size rule.
+#[cfg(any(windows, target_os = "linux"))]
+pub(super) fn assemble_with_stored_rule(rule_id: &str) -> Result<Assembled, Failure> {
+    use du_core_contracts::settings::SettingsStore as _;
+    let profile = tempfile::tempdir()?;
+    let path = profile.path().join("diskunfold.db");
+    let mut db = du_app_db::AppDb::create_gui(&path).map_err(|e| format!("{e:?}"))?;
+    let stored = du_core_contracts::settings::SettingsChanges::from([(
+        du_user_env::space::AGGREGATION_RULE.to_owned(),
+        Some(json!(rule_id)),
+    )]);
+    let context = du_core_contracts::settings::SettingsCommit {
+        source: du_core_contracts::settings::SettingsSource::Screen,
+        timestamp_ms: 1,
+    };
+    db.commit(0, &stored, context)
+        .map_err(|e| format!("{e:?}"))?;
+    drop(db);
+    assemble_in(profile)
+}
+
+fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
     let database = crate::startup_database::open(profile.path())?;
     let settings = Arc::new(StartupSettings::open(&database, 1, &["en", "ko"])?);
     let mut builder = EngineBuilder::default();

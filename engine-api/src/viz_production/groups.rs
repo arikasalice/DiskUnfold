@@ -10,11 +10,14 @@ use crate::{
 /// The Other group of a treemap or bar request.
 ///
 /// The display name is a message key, not text: the user-facing wording follows the
-/// localization bundles. Other formats have no Other group.
+/// localization bundles. The same key is carried as the label key, so a consumer that
+/// understands it shows that message and one that does not still has a name. Other
+/// formats have no Other group.
 pub(super) fn other_group(format: &str) -> Option<OtherPresentation> {
     matches!(format, "treemap" | "bar").then(|| OtherPresentation {
         group_ref: policy::GROUP_OTHER_REF.to_owned(),
         display_name: policy::GROUP_OTHER_NAME_KEY.to_owned(),
+        label_key: Some(policy::GROUP_OTHER_NAME_KEY.to_owned()),
         legend_class_key: policy::LEGEND_CLASS_UNCLASSIFIED.to_owned(),
         display_flags: vec![policy::FLAG_OTHER_GROUP.to_owned()],
     })

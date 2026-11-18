@@ -81,6 +81,7 @@ fn fixture() -> Result<(CurrentAnalysis, projection::Model, Dispatcher), String>
             format: "treemap",
             strategy: None,
             max_shapes: 100,
+            group_tail: true,
         },
         &mut || false,
     )

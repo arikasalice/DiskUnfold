@@ -37,6 +37,7 @@ impl IngestSink {
             gaps: Vec::new(),
             observations: Default::default(),
             directory_case: Default::default(),
+            unread_folders: Default::default(),
             issues: Vec::new(),
             volume_reports: Vec::new(),
             finished: false,

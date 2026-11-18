@@ -19,23 +19,11 @@ use du_core_contracts::{
     visualization::{LayoutDescriptor, geometry::Geometry, quantity::VizQuantity, rows::VizRow},
 };
 use grouping::{GroupRequest, make_group};
+pub use production::OtherPresentation;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Weak},
 };
-
-/// Owner-provided model-local reference and display evidence for Other.
-#[derive(Clone)]
-pub struct OtherPresentation {
-    /// Opaque reference scoped to this model.
-    pub group_ref: String,
-    /// Display name supplied by the presentation owner.
-    pub display_name: String,
-    /// Classification selected by the presentation owner.
-    pub legend_class_key: String,
-    /// Display flags supplied by their owner.
-    pub display_flags: Vec<String>,
-}
 
 /// One selected bar and its corresponding row in the same fixed model.
 pub struct RankedShape {
@@ -316,6 +304,7 @@ fn validate_request(
         || other.display_name.is_empty()
         || other.legend_class_key.is_empty()
         || other.display_flags.iter().any(String::is_empty)
+        || other.label_key.as_ref().is_some_and(String::is_empty)
         || selected.descriptor.format != "bar"
         || selected.output.result_version != *source.version_id()
         || scope.result_version != *source.version_id()

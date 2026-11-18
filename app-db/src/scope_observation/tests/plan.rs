@@ -3,6 +3,7 @@
 use super::*;
 use crate::scope_observation::decode::LIST_SQL;
 use rusqlite::{StatementStatus, params};
+use std::time::Instant;
 
 const INDEX: &str = "ix_analysis_index_scope_observation_scope";
 
