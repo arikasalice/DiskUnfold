@@ -252,7 +252,6 @@ impl Directory {
 /// One unit of directory work in a lane: a pending child or an opened directory.
 pub(super) struct Frame {
     // Prepared per-frame state; activation waits for the receiver contract.
-    #[allow(dead_code)]
     pub(super) correlated: correlated::Attempt,
     pub(super) root_index: u32,
     pub(super) path: Vec<Vec<u8>>,

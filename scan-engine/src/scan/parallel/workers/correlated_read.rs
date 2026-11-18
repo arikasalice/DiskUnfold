@@ -10,7 +10,7 @@ use std::mem::size_of;
 
 pub(super) enum Read {
     Legacy,
-    Turn(TurnResult),
+    Turn(Box<TurnResult>),
 }
 
 // Accepted observations stay inline on the worker turn to avoid another allocation per entry.
@@ -33,6 +33,7 @@ pub(super) struct TurnResult {
     step: TurnStep,
     undecided: Vec<Vec<u8>>,
     returned_permit: Option<correlated_budget::Permit>,
+    _turn_permit: Option<correlated_budget::Permit>,
 }
 
 pub(super) fn read(
@@ -60,11 +61,7 @@ pub(super) fn read(
                 if frame.correlated.token().is_none() {
                     let Some(attempt_id) = correlated_budget::next_attempt_id() else {
                         frame.correlated.evidence_failed();
-                        return Read::Turn(TurnResult {
-                            step: TurnStep::Progress,
-                            undecided: Vec::new(),
-                            returned_permit: None,
-                        });
+                        return turn(frame, shared, TurnStep::Progress, Vec::new(), None);
                     };
                     match correlated_transport::begin(
                         sender,
@@ -79,16 +76,12 @@ pub(super) fn read(
                             // The adapter is already selected. Keep its ordinary observations
                             // flowing even when optional result registration cannot be retained.
                             frame.correlated.evidence_failed();
-                            return Read::Turn(TurnResult {
-                                step: TurnStep::Progress,
-                                undecided: Vec::new(),
-                                returned_permit: None,
-                            });
+                            return turn(frame, shared, TurnStep::Progress, Vec::new(), None);
                         }
                     }
                 }
             }
-            _ => return failed_turn(),
+            _ => return failed_turn(frame, shared),
         }
     }
     if frame.correlated.legacy() {
@@ -144,11 +137,13 @@ pub(super) fn read(
                     // Evidence accounting must not discard an ordinary observation that
                     // was already returned by the adapter. Continue through the F02 path.
                     frame.correlated.evidence_failed();
-                    return Read::Turn(TurnResult {
-                        step: TurnStep::Accepted { observation },
+                    return turn(
+                        frame,
+                        shared,
+                        TurnStep::Accepted { observation },
                         undecided,
-                        returned_permit: None,
-                    });
+                        None,
+                    );
                 }
             } else {
                 frame.correlated.release_event();
@@ -183,19 +178,31 @@ pub(super) fn read(
         Step::Failed => TurnStep::Failed,
         Step::Legacy => TurnStep::Legacy,
     };
-    Read::Turn(TurnResult {
+    turn(frame, shared, step, undecided, returned_permit)
+}
+
+fn failed_turn(frame: &mut Frame, shared: &Shared) -> Read {
+    turn(frame, shared, TurnStep::Failed, Vec::new(), None)
+}
+
+fn turn(
+    frame: &mut Frame,
+    shared: &Shared,
+    step: TurnStep,
+    undecided: Vec<Vec<u8>>,
+    returned_permit: Option<correlated_budget::Permit>,
+) -> Read {
+    let turn_permit = shared.correlated_budget.reserve(size_of::<TurnResult>());
+    if turn_permit.is_none() {
+        // The turn wrapper is transient; keep ordinary F02 observations flowing at budget limit.
+        frame.correlated.evidence_failed();
+    }
+    Read::Turn(Box::new(TurnResult {
         step,
         undecided,
         returned_permit,
-    })
-}
-
-fn failed_turn() -> Read {
-    Read::Turn(TurnResult {
-        step: TurnStep::Failed,
-        undecided: Vec::new(),
-        returned_permit: None,
-    })
+        _turn_permit: turn_permit,
+    }))
 }
 
 pub(super) fn finish(

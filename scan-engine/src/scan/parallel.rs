@@ -98,7 +98,6 @@ impl Shared {
 }
 enum Event {
     /// Registration is independent of the attempt event sequence.
-    #[allow(dead_code)]
     FolderAttemptBegin {
         root_index: u32,
         path: Vec<Vec<u8>>,
@@ -109,7 +108,6 @@ enum Event {
         _permit: correlated_budget::Permit,
     },
     /// A result is acknowledged only after the receiving build accepts it.
-    #[allow(dead_code)]
     FolderAttemptRecord {
         token: du_analysis_index::FolderAttemptToken,
         seq: u64,
@@ -118,7 +116,6 @@ enum Event {
         _permit: Option<correlated_budget::Permit>,
     },
     /// Acknowledged EOF barrier, sent only after every numbered event was acknowledged.
-    #[allow(dead_code)]
     FolderAttemptEnd {
         token: du_analysis_index::FolderAttemptToken,
         event_watermark_exclusive: u64,

@@ -14,13 +14,12 @@ const ACK_BYTES: usize = 1024;
 // The event permit accounts for the boxed input in addition to the queue envelope.
 const EVENT_BYTES: usize = 1024 + size_of::<FolderAttemptInput>();
 
-#[allow(dead_code)]
 pub(super) enum Failure {
     Cancelled,
     Aborted,
     Disconnected,
     Capacity,
-    Rejected(FolderAttemptError),
+    Rejected,
 }
 
 fn stop(shared: &Shared, context: &dyn JobContext) -> Option<Failure> {
@@ -66,7 +65,7 @@ fn receive<T>(
         }
         match receiver.recv_timeout(POLL) {
             Ok(Ok(value)) => return Ok(value),
-            Ok(Err(error)) => return Err(Failure::Rejected(error)),
+            Ok(Err(_)) => return Err(Failure::Rejected),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Err(Failure::Disconnected),
         }

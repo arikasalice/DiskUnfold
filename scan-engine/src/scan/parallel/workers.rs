@@ -202,7 +202,7 @@ fn process(
             correlated_read::Read::Legacy => {}
             correlated_read::Read::Turn(result) => {
                 return correlated_read::finish(
-                    frame, result, shared, sender, context, policy, turn,
+                    frame, *result, shared, sender, context, policy, turn,
                 );
             }
         }

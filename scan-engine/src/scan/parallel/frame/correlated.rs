@@ -48,7 +48,6 @@ pub(crate) struct Attempt {
 
 // Inline values stay under the attempt permit and avoid an allocation per callback.
 #[allow(clippy::large_enum_variant)]
-#[allow(dead_code)]
 pub(in crate::scan::parallel) enum Step {
     Legacy,
     Progress,
@@ -70,7 +69,6 @@ pub(in crate::scan::parallel) enum Step {
     Failed,
 }
 
-#[allow(dead_code)]
 impl Attempt {
     /// Reserves a bounded frame slot and all callback storage before selecting the adapter path.
     pub(in crate::scan::parallel) fn prepare(&mut self, budget: &Arc<CorrelatedBudget>) -> bool {
@@ -492,29 +490,6 @@ impl Attempt {
         }
     }
 
-    #[cfg(test)]
-    pub(in crate::scan::parallel) fn add_callback_for_test(&mut self, child_id: u64, name: &[u8]) {
-        let start = self.pending_name_bytes;
-        let end = start.saturating_add(name.len());
-        if end > self.pending_names.len() {
-            return;
-        }
-        self.pending_names[start..end].copy_from_slice(name);
-        self.pending_name_bytes = end;
-        self.pending_admits.push(PendingAdmit {
-            child_id,
-            start,
-            len: name.len(),
-        });
-    }
-
-    pub(in crate::scan::parallel) fn disable_evidence(&mut self) {
-        self.token = None;
-        self.state = State::Failed;
-        self.event_permit = None;
-        self.release_buffers();
-    }
-
     /// Keeps reading an already selected adapter after optional evidence cannot be stored.
     pub(in crate::scan::parallel) fn evidence_failed(&mut self) {
         self.token = None;
@@ -527,12 +502,6 @@ impl Attempt {
         self.token = None;
         self.next_seq = 0;
         self.state = State::Unselected;
-    }
-
-    pub(in crate::scan::parallel) fn fail_pending(&mut self) {
-        self.token = None;
-        self.state = State::Failed;
-        self.event_permit = None;
     }
 
     pub(in crate::scan::parallel) fn final_sequence(&mut self) -> Option<u64> {
