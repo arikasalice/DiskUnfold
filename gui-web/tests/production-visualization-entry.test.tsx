@@ -407,7 +407,7 @@ test.each(["success", "failure"] as const)(
     );
     expect(
       screen.getByRole("progressbar", {
-        name: "Loading items in this result",
+        name: "Loading items in this folder",
       }),
     ).toBeTruthy();
 
@@ -420,7 +420,7 @@ test.each(["success", "failure"] as const)(
       fallbackRequests: fallbackRequests.length,
       loading:
         screen.queryByRole("progressbar", {
-          name: "Loading items in this result",
+          name: "Loading items in this folder",
         }) !== null,
       retry: screen.queryByRole("button", { name: "Retry rows" }) !== null,
     };
@@ -444,7 +444,7 @@ test.each(["success", "failure"] as const)(
     );
     expect(
       screen.getByRole("progressbar", {
-        name: "Loading items in this result",
+        name: "Loading items in this folder",
       }),
     ).toBeTruthy();
 
@@ -459,10 +459,13 @@ test.each(["success", "failure"] as const)(
         totalCount: 1,
       }),
     );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Items in this folder" }),
+    );
     expect(await screen.findByText("Recovered fallback row")).toBeTruthy();
     expect(
       screen.queryByRole("progressbar", {
-        name: "Loading items in this result",
+        name: "Loading items in this folder",
       }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Retry rows" })).toBeNull();

@@ -130,6 +130,13 @@ export class VisualizationController {
   private focusHasKey = false;
   private rowsSeq = 0;
   private fallbackSeq = 0;
+  /**
+   * Owner of the shared pendingRows, failedRows and error: the latest rows or
+   * fallback read. A read that finishes after another one started may still
+   * commit its own page, but it never touches the shared request state.
+   */
+  private rowsOwner = 0;
+  private fallbackOwner = 0;
   private revisionCheckSeq = 0;
   private listeners = new Set<() => void>();
   constructor(private readonly port: VisualizationPort) {
@@ -169,12 +176,14 @@ export class VisualizationController {
   ) {
     if (patch.phase === undefined) return this.update({ ...extra, ...patch });
     this.fallbackSeq++;
+    // A new phase ends the fallback read, and its progress and failure with it.
+    const fallbackOwned = this.fallbackOwner === this.rowsOwner;
+    const dropRows = patch.phase === "unavailable" || fallbackOwned;
+    if (dropRows) this.rowsOwner++;
     this.update({
       ...extra,
       fallbackPage: null,
-      ...(patch.phase === "unavailable"
-        ? { pendingRows: null, failedRows: null }
-        : {}),
+      ...(dropRows ? { pendingRows: null, failedRows: null } : {}),
       ...patch,
     });
   }
@@ -318,6 +327,7 @@ export class VisualizationController {
         }
       : this.state.graph;
     this.rowsSeq++;
+    this.rowsOwner++;
     if (canDisplay)
       this.selectedEvidence = selection
         ? selectionEvidence(selection, response, null)
@@ -365,6 +375,7 @@ export class VisualizationController {
     )
       throw new Error("Rows must target the current table model");
     const seq = ++this.rowsSeq;
+    const owner = ++this.rowsOwner;
     this.update({ pendingRows: request, failedRows: null });
     try {
       const response = await readRowsPages(
@@ -373,12 +384,14 @@ export class VisualizationController {
       );
       const page = { request, response };
       if (seq !== this.rowsSeq || this.state.table !== frame) return;
+      const owns = owner === this.rowsOwner;
       if (!pageFor(frame, page)) {
-        this.update({
-          pendingRows: null,
-          failedRows: request,
-          error: new Error("Mismatched visualization rows"),
-        });
+        if (owns)
+          this.update({
+            pendingRows: null,
+            failedRows: request,
+            error: new Error("Mismatched visualization rows"),
+          });
         return;
       }
       if (
@@ -398,31 +411,42 @@ export class VisualizationController {
         graphPage: pageFor(this.state.graph?.frame ?? null, page)
           ? page
           : this.state.graphPage,
-        pendingRows: null,
+        ...(owns ? { pendingRows: null } : {}),
       });
     } catch (error) {
-      if (seq === this.rowsSeq && this.state.table === frame)
+      if (
+        seq === this.rowsSeq &&
+        this.state.table === frame &&
+        owner === this.rowsOwner
+      )
         this.update({ pendingRows: null, failedRows: request, error });
     }
   }
   /** Reads rows of the fallback model; a page that arrives after the answer changed is dropped. */
   private async fallbackRows(request: VizRowsRequest) {
     const seq = ++this.fallbackSeq;
+    const owner = ++this.rowsOwner;
+    this.fallbackOwner = owner;
     this.update({ pendingRows: request, failedRows: null });
     try {
       const response = await this.port.rows(request);
       if (seq !== this.fallbackSeq) return;
+      const owns = owner === this.rowsOwner;
       if (!fallbackRowsMatch(request, response)) {
-        this.update({
-          pendingRows: null,
-          failedRows: request,
-          error: new Error("Mismatched visualization rows"),
-        });
+        if (owns)
+          this.update({
+            pendingRows: null,
+            failedRows: request,
+            error: new Error("Mismatched visualization rows"),
+          });
         return;
       }
-      this.update({ fallbackPage: { request, response }, pendingRows: null });
+      this.update({
+        fallbackPage: { request, response },
+        ...(owns ? { pendingRows: null } : {}),
+      });
     } catch (error) {
-      if (seq === this.fallbackSeq)
+      if (seq === this.fallbackSeq && owner === this.rowsOwner)
         this.update({ pendingRows: null, failedRows: request, error });
     }
   }
