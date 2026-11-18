@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Action, Breadcrumbs, NameText, Text } from "../src/components";
@@ -88,7 +89,9 @@ test("the explanation shows on hover and on focus of the item, and Escape hides 
   fireEvent.pointerEnter(document.querySelector(".du-name")!);
   expect(await screen.findByRole("tooltip")).toBeDefined();
   fireEvent.pointerLeave(document.querySelector(".du-name")!);
-  expect(screen.queryByRole("tooltip")).toBeNull();
+  // It stays for a moment, so the pointer can move onto it, and then closes.
+  expect(screen.queryByRole("tooltip")).not.toBeNull();
+  await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
 });
 
 test("a path marks only its last component", () => {

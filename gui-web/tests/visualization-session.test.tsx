@@ -207,7 +207,7 @@ test("observer setup failure closes once and does not poison the next client ses
     throw new Error("event subscription failed");
   };
   const rendered = render(<VisualizationSession {...first.props} />);
-  await screen.findByText("Visualization could not be opened.");
+  await screen.findByText("The chart could not be opened.");
   await waitFor(() =>
     expect(
       failedCalls.filter((call) => call.name === "viz.view.close"),
@@ -572,10 +572,10 @@ test("session carries one pinned model through typed rows and group rows", async
     <VisualizationSession {...props} canDisplay={() => false} autoLoadRows />,
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Items in this result" }),
+    await screen.findByRole("button", { name: "Items in this folder" }),
   );
   const groupAction = await screen.findByRole("button", {
-    name: /View members of Group A/,
+    name: /View items in Group A/,
   });
   const renderCall = calls.find((call) => call.name === "viz.render")!;
   const rowsCall = calls.find((call) => call.name === "viz.rows")!;
@@ -586,7 +586,7 @@ test("session carries one pinned model through typed rows and group rows", async
     fixture.frame.resultRevision,
   );
   fireEvent.click(groupAction);
-  await screen.findByRole("button", { name: "Back to visualization" });
+  await screen.findByRole("button", { name: "Back to chart" });
   const groupCall = calls.find((call) => call.name === "viz.group_rows")!;
   expect(groupCall.body).toMatchObject({
     modelRef: fixture.frame.model.modelRef,
@@ -627,10 +627,10 @@ test("group controller drops a late typed group_rows response after unmount", as
     <VisualizationSession {...props} canDisplay={() => false} autoLoadRows />,
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Items in this result" }),
+    await screen.findByRole("button", { name: "Items in this folder" }),
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: /View members of Group A/ }),
+    await screen.findByRole("button", { name: /View items in Group A/ }),
   );
   await waitFor(() =>
     expect(calls.some((call) => call.name === "viz.group_rows")).toBe(true),

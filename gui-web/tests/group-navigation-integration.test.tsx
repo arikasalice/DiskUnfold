@@ -149,11 +149,11 @@ test("fallback table group keyboard entry returns to its row and never restores 
   );
   await act(async () => visualization.render(request(1)));
   const fallback = screen.getByRole("button", {
-    name: "Items in this result",
+    name: "Items in this folder",
   });
   fireEvent.click(fallback);
   const firstOrigin = screen.getByRole("button", {
-    name: /View members of Group [AB]/,
+    name: /View items in Group [AB]/,
   });
   firstOrigin.focus();
   fireEvent.keyDown(firstOrigin, { key: "Enter" });
@@ -163,7 +163,7 @@ test("fallback table group keyboard entry returns to its row and never restores 
     frame: { modelRef: first.model.modelRef },
     groupRef: "group-a",
   });
-  await screen.findByRole("button", { name: "Back to visualization" });
+  await screen.findByRole("button", { name: "Back to chart" });
   expect(groupPort).toHaveBeenLastCalledWith({
     modelRef: first.model.modelRef,
     groupRef: "group-a",
@@ -171,7 +171,7 @@ test("fallback table group keyboard entry returns to its row and never restores 
     count: 100,
   });
 
-  const back = screen.getByRole("button", { name: "Back to visualization" });
+  const back = screen.getByRole("button", { name: "Back to chart" });
   back.focus();
   fireEvent.keyDown(back, { key: "Enter" });
   fireEvent.keyUp(back, { key: "Enter" });
@@ -180,7 +180,7 @@ test("fallback table group keyboard entry returns to its row and never restores 
   firstOrigin.focus();
   fireEvent.keyDown(firstOrigin, { key: "Enter" });
   fireEvent.keyUp(firstOrigin, { key: "Enter" });
-  await screen.findByRole("button", { name: "Back to visualization" });
+  await screen.findByRole("button", { name: "Back to chart" });
   expect(groupPort).toHaveBeenCalledTimes(2);
   expect(groupPort).toHaveBeenLastCalledWith({
     modelRef: first.model.modelRef,
@@ -190,15 +190,13 @@ test("fallback table group keyboard entry returns to its row and never restores 
   });
   await act(async () => visualization.render(request(2)));
   await waitFor(() =>
-    expect(
-      screen.queryByRole("button", { name: "Back to visualization" }),
-    ).toBeNull(),
+    expect(screen.queryByRole("button", { name: "Back to chart" })).toBeNull(),
   );
   expect(document.activeElement).not.toBe(firstOrigin);
 
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   const secondOrigin = screen.getByRole("button", {
-    name: /View members of Group [AB]/,
+    name: /View items in Group [AB]/,
   });
   secondOrigin.focus();
   fireEvent.keyDown(secondOrigin, { key: "Enter" });
@@ -210,8 +208,6 @@ test("fallback table group keyboard entry returns to its row and never restores 
     start: 0,
     count: 100,
   });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Back to visualization" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Back to chart" }));
   expect(document.activeElement).toBe(secondOrigin);
 });

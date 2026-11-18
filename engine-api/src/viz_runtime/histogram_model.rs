@@ -73,6 +73,7 @@ pub(super) fn build(
                 parent_shape_ref: None,
                 visible_depth: None,
                 root_branch_ref: None,
+                member_count: row.member_count.clone(),
             });
         }
     }

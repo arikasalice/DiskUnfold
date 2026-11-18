@@ -1,7 +1,7 @@
 //! The reason keys of a model's remainder, and the relation between its totals.
 
 use super::{VizTotal, VizTotals};
-use crate::visualization::quantity::VizAmount;
+use crate::{SizeAmount, SizeBasis, visualization::quantity::VizAmount};
 
 /// The remainder holds siblings that were left out because they are below the minimum
 /// shape area or lack coordinate precision.
@@ -10,6 +10,28 @@ pub const REMAINDER_TOO_SMALL: &str = "viz.remainder.too_small";
 /// The remainder holds space that no single item can carry, such as a file shared between
 /// siblings that the scope counts once.
 pub const REMAINDER_UNATTRIBUTED: &str = "viz.remainder.unattributed";
+
+impl VizTotal {
+    /// Whether the total carries its F03 source size on the given basis with the same value.
+    pub(super) fn matches(&self, basis: Option<&SizeBasis>) -> bool {
+        match (&self.source_size, basis) {
+            (None, None) => true,
+            (Some(size), Some(basis)) => {
+                &size.basis == basis
+                    && self.quantity.unit() == "bytes"
+                    && match (&size.amount, self.quantity.amount()) {
+                        (SizeAmount::Exact { bytes }, VizAmount::Exact { value })
+                        | (SizeAmount::LowerBound { bytes }, VizAmount::LowerBound { value }) => {
+                            i128::from(bytes.get()) == value.get()
+                        }
+                        (SizeAmount::Unknown, VizAmount::Unknown { .. }) => true,
+                        _ => false,
+                    }
+            }
+            _ => false,
+        }
+    }
+}
 
 impl VizTotals {
     /// Checks the cause keys of the remainder and, where the values allow it, that the

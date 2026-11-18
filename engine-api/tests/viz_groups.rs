@@ -177,6 +177,7 @@ fn table(pages: &ModelPages, case: &Case, reference: &str) -> Vec<VizRow> {
             result_revision: case.version.version_id().clone(),
             start: 0,
             count: 1000,
+            parent_shape_ref: None,
         })
         .unwrap()
         .rows
@@ -220,7 +221,20 @@ fn the_group_row_stands_in_for_its_members_and_carries_the_supplied_name() {
     // Item rows carry no label key, and the table never exceeds the scope.
     for row in rows.iter().filter(|row| row.item_ref.is_some()) {
         assert_eq!(row.label_key, None);
+        assert_eq!(row.member_count, None);
     }
+    // The group row says how many members it has, and that is the total of its own page.
+    let page = pages
+        .group_rows(&reference, &group.group_ref, 0, 1)
+        .unwrap();
+    assert_eq!(page.total_count, 100);
+    assert_eq!(
+        group_row.member_count,
+        du_core_contracts::visualization::quantity::VizQuantity::exact(
+            "items",
+            i128::from(page.total_count)
+        )
+    );
     let table_bytes: u64 = rows.iter().map(|row| bytes(&row.size)).sum();
     assert_eq!(table_bytes, bytes(&case.model.totals.scope));
     // Every row, the group row included, keeps the F03 scope as its denominator.

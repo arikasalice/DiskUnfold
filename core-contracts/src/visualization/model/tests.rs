@@ -192,6 +192,42 @@ fn the_remainder_must_match_its_source_size_and_may_be_unknown()
     Ok(())
 }
 
+fn group_shape(count: Value) -> Value {
+    let mut shape = fixture()["shapes"][0].clone();
+    shape["itemRef"] = Value::Null;
+    shape["groupRef"] = json!("g1");
+    shape["matchKey"] = json!({"state":"not_applicable"});
+    shape["memberCount"] = count;
+    shape
+}
+
+#[test]
+fn a_group_shape_carries_its_member_count_and_an_old_model_is_still_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    // A model from before the field has no member count and writes none back.
+    let old: VizModel = serde_json::from_value(fixture())?;
+    assert!(old.shapes.iter().all(|shape| shape.member_count.is_none()));
+    assert!(
+        serde_json::to_value(&old)?["shapes"][0]
+            .get("memberCount")
+            .is_none()
+    );
+
+    for state in [
+        json!({"unit":"items","state":"exact","value":"40"}),
+        json!({"unit":"items","state":"lower_bound","value":"40"}),
+        json!({"unit":"items","state":"unknown","reasonKey":"viz.unavailable.no_attribution"}),
+    ] {
+        let mut value = fixture();
+        value["shapes"] = json!([group_shape(state)]);
+        let model: VizModel = serde_json::from_value(value.clone())?;
+        assert_eq!(model.validate_revision(&id), Ok(()));
+        assert_eq!(serde_json::to_value(&model)?, value);
+    }
+    Ok(())
+}
+
 #[test]
 fn the_remainder_fields_are_omitted_not_null() {
     for field in ["remainder", "remainderReasonKeys"] {
@@ -202,4 +238,27 @@ fn the_remainder_fields_are_omitted_not_null() {
             "{field}"
         );
     }
+}
+
+#[test]
+fn a_member_count_is_refused_on_an_item_shape_and_outside_items()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let exact = json!({"unit":"items","state":"exact","value":"2"});
+    let mut item = fixture();
+    item["shapes"][0]["memberCount"] = exact;
+    let model: VizModel = serde_json::from_value(item)?;
+    assert!(model.validate_revision(&id).is_err());
+
+    let mut bytes = fixture();
+    bytes["shapes"] = json!([group_shape(
+        json!({"unit":"bytes","state":"exact","value":"2"})
+    )]);
+    let model: VizModel = serde_json::from_value(bytes)?;
+    assert!(model.validate_revision(&id).is_err());
+
+    let mut null = fixture();
+    null["shapes"] = json!([group_shape(Value::Null)]);
+    assert!(serde_json::from_value::<VizModel>(null).is_err());
+    Ok(())
 }

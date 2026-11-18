@@ -71,6 +71,13 @@ pub(super) fn prepare(
             parent_shape_ref: None,
             visible_depth: None,
             root_branch_ref: None,
+            member_count: Some(
+                du_core_contracts::visualization::quantity::VizQuantity::exact(
+                    "items",
+                    i128::from(group_count),
+                )
+                .ok_or_else(internal)?,
+            ),
         });
     }
     model
@@ -244,6 +251,7 @@ pub(super) fn response(
             result_revision: fallback.result_revision.clone(),
             start: row_index,
             count: 1,
+            parent_shape_ref: None,
         })
         .map_err(|_| internal())?;
     let group_row = page

@@ -119,6 +119,9 @@ fn publish_exact_values(sink: &IngestSink, values: &[u64]) -> Result<(), String>
     Ok(())
 }
 
+fn reference_of(result: &Value) -> &Value {
+    &result["model"]["modelRef"]
+}
 #[test]
 fn ranked_bar_publishes_fixed_rows_with_tie_order_and_denominator() -> Result<(), String> {
     let sink = IngestSink::default();
@@ -150,6 +153,18 @@ fn ranked_bar_publishes_fixed_rows_with_tie_order_and_denominator() -> Result<()
         result["model"]["shapes"][0]["itemRef"],
         rows["rows"][0]["itemRef"]
     );
+    // A bar publishes no shape reference, so no reference names an expanded folder in it:
+    // whatever a client sends is not found, never read as a folder that was not opened.
+    for reference in ["s1-1", "s2-1", "g1-1"] {
+        let refused = f
+            .call(
+                "viz.rows",
+                json!({"modelRef":reference_of(&result),"resultRevision":id(3),"start":0,"count":10,"parentShapeRef":reference}),
+            )
+            .error
+            .ok_or("a bar answered a folder reference")?;
+        assert_eq!(refused.reason_key, "ref.unavailable", "{reference}");
+    }
     Ok(())
 }
 

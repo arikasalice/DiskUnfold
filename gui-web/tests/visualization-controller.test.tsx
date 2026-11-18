@@ -67,6 +67,22 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+function unavailableFallback(
+  modelRef: string,
+  resultRevision = revision,
+  requestSeq = 1,
+): VizRenderResponse {
+  return {
+    kind: "unavailable",
+    requestSeq,
+    resultRevision,
+    observedAt: null,
+    completeness: "partial",
+    reasonKey: "viz.unavailable.no_baseline",
+    availableFormats: [],
+    fallback: { modelRef, resultRevision },
+  };
+}
 
 test.each(["keyboard", "pointer"] as const)(
   "returns to the actual adapted group shape after %s activation",
@@ -108,9 +124,11 @@ test.each(["keyboard", "pointer"] as const)(
       fireEvent.keyDown(shapeButton, { key: " ", code: "Space" });
       fireEvent.keyUp(shapeButton, { key: " ", code: "Space" });
     } else fireEvent.click(shapeButton);
-    fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "View combined items" }),
+    );
     const back = await screen.findByRole("button", {
-      name: "Back to visualization",
+      name: "Back to chart",
     });
     expect(
       screen
@@ -165,16 +183,19 @@ test("selection while an unrelated control has focus does not become a shape ori
   const external = screen.getByRole("button", { name: "Unrelated control" });
   external.focus();
   act(() => visualization.select(selection));
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement?.getAttribute("aria-labelledby")).toBeTruthy();
+  expect(
+    document.activeElement?.getAttribute("aria-label") ??
+      document.activeElement?.getAttribute("aria-labelledby"),
+  ).toBeTruthy();
   expect(document.activeElement).not.toBe(external);
 });
 
@@ -222,19 +243,19 @@ test("an injected chart renderer cannot claim a button as a verified shape origi
   );
   await act(async () => visualization.render(request(1)));
   const fakeShape = within(
-    screen.getByRole("region", { name: "Storage visualization" }),
+    screen.getByRole("region", { name: "Storage chart" }),
   ).getAllByRole("button")[0]!;
   fakeShape.focus();
   fireEvent.click(fakeShape);
-  fireEvent.click(screen.getByRole("button", { name: "View group members" }));
+  fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   back.focus();
   fireEvent.click(back);
   expect(
     await screen.findByText(
-      "The original group target is no longer available. Return to the visualization.",
+      "The original combined items are no longer available. Return to the chart.",
     ),
   ).toBeTruthy();
   expect(document.activeElement).not.toBe(fakeShape);
@@ -294,12 +315,11 @@ test("a removed graph group row returns to its rows title with an explanation", 
       count: 100,
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this graph" }));
   fireEvent.click(
-    screen.getByRole("button", { name: "View members of Other items" }),
+    screen.getByRole("button", { name: "View items in Other items" }),
   );
   const back = await screen.findByRole("button", {
-    name: "Back to visualization",
+    name: "Back to chart",
   });
   await act(async () =>
     visualization.rows({
@@ -310,15 +330,15 @@ test("a removed graph group row returns to its rows title with an explanation", 
     }),
   );
   expect(
-    screen.queryByRole("button", { name: "View members of Other items" }),
+    screen.queryByRole("button", { name: "View items in Other items" }),
   ).toBeNull();
   back.focus();
   fireEvent.click(back);
   await screen.findByText(
-    "The original group target is no longer available. Return to the visualization.",
+    "The original combined items are no longer available. Return to the chart.",
   );
   expect(document.activeElement).toBe(
-    screen.getByRole("group", { name: "Rows from this graph" }),
+    screen.getByRole("group", { name: "Items in this folder" }),
   );
 });
 
@@ -455,13 +475,9 @@ test("controller graph adapter renders only the committed model", async () => {
   render(
     <ControlledVisualization controller={controller} text={fixtureText} />,
   );
-  expect(
-    screen.queryByRole("region", { name: "Storage visualization" }),
-  ).toBeNull();
+  expect(screen.queryByRole("region", { name: "Storage chart" })).toBeNull();
   await act(async () => controller.render(request(1)));
-  expect(
-    screen.getByRole("region", { name: "Storage visualization" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Storage chart" })).toBeTruthy();
 });
 
 test("unverified correspondence clears selection and focus, retaining only previous-selection evidence", async () => {
@@ -597,17 +613,15 @@ test("entry point shows loading, failure and a newer table independently of the 
     pending = controller.render(request(2, "new-revision"));
   });
   expect(
-    screen.getByRole("progressbar", { name: "Loading visualization" }),
+    screen.getByRole("progressbar", { name: "Loading chart" }),
   ).toBeTruthy();
   await act(async () => {
     waiting.resolve(newer);
     await pending;
   });
+  expect(screen.getByRole("region", { name: "Storage chart" })).toBeTruthy();
   expect(
-    screen.getByRole("region", { name: "Storage visualization" }),
-  ).toBeTruthy();
-  expect(
-    screen.getByRole("region", { name: "Items in this result" }),
+    screen.getByRole("region", { name: "Items in the latest result" }),
   ).toBeTruthy();
   let rows!: Promise<void>;
   act(() => {
@@ -619,7 +633,9 @@ test("entry point shows loading, failure and a newer table independently of the 
     });
   });
   expect(
-    screen.getByRole("progressbar", { name: "Loading items in this result" }),
+    screen.getByRole("progressbar", {
+      name: "Loading items in the latest result",
+    }),
   ).toBeTruthy();
   await act(async () => {
     rowWait.resolve({
@@ -630,12 +646,14 @@ test("entry point shows loading, failure and a newer table independently of the 
     });
     await rows;
   });
-  fireEvent.click(screen.getByRole("button", { name: /Items in this result/ }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /Items in the latest result/ }),
+  );
   expect(screen.getByText("No rows in this page")).toBeTruthy();
   await act(async () => controller.render(request(3, "new-revision")));
-  expect(screen.getByText("Visualization could not be updated.")).toBeTruthy();
+  expect(screen.getByText("The chart could not be loaded.")).toBeTruthy();
   expect(
-    screen.getByRole("region", { name: "Items in this result" }),
+    screen.getByRole("region", { name: "Items in the latest result" }),
   ).toBeTruthy();
 });
 
@@ -785,11 +803,11 @@ test("the newer fallback table loads its first page from the UI without changing
     }),
   );
   await act(async () => controller.render(request(2, "new-revision")));
-  const graph = screen.getByRole("region", { name: "Storage visualization" });
+  const graph = screen.getByRole("region", { name: "Storage chart" });
   expect(within(graph).getAllByText(/Old item/).length).toBeGreaterThan(0);
   await act(async () => {
     fireEvent.click(
-      screen.getByRole("button", { name: "Load items in this result" }),
+      screen.getByRole("button", { name: "Load items in the latest result" }),
     );
   });
   expect(rows).toHaveBeenLastCalledWith({
@@ -798,15 +816,274 @@ test("the newer fallback table loads its first page from the UI without changing
     start: 0,
     count: 100,
   });
-  const table = screen.getByRole("region", { name: "Items in this result" });
+  const table = screen.getByRole("region", {
+    name: "Items in the latest result",
+  });
   fireEvent.click(
-    within(table).getByRole("button", { name: /Items in this result/ }),
+    within(table).getByRole("button", { name: /Items in the latest result/ }),
   );
   expect(within(table).getByText("New item")).toBeTruthy();
   expect(within(graph).queryByText(/New item/)).toBeNull();
   expect(controller.getSnapshot().graphPage?.request.modelRef).toBe(
     first.model.modelRef,
   );
+});
+
+test("fallback rows can advance after the previous page finishes", async () => {
+  const source = modelFixture().page.response;
+  const rows = vi.fn().mockResolvedValue(source);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const first = {
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const second = { ...first, start: 1 };
+
+  await controller.rows(first);
+  await controller.rows(second);
+
+  expect(controller.getSnapshot().fallbackPage?.request).toEqual(second);
+  expect(rows).toHaveBeenNthCalledWith(1, first);
+  expect(rows).toHaveBeenNthCalledWith(2, second);
+});
+
+test("fallback rows keep the latest requested page when responses finish in reverse order", async () => {
+  const source = modelFixture().page.response;
+  const page0 = deferred<typeof source>();
+  const page1 = deferred<typeof source>();
+  const rows = vi
+    .fn()
+    .mockReturnValueOnce(page0.promise)
+    .mockReturnValueOnce(page1.promise);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+
+  const first = controller.rows({
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  });
+  const second = controller.rows({
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 1,
+    count: 1,
+  });
+  page1.resolve(source);
+  await second;
+  page0.resolve(source);
+  await first;
+
+  expect(controller.getSnapshot().fallbackPage?.request.start).toBe(1);
+});
+
+test("a late rejected p0 read cannot replace a successful p1 page of the same fallback", async () => {
+  const source = modelFixture().page.response;
+  const page0 = deferred<typeof source>();
+  const page1 = deferred<typeof source>();
+  const rows = vi
+    .fn()
+    .mockReturnValueOnce(page0.promise)
+    .mockReturnValueOnce(page1.promise);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+
+  const p0Request = {
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const p1Request = { ...p0Request, start: 1 };
+  const pendingP0 = controller.rows(p0Request);
+  const pendingP1 = controller.rows(p1Request);
+
+  page1.resolve(source);
+  await pendingP1;
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: { request: p1Request },
+    pendingRows: null,
+    failedRows: null,
+    error: null,
+  });
+
+  page0.reject(new Error("stale page 0 failed"));
+  await pendingP0;
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: { request: p1Request },
+    pendingRows: null,
+    failedRows: null,
+    error: null,
+  });
+});
+
+test.each(["error", "cancel"] as const)(
+  "loading ending in %s clears an earlier fallback row request",
+  async (outcome) => {
+    const source = modelFixture().page.response;
+    const pendingPage = deferred<typeof source>();
+    const nextRender = deferred<VizRenderResponse>();
+    const controller = new VisualizationController({
+      render: vi
+        .fn()
+        .mockResolvedValueOnce(unavailableFallback("fallback"))
+        .mockReturnValueOnce(nextRender.promise),
+      rows: vi.fn().mockReturnValue(pendingPage.promise),
+      cancel: vi.fn(),
+      canDisplay: () => true,
+    });
+    await controller.render(request(1));
+
+    const fallbackRequest = {
+      modelRef: "fallback",
+      resultRevision: revision,
+      start: 0,
+      count: 1,
+    };
+    const pendingFallbackRows = controller.rows(fallbackRequest);
+    const nextRenderRequest = controller.render(request(2));
+    const loading = controller.getSnapshot();
+    const renderError = new Error("next visualization failed");
+
+    if (outcome === "error") {
+      nextRender.reject(renderError);
+      await nextRenderRequest;
+    } else {
+      nextRender.resolve({
+        kind: "job",
+        requestSeq: 2,
+        resultRevision: revision,
+        observedAt: null,
+        completeness: "partial",
+        jobRef: "next-job",
+      });
+      await nextRenderRequest;
+      await controller.completeJob({
+        jobRef: "next-job",
+        kind: "viz.compute",
+        state: "cancelled",
+        sequence: 2,
+        resultVersion: null,
+        reasonKey: null,
+      });
+    }
+
+    pendingPage.resolve(source);
+    await pendingFallbackRows;
+
+    expect(loading).toMatchObject({
+      phase: "loading",
+      fallbackPage: null,
+      pendingRows: null,
+      failedRows: null,
+    });
+    expect(controller.getSnapshot()).toMatchObject({
+      phase: outcome === "error" ? "error" : "cancelled",
+      fallbackPage: null,
+      pendingRows: null,
+      failedRows: null,
+      ...(outcome === "error" && { error: renderError }),
+    });
+  },
+);
+
+test("replacing a fallback drops its pending page without clearing the replacement request", async () => {
+  const source = modelFixture().page.response;
+  const oldPage = deferred<typeof source>();
+  const newPage = deferred<typeof source>();
+  const rows = vi
+    .fn()
+    .mockReturnValueOnce(oldPage.promise)
+    .mockReturnValueOnce(newPage.promise);
+  const controller = new VisualizationController({
+    render: vi
+      .fn()
+      .mockResolvedValueOnce(unavailableFallback("old-fallback"))
+      .mockResolvedValueOnce(
+        unavailableFallback("new-fallback", "replacement", 2),
+      ),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const oldRequest = {
+    modelRef: "old-fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const pendingOld = controller.rows(oldRequest);
+
+  await controller.render(request(2, "replacement"));
+  const newRequest = {
+    modelRef: "new-fallback",
+    resultRevision: "replacement",
+    start: 0,
+    count: 1,
+  };
+  const pendingNew = controller.rows(newRequest);
+  oldPage.resolve(source);
+  await pendingOld;
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: null,
+    pendingRows: newRequest,
+  });
+
+  newPage.resolve({ ...source, resultRevision: "replacement", rows: [] });
+  await pendingNew;
+  expect(controller.getSnapshot().fallbackPage?.request).toEqual(newRequest);
+});
+
+test("a failed latest fallback page retains the shown page and offers that request for retry", async () => {
+  const source = modelFixture().page.response;
+  const error = new Error("fallback page failed");
+  const rows = vi
+    .fn()
+    .mockResolvedValueOnce(source)
+    .mockRejectedValueOnce(error);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(unavailableFallback("fallback")),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const first = {
+    modelRef: "fallback",
+    resultRevision: revision,
+    start: 0,
+    count: 1,
+  };
+  const failed = { ...first, start: 1 };
+  await controller.rows(first);
+  await controller.rows(failed);
+
+  expect(controller.getSnapshot()).toMatchObject({
+    fallbackPage: { request: first },
+    pendingRows: null,
+    failedRows: failed,
+    error,
+  });
 });
 
 test.each([false, true])(
@@ -854,9 +1131,10 @@ test.each([false, true])(
       wait.resolve({ ...page, rows: [] });
       await wait.promise;
     });
-    expect(document.activeElement).toBe(
-      moveAway ? other : screen.getByText("Rows for the displayed graph"),
-    );
+    const status = screen
+      .getAllByText("Items in this folder")
+      .find((element) => element.closest(".du-visually-hidden"));
+    expect(document.activeElement).toBe(moveAway ? other : status);
   },
 );
 
@@ -941,10 +1219,12 @@ test("status exposes real unavailable reason and revision callback without inven
   expect(apply).toHaveBeenCalledWith("next");
   expect(controller.getSnapshot().graph?.frame.resultRevision).toBe(revision);
   await act(async () => controller.render(request(2)));
-  expect(screen.getByText(/No comparison baseline is available/)).toBeTruthy();
-  expect(screen.getByText(/Available formats/).textContent).toContain(
-    "Bar chart",
-  );
+  expect(
+    screen.getByRole("heading", {
+      name: "There is no earlier result to compare",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Available formats/)).toBeNull();
 });
 
 test("lost correspondence is explained and never moves focus to another application control", async () => {
@@ -997,9 +1277,7 @@ test("retry visualization repeats only an explicit failed request with the next 
   await act(async () => controller.render(request(1)));
   expect(renderPort).toHaveBeenCalledTimes(1);
   await act(async () => {
-    fireEvent.click(
-      screen.getByRole("button", { name: "Retry visualization" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry chart" }));
   });
   expect(renderPort).toHaveBeenLastCalledWith(request(2));
   expect(controller.getSnapshot().graph?.frame.requestSeq).toBe(2);
@@ -1057,11 +1335,11 @@ test.each(["success", "failure", "move-away"] as const)(
       </>,
     );
     await act(async () => controller.render(request(1)));
-    const retry = screen.getByRole("button", { name: "Retry visualization" });
+    const retry = screen.getByRole("button", { name: "Retry chart" });
     retry.focus();
     act(() => fireEvent.click(retry));
     const pending = screen.getByRole("button", {
-      name: "Retrying visualization…",
+      name: "Retrying chart…",
     });
     expect(document.activeElement).toBe(pending);
     expect(pending.getAttribute("aria-disabled")).toBe("true");
@@ -1076,13 +1354,13 @@ test.each(["success", "failure", "move-away"] as const)(
     });
     if (outcome === "failure")
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Retry visualization" }),
+        screen.getByRole("button", { name: "Retry chart" }),
       );
     else if (outcome === "move-away")
       expect(document.activeElement).toBe(outside);
     else
       expect(document.activeElement).toBe(
-        screen.getByText("Visualization result updated."),
+        screen.getByText("Latest result applied"),
       );
   },
 );
@@ -1111,10 +1389,10 @@ test("Korean visualization status uses Korean reason and format names", async ()
   };
   render(<ControlledVisualization controller={controller} text={text} />);
   await act(async () => controller.render(request(1)));
-  expect(screen.getByText(/비교 기준이 없습니다/)).toBeTruthy();
-  expect(screen.getByText(/사용 가능한 형식/).textContent).toContain(
-    "막대 그래프, 트리맵",
-  );
+  expect(
+    screen.getByRole("heading", { name: "비교할 이전 결과가 없습니다" }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/사용 가능한 형식/)).toBeNull();
 });
 
 test.each(["unknown", "duplicate", "outside"] as const)(
@@ -1166,7 +1444,7 @@ test.each(["unknown", "duplicate", "outside"] as const)(
     else
       expect(document.activeElement).toBe(
         screen.getByText(
-          "The previously focused item is unavailable in this graph.",
+          "The previously focused item is unavailable in this chart.",
         ),
       );
     expect(controller.getSnapshot().selection).toBeNull();
@@ -1218,7 +1496,7 @@ test.each([
         new RegExp(
           language === "ko"
             ? "이전 그래프를 유지"
-            : "previous graph remains displayed",
+            : "previous chart remains displayed",
         ),
       ),
     ).toBeNull();
@@ -1230,12 +1508,13 @@ test.each([
       new RegExp(
         language === "ko"
           ? "이전 그래프를 유지"
-          : "previous graph remains displayed",
+          : "previous chart remains displayed",
       ),
     );
     expect(graphNotice.textContent).toContain(first.observedAt);
     const table = screen.getByRole("region", {
-      name: language === "ko" ? "이번 결과의 항목" : "Items in this result",
+      name:
+        language === "ko" ? "최신 결과의 항목" : "Items in the latest result",
     });
     expect(table.textContent).toContain(second.observedAt);
     expect(table.textContent).toContain(

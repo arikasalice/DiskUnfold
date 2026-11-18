@@ -1,21 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContextType, ReactNode, RefObject } from "react";
-import { Tooltip, TooltipTriggerStateContext } from "react-aria-components";
+import { useRef } from "react";
+import type { ReactNode } from "react";
 import { useLocaleText } from "../i18n/presentation";
 import type { LocaleText } from "../i18n/presentation";
-import { isImeProcessingKey } from "./ime-composition";
+import { HintPopup, useHint } from "./hint";
 import { NAME_SPACE_MARK, nameEdges, pathNameEdges } from "./name-edges";
 import type { NameEdges } from "./name-edges";
 import "../theme/text-fit.css";
 import "../theme/name-text.css";
-
-/**
- * Focus on one of these elements shows the explanation of a name inside it.
- * Each holds one item; a list, table region or panel that takes focus does
- * not open the explanations of every name it contains.
- */
-const ITEM_FOCUS =
-  'button, a[href], [role="row"], [role="rowheader"], [role="gridcell"], [role="note"], .du-text[tabindex]';
 
 function edgeHints(edges: NameEdges, text: LocaleText): string[] {
   const hints: string[] = [];
@@ -40,77 +31,6 @@ function edgeHints(edges: NameEdges, text: LocaleText): string[] {
       ),
     );
   return hints;
-}
-
-/**
- * Opens the explanation while the pointer is on the name or focus is on the
- * item that holds it. Escape hides it until both have left.
- */
-function useNameHint(name: RefObject<HTMLElement | null>, active: boolean) {
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const hovering = useRef(false);
-  const open = active && (hovered || focused) && !dismissed;
-  // The tooltip reads its open state from the trigger context, which this
-  // name provides itself because no focusable trigger owns it.
-  const state = useMemo<
-    NonNullable<ContextType<typeof TooltipTriggerStateContext>>
-  >(
-    () => ({
-      isOpen: open,
-      shouldSkipAnimation: false,
-      open: () => undefined,
-      close: () => setDismissed(true),
-    }),
-    [open],
-  );
-
-  useEffect(() => {
-    if (!active) return;
-    const holds = (target: EventTarget | null) =>
-      target instanceof Element &&
-      target.matches(ITEM_FOCUS) &&
-      name.current !== null &&
-      target.contains(name.current);
-    const focusIn = (event: FocusEvent) => setFocused(holds(event.target));
-    const focusOut = () => {
-      setFocused(false);
-      if (!hovering.current) setDismissed(false);
-    };
-    document.addEventListener("focusin", focusIn);
-    document.addEventListener("focusout", focusOut);
-    return () => {
-      document.removeEventListener("focusin", focusIn);
-      document.removeEventListener("focusout", focusOut);
-    };
-  }, [active, name]);
-
-  // Neither the pointer nor the item's focus can receive Escape here, so the
-  // window takes it while the explanation is shown, before a dialog sees it.
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || isImeProcessingKey(event)) return;
-      event.stopPropagation();
-      setDismissed(true);
-    };
-    window.addEventListener("keydown", dismiss, true);
-    return () => window.removeEventListener("keydown", dismiss, true);
-  }, [open]);
-
-  return {
-    state,
-    enter: () => {
-      hovering.current = true;
-      setHovered(true);
-    },
-    leave: () => {
-      hovering.current = false;
-      setHovered(false);
-      if (!focused) setDismissed(false);
-    },
-  };
 }
 
 /** The real edge white space, kept for copying, and the marks drawn in its place. */
@@ -179,7 +99,7 @@ export function NameText({
     ? pathNameEdges(name)
     : { head: "", name: nameEdges(name), tail: "" };
   const hints = edgeHints(parts.name, text);
-  const hint = useNameHint(ref, hints.length > 0);
+  const hint = useHint(ref, hints.length > 0);
   if (hints.length === 0)
     return path ? (
       <span className="du-path">{breakAfterSeparators(name)}</span>
@@ -202,18 +122,11 @@ export function NameText({
       </span>
       {parts.tail}
       <span className="du-visually-hidden">{`, ${hints.join(", ")}`}</span>
-      <TooltipTriggerStateContext.Provider value={hint.state}>
-        <Tooltip
-          triggerRef={ref}
-          placement="top"
-          offset={6}
-          className="du-name-hint"
-        >
-          {hints.map((line) => (
-            <span key={line}>{line}</span>
-          ))}
-        </Tooltip>
-      </TooltipTriggerStateContext.Provider>
+      <HintPopup hint={hint} triggerRef={ref}>
+        {hints.map((line) => (
+          <span key={line}>{line}</span>
+        ))}
+      </HintPopup>
     </span>
   );
 }

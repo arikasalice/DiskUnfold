@@ -332,6 +332,7 @@ fn verify_published_group(
             result_revision: scope.result_version.clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.rows.len(), 1);
@@ -343,6 +344,16 @@ fn verify_published_group(
         Some("ui.visualization.group.other")
     );
     assert!(members.rows.iter().all(|row| row.label_key.is_none()));
+    // The group row counts its members, and the count is the total of its own page;
+    // the member rows are items and carry none.
+    assert_eq!(
+        rows.rows[0].member_count,
+        du_core_contracts::visualization::quantity::VizQuantity::exact(
+            "items",
+            i128::from(members.total_count)
+        )
+    );
+    assert!(members.rows.iter().all(|row| row.member_count.is_none()));
     Ok(())
 }
 
@@ -362,13 +373,19 @@ fn verify_other_outcomes(
             result_revision: scope.result_version.clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(mixed_rows.rows.len(), 2);
     assert!(mixed_rows.rows[0].item_ref.is_some());
+    assert_eq!(mixed_rows.rows[0].member_count, None);
     assert_eq!(
         mixed_rows.rows[1].group_ref.as_deref(),
         Some("fixture.other")
+    );
+    assert_eq!(
+        mixed_rows.rows[1].member_count,
+        du_core_contracts::visualization::quantity::VizQuantity::exact("items", 1)
     );
     assert_eq!(
         session

@@ -201,6 +201,7 @@ mod tests {
             legend_class_key: "c".into(),
             display_flags: vec![],
             label_key: None,
+            member_count: None,
         };
         let groups = HashMap::from([(
             "g".into(),

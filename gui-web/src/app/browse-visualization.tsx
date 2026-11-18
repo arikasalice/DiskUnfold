@@ -2,16 +2,25 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { Ref } from "react";
-import { Action, Progress, Text } from "../components";
+import type { RefObject } from "react";
+import { Action, Heading, Progress, Text } from "../components";
 import type { SizeDisplay } from "../i18n/bytes";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
+import {
+  ChartAreaContext,
+  chartHeight,
+  usableSize,
+  DEFAULT_BUTTON_ROW_HEIGHT,
+} from "../features/visualization/chart-area";
+import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
@@ -21,13 +30,16 @@ export type BrowseVisualizationSelection = {
   location: ItemRef;
   display: SizeDisplay;
   sizeBasis: SizeBasisFilter;
+  /** Display names from the scope root to this folder; absent when any name is unknown. */
+  locationTrail?: readonly string[];
 };
 
 /** App-only assembly supplied by the product owner after catalog inspection. */
 export type BrowseVisualizationAssembly = {
   request: VisualizationViewRequest;
   canDisplay: (frame: ModelResponse) => boolean;
-  text: VizText;
+  /** Omitted: the view builds the product text in the active language. */
+  text?: VizText;
   autoLoadRows: boolean;
   resolveRenderer?: Parameters<
     typeof VisualizationSession
@@ -39,6 +51,10 @@ export type BrowseVisualizationProvider = (
   selection: BrowseVisualizationSelection,
   catalog: VizCatalog,
 ) => BrowseVisualizationAssembly | null;
+
+const DEFAULT_DISPLAY: SizeDisplay = { system: "iec", unit: "auto" };
+/** Where the chart is assumed to start in the scroll area until it reports its place. */
+const DEFAULT_CHART_OFFSET = 40;
 
 export function useBrowseVisualization(
   client: AnalysisClient | undefined,
@@ -126,12 +142,54 @@ export function browseSelectionFromOpen(
     opened.location.resultVersion !== page.resultVersion
   )
     return undefined;
+  const locationTrail = trailOf(opened);
   return {
     resultVersion: page.resultVersion,
     location: opened.location,
     display,
     sizeBasis,
+    ...(locationTrail ? { locationTrail } : {}),
   };
+}
+
+/** The folder's display names, or undefined when they do not match the opened location. */
+function trailOf(opened: BrowseOpenLocation): string[] | undefined {
+  const { location, breadcrumbs, page } = opened;
+  const current = breadcrumbs.at(-1);
+  if (
+    !location ||
+    !current ||
+    location.resultVersion !== page.resultVersion ||
+    !sameItemRef(current.item, location)
+  )
+    return undefined;
+  const names = breadcrumbs.map(({ displayName }) =>
+    displayName.state === "present" ? displayName.value : null,
+  );
+  return names.every((name) => name !== null) ? (names as string[]) : undefined;
+}
+
+/**
+ * Closing the space view returns the focus to its open button. The returned
+ * `close` is the one handler for every control that leaves the view.
+ */
+export function useVisualizationFocus(
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  trigger: RefObject<HTMLButtonElement | null>,
+) {
+  const restore = useRef(false);
+  useLayoutEffect(() => {
+    if (!open && restore.current) {
+      trigger.current?.focus();
+      restore.current = false;
+    }
+  }, [open, trigger]);
+  const close = useCallback(() => {
+    restore.current = true;
+    setOpen(false);
+  }, [setOpen]);
+  return { close, restoring: () => restore.current };
 }
 
 export function BrowseVisualizationActions({
@@ -159,7 +217,7 @@ export function BrowseVisualizationActions({
       )}
       {visible && available && (
         <div hidden={open}>
-          <Action variant="quiet" icon="layers" ref={trigger} onPress={onOpen}>
+          <Action icon="layers" ref={trigger} onPress={onOpen}>
             {text(
               "ui.visualization.show_space_distribution",
               "Show space distribution",
@@ -176,17 +234,40 @@ export function BrowseVisualizationView({
   open,
   selection,
   assembly,
+  onClose,
 }: {
   client: AnalysisClient | undefined;
   open: boolean;
   selection: BrowseVisualizationSelection | undefined;
   assembly: BrowseVisualizationAssembly | undefined;
+  /** Leaves the view; the unavailable notice offers it next to its text. */
+  onClose?: () => void;
 }) {
   const text = useLocaleText();
+  const productionText = useProductionVizText(
+    selection?.display ?? DEFAULT_DISPLAY,
+  );
   const viewportElement = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
   >();
+  const [chartParts, setChartParts] = useState({
+    offset: DEFAULT_CHART_OFFSET,
+    row: DEFAULT_BUTTON_ROW_HEIGHT,
+  });
+  const area = useMemo(
+    () => ({
+      element: viewportElement,
+      reportOffset: (offset: number, row: number) =>
+        setChartParts((current) =>
+          Math.abs(current.offset - offset) < 1 &&
+          Math.abs(current.row - row) < 1
+            ? current
+            : { offset: Math.round(offset), row: Math.round(row) },
+        ),
+    }),
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!open || !client || !assembly || !selection) {
@@ -226,8 +307,11 @@ export function BrowseVisualizationView({
       );
     };
     const measure = () => {
-      const rect = element.getBoundingClientRect();
-      update(rect.width, rect.height);
+      const { width, height } = usableSize(
+        element.getBoundingClientRect(),
+        element,
+      );
+      update(width, height);
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
@@ -271,21 +355,52 @@ export function BrowseVisualizationView({
         "Space distribution",
       )}
     >
+      <header className="du-visualization-title">
+        <Heading level={2}>
+          {text("ui.visualization.space_distribution", "Space distribution")}
+        </Heading>
+        {selection.locationTrail && (
+          <Text kind="path">{selection.locationTrail.join(" › ")}</Text>
+        )}
+      </header>
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
-          <VisualizationSession
-            client={client}
-            request={{ ...assembly.request, viewport }}
-            canDisplay={(frame) =>
-              frameMatchesBrowseSelection(frame, selection) &&
-              assembly.canDisplay(frame)
-            }
-            text={assembly.text}
-            autoLoadRows={assembly.autoLoadRows}
-            {...(assembly.resolveRenderer
-              ? { resolveRenderer: assembly.resolveRenderer }
-              : {})}
-          />
+          <ChartAreaContext.Provider value={area}>
+            <VisualizationSession
+              client={client}
+              request={{
+                ...assembly.request,
+                viewport: {
+                  ...viewport,
+                  height: chartHeight(
+                    viewport.height,
+                    chartParts.offset,
+                    chartParts.row,
+                  ),
+                },
+              }}
+              canDisplay={(frame) =>
+                frameMatchesBrowseSelection(frame, selection) &&
+                assembly.canDisplay(frame)
+              }
+              text={assembly.text ?? productionText}
+              autoLoadRows={assembly.autoLoadRows}
+              {...(onClose
+                ? {
+                    backAction: {
+                      label: text(
+                        "ui.visualization.back_to_folders",
+                        "Back to folders",
+                      ),
+                      onPress: onClose,
+                    },
+                  }
+                : {})}
+              {...(assembly.resolveRenderer
+                ? { resolveRenderer: assembly.resolveRenderer }
+                : {})}
+            />
+          </ChartAreaContext.Provider>
         ) : (
           <Progress
             label={text("ui.visualization.loading", "Loading visualization")}
@@ -296,7 +411,15 @@ export function BrowseVisualizationView({
   );
 }
 
-function supportsBrowseVisualization(
+/**
+ * Whether the owner's request fits the pinned Browse selection and the catalog.
+ *
+ * A request that leaves `strategy` out is accepted: the engine then pins the
+ * highest registered revision for the format and reports it in the model, so the
+ * screen never invents a strategy id. A request that names a strategy must name
+ * one the catalog lists.
+ */
+export function supportsBrowseVisualization(
   assembly: BrowseVisualizationAssembly,
   catalog: VizCatalog,
   selection: BrowseVisualizationSelection,
@@ -317,12 +440,12 @@ function supportsBrowseVisualization(
     catalog.measures.includes(request.measure) &&
     catalog.colorCriteria.includes(request.colorCriterion) &&
     catalog.denominatorCriteria.includes(request.denominatorBasis) &&
-    strategy !== undefined &&
-    catalog.strategies.some(
-      (candidate) =>
-        candidate.id === strategy.id &&
-        candidate.revision === strategy.revision,
-    )
+    (strategy === undefined ||
+      catalog.strategies.some(
+        (candidate) =>
+          candidate.id === strategy.id &&
+          candidate.revision === strategy.revision,
+      ))
   );
 }
 

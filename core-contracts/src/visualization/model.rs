@@ -3,13 +3,13 @@
 use super::{
     geometry::Geometry,
     optional_present,
-    quantity::{VizAmount, VizQuantity},
+    quantity::VizQuantity,
     render::{VizColorMode, VizLabelMode},
     required_nullable,
     rows::{VizDenominator, VizDenominatorBasis},
 };
 use crate::{
-    Id, ItemRef, SizeAmount, SizeBasis, SizeValue,
+    Id, ItemRef, SizeBasis, SizeValue,
     browse_open_ipc::QueryCondition,
     browse_page_ipc::{CorrespondenceKey, QueryStrategy, ResultOrigin},
 };
@@ -256,6 +256,20 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub root_branch_ref: Option<Option<ItemRef>>,
+    /// Number of members of a group shape, in items.
+    ///
+    /// Present only on a group shape (a group reference and no item reference), with the
+    /// unit items; the engine puts it on every group shape it makes. The same count is on
+    /// the group's row and, when exact, equals the total count of the group's
+    /// `viz.group_rows`. A lower bound or an unknown count is never replaced by zero. The
+    /// field is omitted rather than null, and a model without it is valid.
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub member_count: Option<VizQuantity>,
 }
 
 /// A legend class with its original item and quantity evidence.
@@ -455,6 +469,13 @@ impl VizShape {
         {
             return Err("invalid shape flags");
         }
+        if self
+            .member_count
+            .as_ref()
+            .is_some_and(|count| self.group_ref.is_none() || count.unit() != "items")
+        {
+            return Err("member count on an item shape or not in items");
+        }
         if treemap
             && (self.shape_ref.is_none()
                 || self.parent_shape_ref.is_none()
@@ -464,27 +485,6 @@ impl VizShape {
             return Err("missing treemap hierarchy");
         }
         Ok(())
-    }
-}
-
-impl VizTotal {
-    fn matches(&self, basis: Option<&SizeBasis>) -> bool {
-        match (&self.source_size, basis) {
-            (None, None) => true,
-            (Some(size), Some(basis)) => {
-                &size.basis == basis
-                    && self.quantity.unit() == "bytes"
-                    && match (&size.amount, self.quantity.amount()) {
-                        (SizeAmount::Exact { bytes }, VizAmount::Exact { value })
-                        | (SizeAmount::LowerBound { bytes }, VizAmount::LowerBound { value }) => {
-                            i128::from(bytes.get()) == value.get()
-                        }
-                        (SizeAmount::Unknown, VizAmount::Unknown { .. }) => true,
-                        _ => false,
-                    }
-            }
-            _ => false,
-        }
     }
 }
 

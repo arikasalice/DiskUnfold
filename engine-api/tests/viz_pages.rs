@@ -47,6 +47,7 @@ fn request(r: &str, v: &ResultVersion) -> VizRowsRequest {
         result_revision: v.version_id().clone(),
         start: 0,
         count: 1,
+        parent_shape_ref: None,
     }
 }
 fn register(p: &ModelPages, v: &Arc<ResultVersion>, key: &str) -> Result<String, String> {
@@ -175,7 +176,8 @@ fn weak_index_does_not_keep_source_or_its_models_alive() -> Result<(), String> {
             model_ref: reference,
             result_revision: id(2)?,
             start: 0,
-            count: 1
+            count: 1,
+            parent_shape_ref: None,
         })
         .err(),
         Some(Error::StaleVersion)

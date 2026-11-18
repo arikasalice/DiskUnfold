@@ -3,9 +3,12 @@
 pub mod channels;
 pub mod commands;
 mod deferred;
+mod folder_rows;
 pub mod histogram;
 mod histogram_fingerprint;
+mod input_check;
 use deferred::DeferredRows;
+use input_check::{validate_input_cancellable, validate_rows_cancellable};
 mod locate;
 pub mod production;
 pub mod ranked_group;
@@ -35,6 +38,8 @@ pub enum Error {
     InvalidModel,
     InvalidRange,
     InvalidGroup,
+    /// The shape named for a folder's rows is no folder that was expanded.
+    NotExpanded,
     ItemUnavailable,
     ModelExpired,
     StaleVersion,
@@ -301,9 +306,7 @@ impl ModelPages {
         if !Arc::ptr_eq(&pinned, &current) {
             return Err(Error::StaleVersion);
         }
-        let rows = current
-            .pin_viz_rows(&request.model_ref)
-            .map_err(model_error)?;
+        let rows = folder_rows::read(&current, request, entry.layout.as_deref())?;
         let start = request.start as usize;
         if start > rows.len() {
             return Err(Error::InvalidRange);
@@ -394,52 +397,6 @@ impl Drop for ModelPages {
             }
         }
     }
-}
-fn validate_input_cancellable(
-    input: &ModelInput,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(), Error> {
-    if input.condition_fingerprint.is_empty() || input.groups.keys().any(String::is_empty) {
-        return Err(Error::InvalidModel);
-    }
-    validate_rows_cancellable(input, &input.rows, cancelled)?;
-    for group in input.groups.values() {
-        validate_rows_cancellable(input, &group.rows, cancelled)?;
-    }
-    Ok(())
-}
-fn validate_rows_cancellable(
-    input: &ModelInput,
-    rows: &[VizRow],
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<(), Error> {
-    if rows.len() as u64 >= (1_u64 << 53) {
-        return Err(Error::InvalidModel);
-    }
-    for row in rows {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        row.validate_revision(input.version.version_id())
-            .map_err(|_| Error::InvalidModel)?;
-        if let Some(item) = &row.item_ref
-            && input
-                .version
-                .items()
-                .get(item.item_no as usize)
-                .is_none_or(|found| found.item_no != item.item_no)
-        {
-            return Err(Error::InvalidModel);
-        }
-        if row
-            .group_ref
-            .as_ref()
-            .is_some_and(|group| !input.groups.contains_key(group))
-        {
-            return Err(Error::InvalidModel);
-        }
-    }
-    Ok(())
 }
 fn source_error(error: du_analysis_index::QueryError) -> Error {
     if error == du_analysis_index::QueryError::Unavailable {

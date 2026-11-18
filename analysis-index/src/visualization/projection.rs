@@ -95,6 +95,9 @@ pub struct Group {
 pub struct Detail {
     /// Smallest shape area used for every level of this model; zero when not applied.
     pub min_area: u64,
+    /// Whether the small siblings of any parent, including expanded folders, may
+    /// merge into a group.
+    pub group_tail: bool,
     /// Groups of every drawn level; the navigation-root group, when any, is first.
     pub groups: Vec<Group>,
     /// Children without a provable area, at every drawn level.

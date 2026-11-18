@@ -277,6 +277,7 @@ ui.analysis.empty_result
 ui.analysis.result_version status:name
 ui.analysis.latest_visible
 ui.analysis.reading_latest
+ui.analysis.reading_final
 ui.analysis.show_latest
 ui.analysis.newer_available
 ui.analysis.still_interim
@@ -296,6 +297,10 @@ ui.analysis.display_options
 ui.analysis.folder_details
 ui.analysis.view_folder_details
 ui.analysis.size_lower_bound value:name
+ui.analysis.size_calculating
+ui.analysis.size_calculating_detail
+ui.analysis.size_no_value_yet
+ui.analysis.size_no_value_yet_detail
 ui.analysis.scope_overlap
 ui.analysis.scope_alias
 ui.analysis.scope_descendant
@@ -320,8 +325,17 @@ ui.analysis.selected_mounts
 ui.analysis.current_volume
 ui.analysis.included_mounts
 ui.analysis.exclusions
+ui.analysis.exclusions_more count:count
+ui.analysis.exclusions_more_label count:count
+ui.analysis.exclusions_less
+ui.analysis.exclusions_less_label
+ui.analysis.exclusions_explanation
+ui.analysis.exclusions_unknown_explanation
+ui.analysis.exclusion_name_pattern
 ui.analysis.size_basis
 ui.analysis.unit_system
+ui.analysis.unit_system_binary
+ui.analysis.unit_system_decimal
 ui.analysis.size_unit
 ui.analysis.copying_path
 ui.analysis.copied_paths count:count
@@ -344,6 +358,7 @@ ui.analysis.space_data_insufficient
 ui.analysis.space_aggregation_overflow
 ui.analysis.space_allocated_not_collected
 ui.analysis.space_observation_detail_insufficient
+ui.analysis.space_hardlink_identity_unknown
 ui.analysis.space_measurement_limit_reported
 ui.analysis.space_not_applicable
 ui.analysis.space_observed_logical
@@ -422,6 +437,7 @@ ui.common.close_details
 ui.common.name_leading_spaces count:count
 ui.common.name_trailing_spaces count:count
 ui.common.details
+ui.common.unknown
 ui.common.dismiss
 ui.common.scroll_area name:name
 ui.unit.byte
@@ -442,6 +458,9 @@ ui.inspection.scan
 ui.inspection.file
 ui.inspection.folder
 ui.inspection.reasons
+ui.inspection.reason_line field:name reason:name
+ui.inspection.reason_not_in_result
+ui.inspection.reason_unknown key:name
 ui.inspection.more
 ui.inspection.observed_hint
 ui.inspection.loading kind:name
@@ -634,11 +653,9 @@ ui.settings.using_default
 ui.settings.default_size_basis
 ui.browse.additional_items_ready
 ui.browse.at_least
-ui.browse.availability_unknown
 ui.browse.clipboard_failed_for name:name
 ui.browse.clipboard_unsupported_for name:name
 ui.browse.column_allocated_size
-ui.browse.column_availability
 ui.browse.column_logical_size
 ui.browse.column_modified
 ui.browse.column_name
@@ -650,7 +667,6 @@ ui.browse.copied_one_path_for name:name
 ui.browse.copy_path
 ui.browse.copy_path_failed_for name:name
 ui.browse.copying_path_for name:name
-ui.browse.excluded
 ui.browse.file_details
 ui.browse.folder_details
 ui.browse.folder_items
@@ -699,9 +715,7 @@ ui.browse.location_hierarchy
 ui.browse.no_confirmed_items_end_unknown
 ui.browse.no_items
 ui.browse.no_more_items
-ui.browse.not_enumerated
 ui.browse.not_recorded
-ui.browse.not_reported
 ui.browse.observation_details
 ui.browse.observed
 ui.browse.open_folder_failed
@@ -736,27 +750,53 @@ ui.browse.up
 ui.visualization.actions
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
+ui.visualization.badgeCancelled
+ui.visualization.badgeMissing
+ui.visualization.badgePartial
 ui.visualization.bar
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
 ui.visualization.classification
+ui.visualization.completenessCancelled
+ui.visualization.completenessComplete
+ui.visualization.completenessMissing
+ui.visualization.completenessPartial
 ui.visualization.correspondenceUnknown
 ui.visualization.coverage
 ui.visualization.denominator
+ui.visualization.denominatorAnalysisTotal
+ui.visualization.denominatorParentFolder
+ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
+ui.visualization.emptyFolderTitle
+ui.visualization.emptyResultTitle
+ui.visualization.emptyResultUnknownItems count:name
 ui.visualization.estimatedEvidence
+ui.visualization.evidenceCompleteness
+ui.visualization.evidenceFreshness
+ui.visualization.evidenceOrigin
+ui.visualization.evidenceStatus
 ui.visualization.filteredOutTotal
+ui.visualization.flagLowerBound
+ui.visualization.flagOtherGroup
+ui.visualization.flagUnknown
 ui.visualization.flags
 ui.visualization.focusGraphAction
 ui.visualization.focusLost
 ui.visualization.format
 ui.visualization.formats
+ui.visualization.freshnessCurrent
+ui.visualization.freshnessStale
+ui.visualization.freshnessUnknown
 ui.visualization.graphFallback
 ui.visualization.graphRowsStatus
 ui.visualization.graphRowsUnavailable
 ui.visualization.graphUpdated
 ui.visualization.group.other
+ui.visualization.group.other_at_least count:count
+ui.visualization.group.other_count count:count
+ui.visualization.group.other_unknown
 ui.visualization.groupMeasurementContext
 ui.visualization.groupMembers
 ui.visualization.groupMissing
@@ -770,8 +810,10 @@ ui.visualization.groupedTotal
 ui.visualization.histogram
 ui.visualization.independentTotals
 ui.visualization.invalidReferences
+ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.legend.unclassified
+ui.visualization.loadFolderRows
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
 ui.visualization.loadedGraphRows
@@ -781,6 +823,7 @@ ui.visualization.loadingMembers
 ui.visualization.loadingNewer
 ui.visualization.lowerBound value:size
 ui.visualization.measure
+ui.visualization.measureSize
 ui.visualization.measuredEvidence
 ui.visualization.measurementBasisTotals
 ui.visualization.memberRanges
@@ -803,17 +846,23 @@ ui.visualization.noItemSizes
 ui.visualization.noMembers
 ui.visualization.noRowsInPage
 ui.visualization.noSourceSize
+ui.visualization.observedAtUnknown
 ui.visualization.omittedItems
 ui.visualization.openFailed
-ui.visualization.otherItems
-ui.visualization.otherMembers
+ui.visualization.originScan
 ui.visualization.previousBasis
 ui.visualization.previousMeasure
 ui.visualization.previousName
 ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
+ui.visualization.ratioBelowMinimum value:name
+ui.visualization.ratioDenominator value:name
+ui.visualization.ratioNegativeBelowMinimum lower:name upper:name
+ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
+ui.visualization.rawBytes count:count
+ui.visualization.rawBytesAtLeast count:count
 ui.visualization.renderFailed
 ui.visualization.reportedEvidence
 ui.visualization.representation
@@ -826,18 +875,25 @@ ui.visualization.retryingRows
 ui.visualization.reviewNewer
 ui.visualization.revisionStale
 ui.visualization.revisionUnverified
+ui.visualization.rowNotes
 ui.visualization.rowRange start:count end:count total:count
 ui.visualization.rowsFailed
 ui.visualization.rowsFromGraph
 ui.visualization.rowsNotRetrieved
+ui.visualization.rowsOnePage count:count
 ui.visualization.sameRevision
 ui.visualization.sankey
 ui.visualization.scopeTotal
+ui.visualization.scopeTotalLine value:name
 ui.visualization.selected
 ui.visualization.selectionLost
 ui.visualization.show_space_distribution
 ui.visualization.singleObservation
+ui.visualization.sizeAtLeast value:name
 ui.visualization.sizeBasis
+ui.visualization.sizeBasisAllocated
+ui.visualization.sizeBasisLogical
+ui.visualization.sizeBasisUniquePhysical
 ui.visualization.sourceSizes
 ui.visualization.spaceDistribution
 ui.visualization.space_distribution
@@ -846,12 +902,25 @@ ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
 ui.visualization.unavailable
+ui.visualization.unavailableBodyNegativeFlow
+ui.visualization.unavailableBodyNoAttribution
+ui.visualization.unavailableBodyNoBaseline
+ui.visualization.unavailableBodyNoItemSizes
+ui.visualization.unavailableBodySingleObservation
+ui.visualization.unavailableBodyUnknown
 ui.visualization.unavailableEvidence
+ui.visualization.unavailableTitleNegativeFlow
+ui.visualization.unavailableTitleNoAttribution
+ui.visualization.unavailableTitleNoBaseline
+ui.visualization.unavailableTitleNoItemSizes
+ui.visualization.unavailableTitleSingleObservation
+ui.visualization.unavailableTitleUnknown
 ui.visualization.unavailableValue
 ui.visualization.unavailable_for_folder
 ui.visualization.unknownFormat
 ui.visualization.unknownItems
 ui.visualization.unknownReason
+ui.visualization.unrecognizedValue
 ui.visualization.updateFailed
 ui.visualization.value
 ui.visualization.viewGroupMembers
@@ -986,6 +1055,7 @@ ui.analysis.volume_not_attempted
 ui.analysis.volume_time_unavailable
 ui.analysis.volume_time time:timestamp
 ui.analysis.volume_unavailable_at time:name
+ui.analysis.volume_report_unavailable
 ui.analysis.volume_capacity_label point:name
 ui.analysis.volume_used_label point:name
 ui.analysis.volume_free_label point:name

@@ -48,7 +48,8 @@ fn preparing_does_not_publish_and_commit_reuses_the_sync_model() -> Result<(), S
             model_ref: id(11).as_str().to_owned(),
             result_revision: id(3),
             start: 0,
-            count: 10
+            count: 10,
+            parent_shape_ref: None,
         }),
         Err(viz_pages::Error::ModelExpired)
     );
@@ -155,6 +156,7 @@ fn prepared_equal_size_model_without_keys_is_not_published_until_commit() -> Res
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     assert_eq!(pages.rows(&rows), Err(viz_pages::Error::ModelExpired));
     // The tie that used to need a key now lays out in name order.
@@ -224,6 +226,7 @@ fn prepared_unattributed_rows_can_be_cancelled_then_published() -> Result<(), St
         result_revision: id(3),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     assert_eq!(pages.rows(&published), Err(viz_pages::Error::ModelExpired));
     let fallback = match pages.commit_prepared(prepare()?, &mut || false) {
@@ -240,7 +243,8 @@ fn prepared_unattributed_rows_can_be_cancelled_then_published() -> Result<(), St
                 model_ref: fallback.model_ref,
                 result_revision: id(3),
                 start: 0,
-                count: 10
+                count: 10,
+                parent_shape_ref: None,
             })
             .map_err(|e| format!("{e:?}"))?
             .total_count,

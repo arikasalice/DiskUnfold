@@ -210,6 +210,7 @@ pub(super) fn response(
             result_revision: fallback.result_revision.clone(),
             start: 0,
             count: 1,
+            parent_shape_ref: None,
         })
         .map_err(|_| internal())?;
     let mut model = model.ok_or_else(internal)?.clone();

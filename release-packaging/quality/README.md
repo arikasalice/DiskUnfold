@@ -36,7 +36,7 @@ Cache policy:
 - Stale caches are bounded by the lockfile and toolchain in the key. A cache never decides whether a job passes: every job still runs `--locked` and a full workspace compile of workspace crates.
 - GitHub-maintained actions run on the Node 24 runtime and are pinned by commit SHA with a version comment: `actions/checkout` v7.0.1, `actions/setup-node` v7.1.0, `actions/cache` v6.1.0, `actions/upload-artifact` v7.0.2 and `actions/download-artifact` v8.0.2. They need Actions runner 2.327.1 or newer, which GitHub-hosted runners provide. `release.yml` and `fuzz.yml` set `package-manager-cache: false` on `actions/setup-node` so that only `quality.yml` restores the npm cache, through the explicit `cache: npm` input. `release-packaging/release/lint-workflow.mjs --verify-remote` checks each pin against its comment.
 - Concurrency: a newer push to a pull request cancels the older run. Main pushes and manual runs use a per-run group and are never cancelled, because each main commit needs its own coverage baseline.
-- apt: the GTK and WebKit packages are still installed with apt on every Linux job (about 35 to 40 s). A third-party apt cache action would extract packages into system paths as root, so the time was kept instead.
+- apt: the GTK and WebKit packages are installed with apt on every Linux job through `.github/actions/apt-install`. The Azure Ubuntu mirror can be slow (run 44254663435 downloaded 104 MB in 16 min 39 s), so the downloaded `.deb` files are kept with the pinned `actions/cache`. Only the files are cached, never extracted into system paths: every run still does `apt-get update` and `apt-get install`, and apt checks each cached file against the signed package index, so a missing, stale or corrupt cache just downloads from the mirror. The key holds the runner OS, CPU architecture, runner image version and a hash of the package list, so a changed list or image starts a new cache. The install step stops after 35 minutes. This cache is also saved by pull requests, because it cannot change what apt accepts; a pull request cache is visible only to that pull request, while caches saved by pushes to `0.0.1` (the default branch) and `main` are restored by every pull request. `quality.yml` therefore also runs on pushes to `0.0.1`; Rust caches are still saved only from `main` and manual runs.
 - Path filters are not used. They can skip a required check and leave a pull request waiting for a status that never appears.
 - `release.yml` and `fuzz.yml` take no Rust or npm build caches. Official release builds must come from clean sources and a fresh toolchain so the provenance covers exactly the bytes built; do not restore `target/` into a release build. The release tool builds in the gate and inventory jobs stay uncached for the same reason.
 
@@ -89,4 +89,26 @@ node --test release-packaging/quality/
 ```
 
 `--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. Today a person runs `--check` and the tests by hand; no workflow under `.github` runs either of them, and no workflow runs the release review. Connecting `--check` and the tests to the merge stage and the combination review to the release tag is release owner work. This tool does not drive assistive technology; a person or a separate automated run produces the results file.
+
+## Self-hosted macOS arm64 runner
+
+Hosted macOS jobs can wait 20 to 50 minutes in the queue. The `targets` job reads the repository variable `DU_RUNNER_OVERRIDES`, a JSON object that maps `<os>-<cpu>` to a runner label or a list of labels, and replaces `runner` for those targets. An unset or empty variable keeps the GitHub-hosted runners. An unknown key or an empty value fails the `targets` job. `quality-output/targets.json` records the effective runners.
+
+An invalid `DU_RUNNER_OVERRIDES` value fails the `targets` job; on Windows PowerShell, set it from stdin with `'{"macos-arm64":["self-hosted","macOS","ARM64","du-m1-vm"]}' | gh variable set DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold` because PowerShell 5 strips the inner quotes of `--body`.
+
+Fork pull requests never use the self-hosted runners: the workflow passes the variable to the `targets` job only for pushes and same-repository pull requests, so fork pull requests always run on GitHub-hosted runners. The repository also requires approval before workflow runs from outside contributors.
+
+Enable:
+
+```sh
+gh variable set DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold --body '{"macos-arm64":["self-hosted","macOS","ARM64","du-m1-vm"]}'
+```
+
+Disable, for example when the Mac is offline (the next run uses `macos-15` again, no code change):
+
+```sh
+gh variable delete DU_RUNNER_OVERRIDES -R arikasalice/DiskUnfold
+```
+
+The VM needs Xcode Command Line Tools, `rustup`, `bash` and `git`. `lint` and `native` use the same label, so with one runner they run one after the other and share `~/.cargo` and the rustup default toolchain. Results from the VM count as macOS arm64 evidence only for the macOS version installed on that VM, not for other versions.
 

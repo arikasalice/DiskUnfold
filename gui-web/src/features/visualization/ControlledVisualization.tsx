@@ -21,6 +21,8 @@ import {
   selectVisualizationGroup,
 } from "./group-navigation";
 import { VisualizationStatus } from "./VisualizationStatus";
+import { UnavailableView } from "./UnavailableView";
+import type { BackAction } from "./UnavailablePanel";
 import { RowsRetry } from "./RetryNotices";
 import { SeparateModelTable, useFirstRows } from "./NewerModelTable";
 
@@ -32,6 +34,7 @@ export function ControlledVisualization({
   resolveRenderer,
   autoLoadRows,
   groupController,
+  backAction,
 }: {
   controller: VisualizationController;
   text: VizText;
@@ -39,6 +42,7 @@ export function ControlledVisualization({
   resolveRenderer?: ReturnType<typeof createChartRenderers>;
   autoLoadRows?: boolean;
   groupController?: GroupController;
+  backAction?: BackAction;
 }) {
   const state = useSyncExternalStore(
     controller.subscribe,
@@ -60,6 +64,9 @@ export function ControlledVisualization({
   }, [focusLost]);
   const graph = state.graph;
   const table = state.table;
+  // The panel takes the chart's place; the previous model stays in the controller.
+  const unavailable = unavailableResponse(state);
+  const targetsShown = hasGraphTargets(graphTargets, graph, unavailable);
   const tableRowsFrame = getMatchingTableFrame(table, state.tablePage);
   useFirstRows(controller, state, autoLoadRows === true);
   const currentTable = isCurrentTable(graph, table);
@@ -92,16 +99,25 @@ export function ControlledVisualization({
         state={state}
         controller={controller}
         text={text}
-        graphTargets={hasGraphTargets(graphTargets, graph)}
+        graphTargets={targetsShown}
         {...(onApplyRevision ? { onApplyRevision } : {})}
       />
+      {unavailable && (
+        <UnavailableView
+          reasonKey={unavailable.reasonKey}
+          controller={controller}
+          state={state}
+          text={text}
+          backAction={backAction}
+        />
+      )}
       {graph && table && !currentTable && (
         <Notice>
           {text.message("retainedGraph")}{" "}
           {text.observedAt(graph.frame.observedAt)}
         </Notice>
       )}
-      {graph && (
+      {!unavailable && graph && (
         <VisualizationModelPresenter
           frame={graph.frame}
           resolveRenderer={resolveRenderer}
@@ -174,16 +190,12 @@ export function ControlledVisualization({
         />
       )}
       {focusLost && (
-        <div>
-          <LiveStatus ref={focusNotice} focusTarget>
-            {text.message("focusLost")}
-          </LiveStatus>
-          {hasGraphTargets(graphTargets, graph) && (
-            <Action onPress={() => setFocusRequest((value) => value + 1)}>
-              {text.message("focusGraphAction")}
-            </Action>
-          )}
-        </div>
+        <FocusLostNotice
+          noticeRef={focusNotice}
+          text={text}
+          graphShown={targetsShown}
+          onFocusGraph={() => setFocusRequest((value) => value + 1)}
+        />
       )}
       <RowsRetry
         controller={controller}
@@ -205,9 +217,41 @@ export function ControlledVisualization({
   );
 }
 
+function FocusLostNotice({
+  noticeRef,
+  text,
+  graphShown,
+  onFocusGraph,
+}: {
+  noticeRef: React.Ref<HTMLDivElement>;
+  text: VizText;
+  graphShown: boolean;
+  onFocusGraph: () => void;
+}) {
+  return (
+    <div>
+      <LiveStatus ref={noticeRef} focusTarget>
+        {text.message("focusLost")}
+      </LiveStatus>
+      {graphShown && (
+        <Action onPress={onFocusGraph}>
+          {text.message("focusGraphAction")}
+        </Action>
+      )}
+    </div>
+  );
+}
+
+function unavailableResponse(state: VisualizationSnapshot) {
+  return state.phase === "unavailable" && state.response?.kind === "unavailable"
+    ? state.response
+    : null;
+}
+
 function hasGraphTargets(
   available: boolean,
   graph: VisualizationSnapshot["graph"],
+  unavailable: unknown,
 ) {
-  return available && !!graph?.frame.model.shapes.length;
+  return available && !unavailable && !!graph?.frame.model.shapes.length;
 }

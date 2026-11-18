@@ -4,7 +4,9 @@
 //! group is one row of its own, in the position of its shape, and its members are
 //! read through viz.group_rows. Nothing is recomputed: the total, the size range and
 //! the members come from the projection, and only their consistency is checked.
-use super::{Error, OtherPresentation, quantity};
+use super::{
+    Error, OtherPresentation, RowPresentation, denominator, make_row, original_size, quantity,
+};
 use du_analysis_index::{
     ResultVersion,
     visualization::{
@@ -16,7 +18,10 @@ use du_analysis_index::{
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeValue,
     result::ResultVersionRead,
-    visualization::rows::{VizDenominator, VizRatio, VizRow},
+    visualization::{
+        quantity::VizQuantity,
+        rows::{VizDenominator, VizRatio, VizRow},
+    },
 };
 use std::collections::HashMap;
 
@@ -65,6 +70,74 @@ pub(super) fn assemble(
     if group.slot > table.len() {
         return Err(Error::InvalidGroup);
     }
+    let row = group_row(version, group, other, denominator)?;
+    table.insert(group.slot, row);
+    groups.insert(
+        group.group_ref.clone(),
+        GroupRows {
+            rows: members.into_iter().map(|(row, _)| row).collect(),
+            total: group.total.clone(),
+            size_range: group.size_range.clone(),
+        },
+    );
+    Ok((table, groups))
+}
+
+/// The member rows of the group of an expanded folder.
+///
+/// Such a group has no table row, like the other shapes inside an expanded folder; it
+/// is only readable through viz.group_rows. presentations holds the classification of
+/// every child of the folder, and the members are taken out of it.
+pub(crate) fn nested_group_rows(
+    version: &ResultVersion,
+    model: &projection::Model,
+    group: &projection::Group,
+    presentations: &mut HashMap<u32, RowPresentation>,
+) -> Result<GroupRows, Error> {
+    let denominator = denominator(&model.totals.scope, &model.basis)?;
+    let mut rows = Vec::with_capacity(group.members.len());
+    for member in &group.members {
+        let presentation = presentations
+            .remove(&member.item.item_no)
+            .ok_or(Error::MissingClassification)?;
+        let item = version
+            .items()
+            .get(member.item.item_no as usize)
+            .filter(|item| item.parent == Some(group.parent.item_no))
+            .ok_or(Error::InvalidGroup)?;
+        if presentation.item != member.item
+            || original_size(version, item.item_no, &model.basis) != Some(&member.size)
+        {
+            return Err(Error::SourceMismatch);
+        }
+        rows.push(make_row(
+            version,
+            &item.name,
+            &member.size,
+            presentation,
+            &denominator,
+        )?);
+    }
+    if rows.is_empty() {
+        return Err(Error::InvalidGroup);
+    }
+    Ok(GroupRows {
+        rows,
+        total: group.total.clone(),
+        size_range: group.size_range.clone(),
+    })
+}
+
+/// The row of a group the engine made, in the table of the parent that holds it.
+///
+/// The name, class and flags are the supplied presentation; the size, the ratio and the
+/// member count come from the group itself.
+pub(super) fn group_row(
+    version: &ResultVersion,
+    group: &projection::Group,
+    other: &OtherPresentation,
+    denominator: &VizDenominator,
+) -> Result<VizRow, Error> {
     let quantity = quantity(&group.total)?;
     let ratio = ratio::calculate(&quantity, &denominator.value)
         .as_deref()
@@ -85,24 +158,25 @@ pub(super) fn assemble(
         legend_class_key: other.legend_class_key.clone(),
         display_flags,
         label_key: other.label_key.clone(),
+        member_count: Some(member_count(group.members.len())?),
     };
     row.validate_revision(version.version_id())
         .map_err(|_| Error::InvalidGroup)?;
-    table.insert(group.slot, row);
-    groups.insert(
-        group.group_ref.clone(),
-        GroupRows {
-            rows: members.into_iter().map(|(row, _)| row).collect(),
-            total: group.total.clone(),
-            size_range: group.size_range.clone(),
-        },
-    );
-    Ok((table, groups))
+    Ok(row)
+}
+
+/// The number of members of a group the engine made, which is exact: the member rows
+/// are the whole group, so it equals the total count of the group's own page.
+pub(super) fn member_count(count: usize) -> Result<VizQuantity, Error> {
+    i128::try_from(count)
+        .ok()
+        .and_then(|count| VizQuantity::exact("items", count))
+        .ok_or(Error::InvalidQuantity)
 }
 
 // A label key is the message key of the name, and the display name is required, so it
 // carries the same string for a consumer that does not read the key.
-fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
+pub(super) fn usable(other: Option<&OtherPresentation>) -> Result<&OtherPresentation, Error> {
     other
         .filter(|other| {
             !other.display_name.is_empty()

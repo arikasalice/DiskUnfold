@@ -818,7 +818,17 @@ export type VizTotal = { quantity: VizQuantity, sourceSize: SizeValue | null, };
 export type VizTotals = { scope: VizTotal, drawn: VizTotal, grouped: VizTotal, filteredOut: VizTotal, remainder?: VizTotal, remainderReasonKeys?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy, };
 export type VizMatchKey = { "state": "present", value: CorrespondenceKey, } | { "state": "unknown", reasonKey: string, } | { "state": "not_applicable", };
-export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null, };
+export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null,
+/**
+ * Number of members of a group shape, in items.
+ *
+ * Present only on a group shape (a group reference and no item reference), with the
+ * unit items; the engine puts it on every group shape it makes. The same count is on
+ * the group's row and, when exact, equals the total count of the group's
+ * `viz.group_rows`. A lower bound or an unknown count is never replaced by zero. The
+ * field is omitted rather than null, and a model without it is valid.
+ */
+memberCount?: VizQuantity, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
@@ -878,8 +888,32 @@ displayName: string, size: SizeValue, quantity?: VizQuantity, ratio: VizRatio | 
  * row, with a group reference and no item reference; an item row that carries
  * one is invalid.
  */
-labelKey?: string, };
-export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number, };
+labelKey?: string,
+/**
+ * Number of members of a group row, in items.
+ *
+ * Present only on a group row, never on an item row; a row that has one must have
+ * a group reference and no item reference, and its unit must be items. The engine
+ * puts it on every group row it makes. An exact count equals the total count of
+ * that group's `viz.group_rows`. A lower bound or an unknown count (with its reason)
+ * is reported as such and is never replaced by zero. The field is omitted rather
+ * than null, and a response without it is valid.
+ */
+memberCount?: VizQuantity, };
+export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
+/**
+ * The shape of an expanded folder in this model, to read that folder's rows.
+ *
+ * Omitted, the page is the model's root table, as before. Present, it names a
+ * shape of the same model, which must be a folder that was expanded: the page then
+ * holds the drawn children of that folder and the row of its group, if it has
+ * one, and `totalCount` counts that table. A reference the model does not have
+ * is refused as not found, and a shape that is no expanded folder (a file, a
+ * group, a folder that was not expanded) as an invalid argument. Rows and shapes
+ * correspond by item reference or group reference, never by position. An empty
+ * string is invalid and the field is omitted rather than null.
+ */
+parentShapeRef?: string, };
 export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: number, count: number, };
 export type VizSizeRange = { "kind": "known", min: SizeValue, max: SizeValue, } | { "kind": "unknown" };
 export type VizRows = { rows: Array<VizRow>, totalCount: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
@@ -1106,7 +1140,25 @@ export type SpaceTarget = { "kind": "scope_root", } | { "kind": "folder", item: 
 export type SpaceTotalRequest = { resultVersion?: Id, target: SpaceTarget, requestSeq: number, };
 export type ResultCompleteness = "partial" | "complete" | "missing" | "cancelled";
 export type SpaceTotalSize = { size: SizeValue, completeness: ResultCompleteness, measurementLimits: Array<string>, };
-export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null, };
+export type SpaceTotal = { resultVersion: Id, requestSeq: number, sizes: Array<SpaceTotalSize>, completeness: ResultCompleteness, missingItems: ByteSize | null, inaccessibleRanges: ByteSize | null, untraversedLinks: ByteSize | null,
+/**
+ * The registered aggregation rule that produced these sizes, read from the pinned
+ * result version. Absent when an older producer answered.
+ */
+sizeRule?: QueryStrategy,
+/**
+ * The exact number of folders below the target left unread because the scan was
+ * cancelled, including the target itself when it is such a folder. Other-volume and
+ * already-counted folders, gaps and disconnects are not counted. `0` confirms none only
+ * for a sealed real scan with `Complete` or `Missing` status and no cancelled marks.
+ *
+ * Absent when the source cannot prove the total: a sample, an unfinished publication, a
+ * partial or cancelled result (even when it has marks), a complete or missing result
+ * containing a cancelled mark, an incremental replacement, or a target that is not a
+ * single subtree (a query result).
+ * Absence is not zero.
+ */
+cancelledUnreadFolders?: number, };
 export type VolumeGapSelection = { volumeId?: PathBytes | null, root?: ItemRef | null, };
 export type VolumeGapRequest = { resultVersion: Id, requestSeq: number, target: VolumeGapSelection, };
 export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "unavailable", observedAt: Timestamp | null, reasonKey: string, } | { "state": "available", observedAt: Timestamp | null, totalBytes: ByteSize, usedBytes: ByteSize, freeBytes: ByteSize, evidence: SizeEvidence, };
@@ -1134,7 +1186,35 @@ export type ResultOrigin = string;
 export type QueryStrategy = { id: string, revision: number, };
 export type IdentityCapability = { state: SpaceCapabilityState, reasonKey?: string | null, };
 export type CorrespondenceKey = { volumeId: PathBytes, pathCompareKey: PathBytes, fileId: PathBytes | null, identityCapability: IdentityCapability, };
-export type FolderFlags = { unenumerated: BrowseValue<boolean>, excluded: BrowseValue<boolean>, };
+export type FolderBoundary = string;
+export type FolderFlags = {
+/**
+ * Present with `true` when the contents of this folder should have been read but
+ * could not be: its open or a read failed, its boundary could not be decided, or
+ * the scan was cancelled or its volume was disconnected first. A boundary that
+ * could not be decided marks the row of the folder that was not entered, not its
+ * parent. A table shows only this flag.
+ * A cancelled result alone does not establish why an individual folder was not read.
+ *
+ * A row never has `unenumerated` present with `true` together with a present
+ * `boundary`.
+ */
+unenumerated: BrowseValue<boolean>,
+/**
+ * Whether an exclusion rule left this entry out. The collector does not keep
+ * excluded entries, so a row of a scan-lineage result is never an excluded entry
+ * and a producer may send present with `false`.
+ */
+excluded: BrowseValue<boolean>,
+/**
+ * The scope rule that kept this folder from being entered.
+ *
+ * Present: the folder was not entered because of the scope rules. Absent: the
+ * folder is confirmed not to be a boundary. Unknown: it cannot be decided yet.
+ * Omitted: the source does not supply this fact, as for a source that is not
+ * scan lineage and for file rows.
+ */
+boundary?: BrowseValue<FolderBoundary>, };
 export type FolderQueryRow = { item: ItemRef,
 /**
  * Human-readable display text; never reopen or compare a path from it.
@@ -1170,12 +1250,27 @@ export type BrowseContext = { origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
  */
-dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, };
+dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>,
+/**
+ * Entries directly under the opened folder that an exclusion rule left out.
+ *
+ * Exact zero means confirmed none. A lower bound means the folder's listing was
+ * cut short. Names an exclusion rule could not decide are not counted. Omitted
+ * when the source does not supply this fact, when it cannot be decided yet (a
+ * result of a scan in progress where it is not known that the folder's listing
+ * has ended), and for the virtual top level.
+ */
+excludedChildren?: QueryTotal, };
 export type BrowseOpenResponse = { "kind": "opened", requestSeq: number, origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
  */
-dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>, } | { "kind": "job", requestSeq: number, jobRef: Id,
+dataSource?: DataSource, location: ItemRef | null, breadcrumbs: Array<BrowseBreadcrumb>, rootKind: BrowseRootKind, currentCorrespondence: boolean, page: FolderQueryPage, sortStrategies: Array<QueryStrategy>, predicateStrategies: Array<QueryStrategy>,
+/**
+ * Entries directly under the opened folder that an exclusion rule left out;
+ * see `BrowseContext::excluded_children`.
+ */
+excludedChildren?: QueryTotal, } | { "kind": "job", requestSeq: number, jobRef: Id,
 /**
  * Source result version pinned when the request was admitted.
  */

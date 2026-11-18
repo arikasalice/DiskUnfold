@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import { displayInteger, useRegionalFormat } from "../../i18n/regional-format";
 import {
@@ -13,20 +14,31 @@ import {
   Unbroken,
 } from "../../components";
 import { SIZE_UNIT_RULES } from "../../ipc";
-import type { AnalysisClient, OsPath, SpaceTotal } from "../../ipc";
+import type {
+  AnalysisClient,
+  OsPath,
+  ScopeExclusion,
+  SpaceTotal,
+} from "../../ipc";
+import type { LocaleText } from "../../i18n/presentation";
+import { ExclusionRules } from "./ExclusionRules";
 import { ScanIssues } from "./ScanIssues";
 import { FileInspection } from "./FileInspection";
 import { SizeDisplayControls } from "./SizeDisplayControls";
 import { VolumeExplanation } from "./VolumeExplanation";
 import type { VolumePart } from "./summary-batch";
+import { useSizeWait } from "./awaited-sizes";
 import {
+  awaitedSize,
+  displayAwaitedSize,
   displayMeasurement,
   displayMeasurementLimit,
   displaySize,
   displayRawSize,
+  displayUnitSystem,
   sizeLabels,
 } from "./space-format";
-import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
 import { useDialogResult } from "./use-dialog-result";
 import { DialogUpdateStatus } from "./DialogUpdateStatus";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
@@ -40,11 +52,11 @@ function Coverage({ total }: { total: SpaceTotal }) {
       count: total.missingItems,
     },
     {
-      label: text("ui.analysis.inaccessible_ranges", "Inaccessible ranges"),
+      label: text("ui.analysis.inaccessible_ranges", "Inaccessible locations"),
       count: total.inaccessibleRanges,
     },
     {
-      label: text("ui.analysis.untraversed_links", "Untraversed links"),
+      label: text("ui.analysis.untraversed_links", "Links not followed"),
       count: total.untraversedLinks,
     },
   ];
@@ -73,18 +85,61 @@ export function RootPaths({ roots }: { roots: readonly OsPath[] }) {
 }
 
 /**
+ * The scanned paths and, below them, the exclusion rules they were scanned
+ * with. A scope known to have no rules shows no exclusions row; an unknown
+ * scope shows the row as unavailable, so its absence never reads as none.
+ * The row's label explains what the rules mean for the totals, or that the
+ * scope is not known.
+ */
+function scopeRows(
+  roots: readonly OsPath[],
+  exclusions: readonly ScopeExclusion[] | undefined,
+  text: LocaleText,
+) {
+  const rows: { label: string; value: ReactNode; explanation?: string }[] = [
+    {
+      label: text("ui.analysis.scanned_paths", "Scanned paths"),
+      value: <RootPaths roots={roots} />,
+    },
+  ];
+  if (exclusions?.length !== 0)
+    rows.push({
+      label: text("ui.analysis.exclusions", "Exclusions"),
+      value: <ExclusionRules rules={exclusions} foldAfter={3} />,
+      explanation: exclusions
+        ? text(
+            "ui.analysis.exclusions_explanation",
+            "Folders and files matching these weren't analyzed. They aren't included in the size or the item count.",
+          )
+        : text(
+            "ui.analysis.exclusions_unknown_explanation",
+            "The scope used for this result isn't available now.",
+          ),
+    });
+  return rows;
+}
+
+/**
  * Displays the given totals in place. A newer `total` changes the values
  * without remounting the parts around them, so expanded sections, focus and
  * open dialogs stay as they are. Expanded parts follow `total`, and `volume`
  * is the volume part read for the same result (see `useSummaryBatch`);
  * dialogs open on `latestVersion`, the newest result known for the scan.
+ * `wait` says how `scan`, the scan that still publishes, stands: a logical
+ * or allocated size without a value then reads as still to come instead of
+ * unavailable, for as long as its results allow (see `useSizeWait`).
+ * `exclusions` are the rules of the scope the result was analyzed with, or
+ * undefined when that scope is not known.
  */
 export function PinnedResult({
   client,
   total,
   latestVersion,
   volume,
+  scan,
+  wait,
   roots,
+  exclusions,
   preferences,
   displayChoice,
   onDisplayChoice,
@@ -95,7 +150,10 @@ export function PinnedResult({
   total: SpaceTotal;
   latestVersion: string;
   volume: VolumePart;
+  scan: string | undefined;
+  wait: SizeWait | undefined;
   roots: readonly OsPath[];
+  exclusions: readonly ScopeExclusion[] | undefined;
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
   onDisplayChoice: (choice: SizeDisplay) => void;
@@ -129,27 +187,28 @@ export function PinnedResult({
   const basisLabel = basisLabels[basis];
   const pathsLabel = text("ui.analysis.scanned_paths", "Scanned paths");
   const measurements = text("ui.analysis.measurements", "Measurement details");
+  const sizeWait = useSizeWait(total, scan, wait);
+  const leadWait =
+    lead && awaitedSize(lead.size, lead.measurementLimits, sizeWait);
+  const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
   return (
     <div className="du-results">
-      <Readout
-        label={pathsLabel}
-        rows={[
-          {
-            label: pathsLabel,
-            value: <RootPaths roots={roots} />,
-          },
-        ]}
-      />
+      <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
       <div className="du-metrics">
         <Metric
           label={basisLabel}
+          pending={leadAwaited !== undefined}
           detail={
-            lead
-              ? displayMeasurement(lead.size, lead.completeness, text)
-              : undefined
+            leadAwaited
+              ? leadAwaited.detail
+              : lead
+                ? displayMeasurement(lead.size, lead.completeness, text)
+                : undefined
           }
         >
-          {lead ? (
+          {leadAwaited ? (
+            leadAwaited.value
+          ) : lead ? (
             <Unbroken>{displaySize(lead.size, display, text)}</Unbroken>
           ) : (
             unavailable
@@ -161,6 +220,16 @@ export function PinnedResult({
         <Readout
           label={measurements}
           rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
+            const waited = awaitedSize(size, measurementLimits, sizeWait);
+            // An awaited size shows no measurement and none of its limits;
+            // what it waits for is said once, below the lead value.
+            if (waited) {
+              return {
+                label: basisLabels[size.basis],
+                value: displayAwaitedSize(waited, text).value,
+                pending: true,
+              };
+            }
             const value = displaySize(size, display, text);
             const raw = displayRawSize(size, regional, text);
             return {
@@ -169,14 +238,16 @@ export function PinnedResult({
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),
-                ...measurementLimits.map(displayMeasurementLimit),
+                ...measurementLimits.map((key) =>
+                  displayMeasurementLimit(key, text),
+                ),
               ],
             };
           })}
         />
       </DetailDisclosure>
       <Text kind="muted">
-        {basisLabel} · {display.system.toUpperCase()} · {unit}
+        {basisLabel} · {displayUnitSystem(display.system, text)} · {unit}
       </Text>
       {preferences.warning && (
         <Notice>

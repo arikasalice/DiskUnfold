@@ -140,6 +140,7 @@ fn actual_pinned_projection_yields_matching_page_rows_and_geometry() -> Result<(
             result_revision: version.version_id().clone(),
             start: 0,
             count: 10,
+            parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.rows.len(), 3);
@@ -256,6 +257,7 @@ fn strategy_projection_and_page_remain_bound_to_the_admitted_revision() -> Resul
         result_revision: version.version_id().clone(),
         start: 0,
         count: 10,
+        parent_shape_ref: None,
     };
     let admitted = pages.rows(&request).map_err(|e| format!("{e:?}"))?;
     assert_eq!(model.strategy, typed_layout::treemap_descriptor());

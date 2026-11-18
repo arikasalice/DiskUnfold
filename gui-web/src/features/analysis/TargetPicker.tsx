@@ -304,7 +304,7 @@ function DrivePicker({
                       "ui.analysis.target_folder_mount",
                       "folder mount",
                     ),
-                  }[target.kind] ?? target.kind.replaceAll("_", " "))
+                  }[target.kind] ?? text("ui.common.unknown", "Unknown"))
                 : text(
                     "ui.analysis.target_type_unavailable",
                     "Type unavailable",
@@ -349,7 +349,8 @@ function DrivePicker({
                           "ui.analysis.target_access_unknown",
                           "unknown",
                         ),
-                      }[access] ?? access,
+                      }[access] ??
+                      text("ui.analysis.target_access_unknown", "unknown"),
                     tone: access === "accessible" ? "good" : "neutral",
                   }}
                 />

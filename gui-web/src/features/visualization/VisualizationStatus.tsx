@@ -1,10 +1,10 @@
+import { useRef } from "react";
 import { Action, Notice, Progress, Text } from "../../components";
 import type {
   VisualizationController,
   VisualizationSnapshot,
 } from "./controller";
 import type { VizText } from "../../viz";
-import { visualizationFormatName, visualizationReason } from "../../viz";
 import { RowName } from "../../viz";
 import { RenderRetry } from "./RetryNotices";
 
@@ -21,6 +21,8 @@ export function VisualizationStatus({
   onApplyRevision?: (revision: string) => void;
   graphTargets: boolean;
 }) {
+  // Set when the reader asks for the newer result, so its arrival is announced.
+  const applying = useRef(false);
   return (
     <>
       {state.phase === "loading" && (
@@ -30,7 +32,12 @@ export function VisualizationStatus({
       {state.phase === "cancelled" && (
         <Notice>{text.message("cancelled")}</Notice>
       )}
-      <RenderRetry state={state} controller={controller} text={text} />
+      <RenderRetry
+        state={state}
+        controller={controller}
+        text={text}
+        applying={applying}
+      />
       {state.revisionCheck && (
         <Notice>
           {text.message(
@@ -40,18 +47,6 @@ export function VisualizationStatus({
           )}
         </Notice>
       )}
-      {state.phase === "unavailable" &&
-        state.response?.kind === "unavailable" && (
-          <Notice>
-            {text.message("unavailable")}{" "}
-            {visualizationReason(state.response.reasonKey, text.message)}.{" "}
-            {text.message("formats")}{" "}
-            {state.response.availableFormats
-              .map((format) => visualizationFormatName(format, text.message))
-              .join(", ") || text.message("noFormats")}
-            .
-          </Notice>
-        )}
       {state.previousSelection && (
         <Notice>
           <Text>{text.message("selectionLost")}</Text>
@@ -83,8 +78,9 @@ export function VisualizationStatus({
           {onApplyRevision && (
             <Action
               onPress={() => {
-                if (state.offeredRevision)
-                  onApplyRevision(state.offeredRevision);
+                if (!state.offeredRevision) return;
+                applying.current = true;
+                onApplyRevision(state.offeredRevision);
               }}
             >
               {text.message("reviewNewer")}
