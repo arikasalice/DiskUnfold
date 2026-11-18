@@ -19,16 +19,6 @@ pub use folder_evidence_api::{
     FolderAttemptToken,
 };
 pub use folder_evidence_snapshot::FolderAttemptSummary;
-// Draft candidate API: event validation is connected to BuildHandle, but only publishes
-// unproven summaries and never upgrades result sizes or completeness.
-#[cfg(test)]
-mod folder_attempt_contract;
-#[cfg(test)]
-mod folder_attempt_history;
-#[cfg(test)]
-mod folder_attempt_validation;
-#[cfg(test)]
-mod folder_attempts;
 #[cfg(test)]
 mod folder_evidence_build_handle_tests;
 #[cfg(test)]
