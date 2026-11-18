@@ -6,7 +6,7 @@ use du_core_contracts::{
         TimedObservedEntry,
     },
 };
-use std::{cell::Cell, collections::BTreeMap, fs};
+use std::{cell::Cell, collections::BTreeMap, fs, process::Command};
 
 fn native_name(name: &str) -> Vec<u8> {
     name.encode_utf16().flat_map(u16::to_le_bytes).collect()
@@ -257,4 +257,59 @@ fn correlated_metadata_failure_is_preserved_without_a_synthetic_time()
         SetFileAttributesW(PCWSTR(wide.as_ptr()), FILE_ATTRIBUTE_NORMAL)?;
     }
     result
+}
+
+#[test]
+#[ignore = "requires permission to enable NTFS per-directory case sensitivity"]
+fn correlated_case_sensitive_names_keep_their_own_metadata()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let directory_path = fixture.path().join("case-sensitive");
+    fs::create_dir(&directory_path)?;
+    let enabled = Command::new("fsutil.exe")
+        .args(["file", "setCaseSensitiveInfo"])
+        .arg(&directory_path)
+        .arg("enable")
+        .output()?;
+    if !enabled.status.success() {
+        return Err(format!(
+            "case-sensitive fixture unavailable (fsutil exit {:?}): {} {}",
+            enabled.status.code(),
+            String::from_utf8_lossy(&enabled.stdout),
+            String::from_utf8_lossy(&enabled.stderr)
+        )
+        .into());
+    }
+    fs::write(directory_path.join("Foo"), b"A")?;
+    fs::write(directory_path.join("foo"), b"lower")?;
+
+    let decisions = [
+        (native_name("Foo"), FilterDecision::Admit),
+        (native_name("foo"), FilterDecision::Admit),
+    ];
+    let timestamp = Timestamp::from_unix_millis(1234).ok_or("invalid test timestamp")?;
+    let mut directory = open_verified(&directory_path).map_err(|error| format!("{error:?}"))?;
+    directory
+        .begin_correlated_filtered()
+        .map_err(|error| format!("{error:?}"))?;
+    let events = collect_correlated_events(&mut directory, &decisions, &timestamp, &Cell::new(0))?;
+
+    assert_eq!(events.observations.len(), 2);
+    for (name, expected_size) in [("Foo", 1), ("foo", 5)] {
+        let raw_name = native_name(name);
+        let observed = events
+            .observations
+            .values()
+            .find(|entry| entry.entry.name == raw_name)
+            .ok_or("raw child name missing")?;
+        let metadata = observed
+            .entry
+            .metadata
+            .as_ref()
+            .map_err(|error| format!("correlated metadata failed: {error:?}"))?;
+        assert_eq!(observed.entry.name, raw_name);
+        assert_eq!(observed.entry.enumerated_inode, metadata.inode);
+        assert_eq!(metadata.size.as_ref().ok().copied(), Some(expected_size));
+    }
+    Ok(())
 }

@@ -82,6 +82,7 @@ impl WindowsDirectory {
             return Err(failure);
         }
 
+        let case_insensitive = self.correlated_case_insensitive();
         let mut offset = 0usize;
         loop {
             let header = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
@@ -138,6 +139,7 @@ impl WindowsDirectory {
                     file_id: item.FileId as u64,
                     attributes: item.FileAttributes,
                     ea_size: item.EaSize,
+                    case_insensitive: case_insensitive.clone(),
                 });
             }
             let Some(next) = correlated_next_entry_offset(item.NextEntryOffset, header + name_len)?
@@ -219,11 +221,12 @@ impl DirectoryObservations for WindowsDirectory {
             phase: FilterCallbackPhase::BeforeMetadata,
         };
         if decision == FilterDecision::Admit {
-            let entry = self.observe(
+            let entry = self.observe_correlated(
                 record.name,
                 record.file_id,
                 record.attributes,
                 record.ea_size,
+                record.case_insensitive,
             );
             self.correlated_pending_observation = Some((child_id, recall::timed(entry, clock)));
         }

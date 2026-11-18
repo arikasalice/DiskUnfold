@@ -98,6 +98,7 @@ struct CorrelatedWindowsRecord {
     file_id: u64,
     attributes: u32,
     ea_size: u32,
+    case_insensitive: Result<bool, PortError>,
 }
 
 struct AncestorChain {
@@ -225,6 +226,16 @@ fn entry_open_options() -> NTCREATEFILE_CREATE_OPTIONS {
 }
 
 fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Result<File, PortError> {
+    relative_with_case(parent, name, directory, stable, true)
+}
+
+fn relative_with_case(
+    parent: &File,
+    name: &[u16],
+    directory: bool,
+    stable: bool,
+    case_insensitive: bool,
+) -> Result<File, PortError> {
     let length =
         u16::try_from(name.len().checked_mul(2).ok_or_else(invalid)?).map_err(|_| invalid())?;
     let object_name = UNICODE_STRING {
@@ -236,7 +247,11 @@ fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Resul
         Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: raw(parent),
         ObjectName: &object_name,
-        Attributes: OBJ_CASE_INSENSITIVE,
+        Attributes: if case_insensitive {
+            OBJ_CASE_INSENSITIVE
+        } else {
+            0
+        },
         SecurityDescriptor: std::ptr::null(),
         SecurityQualityOfService: std::ptr::null(),
     };

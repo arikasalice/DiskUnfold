@@ -33,8 +33,76 @@ impl WindowsDirectory {
         }
     }
 
+    /// Observes a correlated child without attaching metadata from an aliased handle.
+    pub(super) fn observe_correlated(
+        &self,
+        name: Vec<u8>,
+        inode: u64,
+        attributes: u32,
+        ea_size: u32,
+        case_insensitive: Result<bool, PortError>,
+    ) -> ObservedEntry {
+        #[cfg(test)]
+        PROBES.with(|count| count.set(count.get() + 1));
+        let metadata = recall::observe_if_safe(attributes, || {
+            let file =
+                relative_with_case(&self.handle, &wide(&name)?, false, false, case_insensitive?)?;
+            self.metadata_for_enumerated(&file, inode)
+        });
+        ObservedEntry {
+            name,
+            enumerated_inode: inode,
+            enumerated_kind: reparse::enumerated_kind(attributes, ea_size),
+            metadata,
+        }
+    }
+
+    /// Resolves a lookup mode against this directory handle and its identity.
+    pub(super) fn correlated_case_insensitive(&self) -> Result<bool, PortError> {
+        let case = match self.case_sensitivity() {
+            Ok(case) => case,
+            // Volumes without the per-directory flag (for example FAT) use case-insensitive
+            // lookup. The file ID check in metadata_for_enumerated still rejects an alias.
+            Err(error) if error.kind == PortErrorKind::Unsupported => return Ok(true),
+            Err(error) => return Err(error),
+        };
+        let parent = info(&self.handle)?;
+        if case.volume_serial != self.volume
+            || case.volume_serial != u64::from(parent.dwVolumeSerialNumber)
+            || case.file_index == 0
+            || case.file_index != identity(&parent)
+        {
+            return Err(identity_changed());
+        }
+        Ok(case.mode == super::case_sensitivity::DirectoryCaseMode::Insensitive)
+    }
+
     fn metadata(&self, file: &File) -> Result<MetadataObservation, PortError> {
         let value = info(file)?;
+        self.metadata_from_info(file, value)
+    }
+
+    fn metadata_for_enumerated(
+        &self,
+        file: &File,
+        enumerated_inode: u64,
+    ) -> Result<MetadataObservation, PortError> {
+        let value = info(file)?;
+        // The enumerated 64-bit file ID is scoped to its anchored parent volume.
+        if enumerated_inode == 0
+            || u64::from(value.dwVolumeSerialNumber) != self.volume
+            || identity(&value) != enumerated_inode
+        {
+            return Err(identity_changed());
+        }
+        self.metadata_from_info(file, value)
+    }
+
+    fn metadata_from_info(
+        &self,
+        file: &File,
+        value: windows::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
+    ) -> Result<MetadataObservation, PortError> {
         recall::check_handle_attributes(value.dwFileAttributes)?;
         let observed_kind = kind(value.dwFileAttributes);
         let device = u64::from(value.dwVolumeSerialNumber);
@@ -76,6 +144,14 @@ impl WindowsDirectory {
             identity(&value),
             self.ancestors.as_ref().map(|chain| chain.ids.as_slice()),
         )
+    }
+}
+
+fn identity_changed() -> PortError {
+    PortError {
+        kind: PortErrorKind::IdentityChanged,
+        reason_key: "os.query_failed".into(),
+        os_code: None,
     }
 }
 
