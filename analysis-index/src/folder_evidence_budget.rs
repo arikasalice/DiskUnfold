@@ -77,7 +77,7 @@ impl FolderEvidenceBudget {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-hooks"))]
     pub(crate) fn reserve_remaining(self: &Arc<Self>) -> Option<FolderEvidenceLease> {
         let used = self.used.load(Ordering::Relaxed);
         self.reserve(MAX_BUILD_MANAGED_BYTES.checked_sub(used)?)

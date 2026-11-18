@@ -17,6 +17,7 @@
 //! that case either way.
 
 use super::*;
+use crate::folder_completion::ProvenFolders;
 use crate::item_kind::is_structure;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -77,11 +78,13 @@ pub(crate) fn apply(
     items: &[ResultItem],
     observations: Option<&[Option<Arc<SpaceObservation>>]>,
     completeness: ResultCompleteness,
+    proven: Option<&ProvenFolders>,
     limit: usize,
     output: &mut [SpaceAggregate],
 ) {
+    let source = |index| ProvenFolders::source(proven, index, completeness);
     let Some(observations) = observations else {
-        apply_unobserved(items, completeness, limit, output);
+        apply_unobserved(items, &source, limit, output);
         return;
     };
     let repeated = repeated_identities(items, observations);
@@ -96,7 +99,7 @@ pub(crate) fn apply(
             if let Some(observed) = &observed {
                 let _ = sum.record(observed, tabled);
             }
-            sum.finish(completeness, &mut output[index]);
+            sum.finish(source(index), &mut output[index]);
             if let Some(parent) = item.parent {
                 let slot = &mut sums[parent as usize];
                 match slot {
@@ -112,7 +115,7 @@ pub(crate) fn apply(
         if let Some(observed) = &observed {
             let _ = own.record(observed, false);
         }
-        own.finish(completeness, &mut output[index]);
+        own.finish(source(index), &mut output[index]);
         if let (Some(parent), Some(observed)) = (item.parent, &observed) {
             let _ = sums[parent as usize]
                 .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
@@ -124,7 +127,7 @@ pub(crate) fn apply(
 /// Without any evidence column, every file below a folder is missing.
 fn apply_unobserved(
     items: &[ResultItem],
-    completeness: ResultCompleteness,
+    source: &dyn Fn(usize) -> ResultCompleteness,
     limit: usize,
     output: &mut [SpaceAggregate],
 ) {
@@ -136,7 +139,7 @@ fn apply_unobserved(
             missing: missing[index],
             ..Physical::with_limit(limit)
         }
-        .finish(completeness, &mut output[index]);
+        .finish(source(index), &mut output[index]);
         if let Some(parent) = item.parent {
             missing[parent as usize] |= missing[index];
         }

@@ -47,7 +47,7 @@ fn capacity_alone_makes_both_physical_totals_unknown() {
         size: None,
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
-    let mut aggregates = crate::space::aggregate(&[item], ResultCompleteness::Complete);
+    let mut aggregates = crate::space::aggregate(&[item], ResultCompleteness::Complete, None);
     sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
     assert_eq!(aggregates[0].allocated.amount, SizeAmount::Unknown);
     assert_eq!(aggregates[0].unique_physical.amount, SizeAmount::Unknown);
@@ -81,7 +81,7 @@ fn identity_capacity_boundary_and_conflict_update_summary() {
         size: None,
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
-    let mut aggregates = crate::space::aggregate(&[item], ResultCompleteness::Complete);
+    let mut aggregates = crate::space::aggregate(&[item], ResultCompleteness::Complete, None);
     sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
     assert_eq!(
         aggregates[0].allocated.amount,

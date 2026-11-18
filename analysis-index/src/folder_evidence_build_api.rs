@@ -16,6 +16,34 @@ pub(crate) fn next_build_generation() -> Result<u64, BuildError> {
 }
 
 impl BuildHandle {
+    /// Pins the folder evidence of one publication, holding pending attempts when it seals.
+    ///
+    /// A capacity failure discards the evidence and the version publishes without it, so no
+    /// folder is promoted. Any other failure aborts the build.
+    pub(crate) fn pin_folder_evidence(
+        &mut self,
+        built: &crate::tree::BuiltItems,
+        finish: bool,
+    ) -> Result<Option<crate::folder_evidence_snapshot::FolderEvidenceSnapshot>, BuildError> {
+        if finish {
+            self.folder_attempts.hold_pending();
+        }
+        match self.folder_attempts.snapshot(built) {
+            Ok(evidence) => Ok(evidence),
+            Err(BuildError::CapacityExceeded) => {
+                // Preserve the ordinary observations and publish without optional evidence.
+                self.folder_attempts.discard();
+                Ok(None)
+            }
+            Err(error) => {
+                // Withdraw any partial from this build and restore its baseline through abort.
+                self.abort();
+                self.folder_attempts.discard();
+                Err(error)
+            }
+        }
+    }
+
     /// Registers one folder attempt and returns its build/root/path-bound token.
     ///
     /// Registration is outside the F02 event sequence. The first transported event uses sequence

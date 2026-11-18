@@ -161,6 +161,7 @@ pub(crate) fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvi
 pub(crate) fn aggregate(
     items: &[ResultItem],
     completeness: ResultCompleteness,
+    proven: Option<&crate::folder_completion::ProvenFolders>,
 ) -> Vec<SpaceAggregate> {
     let mut sums = vec![Accumulator::default(); items.len()];
     for item in items.iter().rev() {
@@ -175,7 +176,12 @@ pub(crate) fn aggregate(
             sums[parent as usize].merge(&child);
         }
     }
-    sums.iter().map(|sum| sum.finish(completeness)).collect()
+    let source =
+        |index| crate::folder_completion::ProvenFolders::source(proven, index, completeness);
+    sums.iter()
+        .enumerate()
+        .map(|(index, sum)| sum.finish(source(index)))
+        .collect()
 }
 
 /// Computes a forest-wide total directly from observations, not subtree totals.
