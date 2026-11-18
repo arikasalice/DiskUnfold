@@ -1,5 +1,6 @@
 //! Correlated evidence handling for admitted directory entries.
 use super::*;
+use crate::scan::parallel::correlated_budget::Permit;
 use crate::scan::parallel::frame::correlated::Attempt;
 
 /// The excluded callback is terminal and must not get a separate final event.

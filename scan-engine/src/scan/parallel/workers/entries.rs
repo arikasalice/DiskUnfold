@@ -116,7 +116,7 @@ pub(super) fn process_entry(
     if !continue_child(frame, &path, reservation, services.shared, services.context)? {
         return stopped_child(
             frame,
-            path,
+            path.to_vec(),
             enter,
             force_no_descend,
             &mut child_attempt,
@@ -148,7 +148,7 @@ pub(super) fn process_entry(
     };
     let child = Frame::child(
         frame.root_index,
-        path,
+        path.to_vec(),
         parent,
         child_entry,
         child_permit,
