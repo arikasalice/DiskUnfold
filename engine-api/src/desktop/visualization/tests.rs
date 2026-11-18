@@ -1,6 +1,7 @@
 //! The default registration, served through the desktop assembly and a real result store.
 mod groups;
 mod lower_bound;
+mod remainder;
 mod support;
 mod totals;
 

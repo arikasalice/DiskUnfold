@@ -7,9 +7,11 @@ use du_analysis_index::{IngestSink, Observation};
 use du_core_contracts::{
     PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
+    visualization::model::REMAINDER_UNATTRIBUTED,
 };
 use serde_json::{Value, json};
 
+use super::remainder::{assert_explained_by_counts, assert_valid, keys, remainder};
 use super::support::{Harness, id, render_body};
 use super::totals::assert_within_scope;
 use super::{TestResult, rows_of};
@@ -125,6 +127,22 @@ fn item_no(rows: &Value, name: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("no row named {name}"))
 }
 
+/// A scope that is a lower bound leaves no value to subtract from: the remainder is
+/// unknown, with F03's reason for a size that cannot be stated. An exact scope with exact
+/// parts has an exact remainder of zero.
+fn assert_remainder_follows_the_scope(model: &Value, lower_scope: bool) -> TestResult {
+    assert_valid(model)?;
+    if lower_scope {
+        let quantity = &model["totals"]["remainder"]["quantity"];
+        assert_eq!(quantity["state"], "unknown", "{}", model["totals"]);
+        assert_eq!(quantity["reasonKey"], "space.data_insufficient");
+        assert_eq!(remainder(model)?.1, None);
+    } else {
+        assert_eq!(remainder(model)?, ("exact".into(), Some(0)));
+    }
+    assert_explained_by_counts(model)
+}
+
 fn shape_flags(model: &Value, item: u64) -> Result<&Value, String> {
     model["shapes"]
         .as_array()
@@ -177,6 +195,8 @@ fn a_scope_with_an_untraversed_link_is_a_model_that_carries_the_state_of_its_val
     assert_eq!(total(model, "grouped")?, ("exact".into(), 0));
     assert_eq!(total(model, "filteredOut")?, ("exact".into(), 0));
     assert_within_scope(model)?;
+    assert_remainder_follows_the_scope(model, lower)?;
+    assert_eq!(keys(model), &Value::Null);
     assert_eq!(count(model, "unknownItems")?, 0);
     assert_eq!(model["summary"]["reasonKeys"], json!([]));
     // Only a folder whose value is a lower bound carries the mark, on its shape and its row.
@@ -214,7 +234,8 @@ fn a_scope_with_an_untraversed_link_is_a_model_that_carries_the_state_of_its_val
     assert_eq!(count(model, "unknownItems")?, without_value as u64);
     assert_eq!(total(model, "scope")?, (state.into(), 20));
     assert_eq!(total(model, "drawn")?, ("exact".into(), 20));
-    assert_within_scope(model)
+    assert_within_scope(model)?;
+    assert_remainder_follows_the_scope(model, lower)
 }
 
 #[test]
@@ -242,6 +263,9 @@ fn a_scope_with_an_unread_entry_is_a_model_with_the_gap_reason_and_the_state_of_
     // The unread entry is directly under the scope, so the scope is a lower bound.
     assert_eq!(total(model, "scope")?, ("lower_bound".into(), 150));
     assert_within_scope(model)?;
+    assert_remainder_follows_the_scope(model, true)?;
+    // The unread entry has no area, so it is the one cause the remainder is known to hold.
+    assert_eq!(keys(model), &json!([REMAINDER_UNATTRIBUTED]));
     // Whether a folder that was read completely is a lower bound depends on how F03
     // treats a result with unread ranges: the whole result today, only the folders above
     // an unread range once FR5.HD1 is applied per folder. This holds for both: the mark of

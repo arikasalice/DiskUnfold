@@ -1,7 +1,9 @@
 //! Validation and projection of exact ungrouped ranked bars.
 use super::*;
 use du_analysis_index::visualization::{
-    bar_projection::BarIdentity, projection, ratio, typed_layout,
+    bar_projection::{Bar, BarIdentity},
+    geometry::NoArea,
+    projection, ratio, typed_layout,
 };
 use du_core_contracts::{
     SizeAmount, SizeBasis, SizeValue,
@@ -17,6 +19,19 @@ pub(super) fn exact(size: &SizeValue) -> Option<u64> {
         SizeAmount::Exact { bytes } => Some(bytes.get()),
         _ => None,
     }
+}
+
+/// Item bars with bytes that have no shape because they lack coordinate precision.
+///
+/// They are siblings left out of the drawn total, and the group of a bar is not one of
+/// them: its members are counted by the group.
+pub(super) fn precision_omitted(bars: &[Bar]) -> u64 {
+    bars.iter()
+        .filter(|bar| {
+            matches!(bar.identity, BarIdentity::Item(_))
+                && bar.no_area == Some(NoArea::CoordinatePrecision)
+        })
+        .count() as u64
 }
 
 pub(super) fn to_projection(
@@ -69,6 +84,7 @@ pub(super) fn to_projection(
     let denominator =
         du_core_contracts::visualization::quantity::VizQuantity::exact("bytes", i128::from(scope))
             .ok_or_else(internal)?;
+    let omitted = precision_omitted(&ranking.bars);
     let BarParts {
         rows,
         shapes,
@@ -106,7 +122,14 @@ pub(super) fn to_projection(
             drawn_lower_bound: false,
             grouped_lower_bound: false,
         },
-        detail: projection::Detail::default(),
+        detail: projection::Detail {
+            omitted_items: omitted,
+            remainder_causes: projection::RemainderCauses {
+                too_small: omitted > 0,
+                unattributed: false,
+            },
+            ..projection::Detail::default()
+        },
     }))
 }
 
