@@ -344,7 +344,6 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
             context: run_context.as_ref(),
             limit: 2,
             policy: Policy::Legacy(&include),
-            scan_control: None,
         };
         let clock = ContextClock(run_context.as_ref());
         let result = body::run(
@@ -352,13 +351,16 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
             roots,
             control,
             &mut JobCounts::default(),
-            DevicePlan {
-                groups: vec![0, 1],
-                limit: 1,
-            },
             &clock,
-            None,
-            None,
+            crate::scan::parallel::ScanOptions {
+                devices: DevicePlan {
+                    groups: vec![0, 1],
+                    limit: 1,
+                },
+                diagnostics: None,
+                scan_control: None,
+                correlated_budget: None,
+            },
         )
         .map_err(|error| format!("{error:?}"));
         let _ = done_tx.send(result);

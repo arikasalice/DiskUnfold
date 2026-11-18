@@ -4,11 +4,15 @@
 use super::*;
 use crate::scan::parallel::correlated_budget;
 use du_analysis_index::{FolderAttemptError, FolderAttemptInput, FolderAttemptToken};
-use std::sync::mpsc::{Receiver, TrySendError};
+use std::{
+    mem::size_of,
+    sync::mpsc::{Receiver, TrySendError},
+};
 
 const POLL: Duration = Duration::from_millis(25);
 const ACK_BYTES: usize = 1024;
-const EVENT_BYTES: usize = 1024;
+// The event permit accounts for the boxed input in addition to the queue envelope.
+const EVENT_BYTES: usize = 1024 + size_of::<FolderAttemptInput>();
 
 #[allow(dead_code)]
 pub(super) enum Failure {
@@ -129,10 +133,10 @@ pub(super) fn record(
     let (reply, receiver) = mpsc::channel();
     send(
         sender,
-        Event::FolderAttemptEvent {
+        Event::FolderAttemptRecord {
             token,
             seq,
-            input,
+            input: Box::new(input),
             reply: Some(reply),
             _permit: Some(event_permit),
         },
@@ -190,10 +194,10 @@ pub(super) fn fail_best_effort(
         attempt.cancel();
         return;
     };
-    let _ = sender.try_send(Event::FolderAttemptEvent {
+    let _ = sender.try_send(Event::FolderAttemptRecord {
         token,
         seq,
-        input: FolderAttemptInput::TransportFailure,
+        input: Box::new(FolderAttemptInput::TransportFailure),
         reply: None,
         _permit: Some(permit),
     });
@@ -215,10 +219,10 @@ pub(super) fn cancel(
         return;
     };
     if let Some(permit) = shared.correlated_budget.reserve(EVENT_BYTES) {
-        let _ = sender.try_send(Event::FolderAttemptEvent {
+        let _ = sender.try_send(Event::FolderAttemptRecord {
             token,
             seq,
-            input: FolderAttemptInput::Cancelled,
+            input: Box::new(FolderAttemptInput::Cancelled),
             reply: None,
             _permit: Some(permit),
         });

@@ -46,6 +46,8 @@ pub(crate) struct Attempt {
     event_permit: Option<Permit>,
 }
 
+// Inline values stay under the attempt permit and avoid an allocation per callback.
+#[allow(clippy::large_enum_variant)]
 #[allow(dead_code)]
 pub(in crate::scan::parallel) enum Step {
     Legacy,

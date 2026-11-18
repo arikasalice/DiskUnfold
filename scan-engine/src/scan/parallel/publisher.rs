@@ -79,7 +79,7 @@ fn drain_aborted(
             Event::FolderAttemptBegin { reply, _permit, .. } => {
                 let _ = reply.send(Err(du_analysis_index::FolderAttemptError::CapacityExceeded));
             }
-            Event::FolderAttemptEvent { reply, .. } => {
+            Event::FolderAttemptRecord { reply, .. } => {
                 if let Some(reply) = reply {
                     let _ =
                         reply.send(Err(du_analysis_index::FolderAttemptError::CapacityExceeded));
@@ -161,14 +161,14 @@ impl Progress {
                 let _ = reply.send(result);
                 Ok(())
             }
-            Event::FolderAttemptEvent {
+            Event::FolderAttemptRecord {
                 token,
                 seq,
                 input,
                 reply,
                 _permit,
             } => {
-                let result = build.record_folder_attempt_event(token, seq, input);
+                let result = build.record_folder_attempt_event(token, seq, *input);
                 if let Some(reply) = reply {
                     let _ = reply.send(result);
                 }

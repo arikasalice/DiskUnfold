@@ -27,7 +27,7 @@ mod handoff;
 #[cfg(test)]
 mod priority_dispatch_tests;
 mod read_batch;
-use entries::{open_pending, process_entry};
+use entries::{EntryServices, open_pending, process_entry};
 use handoff::{complete, register_path, release_path, requeue, schedule};
 use read_batch::{ReadFailure, next_entries};
 
@@ -169,9 +169,13 @@ fn process(
         frame.entries.pop_front()
     };
     if let Some(entry) = next {
-        return match process_entry(
-            &mut frame, entry, recorded, false, shared, sender, context, policy,
-        ) {
+        let services = EntryServices {
+            shared,
+            sender,
+            context,
+            policy,
+        };
+        return match process_entry(&mut frame, entry, recorded, false, &services) {
             Ok(child) => {
                 requeue(shared, turn, frame, child, context);
                 true

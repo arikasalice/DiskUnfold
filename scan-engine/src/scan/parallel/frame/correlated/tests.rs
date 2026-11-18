@@ -112,7 +112,7 @@ fn interleaved_admits_remain_bound_until_processed() {
 }
 
 #[test]
-fn duplicate_or_pending_limit_keeps_attempt_unfinished() {
+fn duplicate_or_pending_limit_keeps_attempt_unfinished() -> Result<(), String> {
     for ids in [vec![0, 0], (0..=MAX_PENDING_ADMITS as u64).collect()] {
         let events = ids
             .into_iter()
@@ -127,7 +127,7 @@ fn duplicate_or_pending_limit_keeps_attempt_unfinished() {
             match next(&mut attempt, &directory) {
                 Step::Event { .. } => accepted += 1,
                 Step::Failed => break,
-                _ => panic!("unexpected attempt state"),
+                _ => return Err("unexpected attempt state".into()),
             }
         }
         assert!(accepted <= MAX_PENDING_ADMITS);
@@ -136,6 +136,7 @@ fn duplicate_or_pending_limit_keeps_attempt_unfinished() {
         assert_eq!(attempt.pending_admits.capacity(), 0);
         assert_eq!(attempt.pending_name_bytes, 0);
     }
+    Ok(())
 }
 
 #[test]

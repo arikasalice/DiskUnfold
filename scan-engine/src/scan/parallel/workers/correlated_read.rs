@@ -1,4 +1,5 @@
 //! One acknowledged correlated read turn, including the adapter EOF barrier.
+use super::entries::{EntryServices, process_entry};
 use super::*;
 use crate::scan::parallel::{
     correlated_budget::{self, MAX_EVENT_PAYLOAD_BYTES},
@@ -12,6 +13,8 @@ pub(super) enum Read {
     Turn(TurnResult),
 }
 
+// Accepted observations stay inline on the worker turn to avoid another allocation per entry.
+#[allow(clippy::large_enum_variant)]
 enum TurnStep {
     Legacy,
     Progress,
@@ -236,9 +239,13 @@ pub(super) fn finish(
                 // Preserve the returned fact first, mark any entered child unread, then
                 // report the incomplete directory. Requeueing is unsafe after abort.
                 frame.correlated.evidence_failed();
-                match process_entry(
-                    &mut frame, queued, false, true, shared, sender, context, policy,
-                ) {
+                let services = EntryServices {
+                    shared,
+                    sender,
+                    context,
+                    policy,
+                };
+                match process_entry(&mut frame, queued, false, true, &services) {
                     Ok(None) => process_batch(
                         frame,
                         shared,

@@ -200,7 +200,7 @@ pub(super) fn try_clone_entry(entry: &ObservedEntry) -> Option<ObservedEntry> {
                 Err(error) => Err(try_clone_port_error(error)?),
             },
             modified_at: metadata.modified_at.clone(),
-            native_modified_at: metadata.native_modified_at.clone(),
+            native_modified_at: metadata.native_modified_at,
             allocated: metadata.allocated,
             link_count: metadata.link_count,
             space_identity: match &metadata.space_identity {

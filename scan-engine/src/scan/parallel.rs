@@ -110,10 +110,10 @@ enum Event {
     },
     /// A result is acknowledged only after the receiving build accepts it.
     #[allow(dead_code)]
-    FolderAttemptEvent {
+    FolderAttemptRecord {
         token: du_analysis_index::FolderAttemptToken,
         seq: u64,
-        input: du_analysis_index::FolderAttemptInput,
+        input: Box<du_analysis_index::FolderAttemptInput>,
         reply: Option<mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>>,
         _permit: Option<correlated_budget::Permit>,
     },
@@ -174,7 +174,13 @@ struct Control<'a> {
     context: &'a dyn JobContext,
     limit: usize,
     policy: Policy<'a>,
+}
+
+struct ScanOptions<'a> {
+    devices: DevicePlan,
+    diagnostics: Option<&'a crate::scan_job::ScanDiagnostics>,
     scan_control: Option<&'a ScanControlSession>,
+    correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
 }
 
 #[derive(Clone, Copy)]
@@ -251,8 +257,12 @@ pub(crate) fn collect_open_forest_with_groups(
         context,
         limit,
         Policy::Legacy(include),
-        (devices, None, None),
-        None,
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: None,
+        },
     )
 }
 
@@ -272,22 +282,26 @@ pub(crate) fn collect_open_forest_filtered(
         context,
         limit,
         Policy::BeforeMetadata(include),
-        (devices, None, None),
-        None,
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: None,
+        },
     )
 }
 
 #[cfg(test)]
-pub(crate) fn collect_open_forest_filtered_with_budget(
+fn collect_open_forest_filtered_with_budget(
     build: Result<BuildHandle, BuildError>,
     roots: Vec<Box<dyn AnchoredDirectory>>,
     ids: &dyn ResultIds,
     context: &dyn JobContext,
     limit: usize,
     include: &PreMetadataFilter<'_>,
-    devices: DevicePlan,
-    budget: Arc<correlated_budget::CorrelatedBudget>,
+    options: (DevicePlan, Arc<correlated_budget::CorrelatedBudget>),
 ) -> JobOutcome {
+    let (devices, budget) = options;
     collect_with_policy(
         build,
         roots,
@@ -295,8 +309,12 @@ pub(crate) fn collect_open_forest_filtered_with_budget(
         context,
         limit,
         Policy::BeforeMetadata(include),
-        (devices, None, None),
-        Some(budget),
+        ScanOptions {
+            devices,
+            diagnostics: None,
+            scan_control: None,
+            correlated_budget: Some(budget),
+        },
     )
 }
 
@@ -315,7 +333,21 @@ pub(crate) fn collect_open_forest_diagnostic(
 ) -> JobOutcome {
     let include = |_: &[Vec<u8>]| true;
     let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
-    collect_with_policy(build, roots, ids, context, limit, policy, options, None)
+    let (devices, diagnostics, scan_control) = options;
+    collect_with_policy(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        policy,
+        ScanOptions {
+            devices,
+            diagnostics,
+            scan_control,
+            correlated_budget: None,
+        },
+    )
 }
 
 fn collect_with_policy(
@@ -325,12 +357,7 @@ fn collect_with_policy(
     context: &dyn JobContext,
     limit: usize,
     policy: Policy<'_>,
-    options: (
-        DevicePlan,
-        Option<&crate::scan_job::ScanDiagnostics>,
-        Option<&ScanControlSession>,
-    ),
-    correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
+    options: ScanOptions<'_>,
 ) -> JobOutcome {
     struct FinishControl<'a>(Option<&'a ScanControlSession>);
     impl Drop for FinishControl<'_> {
@@ -340,29 +367,17 @@ fn collect_with_policy(
             }
         }
     }
-    let (devices, diagnostics, scan_control) = options;
-    let _finish_control = FinishControl(scan_control);
+    let _finish_control = FinishControl(options.scan_control);
     let mut counts = JobCounts::default();
     let worker_control = Control {
         ids,
         context,
         limit,
         policy,
-        scan_control,
     };
     let clock = ContextClock(context);
-    let result = build.and_then(|build| {
-        run(
-            build,
-            roots,
-            worker_control,
-            &mut counts,
-            devices,
-            &clock,
-            diagnostics,
-            correlated_budget,
-        )
-    });
+    let result =
+        build.and_then(|build| run(build, roots, worker_control, &mut counts, &clock, options));
     match result {
         Ok((id, cancelled, unprocessed_roots)) => JobOutcome {
             counts,

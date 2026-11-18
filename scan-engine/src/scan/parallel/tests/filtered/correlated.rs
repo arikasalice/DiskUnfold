@@ -454,11 +454,13 @@ fn path_budget_exhaustion_keeps_item_and_holds_correlated_attempt()
         &context,
         1,
         &|_, _, _| FilterDecision::Admit,
-        crate::scan::parallel::DevicePlan {
-            groups: vec![0],
-            limit: 1,
-        },
-        budget,
+        (
+            crate::scan::parallel::DevicePlan {
+                groups: vec![0],
+                limit: 1,
+            },
+            budget,
+        ),
     );
     assert!(outcome.result_version_id.is_some());
     let result = sink
@@ -567,11 +569,13 @@ fn refused_child_attempt_keeps_child_traversal_and_results()
         &context,
         1,
         &|_, _, _| FilterDecision::Admit,
-        crate::scan::parallel::DevicePlan {
-            groups: vec![0],
-            limit: 1,
-        },
-        budget,
+        (
+            crate::scan::parallel::DevicePlan {
+                groups: vec![0],
+                limit: 1,
+            },
+            budget,
+        ),
     );
     assert!(outcome.result_version_id.is_some());
     let result = sink

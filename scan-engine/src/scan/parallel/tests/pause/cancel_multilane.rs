@@ -430,7 +430,6 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
             context: run_context.as_ref(),
             limit: LANE_COUNT,
             policy: Policy::Legacy(&include),
-            scan_control: None,
         };
         let clock = ContextClock(run_context.as_ref());
         let result = body::run(
@@ -438,13 +437,16 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
             roots,
             control,
             &mut JobCounts::default(),
-            DevicePlan {
-                groups: vec![0, 1],
-                limit: 1,
-            },
             &clock,
-            None,
-            None,
+            crate::scan::parallel::ScanOptions {
+                devices: DevicePlan {
+                    groups: vec![0, 1],
+                    limit: 1,
+                },
+                diagnostics: None,
+                scan_control: None,
+                correlated_budget: None,
+            },
         )
         .map_err(|error| format!("{error:?}"));
         let _ = done_tx.send(result);
