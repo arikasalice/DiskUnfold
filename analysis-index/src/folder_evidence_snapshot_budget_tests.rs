@@ -90,7 +90,6 @@ fn replacement_reserves_old_snapshot_and_new_event_against_one_folder_cap() -> R
         .seal(id(61)?, ResultCompleteness::Partial)
         .map_err(|error| format!("{error:?}"))?;
     let prior_items = previous.items().to_vec();
-    drop(original);
 
     let mut replacement = sink
         .open_replacement(&previous)

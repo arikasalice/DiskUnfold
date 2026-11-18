@@ -308,9 +308,7 @@ impl FolderAttemptLedger {
             if previous.event_watermark_exclusive == event_watermark_exclusive
                 && previous.child_count_exclusive == child_count_exclusive
             {
-                if let Err(error) = previous.outcome {
-                    return Err(error);
-                }
+                previous.outcome?;
                 return if self.attempts[index].status == FolderAttemptStatus::EndedUnproven {
                     Ok(())
                 } else {

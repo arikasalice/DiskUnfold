@@ -301,7 +301,7 @@ fn scope_key_matches(
         && offset == key.len()
 }
 
-fn take<'a>(key: &'a [u8], offset: &mut usize, expected: &[u8]) -> Option<bool> {
+fn take(key: &[u8], offset: &mut usize, expected: &[u8]) -> Option<bool> {
     let end = offset.checked_add(expected.len())?;
     let matches = key.get(*offset..end)? == expected;
     *offset = end;
