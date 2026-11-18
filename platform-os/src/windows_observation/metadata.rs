@@ -8,7 +8,16 @@ impl WindowsDirectory {
     /// An entry on another volume is reported with that volume's serial number
     /// so that the collector can classify it outside the boundary. Its size,
     /// time and space facts are withheld, as `MetadataObservation` requires.
-    pub(super) fn observe(&self, name: Vec<u8>, inode: u64, attributes: u32) -> ObservedEntry {
+    ///
+    /// `attributes` and `ea_size` come from the entry's enumeration record;
+    /// `ea_size` is read as a reparse tag only for a reparse point.
+    pub(super) fn observe(
+        &self,
+        name: Vec<u8>,
+        inode: u64,
+        attributes: u32,
+        ea_size: u32,
+    ) -> ObservedEntry {
         #[cfg(test)]
         PROBES.with(|count| count.set(count.get() + 1));
         let metadata = recall::observe_if_safe(attributes, || {
@@ -19,7 +28,7 @@ impl WindowsDirectory {
         ObservedEntry {
             name,
             enumerated_inode: inode,
-            enumerated_kind: kind(attributes),
+            enumerated_kind: reparse::enumerated_kind(attributes, ea_size),
             metadata,
         }
     }

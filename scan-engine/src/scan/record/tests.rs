@@ -61,3 +61,33 @@ fn a_second_failure_of_one_path_stops_debug_builds() {
     let _ = ranges.counted(0, &path);
     let _ = ranges.counted(0, &path);
 }
+
+#[test]
+fn excluded_counts_above_the_reported_range_saturate_as_a_lower_bound() {
+    assert_eq!(excluded_children(0, true), None);
+    assert_eq!(excluded_children(3, true), Some((3, true)));
+    assert_eq!(excluded_children(3, false), Some((3, false)));
+    let max = u64::from(u32::MAX);
+    assert_eq!(excluded_children(max, true), Some((u32::MAX, true)));
+    assert_eq!(excluded_children(max + 1, true), Some((u32::MAX, false)));
+}
+
+/// A folder is never marked twice, nor both failed and marked.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "a directory with a failed range was marked as unread")]
+fn a_failed_folder_that_is_marked_stops_debug_builds() {
+    let mut ranges = FailedRanges::new(vec![false]);
+    let path = [b"a".to_vec()];
+    let _ = ranges.counted(0, &path);
+    ranges.unread(0, &path);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "a directory was marked as unread twice")]
+fn a_second_mark_of_one_folder_stops_debug_builds() {
+    let mut ranges = FailedRanges::new(vec![false]);
+    ranges.unread(0, &[]);
+    ranges.unread(0, &[]);
+}

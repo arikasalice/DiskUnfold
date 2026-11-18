@@ -176,16 +176,16 @@ function picker(
 
 async function showList() {
   fireEvent.click(
-    screen.getByRole("button", { name: "Recent analysis ranges" }),
+    screen.getByRole("button", { name: "Recent analysis scopes" }),
   );
-  await screen.findByRole("heading", { name: "Recent analysis ranges" });
+  await screen.findByRole("heading", { name: "Recent analysis scopes" });
   // The heading renders while the list request is still pending, so rows,
   // the empty notice or the error notice exist only after loading ends.
   await waitFor(() => expect(screen.queryByText(/^Loading recent/)).toBeNull());
 }
 
 async function showReview() {
-  await screen.findByRole("heading", { name: "Review saved range" });
+  await screen.findByRole("heading", { name: "Review saved scope" });
   // The detail heading also renders before the open request settles; its
   // targets and actions exist only after the saved-path check ends.
   await waitFor(() =>
@@ -206,9 +206,9 @@ test("F01 FR8: lists records in server order, opens only the selected reference,
   const { onApply, nextRequestSeq } = picker(client);
 
   await showList();
-  const buttons = screen.getAllByRole("button", { name: /Review range/ });
+  const buttons = screen.getAllByRole("button", { name: /^Review scope \d+$/ });
   expect(buttons).toHaveLength(2);
-  expect(buttons[0]?.textContent).toBe("Review range 1");
+  expect(buttons[0]?.textContent).toBe("Review scope 1");
   fireEvent.click(buttons[1]!);
   await showReview();
   expect(calls.filter(({ name }) => name === "scope.recent_open")).toEqual([
@@ -221,7 +221,7 @@ test("F01 FR8: lists records in server order, opens only the selected reference,
   expect(screen.getByText("*.tmp")).toBeDefined();
   expect(screen.getByText("Stay within each current volume")).toBeDefined();
   expect(screen.getByText("E:\\mount")).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use this scope" }));
   expect(onApply).toHaveBeenCalledWith(draft, review());
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
   expect(nextRequestSeq).toHaveBeenCalledTimes(1);
@@ -247,27 +247,27 @@ test("F01 FR8: refuses apply when review is null or any target is unresolved", a
   });
   const { onApply } = picker(client);
   await showList();
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await showReview();
   expect(
     screen.getByText(/Current paths and access could not be reviewed/),
   ).toBeDefined();
-  expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Use this scope" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Check paths again" }));
   await screen.findAllByText("Volume matched");
-  expect(screen.getByRole("button", { name: "Use this range" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Use this scope" })).toBeDefined();
 
   fireEvent.click(
-    screen.getAllByRole("button", { name: "Back to recent ranges" })[0]!,
+    screen.getAllByRole("button", { name: "Back to recent scopes" })[0]!,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Location moved");
   expect(screen.getByText("Current volume entry:")).toBeDefined();
   expect(screen.getByText("C:\\")).toBeDefined();
   expect(
     screen.getByRole("button", { name: "Choose a path again" }),
   ).toBeDefined();
-  expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Use this scope" })).toBeNull();
   expect(onApply).not.toHaveBeenCalled();
 });
 
@@ -294,10 +294,10 @@ test("F01 FR8: keeps focus on valid controls through replace confirmation and pa
   });
   picker(client, vi.fn(), undefined, true);
   await showList();
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
-  await screen.findByRole("button", { name: "Use this range" });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
+  await screen.findByRole("button", { name: "Use this scope" });
 
-  fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use this scope" }));
   const replaceButton = screen.getByRole("button", {
     name: "Replace current scope",
     description: /Replace the current folder paths, exclusions, boundary/,
@@ -317,25 +317,25 @@ test("F01 FR8: keeps focus on valid controls through replace confirmation and pa
   });
 
   fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-  const useButton = screen.getByRole("button", { name: "Use this range" });
+  const useButton = screen.getByRole("button", { name: "Use this scope" });
   await waitFor(() => expect(document.activeElement).toBe(useButton));
   expect(document.activeElement).not.toBe(document.body);
   expect(scrollIntoView.mock.contexts.at(-1)).toBe(useButton);
 
   fireEvent.click(
-    screen.getByRole("button", { name: "Back to recent ranges" }),
+    screen.getByRole("button", { name: "Back to recent scopes" }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByRole("button", { name: "Choose a path again" });
   fireEvent.click(screen.getByRole("button", { name: "Check paths again" }));
   const detailHeading = screen.getByRole("heading", {
-    name: "Review saved range",
+    name: "Review saved scope",
   });
   await screen.findByText("Checking saved paths and access…");
   expect(document.activeElement).toBe(detailHeading.parentElement);
   expect(document.activeElement?.isConnected).toBe(true);
   await act(async () => finishRefresh(opened("matched", review(draft, 72))));
-  await screen.findByRole("button", { name: "Use this range" });
+  await screen.findByRole("button", { name: "Use this scope" });
   expect(document.activeElement).toBe(detailHeading.parentElement);
   expect(document.activeElement?.isConnected).toBe(true);
 });
@@ -497,8 +497,8 @@ test.each([
     }
 
     await showList();
-    fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
-    await screen.findByRole("button", { name: "Use this range" });
+    fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
+    await screen.findByRole("button", { name: "Use this scope" });
     const beforeConfirm = scrollContainer.scrollTop;
     const writesBeforeConfirm = scrollWrites.length;
     if (scrollMode === "document") {
@@ -510,7 +510,7 @@ test.each([
         nativeFocus.call(this, options);
       });
     }
-    fireEvent.click(screen.getByRole("button", { name: "Use this range" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use this scope" }));
 
     const groupElement = screen.getByRole("group", {
       name: "Replace current scope",
@@ -547,11 +547,11 @@ test.each([
     fireEvent.keyUp(keepEditing, { key: " " });
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Use this range" }),
+        screen.getByRole("button", { name: "Use this scope" }),
       ).toBeDefined(),
     );
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Use this range" }),
+      screen.getByRole("button", { name: "Use this scope" }),
     );
   },
 );
@@ -569,7 +569,7 @@ test("F01 FR8: renders an empty list and retries a failed list read", async () =
   await screen.findByRole("button", { name: "Try again" });
   fail = false;
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await screen.findByText(/There are no recent analysis ranges/);
+  await screen.findByText(/There are no recent analysis scopes/);
   expect(calls.filter(({ name }) => name === "scope.recent_list")).toHaveLength(
     2,
   );
@@ -591,18 +591,18 @@ test("F01 FR8: retries a failed detail read and names disconnected and unverifia
   });
   picker(client);
   await showList();
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
-  await screen.findByText(/saved range could not be opened/);
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
+  await screen.findByText(/saved scope could not be opened/);
   fail = false;
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByText("Volume disconnected");
-  expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Use this scope" })).toBeNull();
 
   fireEvent.click(
-    screen.getAllByRole("button", { name: "Back to recent ranges" })[0]!,
+    screen.getAllByRole("button", { name: "Back to recent scopes" })[0]!,
   );
   state = "unverifiable";
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Cannot verify that this is the same volume");
   expect(calls.filter(({ name }) => name === "scope.recent_open")).toHaveLength(
     3,
@@ -624,18 +624,18 @@ test("F01 FR8: ignores a late detail response after closing and reopening the li
   });
   const { onApply } = picker(client);
   await showList();
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Checking saved paths and access…");
-  fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close recent scopes" }));
   await waitFor(() =>
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Recent analysis ranges" }),
+      screen.getByRole("button", { name: "Recent analysis scopes" }),
     ),
   );
   await showList();
   await act(async () => finishOpen(opened()));
   expect(
-    screen.queryByRole("heading", { name: "Review saved range" }),
+    screen.queryByRole("heading", { name: "Review saved scope" }),
   ).toBeNull();
   expect(onApply).not.toHaveBeenCalled();
   expect(calls.some(({ name }) => name === "scan.start")).toBe(false);
@@ -658,12 +658,12 @@ test("F01 FR8: a newer selection wins when two detail requests finish out of ord
   });
   const { onApply } = picker(client);
   await showList();
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Checking saved paths and access…");
   fireEvent.click(
-    screen.getByRole("button", { name: "Back to recent ranges" }),
+    screen.getByRole("button", { name: "Back to recent scopes" }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Review range 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 2" }));
   await screen.findAllByText("Z:\\newer-choice");
   await act(async () => finishFirst(opened("matched", review(draft, 70))));
   expect(screen.getAllByText("Z:\\newer-choice")).toHaveLength(2);
@@ -692,41 +692,41 @@ test("F01 FR8: rejects late successes and failures after the editor sequence cha
   const { onApply, currentSeq, rerender } = picker(client);
   await showList();
 
-  fireEvent.click(screen.getByRole("button", { name: "Review range 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Checking saved paths and access…");
   const focusedDetailHeading = document.activeElement;
   currentSeq.value = 71;
   await act(async () => finishSuccess(opened("matched", review(draft, 70))));
-  await screen.findByText("The scope changed. Check the saved range again.");
-  expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
+  await screen.findByText("The scope changed. Check the saved scope again.");
+  expect(screen.queryByRole("button", { name: "Use this scope" })).toBeNull();
   expect(document.activeElement).toBe(focusedDetailHeading);
   expect(onApply).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
   fireEvent.click(
-    screen.getAllByRole("button", { name: "Back to recent ranges" })[0]!,
+    screen.getAllByRole("button", { name: "Back to recent scopes" })[0]!,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Review range 2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 2" }));
   await screen.findByText("Checking saved paths and access…");
   currentSeq.value = 72;
   await act(async () => finishFailure(new Error("review transport failed")));
-  await screen.findByText("The scope changed. Check the saved range again.");
-  expect(screen.queryByRole("button", { name: "Use this range" })).toBeNull();
+  await screen.findByText("The scope changed. Check the saved scope again.");
+  expect(screen.queryByRole("button", { name: "Use this scope" })).toBeNull();
   expect(onApply).not.toHaveBeenCalled();
   fireEvent.click(
-    screen.getAllByRole("button", { name: "Back to recent ranges" })[0]!,
+    screen.getAllByRole("button", { name: "Back to recent scopes" })[0]!,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Review range 3" }));
-  await screen.findByRole("button", { name: "Use this range" });
+  fireEvent.click(screen.getByRole("button", { name: "Review scope 3" }));
+  await screen.findByRole("button", { name: "Use this scope" });
   const applyBeforeEdit = screen.getByRole("button", {
-    name: "Use this range",
+    name: "Use this scope",
   });
   currentSeq.value = 73;
   fireEvent.click(applyBeforeEdit);
   expect(onApply).not.toHaveBeenCalled();
   rerender();
-  const staleApply = screen.queryByRole("button", { name: "Use this range" });
+  const staleApply = screen.queryByRole("button", { name: "Use this scope" });
   expect(staleApply).toBeNull();
   expect(screen.getByText(/editor scope changed/)).toBeDefined();
   expect(onApply).not.toHaveBeenCalled();
@@ -753,21 +753,21 @@ test("F01 FR8: preserves long paths and returns focus to the originating row", a
   picker(client, vi.fn(), scrollContainerRef);
   await showList();
   scrollContainerRef.current.scrollTop = 125;
-  const row = screen.getByRole("button", { name: "Review range 1" });
+  const row = screen.getByRole("button", { name: "Review scope 1" });
   fireEvent.click(row);
   await screen.findAllByText(longPath);
   scrollContainerRef.current.scrollTop = 0;
   fireEvent.click(
-    screen.getByRole("button", { name: "Back to recent ranges" }),
+    screen.getByRole("button", { name: "Back to recent scopes" }),
   );
   expect(scrollContainerRef.current.scrollTop).toBe(125);
   await waitFor(() =>
-    expect(document.activeElement?.textContent).toContain("Review range 1"),
+    expect(document.activeElement?.textContent).toContain("Review scope 1"),
   );
   expect(
-    screen.getByRole("heading", { name: "Recent analysis ranges" }),
+    screen.getByRole("heading", { name: "Recent analysis scopes" }),
   ).toBeDefined();
-  fireEvent.click(screen.getByRole("button", { name: "Close recent ranges" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close recent scopes" }));
   expect(scrollContainerRef.current.scrollTop).toBe(225);
 });
 
@@ -792,14 +792,14 @@ test.each(["editor element", "document"] as const)(
     });
     picker(client, vi.fn(), scrollContainerRef);
     await showList();
-    const row = screen.getByRole("button", { name: "Review range 1" });
+    const row = screen.getByRole("button", { name: "Review scope 1" });
     fireEvent.click(row);
     await screen.findAllByText("C:\\archive\\one");
     fireEvent.click(
-      screen.getByRole("button", { name: "Back to recent ranges" }),
+      screen.getByRole("button", { name: "Back to recent scopes" }),
     );
 
-    const returnedRow = screen.getByRole("button", { name: "Review range 1" });
+    const returnedRow = screen.getByRole("button", { name: "Review scope 1" });
     await waitFor(() => expect(document.activeElement).toBe(returnedRow));
     expect(returnedRow.tabIndex).toBe(0);
     const tabStops = Array.from(
@@ -808,7 +808,7 @@ test.each(["editor element", "document"] as const)(
     expect(
       tabStops[tabStops.indexOf(returnedRow as HTMLButtonElement) + 1]
         ?.textContent,
-    ).toContain("Review range 2");
+    ).toContain("Review scope 2");
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "nearest",
       inline: "nearest",
@@ -821,7 +821,7 @@ test("F01 FR8: keeps the restored scroll position when the returned row is alrea
   const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
-      return this.textContent?.includes("Review range 1")
+      return this.textContent?.includes("Review scope 1")
         ? new DOMRect(0, 120, 240, 40)
         : new DOMRect();
     },
@@ -840,17 +840,17 @@ test("F01 FR8: keeps the restored scroll position when the returned row is alrea
   picker(client, vi.fn(), scrollContainerRef);
   await showList();
   scrollContainerRef.current.scrollTop = 125;
-  const row = screen.getByRole("button", { name: "Review range 1" });
+  const row = screen.getByRole("button", { name: "Review scope 1" });
   fireEvent.click(row);
   await screen.findAllByText("C:\\archive\\one");
   // The user may have scrolled while reviewing; return to the saved list position.
   scrollContainerRef.current.scrollTop = 0;
   writes.length = 0;
   fireEvent.click(
-    screen.getByRole("button", { name: "Back to recent ranges" }),
+    screen.getByRole("button", { name: "Back to recent scopes" }),
   );
 
-  const returnedRow = screen.getByRole("button", { name: "Review range 1" });
+  const returnedRow = screen.getByRole("button", { name: "Review scope 1" });
   await waitFor(() => expect(document.activeElement).toBe(returnedRow));
   expect(scrollContainerRef.current.scrollTop).toBe(125);
   expect(writes).toEqual([125]);

@@ -302,6 +302,7 @@ test("F02 FR8.HD1: an ended scan, a replaced result and other failures clear the
   expect(
     within(gridRow("Videos")).queryByText("Analyze first requested"),
   ).toBeNull();
+  expect(rowAction("Videos")).not.toBeNull();
 });
 
 test("F02 FR8.HD1: superseded and late responses are discarded", async () => {

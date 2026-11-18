@@ -7,12 +7,10 @@
 pub use crate::aggregation_rule::DEFAULT_SIZE_RULE_ID;
 use crate::aggregation_rule::{BUILTIN_RULES, BoundSizeRule};
 use crate::{BuildError, BuildHandle, SizeRuleIdentity};
+pub use du_core_contracts::size_rule::SIZE_RULE_KIND;
 
 #[cfg(test)]
 mod tests;
-
-/// Algorithm kind under which size aggregation rules are registered.
-pub const SIZE_RULE_KIND: &str = "size_rule";
 
 /// Composition-time failure while assembling a [`SizeRuleRegistry`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

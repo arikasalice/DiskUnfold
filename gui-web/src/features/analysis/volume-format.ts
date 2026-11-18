@@ -5,7 +5,7 @@ import { displayEvidence, formatBytes, formatSizeBytes } from "./space-format";
 import type { SizeDisplay } from "./space-format";
 
 export type Message = readonly [key: string, fallback: string];
-export const factorLabels: Readonly<Record<string, Message>> = {
+const factorLabels: Readonly<Record<string, Message>> = {
   "gap.out_of_scope": [
     "ui.analysis.volume_factor_out_of_scope",
     "Outside the analysis scope",
@@ -37,6 +37,37 @@ export const factorLabels: Readonly<Record<string, Message>> = {
   ],
 };
 
+/** Why a volume value is missing, for the reasons that have a text. */
+const unavailableReasons: Readonly<Record<string, Message>> = {
+  "space.volume_report_unavailable": [
+    "ui.analysis.volume_report_unavailable",
+    "The operating system did not report the volume usage.",
+  ],
+  "space.data_insufficient": [
+    "ui.analysis.space_data_insufficient",
+    "Some space data could not be verified",
+  ],
+};
+
+/** "Unavailable", followed by why when the reason has a text. */
+export function unavailableValue(
+  reasonKey: string,
+  text: ReturnType<typeof useLocaleText>,
+): string {
+  const unavailable = text("ui.analysis.unavailable", "Unavailable");
+  const reason = unavailableReasons[reasonKey];
+  return reason ? [unavailable, text(...reason)].join(" · ") : unavailable;
+}
+
+/** Names a difference factor; a factor without a name reads as unknown. */
+export function factorLabel(
+  key: string,
+  text: ReturnType<typeof useLocaleText>,
+): string {
+  const label = factorLabels[key];
+  return label ? text(...label) : text("ui.common.unknown", "Unknown");
+}
+
 /** Shows the selected unit and preserves the exact bytes in the explanation. */
 export function volumeBytes(
   bytes: string,
@@ -53,8 +84,7 @@ export function amount(
   display: SizeDisplay,
   text: ReturnType<typeof useLocaleText>,
 ): string {
-  if (value.state === "unknown")
-    return text("ui.analysis.unavailable", "Unavailable");
+  if (value.state === "unknown") return unavailableValue(value.reasonKey, text);
   return [
     volumeBytes(value.bytes, display, text),
     displayEvidence(value.evidence, text),
@@ -92,16 +122,16 @@ export function observationRows(
       })
     : text("ui.analysis.volume_time_unavailable", "Time unavailable");
   if (observation.state === "unavailable") {
+    const reason = unavailableReasons[observation.reasonKey];
     return [
       {
         label: observationLabel,
-        value: text(
-          "ui.analysis.volume_unavailable_at",
-          "Unavailable · {time}",
-          {
+        value: [
+          text("ui.analysis.volume_unavailable_at", "Unavailable · {time}", {
             time,
-          },
-        ),
+          }),
+          ...(reason ? [text(...reason)] : []),
+        ].join(" · "),
       },
     ];
   }

@@ -80,5 +80,6 @@ pub(in super::super) fn project_context(
                 revision: *revision,
             })
             .collect(),
+        excluded_children: None,
     })
 }
