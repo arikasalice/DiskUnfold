@@ -466,9 +466,10 @@ fn correlated_worker_records_observation_without_promoting_attempt()
         );
         let attempts = result.folder_attempt_summaries().ok_or("missing attempt")?;
         assert_eq!(attempts.len(), 1);
+        // EndedUnproven does not promote to Exact.
         assert_eq!(
             attempts[0].status,
-            du_analysis_index::FolderAttemptStatus::Held
+            du_analysis_index::FolderAttemptStatus::EndedUnproven
         );
     }
     Ok(())
