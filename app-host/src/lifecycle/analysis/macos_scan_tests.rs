@@ -34,8 +34,8 @@ fn draft(path: &Path) -> Value {
     json!({"includes":[include],"exclusions":[],"boundary":"current_volume","includedMounts":[],"source":"gui"})
 }
 
-/// Builds the scope: 135 readable bytes, a zero-byte file, two links and a
-/// folder without permissions. Returns whether that folder is actually denied,
+/// Builds the scope: 135 readable file bytes, a zero-byte file, two links of 2 and 1
+/// own bytes and a folder without permissions. Returns whether that folder is actually denied,
 /// which does not hold for a superuser.
 fn fixture(base: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     fs::create_dir_all(base.join("sub").join("deep"))?;
@@ -120,9 +120,10 @@ fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
         "space.total",
         json!({"resultVersion":version,"requestSeq":1,"target":{"kind":"scope_root"}}),
     )?;
-    // Untraversed links leave the readable total as a lower bound.
+    // The links add their own 3 bytes and their targets are only counted; only the
+    // denied folder makes the total a lower bound.
     let (bytes, exact) = logical(&total)?;
-    assert_eq!((bytes, exact), (135, false));
+    assert_eq!((bytes, exact), (138, !denied));
     let failures: ScanFailures = read(&engine, "scan.failures", json!({"resultVersion":version}))?;
     let rows: Vec<_> = failures
         .rows
@@ -146,7 +147,7 @@ fn scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
     assert_eq!(denied_rows, usize::from(denied), "{rows:?}");
     assert_eq!(failures.total_count, 2 + u64::from(denied));
     eprintln!(
-        "F02_MACOS_ENGINE state=done logical_lower_bound={bytes} completed={} failed={} failure_rows={} denied_case={denied}",
+        "F02_MACOS_ENGINE state=done logical_bytes={bytes} logical_exact={exact} completed={} failed={} failure_rows={} denied_case={denied}",
         finish.body["completed"], finish.body["failed"], failures.total_count
     );
     Ok(())

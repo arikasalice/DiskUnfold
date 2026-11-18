@@ -66,8 +66,9 @@ fn excluded_scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
         "space.total",
         json!({"resultVersion": version, "requestSeq": 1, "target": {"kind": "scope_root"}}),
     )?;
-    // 135 readable fixture bytes, less sub (30) and raw-\xff (5), plus Sub/d.bin (11).
-    assert_eq!(logical(&total)?, (111, false));
+    // 135 readable fixture bytes, less sub (30) and raw-\xff (5), plus Sub/d.bin (11) and
+    // the links' own 3 bytes. The excluded denied folder is never opened, so it is exact.
+    assert_eq!(logical(&total)?, (114, true));
     let failures: ScanFailures = read(&engine, "scan.failures", json!({"resultVersion": version}))?;
     // Only the untraversed links remain; an excluded unreadable folder is never opened.
     let rows: Vec<_> = failures
@@ -107,7 +108,7 @@ fn excluded_scan(base: &Path, profile: &Path, denied: bool) -> TestResult {
     );
     assert!(opened.iter().any(|name| name == b"Sub"), "{opened:?}");
     eprintln!(
-        "F02_LINUX_EXCLUSION state=done logical_lower_bound=111 offered={offered} opened={} failure_rows={} denied_case={denied}",
+        "F02_LINUX_EXCLUSION state=done logical_bytes=114 offered={offered} opened={} failure_rows={} denied_case={denied}",
         opened.len(),
         failures.total_count
     );
