@@ -15,17 +15,22 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
-      # The runner image version is part of the key because a new image changes package versions.
+      # The exact key ends with the runner image version so a changed image saves a fresh cache.
+      # The prefix key leaves the version out: a run on another image still restores the files of
+      # an earlier image, and apt only downloads the packages whose versions differ.
       run: |
         set -euo pipefail
         digest="$(printf '%s\n' $PACKAGES | sort -u | sha256sum | cut -c1-16)"
-        echo "key=apt-debs-$RUNNER_OS-$RUNNER_ARCH-${ImageVersion:-unknown}-$digest" >> "$GITHUB_OUTPUT"
+        prefix="apt-debs-v2-$RUNNER_OS-$RUNNER_ARCH-$digest-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       env:
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: "5"
       with:
         path: ~/apt-debs
         key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.prefix }}
     - name: Install packages
       shell: bash
       env:
@@ -36,5 +41,8 @@ runs:
         sudo cp -n "$HOME"/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
         sudo apt-get update
         sudo apt-get install -y $PACKAGES
-        sudo cp -n /var/cache/apt/archives/*.deb "$HOME/apt-debs/" 2>/dev/null || true
+        # Drop superseded versions, then keep exactly what apt holds now for the next cache.
+        sudo apt-get autoclean || true
+        rm -f "$HOME"/apt-debs/*.deb
+        sudo cp /var/cache/apt/archives/*.deb "$HOME/apt-debs/" 2>/dev/null || true
         sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
