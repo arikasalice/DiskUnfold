@@ -633,7 +633,9 @@ test("entry point shows loading, failure and a newer table independently of the 
     });
   });
   expect(
-    screen.getByRole("progressbar", { name: "Loading items in the latest result" }),
+    screen.getByRole("progressbar", {
+      name: "Loading items in the latest result",
+    }),
   ).toBeTruthy();
   await act(async () => {
     rowWait.resolve({
@@ -644,7 +646,9 @@ test("entry point shows loading, failure and a newer table independently of the 
     });
     await rows;
   });
-  fireEvent.click(screen.getByRole("button", { name: /Items in the latest result/ }));
+  fireEvent.click(
+    screen.getByRole("button", { name: /Items in the latest result/ }),
+  );
   expect(screen.getByText("No rows in this page")).toBeTruthy();
   await act(async () => controller.render(request(3, "new-revision")));
   expect(screen.getByText("The chart could not be loaded.")).toBeTruthy();
@@ -812,7 +816,9 @@ test("the newer fallback table loads its first page from the UI without changing
     start: 0,
     count: 100,
   });
-  const table = screen.getByRole("region", { name: "Items in the latest result" });
+  const table = screen.getByRole("region", {
+    name: "Items in the latest result",
+  });
   fireEvent.click(
     within(table).getByRole("button", { name: /Items in the latest result/ }),
   );

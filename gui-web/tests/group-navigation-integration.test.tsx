@@ -194,7 +194,9 @@ test("fallback table group keyboard entry returns to its row and never restores 
   );
   expect(document.activeElement).not.toBe(firstOrigin);
 
-  fireEvent.click(screen.getByRole("button", { name: "Items in the latest result" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Items in the latest result" }),
+  );
   const secondOrigin = screen.getByRole("button", {
     name: /View items in Group [AB]/,
   });
