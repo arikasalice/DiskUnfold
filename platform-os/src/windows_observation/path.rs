@@ -1,11 +1,11 @@
 use super::invalid;
 use du_core_contracts::ports::PortError;
 
-pub(super) fn bytes(name: &[u16]) -> Vec<u8> {
+pub(crate) fn bytes(name: &[u16]) -> Vec<u8> {
     name.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
-pub(super) fn wide(name: &[u8]) -> Result<Vec<u16>, PortError> {
+pub(crate) fn wide(name: &[u8]) -> Result<Vec<u16>, PortError> {
     if name.is_empty() || !name.len().is_multiple_of(2) {
         return Err(invalid());
     }

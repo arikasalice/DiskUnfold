@@ -3,8 +3,10 @@
 //! This boundary is not enabled until the result receiver owns its events.
 mod next;
 
-use super::QueuedEntry;
+use super::{Directory, QueuedEntry};
 use crate::scan::parallel::correlated_budget::{CorrelatedBudget, MAX_EVENT_PAYLOAD_BYTES, Permit};
+#[cfg(test)]
+use du_core_contracts::{Timestamp, scan_observation::FilterDecision};
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::CorrelatedDirectoryEvent,

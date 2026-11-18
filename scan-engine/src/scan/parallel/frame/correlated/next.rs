@@ -8,7 +8,6 @@ use crate::scan::parallel::{
 };
 use du_core_contracts::{
     Timestamp,
-    ports::{PortError, PortErrorKind},
     scan_observation::{CorrelatedDirectoryEvent, FilterDecision},
 };
 

@@ -249,9 +249,7 @@ impl Progress {
                 Ok(())
             }
             Event::RootBatch(root_index, modified_at, observed_at) => self.record_root_batch(
-                root_index,
-                modified_at,
-                observed_at,
+                (root_index, modified_at, observed_at),
                 build,
                 context,
                 ids,
@@ -262,9 +260,11 @@ impl Progress {
 
     fn record_root_batch(
         &mut self,
-        root_index: u32,
-        modified_at: Option<du_core_contracts::Timestamp>,
-        observed_at: Option<du_core_contracts::Timestamp>,
+        (root_index, modified_at, observed_at): (
+            u32,
+            Option<du_core_contracts::Timestamp>,
+            Option<du_core_contracts::Timestamp>,
+        ),
         build: &mut BuildHandle,
         context: &dyn JobContext,
         ids: &dyn ResultIds,
