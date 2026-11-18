@@ -37,6 +37,7 @@ pub struct ProductionEvidence {
     formats: Vec<String>,
     view_policy_revision: u32,
     unit_table: UnitTableSource,
+    folder_facts: facts::FolderFacts,
 }
 
 impl ProductionEvidence {
@@ -53,6 +54,7 @@ impl ProductionEvidence {
             formats,
             view_policy_revision,
             unit_table,
+            folder_facts: facts::FolderFacts::new(),
         }
     }
 }
@@ -67,7 +69,8 @@ impl EvidenceProducer for ProductionEvidence {
         source: &CurrentAnalysis,
         aggregate_scope_ref: &ItemRef,
     ) -> Result<FactValues, EngineError> {
-        facts::scope_facts(source, aggregate_scope_ref, &facts::AVAILABILITY_BASIS)
+        self.folder_facts
+            .read(source, aggregate_scope_ref, &facts::AVAILABILITY_BASIS)
     }
 
     fn required_data_facts(
@@ -75,7 +78,9 @@ impl EvidenceProducer for ProductionEvidence {
         source: &CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<Option<FactValues>, EngineError> {
-        facts::scope_facts(source, &request.aggregate_scope_ref, &request.size_basis).map(Some)
+        self.folder_facts
+            .read(source, &request.aggregate_scope_ref, &request.size_basis)
+            .map(Some)
     }
 
     fn source_policy_facts(
@@ -83,15 +88,17 @@ impl EvidenceProducer for ProductionEvidence {
         source: &CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<Option<SourcePolicyFacts>, EngineError> {
-        if request.color_criterion != policy::COLOR_CRITERION_NONE {
+        // Both criteria name rule tables that do not exist yet, so only "none" is served.
+        if request.classification_criterion != policy::CLASSIFICATION_CRITERION_NONE
+            || request.color_criterion != policy::COLOR_CRITERION_NONE
+        {
             return Err(EngineError::reason("viz.measure_unknown"));
         }
-        let available = facts::available_formats(
-            source,
-            &request.aggregate_scope_ref,
-            &request.size_basis,
-            &self.formats,
-        )?;
+        let values =
+            self.folder_facts
+                .read(source, &request.aggregate_scope_ref, &request.size_basis)?;
+        let available =
+            facts::available_formats(source, &request.aggregate_scope_ref, values, &self.formats)?;
         Ok(Some(policy::source_policy(
             self.view_policy_revision,
             available,

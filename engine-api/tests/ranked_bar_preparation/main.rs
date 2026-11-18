@@ -191,7 +191,8 @@ fn session_prepares_pinned_rows_before_selected_ranked_strategy() -> Result<(), 
             .collect(),
         other: du_engine_api::viz_pages::ranked_group::OtherPresentation {
             group_ref: "fixture.other".into(),
-            display_name: "Other".into(),
+            display_name: "ui.visualization.group.other".into(),
+            label_key: Some("ui.visualization.group.other".into()),
             legend_class_key: "fixture.class".into(),
             display_flags: vec![],
         },
@@ -281,7 +282,8 @@ fn make_pending(
             .collect(),
         other: du_engine_api::viz_pages::ranked_group::OtherPresentation {
             group_ref: "fixture.other".into(),
-            display_name: "Other".into(),
+            display_name: "ui.visualization.group.other".into(),
+            label_key: Some("ui.visualization.group.other".into()),
             legend_class_key: "fixture.class".into(),
             display_flags: vec![],
         },
@@ -334,6 +336,13 @@ fn verify_published_group(
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(rows.rows.len(), 1);
     assert_eq!(rows.rows[0].group_ref.as_deref(), Some("fixture.other"));
+    // The supplied name and its message key reach the group row; members have neither.
+    assert_eq!(rows.rows[0].display_name, "ui.visualization.group.other");
+    assert_eq!(
+        rows.rows[0].label_key.as_deref(),
+        Some("ui.visualization.group.other")
+    );
+    assert!(members.rows.iter().all(|row| row.label_key.is_none()));
     Ok(())
 }
 

@@ -6,6 +6,7 @@ mod filter_tests;
 mod metadata;
 mod recall;
 pub mod recent_probe;
+mod reparse;
 mod scope;
 mod stable;
 use stable::open_verified_impl;
@@ -46,7 +47,7 @@ use windows::{
         Foundation::OBJECT_ATTRIBUTES,
         Storage::FileSystem::{
             FILE_OPEN, FILE_OPEN_NO_RECALL, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
-            NtCreateFile,
+            NTCREATEFILE_CREATE_OPTIONS, NtCreateFile,
         },
     },
     Win32::{
@@ -180,14 +181,16 @@ pub(crate) fn final_path(
     path.truncate(length);
     Ok(path)
 }
-/// The kind reported for the attributes of an entry or an opened handle.
+/// The kind reported for the attributes of an opened handle.
 ///
 /// Every reparse point, including a volume mount point, is a `Link`, never an
 /// `ObservedKind::MountPoint`. Junctions and volume mount points share the tag
 /// `IO_REPARSE_TAG_MOUNT_POINT`; only the reparse data's target tells them
 /// apart, and reading it is another `FSCTL_GET_REPARSE_POINT` call per entry.
 /// Entries are opened with `FILE_OPEN_REPARSE_POINT`, so a mount point is
-/// observed on its parent's volume and is not entered either way.
+/// observed on its parent's volume and is not entered either way. Enumeration
+/// records are classified by `reparse::enumerated_kind`, which also reads the
+/// record's reparse tag.
 fn kind(attributes: u32) -> ObservedKind {
     if attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
         ObservedKind::Link
@@ -196,6 +199,12 @@ fn kind(attributes: u32) -> ObservedKind {
     } else {
         ObservedKind::File
     }
+}
+
+/// Options of every entry and child-directory open: the reparse point itself
+/// is opened, and the open must not recall offline or cloud data.
+fn entry_open_options() -> NTCREATEFILE_CREATE_OPTIONS {
+    FILE_OPEN_REPARSE_POINT | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT
 }
 
 fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Result<File, PortError> {
@@ -225,7 +234,7 @@ fn relative(parent: &File, name: &[u16], directory: bool, stable: bool) -> Resul
         };
     // FILE_DIRECTORY_FILE and FILE_OPEN_NO_RECALL are not a documented
     // compatible combination. Verify directory kind from the opened handle.
-    let options = FILE_OPEN_REPARSE_POINT | FILE_OPEN_NO_RECALL | FILE_SYNCHRONOUS_IO_NONALERT;
+    let options = entry_open_options();
     // SAFETY: attributes references a valid name and live parent; NtCreateFile writes
     // the handle and status synchronously. Only read-attribute/list access is requested.
     let result = unsafe {
@@ -379,7 +388,12 @@ impl WindowsDirectory {
                 let name = bytes(&name);
                 match include(&name) {
                     FilterDecision::Admit => {
-                        let entry = self.observe(name, item.FileId as u64, item.FileAttributes);
+                        let entry = self.observe(
+                            name,
+                            item.FileId as u64,
+                            item.FileAttributes,
+                            item.EaSize,
+                        );
                         self.pending.push_back(recall::timed(entry, clock));
                     }
                     FilterDecision::Exclude => {}

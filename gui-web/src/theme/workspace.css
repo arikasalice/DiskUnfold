@@ -411,6 +411,11 @@ label.du-field > span {
   overflow-wrap: anywhere;
 }
 
+/* Text that stands in for a value still to come does not read as a value. */
+.du-readout__pending dd {
+  color: var(--du-muted);
+}
+
 .du-readout__note {
   display: block;
   margin-block-start: 2px;

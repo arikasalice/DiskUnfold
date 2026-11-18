@@ -85,6 +85,7 @@ impl UseCase for Locate {
                     .map_err(|_| EngineError::reason("support.internal_error"))?,
             }),
             Location::OutsideView => Ok(VizLocate::OutsideView {}),
+            Location::Group(group_ref) => Ok(VizLocate::Group { group_ref }),
             Location::OutsideScope => Ok(VizLocate::OutsideScope {}),
         }
     }

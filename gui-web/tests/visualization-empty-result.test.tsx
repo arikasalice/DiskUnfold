@@ -42,8 +42,12 @@ function presenter(
 }
 
 test.each([
-  ["en", "There are no items to draw in this scope", "12 items unavailable"],
-  ["ko", "이 범위에는 그릴 항목이 없습니다", "확인 불가 12개"],
+  [
+    "en",
+    "There are no items to draw in this scope",
+    "Items not drawn: 12 items",
+  ],
+  ["ko", "이 범위에는 그릴 항목이 없습니다", "그리지 않은 항목: 12개"],
 ] as const)(
   "a model with items but no shapes says there is nothing to draw, with the unavailable count (%s)",
   (language, title, unknown) => {
@@ -85,7 +89,7 @@ test("an empty model with no unavailable items shows no count", () => {
       value: "0",
     };
   });
-  expect(screen.queryByText(/^\d+ items unavailable$/)).toBeNull();
+  expect(screen.queryByText(/^Items not drawn: /)).toBeNull();
 });
 
 test.each([

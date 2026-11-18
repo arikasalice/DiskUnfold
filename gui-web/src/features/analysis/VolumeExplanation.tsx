@@ -20,8 +20,9 @@ import {
 import type { SizeDisplay } from "./space-format";
 import {
   amount,
-  factorLabels,
+  factorLabel,
   observationRows,
+  unavailableValue,
   volumeBytes,
 } from "./volume-format";
 import type { Message } from "./volume-format";
@@ -262,7 +263,9 @@ function ReportSummary({ report, wholeVolume, display }: ReportProps) {
                         ),
                   },
                 )
-              : text("ui.analysis.unavailable", "Unavailable"),
+              : report.end.state === "unavailable"
+                ? unavailableValue(report.end.reasonKey, text)
+                : text("ui.analysis.unavailable", "Unavailable"),
         },
         {
           label: text(
@@ -325,7 +328,7 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             value: `${displaySizeWithBytes(report.uniquePhysical.size, display, text)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness, text)}`,
           },
           ...report.factors.map(({ key, value }) => ({
-            label: factorLabels[key] ? text(...factorLabels[key]) : key,
+            label: factorLabel(key, text),
             value: amount(value, display, text),
           })),
           {
@@ -342,13 +345,14 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             ),
             value:
               report.osCategories.state === "unavailable"
-                ? text("ui.analysis.unavailable", "Unavailable")
+                ? unavailableValue(report.osCategories.reasonKey, text)
                 : report.osCategories.rows.length === 0
                   ? text("ui.analysis.volume_none_reported", "None reported")
                   : report.osCategories.rows
                       .map(
-                        ({ key, value }) =>
-                          `${key} · ${amount(value, display, text)}`,
+                        // No category has a name yet, and a key is not shown.
+                        ({ value }) =>
+                          `${text("ui.common.unknown", "Unknown")} · ${amount(value, display, text)}`,
                       )
                       .join(", "),
           },

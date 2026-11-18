@@ -126,6 +126,7 @@ impl EvidenceProducer for Producer {
             du_engine_api::viz_pages::ranked_group::OtherPresentation {
                 group_ref: "fixture.other".into(),
                 display_name: "Other".into(),
+                label_key: None,
                 legend_class_key: "fixture.class".into(),
                 display_flags: vec![],
             },
@@ -468,8 +469,10 @@ fn valid_different_condition_retires_only_the_replaced_channel() -> Result<(), S
 mod fallback_location;
 mod hierarchy_tests;
 mod histogram_runtime;
+mod nested_group_tests;
 mod replacement;
 mod source_selection;
+mod unattributed_tests;
 
 mod group_rows_dispatch;
 mod histogram_strategy;

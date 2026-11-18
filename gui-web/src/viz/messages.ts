@@ -7,7 +7,7 @@ export const visualizationMessages = {
     working: "Calculating the chart.",
     cancelled:
       "The chart calculation was cancelled. The previous chart remains available when present.",
-    renderFailed: "The chart could not be updated.",
+    renderFailed: "The chart could not be loaded.",
     retryRender: "Retry chart",
     retryingRender: "Retrying chart…",
     graphUpdated: "Latest result applied",
@@ -74,7 +74,7 @@ export const visualizationMessages = {
       "The reason couldn't be confirmed. The list shows the same result.",
     emptyResultTitle: "There are no items to draw in this scope",
     emptyFolderTitle: "This folder is empty",
-    emptyResultUnknownItems: "{count} unavailable",
+    emptyResultUnknownItems: "Items not drawn: {count}",
     badgeCancelled: "Scan cancelled",
     badgeMissing: "Has scan gaps",
     badgePartial: "Scanning · Interim",
@@ -90,7 +90,7 @@ export const visualizationMessages = {
     waterfall: "Waterfall",
     histogram: "Histogram",
     sankey: "Sankey",
-    updateFailed: "The chart could not be updated.",
+    updateFailed: "The chart could not be loaded.",
     openFailed: "The chart could not be opened.",
     rowsNotRetrieved: "Rows have not been retrieved for this chart.",
     invalidReferences:
@@ -206,7 +206,7 @@ export const visualizationMessages = {
     working: "그래프를 계산하는 중입니다.",
     cancelled:
       "그래프 계산을 취소했습니다. 이전 그래프가 있으면 계속 볼 수 있습니다.",
-    renderFailed: "그래프를 새 결과로 바꾸지 못했습니다.",
+    renderFailed: "그래프를 불러오지 못했습니다.",
     retryRender: "그래프 다시 시도",
     retryingRender: "그래프 다시 시도 중…",
     graphUpdated: "최신 결과를 반영했습니다",
@@ -271,7 +271,7 @@ export const visualizationMessages = {
       "사유를 확인할 수 없습니다. 목록에서는 같은 결과를 볼 수 있습니다.",
     emptyResultTitle: "이 범위에는 그릴 항목이 없습니다",
     emptyFolderTitle: "이 폴더는 비어 있습니다",
-    emptyResultUnknownItems: "확인 불가 {count}",
+    emptyResultUnknownItems: "그리지 않은 항목: {count}",
     badgeCancelled: "스캔 취소됨",
     badgeMissing: "누락 있음",
     badgePartial: "스캔 중 · 중간 결과",
@@ -287,7 +287,7 @@ export const visualizationMessages = {
     waterfall: "워터폴",
     histogram: "히스토그램",
     sankey: "생키",
-    updateFailed: "그래프를 새 결과로 바꾸지 못했습니다.",
+    updateFailed: "그래프를 불러오지 못했습니다.",
     openFailed: "그래프를 열지 못했습니다.",
     rowsNotRetrieved: "이 그래프의 행을 아직 불러오지 않았습니다.",
     invalidReferences:

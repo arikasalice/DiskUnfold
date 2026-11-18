@@ -13,6 +13,7 @@ use du_analysis_index::{
 use du_core_contracts::{
     ByteSize, Id, SizeAmount, SizeBasis, SizeValue,
     analysis_ipc::{SpaceTarget, SpaceTotal, SpaceTotalRequest, SpaceTotalSize},
+    browse_page_ipc::QueryStrategy,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead, SpaceAggregate},
 };
 
@@ -41,6 +42,14 @@ struct Total {
     queries: Arc<ResultSets>,
 }
 
+/// Serves `space.total` for a scope root, one folder or one admitted query result.
+///
+/// Every response names the aggregation rule of the pinned version in `sizeRule`. A scope
+/// root and a folder carry `cancelledUnreadFolders` only when the exact count is known: a
+/// sealed real scan with `Complete` or `Missing` status and no cancelled marks reports zero.
+/// A mark alone does not prove total coverage, and a mark in a complete or missing result is
+/// contradictory, so those counts are absent. Replacements do not establish coverage. A query
+/// result is a set of rows without a single subtree, so it never carries `cancelledUnreadFolders`.
 impl UseCase for Total {
     const NAME: &'static str = "space.total";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
@@ -76,6 +85,7 @@ impl UseCase for Total {
                         SpaceTotalError::Item(error) => query_error(error),
                         SpaceTotalError::Cancelled => EngineError::reason("support.internal_error"),
                     })?;
+            // A matched set has no single subtree to count below, so the count stays absent.
             return Ok(response(&query.version, request.request_seq, &aggregate));
         }
         let version = pin(&self.store, request.result_version.as_ref(), caller.channel)?;
@@ -117,25 +127,38 @@ fn query_error(error: QueryError) -> EngineError {
 }
 
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
-    let aggregate = match request.target {
-        SpaceTarget::ScopeRoot {} => version.scope_total(),
+    let (aggregate, cancelled_unread_folders) = match request.target {
+        SpaceTarget::ScopeRoot {} => (
+            version.scope_total(),
+            version.cancelled_unread_folders_in_scope(),
+        ),
         SpaceTarget::Folder { item } => {
             let detail = version.detail(&item).map_err(query_error)?;
             if detail.item.kind != ResultItemKind::Directory {
                 return Err(EngineError::reason("space.target_out_of_scope"));
             }
-            version
+            let aggregate = version
                 .space(detail.item.item_no)
-                .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?
+                .ok_or_else(|| EngineError::reason("space.target_out_of_scope"))?;
+            let cancelled = version
+                .cancelled_unread_folders(&item)
+                .map_err(query_error)?;
+            (aggregate, cancelled)
         }
         SpaceTarget::QueryResult { .. } => {
             return Err(EngineError::reason("space.target_out_of_scope"));
         }
     };
-    Ok(response(version, request.request_seq, aggregate))
+    Ok(SpaceTotal {
+        cancelled_unread_folders,
+        ..response(version, request.request_seq, aggregate)
+    })
 }
 
 /// Converts one F03 aggregate to the published per-basis total.
+///
+/// Reports the size rule of `version` and leaves `cancelled_unread_folders` absent; a caller
+/// whose target is a subtree sets it.
 pub(crate) fn response(
     version: &ResultVersion,
     request_seq: u32,
@@ -165,6 +188,16 @@ pub(crate) fn response(
         missing_items: Some(ByteSize::from(aggregate.missing_items)),
         inaccessible_ranges: aggregate.inaccessible_ranges.map(ByteSize::from),
         untraversed_links: Some(ByteSize::from(aggregate.untraversed_links)),
+        size_rule: Some(size_rule(version)),
+        cancelled_unread_folders: None,
+    }
+}
+
+fn size_rule(version: &ResultVersion) -> QueryStrategy {
+    let rule = version.size_rule();
+    QueryStrategy {
+        id: rule.id.into(),
+        revision: rule.revision,
     }
 }
 
