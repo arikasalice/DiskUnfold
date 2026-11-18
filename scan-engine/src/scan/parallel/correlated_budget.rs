@@ -124,10 +124,8 @@ pub(super) fn event_payload_capacity(event: &CorrelatedDirectoryEvent) -> Option
     }
 }
 
-pub(super) fn path_heap_capacity(path: &[Vec<u8>]) -> Option<usize> {
-    let segments = path
-        .capacity()
-        .checked_mul(std::mem::size_of::<Vec<u8>>())?;
+pub(super) fn path_heap_capacity(path: &[Vec<u8>], path_capacity: usize) -> Option<usize> {
+    let segments = path_capacity.checked_mul(std::mem::size_of::<Vec<u8>>())?;
     path.iter().try_fold(segments, |bytes, segment| {
         bytes.checked_add(segment.capacity())
     })

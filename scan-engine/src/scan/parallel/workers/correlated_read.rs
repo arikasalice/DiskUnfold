@@ -12,8 +12,22 @@ pub(super) enum Read {
     Turn(TurnResult),
 }
 
+enum TurnStep {
+    Legacy,
+    Progress,
+    Accepted {
+        observation: Option<QueuedEntry>,
+    },
+    End {
+        event_watermark_exclusive: u64,
+        child_count_exclusive: u64,
+    },
+    Returned(CorrelatedDirectoryEvent),
+    Failed,
+}
+
 pub(super) struct TurnResult {
-    step: Step,
+    step: TurnStep,
     undecided: Vec<Vec<u8>>,
     returned_permit: Option<correlated_budget::Permit>,
 }
@@ -44,7 +58,7 @@ pub(super) fn read(
                     let Some(attempt_id) = correlated_budget::next_attempt_id() else {
                         frame.correlated.evidence_failed();
                         return Read::Turn(TurnResult {
-                            step: Step::Progress,
+                            step: TurnStep::Progress,
                             undecided: Vec::new(),
                             returned_permit: None,
                         });
@@ -63,7 +77,7 @@ pub(super) fn read(
                             // flowing even when optional result registration cannot be retained.
                             frame.correlated.evidence_failed();
                             return Read::Turn(TurnResult {
-                                step: Step::Progress,
+                                step: TurnStep::Progress,
                                 undecided: Vec::new(),
                                 returned_permit: None,
                             });
@@ -128,7 +142,7 @@ pub(super) fn read(
                     // was already returned by the adapter. Continue through the F02 path.
                     frame.correlated.evidence_failed();
                     return Read::Turn(TurnResult {
-                        step: Step::Accepted { observation },
+                        step: TurnStep::Accepted { observation },
                         undecided,
                         returned_permit: None,
                     });
@@ -141,20 +155,30 @@ pub(super) fn read(
                 // folder attempt held and stop reading it on the next turn.
                 frame.correlated.evidence_failed();
             }
-            Step::Accepted { observation }
+            TurnStep::Accepted { observation }
         }
         Step::Returned(payload @ CorrelatedDirectoryEvent::Observation { .. }) => {
             let bytes = correlated_budget::event_payload_capacity(&payload)
                 .filter(|bytes| *bytes <= MAX_EVENT_PAYLOAD_BYTES)
                 .and_then(|bytes| bytes.checked_add(size_of::<QueuedEntry>()));
             returned_permit = bytes.and_then(|bytes| frame.correlated.retain_event(bytes));
-            Step::Returned(payload)
+            TurnStep::Returned(payload)
         }
         Step::Returned(payload) => {
             frame.correlated.release_event();
-            Step::Returned(payload)
+            TurnStep::Returned(payload)
         }
-        other => other,
+        Step::Progress => TurnStep::Progress,
+        Step::Accepted { observation } => TurnStep::Accepted { observation },
+        Step::End {
+            event_watermark_exclusive,
+            child_count_exclusive,
+        } => TurnStep::End {
+            event_watermark_exclusive,
+            child_count_exclusive,
+        },
+        Step::Failed => TurnStep::Failed,
+        Step::Legacy => TurnStep::Legacy,
     };
     Read::Turn(TurnResult {
         step,
@@ -165,7 +189,7 @@ pub(super) fn read(
 
 fn failed_turn() -> Read {
     Read::Turn(TurnResult {
-        step: Step::Failed,
+        step: TurnStep::Failed,
         undecided: Vec::new(),
         returned_permit: None,
     })
@@ -184,14 +208,14 @@ pub(super) fn finish(
         return false;
     }
     match result.step {
-        Step::Progress | Step::Accepted { observation: None } => {
+        TurnStep::Progress | TurnStep::Accepted { observation: None } => {
             requeue(shared, turn, frame, None, context);
             true
         }
-        Step::Accepted {
+        TurnStep::Accepted {
             observation: Some(entry),
         } => accepted_observation(frame, entry, shared, sender, context, policy, turn),
-        Step::Returned(CorrelatedDirectoryEvent::Observation { child_id, entry }) => {
+        TurnStep::Returned(CorrelatedDirectoryEvent::Observation { child_id, entry }) => {
             if !frame
                 .correlated
                 .matches_callback(child_id, &entry.entry.name)
@@ -231,7 +255,7 @@ pub(super) fn finish(
                 }
             }
         }
-        Step::End {
+        TurnStep::End {
             event_watermark_exclusive,
             child_count_exclusive,
         } => {
@@ -271,7 +295,7 @@ pub(super) fn finish(
                 Ok(Some(Vec::new())),
             )
         }
-        Step::Returned(_) | Step::Failed | Step::Legacy => {
+        TurnStep::Returned(_) | TurnStep::Failed | TurnStep::Legacy => {
             if context.checkpoint() == Checkpoint::Cancel {
                 cancel_drain::frame(frame, shared, sender, policy)
             } else {

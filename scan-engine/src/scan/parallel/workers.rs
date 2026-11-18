@@ -317,7 +317,10 @@ fn process_batch(
         Ok(Some(batch)) if batch.len() <= 8192 => {
             let own = disconnected::observe_batch(shared, frame.root_index, &batch);
             frame.first_batch |= frame.root && !frame.root_published;
-            frame.entries = batch.into();
+            frame.entries = batch
+                .into_iter()
+                .map(super::frame::QueuedEntry::from)
+                .collect();
             if own {
                 // This directory's own read reported the disconnection.
                 return disconnected::close_frame(frame, shared, sender, context, policy);

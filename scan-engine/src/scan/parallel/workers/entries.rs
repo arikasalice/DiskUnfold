@@ -114,13 +114,13 @@ pub(super) fn process_entry(
     let mut payload_permit = payload_permit;
     let correlated_entry = child_id.is_some();
     let mut child_attempt = child_attempt.unwrap_or_default();
-    let (mut path, mut path_permit) = if correlated_entry {
+    let (path, mut path_permit) = if correlated_entry {
         let name = &timed.as_ref().ok_or(())?.entry.name;
         let reserved = correlated_budget::child_path_clone_reservation(&frame.path, name)
             .and_then(|requested| shared.correlated_budget.reserve(requested))
             .and_then(|mut permit| {
                 let path = correlated_budget::try_clone_child_path(&frame.path, name)?;
-                let actual = correlated_budget::path_heap_capacity(&path)?;
+                let actual = correlated_budget::path_heap_capacity(&path, path.capacity())?;
                 permit.resize(actual).then_some((path, permit))
             });
         if let Some((path, permit)) = reserved {
@@ -157,7 +157,7 @@ pub(super) fn process_entry(
         return Ok(None);
     }
     let enter = admission == Admission::Enter;
-    let mut reservation = reserve_child(
+    let reservation = reserve_child(
         frame,
         enter && !force_no_descend,
         &path,
@@ -196,7 +196,8 @@ pub(super) fn process_entry(
             if let Some(mut item_permit) = correlated_budget::path_clone_reservation(&path)
                 .and_then(|requested| shared.correlated_budget.reserve(requested))
                 && let Some(item_path) = correlated_budget::try_clone_path(&path)
-                && let Some(actual) = correlated_budget::path_heap_capacity(&item_path)
+                && let Some(actual) =
+                    correlated_budget::path_heap_capacity(&item_path, item_path.capacity())
                 && item_permit.resize(actual)
                 && let Some(mut held_permit) = payload_permit.take()
             {

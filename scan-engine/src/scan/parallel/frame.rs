@@ -234,7 +234,7 @@ impl Directory {
     /// as `stop` holds, so a stalled parent read does not hold a cancelled
     /// worker. `stop` is called without holding any lock.
     pub(super) fn open(&mut self, stop: &dyn Fn() -> bool) -> Result<(), OpenFailure> {
-        let Self::Pending { parent, entry } = self else {
+        let Self::Pending { parent, entry, .. } = self else {
             return Ok(());
         };
         let opened = parent

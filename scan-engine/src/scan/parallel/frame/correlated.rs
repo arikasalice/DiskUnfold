@@ -2,7 +2,9 @@
 //!
 //! This boundary is not enabled until the result receiver owns its events.
 use super::{Directory, QueuedEntry};
-use crate::scan::parallel::correlated_budget::{self, CorrelatedBudget, Permit};
+use crate::scan::parallel::correlated_budget::{
+    self, CorrelatedBudget, MAX_EVENT_PAYLOAD_BYTES, Permit,
+};
 use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
@@ -210,7 +212,7 @@ impl Attempt {
                 }
                 event @ CorrelatedDirectoryEvent::Observation { .. } => Step::Returned(event),
                 event
-                    if correlated::event_payload_capacity(&event)
+                    if correlated_budget::event_payload_capacity(&event)
                         .is_some_and(|bytes| bytes <= MAX_EVENT_PAYLOAD_BYTES) =>
                 {
                     Step::Returned(event)
@@ -242,7 +244,7 @@ impl Attempt {
                 }
             }
             payload => {
-                if correlated::event_payload_capacity(&payload)
+                if correlated_budget::event_payload_capacity(&payload)
                     .is_none_or(|bytes| bytes > MAX_EVENT_PAYLOAD_BYTES)
                 {
                     self.state = State::Failed;
@@ -262,7 +264,7 @@ impl Attempt {
                 // Keep the ID with the observation until worker admission is finished.
                 let observation = match &payload {
                     CorrelatedDirectoryEvent::Observation { child_id, entry } => {
-                        let Some(copy) = correlated::try_clone_timed(entry) else {
+                        let Some(copy) = correlated_budget::try_clone_timed(entry) else {
                             self.state = State::Failed;
                             return Step::Returned(payload);
                         };

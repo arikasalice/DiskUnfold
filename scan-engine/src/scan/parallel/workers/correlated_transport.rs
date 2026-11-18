@@ -2,7 +2,7 @@
 //!
 //! Workers hold no directory lease or scheduler lock while waiting here.
 use super::*;
-use crate::scan::parallel::correlated_budget::{self, CorrelatedBudget, Permit};
+use crate::scan::parallel::correlated_budget;
 use du_analysis_index::{FolderAttemptError, FolderAttemptInput, FolderAttemptToken};
 use std::sync::mpsc::{Receiver, TrySendError};
 
@@ -78,15 +78,15 @@ pub(super) fn begin(
     path: &[Vec<u8>],
     attempt_id: u64,
 ) -> Result<FolderAttemptToken, Failure> {
-    let requested = correlated::path_clone_reservation(path).ok_or(Failure::Capacity)?;
+    let requested = correlated_budget::path_clone_reservation(path).ok_or(Failure::Capacity)?;
     let Some(mut permit) = shared
         .correlated_budget
         .reserve(requested.saturating_add(EVENT_BYTES))
     else {
         return Err(Failure::Capacity);
     };
-    let cloned = correlated::try_clone_path(path).ok_or(Failure::Capacity)?;
-    let actual = correlated::path_heap_capacity(&cloned)
+    let cloned = correlated_budget::try_clone_path(path).ok_or(Failure::Capacity)?;
+    let actual = correlated_budget::path_heap_capacity(&cloned, cloned.capacity())
         .and_then(|bytes| bytes.checked_add(EVENT_BYTES))
         .ok_or(Failure::Capacity)?;
     if !permit.resize(actual) {
