@@ -18,7 +18,7 @@ static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(super) fn next_attempt_id() -> Option<u64> {
     NEXT_ATTEMPT_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .ok()
 }
 
@@ -103,7 +103,7 @@ impl CorrelatedBudget {
 
 fn reserve_counter(counter: &AtomicUsize, limit: usize, amount: usize) -> bool {
     counter
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
             used.checked_add(amount).filter(|next| *next <= limit)
         })
         .is_ok()
