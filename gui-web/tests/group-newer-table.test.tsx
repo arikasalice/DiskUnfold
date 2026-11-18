@@ -196,7 +196,6 @@ test("newer table groups use their own frame and return to their own row", async
   );
   await act(async () => visualization.render(renderRequest(graph)));
   expect(visualization.getSnapshot().error).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   act(() =>
     visualization.select({
       kind: "group",
@@ -216,7 +215,9 @@ test("newer table groups use their own frame and return to their own row", async
   );
 
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Items in the latest result" }),
+  );
   const groupRows = screen.getAllByRole("button", {
     name: "View items in Shared group",
   });
@@ -327,9 +328,10 @@ test("graph and newer table rows with one group ref use and return to their own 
     />,
   );
   await act(async () => visualization.render(renderRequest(graph)));
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   await act(async () => visualization.render(renderRequest(newer)));
-  fireEvent.click(screen.getByRole("button", { name: "Items in this result" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Items in the latest result" }),
+  );
 
   const rows = screen.getAllByRole("button", {
     name: "View items in Shared group",
@@ -401,7 +403,12 @@ test.each([true, false])(
       />,
     );
     await act(async () => visualization.render(renderRequest(graph)));
-    const shape = await screen.findByRole("button", { name: /Shared group/ });
+    // The graph rows are open now, so their "View items in Shared group" button matches too.
+    const shape = (
+      await screen.findAllByRole("button", { name: /Shared group/ })
+    ).find(
+      (button) => !/^View items/.test(button.getAttribute("aria-label") ?? ""),
+    )!;
     pressEnter(shape);
     pressEnter(screen.getByRole("button", { name: "View combined items" }));
     await screen.findByText("Member from shape-model");

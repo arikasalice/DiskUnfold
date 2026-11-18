@@ -83,9 +83,9 @@ function setup(renders: VizRenderResponse[], rows = vi.fn()) {
   return { controller, rows, ...shown };
 }
 const tableButton = () =>
-  screen.queryByRole("button", { name: "Items in this result" });
+  screen.queryByRole("button", { name: "Items in this folder" });
 
-test("an unavailable answer with a fallback shows the notice and the fallback rows", async () => {
+test("an unavailable answer with a fallback shows the notice and an expanded table that can be collapsed", async () => {
   const rows = vi.fn().mockResolvedValue(fallbackRows());
   const { controller } = setup(
     [unavailable(1, { modelRef: "fallback", resultRevision: revision })],
@@ -101,11 +101,14 @@ test("an unavailable answer with a fallback shows the notice and the fallback ro
     start: 0,
     count: 100,
   });
-  fireEvent.click(tableButton()!);
+  const opener = tableButton()!;
   const table = screen.getByRole("table", {
     name: visualizationMessage("en", "loadedGraphRows"),
   });
   expect(within(table).getByText(firstName())).toBeTruthy();
+  expect(opener.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(opener);
+  expect(opener.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("an unavailable answer without a fallback shows the notice only", async () => {

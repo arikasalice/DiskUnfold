@@ -6,7 +6,7 @@ import type {
   VisualizationSnapshot,
 } from "./controller";
 import type { FallbackReference } from "./fallback-table";
-import { ModelRows } from "./VisualizationModelPresenter";
+import { ModelRows } from "./ModelRows";
 
 const FIRST_PAGE_SIZE = 100;
 
@@ -41,11 +41,13 @@ export function FallbackTable({
   }, [controller, reference.modelRef, reference.resultRevision, requested]);
   return (
     <>
-      {state.pendingRows && <Progress label={text.message("loadingNewer")} />}
+      {state.pendingRows && (
+        <Progress label={text.message("loadingGraphRows")} />
+      )}
       {state.fallbackPage && (
         <ModelRows
+          expanded
           page={state.fallbackPage}
-          title={text.message("newerTitle")}
           text={text}
           onPage={(request) => {
             void controller.rows(request);

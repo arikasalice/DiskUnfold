@@ -16,6 +16,13 @@ import {
 } from "../src/features/visualization/VisualizationModelPresenter";
 
 afterEach(cleanup);
+/** How many of the optional columns (denominator, classification, notes) a table shows. */
+const extra = (table: HTMLElement) =>
+  within(table)
+    .getAllByRole("columnheader")
+    .filter((header) =>
+      /Classification|Notes|Denominator/.test(header.textContent ?? ""),
+    ).length;
 const view = {
   viewport: { width: 960, height: 330, scale: 1 },
   visibleWindow: { left: 0, top: 0, right: 1000000, bottom: 1000000 },
@@ -166,7 +173,6 @@ test("unsupported geometry shows same-model rows without drawing a partial graph
     />,
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   expect(
     screen.getByRole("table", { name: "Loaded chart rows" }).textContent,
   ).toContain("영상");
@@ -238,9 +244,7 @@ test("a valid empty model shows its state without inventing zero-area shapes", (
     />,
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
-  expect(
-    screen.getByText("There are no items to draw in this scope"),
-  ).toBeDefined();
+  expect(screen.getByText("This folder is empty")).toBeDefined();
 });
 
 test("rows only expose Actions when this page has a group and an open handler", () => {
@@ -255,14 +259,16 @@ test("rows only expose Actions when this page has a group and an open handler", 
       text={fixtureText}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
   let bodyRows = within(table).getAllByRole("row").slice(1);
   expect(bodyRows).toHaveLength(4);
-  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+  expect(
+    bodyRows.every((row) => row.children.length === 3 + extra(table)),
+  ).toBe(true);
 
   rerender(
     <ModelRows
@@ -278,7 +284,9 @@ test("rows only expose Actions when this page has a group and an open handler", 
   ).toBeDefined();
   bodyRows = within(table).getAllByRole("row").slice(1);
   expect(bodyRows).toHaveLength(4);
-  expect(bodyRows.every((row) => row.children.length === 7)).toBe(true);
+  expect(
+    bodyRows.every((row) => row.children.length === 4 + extra(table)),
+  ).toBe(true);
   expect(
     within(bodyRows[0]!).getByRole("button", {
       name: "View items in 영상",
@@ -299,7 +307,7 @@ test("rows omit Actions when the displayed page has no valid group row", () => {
       onOpenGroup={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
   const table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
@@ -308,7 +316,7 @@ test("rows omit Actions when the displayed page has no valid group row", () => {
     within(table)
       .getAllByRole("row")
       .slice(1)
-      .every((row) => row.children.length === 6),
+      .every((row) => row.children.length === 3 + extra(table)),
   ).toBe(true);
 });
 
@@ -337,7 +345,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
 
   let table = screen.getByRole("table", { name: "Loaded chart rows" });
   expect(
@@ -345,7 +353,9 @@ test("Actions follows normal item and group page transitions with a handler", ()
   ).toBeNull();
   let bodyRows = within(table).getAllByRole("row").slice(1);
   expect(bodyRows).toHaveLength(4);
-  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+  expect(
+    bodyRows.every((row) => row.children.length === 3 + extra(table)),
+  ).toBe(true);
   expect(
     within(table).queryByRole("button", { name: /View members of/ }),
   ).toBeNull();
@@ -364,7 +374,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
   ).toBeDefined();
   bodyRows = within(table).getAllByRole("row").slice(1);
   expect(bodyRows).toHaveLength(1);
-  expect(bodyRows[0]!.children.length).toBe(7);
+  expect(bodyRows[0]!.children.length).toBe(4 + extra(table));
   expect(
     within(bodyRows[0]!).getByRole("button", {
       name: "View items in 영상",
@@ -385,7 +395,9 @@ test("Actions follows normal item and group page transitions with a handler", ()
   ).toBeNull();
   bodyRows = within(table).getAllByRole("row").slice(1);
   expect(bodyRows).toHaveLength(4);
-  expect(bodyRows.every((row) => row.children.length === 6)).toBe(true);
+  expect(
+    bodyRows.every((row) => row.children.length === 3 + extra(table)),
+  ).toBe(true);
   expect(
     within(table).queryByRole("button", { name: /View members of/ }),
   ).toBeNull();
@@ -405,7 +417,6 @@ test("page navigation retains the exact model and result revision", () => {
       onPage={onPage}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Rows from this chart" }));
   fireEvent.click(screen.getByRole("button", { name: "Next rows" }));
   expect(onPage).toHaveBeenCalledWith({ ...input.page.request, start: 4 });
 });
@@ -456,7 +467,7 @@ test("row progress requires an explicit in-flight request for this model and rev
     />,
   );
   expect(
-    screen.getByRole("progressbar", { name: "Loading rows from this chart" }),
+    screen.getByRole("progressbar", { name: "Loading items in this folder" }),
   ).toBeDefined();
   rerender(
     <VisualizationModelPresenter

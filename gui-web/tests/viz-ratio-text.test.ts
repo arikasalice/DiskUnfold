@@ -35,15 +35,28 @@ test.each([
   ["0.0005", "Less than 0.1%", "0.1% 미만"],
   ["0.0009999999999999999999", "Less than 0.1%", "0.1% 미만"],
   ["0.001", "0.1%", "0.1%"],
+  ["-0.00004", "Greater than -0.1% and less than 0%", "-0.1% 초과 0% 미만"],
+  ["-0.0005", "Greater than -0.1% and less than 0%", "-0.1% 초과 0% 미만"],
+  [
+    "-0.0009999999999999999999",
+    "Greater than -0.1% and less than 0%",
+    "-0.1% 초과 0% 미만",
+  ],
+  ["-0.001", "-0.1%", "-0.1%"],
+  ["-0.0010001", "-0.1%", "-0.1%"],
   ["0.5", "50.0%", "50.0%"],
   ["0.52022392576154932419", "52.0%", "52.0%"],
   ["0.0733810772644744805", "7.3%", "7.3%"],
   ["0.9994", "99.9%", "99.9%"],
   ["0.9995", "99.9%", "99.9%"],
   ["0.99999999999999999999", "99.9%", "99.9%"],
+  ["-0.9995", "-99.9%", "-99.9%"],
   ["1", "100%", "100%"],
   ["1.00000000000000000000", "100%", "100%"],
   ["1.5", "150.0%", "150.0%"],
+  ["-1", "-100%", "-100%"],
+  ["-1.0005", "-100.1%", "-100.1%"],
+  ["-1.5", "-150.0%", "-150.0%"],
   ["-0.25", "-25.0%", "-25.0%"],
 ])("the ratio %s reads %s in English and %s in Korean", (ratio, en, ko) => {
   expect(textFor("en").ratio!(ratio)).toBe(en);
@@ -62,9 +75,23 @@ test("the decimal separator follows the regional format", () => {
   expect(textFor("ko", comma).ratio!("0.52022392576154932419")).toBe("52,0%");
   expect(textFor("ko", comma).ratio!("0.00004")).toBe("0,1% 미만");
   expect(textFor("en", comma).ratio!("0.00004")).toBe("Less than 0,1%");
+  expect(textFor("ko", comma).ratio!("-0.00004")).toBe("-0,1% 초과 0% 미만");
+  expect(textFor("en", comma).ratio!("-0.00004")).toBe(
+    "Greater than -0,1% and less than 0%",
+  );
 });
 
 test("a string that is not a canonical decimal gets the general phrase", () => {
-  for (const value of ["abc", "1e-3", "0.", ".5", "1/3", ""])
+  for (const value of [
+    "abc",
+    "1e-3",
+    "0.",
+    ".5",
+    "1/3",
+    "",
+    "-0",
+    "-0.0",
+    "-000.000",
+  ])
     expect(textFor("en").ratio!(value)).toBe("Unknown");
 });

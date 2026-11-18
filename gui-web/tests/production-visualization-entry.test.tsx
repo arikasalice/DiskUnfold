@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,7 +14,9 @@ import type {
   LocaleProfile,
   VizCatalog,
   VizRenderRequest,
+  VizRenderResponse,
   VizRows,
+  VizRowsRequest,
 } from "../src/ipc";
 import { modelFixture } from "../preview/model-fixture";
 import { realLocales } from "./locale-real";
@@ -37,7 +40,22 @@ const catalog: VizCatalog = {
   requiredDataTableRevision: 1,
   legendRuleRevision: 1,
 };
-const names = ["Videos", OTHER_GROUP_LABEL, "Photos", "Documents"];
+const names = ["Videos", "Photos", "Documents"];
+
+type VisualizationAnswers = {
+  render?: (request: VizRenderRequest) => unknown | Promise<unknown>;
+  rows?: (request: VizRowsRequest) => unknown | Promise<unknown>;
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
 
 function frameFor(request: VizRenderRequest) {
   const { frame } = modelFixture();
@@ -70,10 +88,25 @@ function frameFor(request: VizRenderRequest) {
       condition: null,
     },
   ];
+  const groupedShape = model.shapes[0]!;
+  if (groupedShape.size.state === "unknown")
+    throw new Error("The grouped fixture needs a known size");
+  model.summary.groupedItems = { state: "exact", value: "1", unit: "items" };
+  model.totals.grouped = {
+    quantity: {
+      state: groupedShape.size.state,
+      value: groupedShape.size.bytes,
+      unit: "bytes",
+    },
+    sourceSize: groupedShape.size,
+  };
   model.shapes.forEach((shape, index) => {
     const otherGroup = index === 0;
     shape.itemRef = otherGroup ? null : ref(index + 1);
     shape.groupRef = otherGroup ? "group-other" : null;
+    shape.matchKey = otherGroup
+      ? { state: "not_applicable" }
+      : { state: "unknown", reasonKey: "fixture.identity_unavailable" };
     shape.rootBranchRef = otherGroup ? null : ref(index + 1);
     shape.legendClassKey = "unclassified";
   });
@@ -84,17 +117,21 @@ function rowsFor(
   request: VizRenderRequest | undefined,
   revision: string,
 ): VizRows {
-  const frame = request ? frameFor(request) : modelFixture().frame;
+  const fixture = modelFixture();
+  const frame = request ? frameFor(request) : fixture.frame;
   return {
     rows: frame.model.shapes.map((shape, index) => {
       const otherGroup = shape.groupRef !== null && shape.itemRef === null;
       return {
         itemRef: shape.itemRef,
         groupRef: shape.groupRef,
-        displayName: otherGroup ? OTHER_GROUP_LABEL : (names[index] ?? "Item"),
+        displayName: otherGroup
+          ? OTHER_GROUP_LABEL
+          : (names[index - 1] ?? "Item"),
         ...(otherGroup && { labelKey: OTHER_GROUP_LABEL }),
         size: shape.size,
-        ratio: "0.25",
+        ratio:
+          index === 1 ? "-0.00004" : fixture.page.response.rows[index]!.ratio,
         denominator: frame.model.denominator,
         legendClassKey: "unclassified",
         displayFlags: [],
@@ -107,7 +144,10 @@ function rowsFor(
   };
 }
 
-function desktop(language: "en" | "ko") {
+function desktop(
+  language: "en" | "ko",
+  visualization: VisualizationAnswers = {},
+) {
   const supported = (["en", "ko"] as const).map((code) => ({
     language: code,
     selfNameKey: `locale.language.${code}`,
@@ -127,7 +167,7 @@ function desktop(language: "en" | "ko") {
   };
   const calls: { name: string; body: unknown }[] = [];
   let lastRequest: VizRenderRequest | undefined;
-  const answer = (envelope: CallEnvelope): unknown => {
+  const answer = (envelope: CallEnvelope): unknown | Promise<unknown> => {
     const body = envelope.body as Record<string, unknown>;
     switch (envelope.name) {
       case "i18n.get_profile":
@@ -250,9 +290,14 @@ function desktop(language: "en" | "ko") {
         return { viewChannel: "view" };
       case "viz.render":
         lastRequest = body as unknown as VizRenderRequest;
-        return frameFor(lastRequest);
-      case "viz.rows":
-        return rowsFor(lastRequest, body.resultRevision as string);
+        return visualization.render?.(lastRequest) ?? frameFor(lastRequest);
+      case "viz.rows": {
+        const request = body as unknown as VizRowsRequest;
+        return (
+          visualization.rows?.(request) ??
+          rowsFor(lastRequest, request.resultRevision)
+        );
+      }
       case "viz.cancel":
         return { controlResult: "no_effect" };
       default:
@@ -265,11 +310,170 @@ function desktop(language: "en" | "ko") {
       name: envelope.name,
       correlationId: envelope.correlationId,
       contractVersion: 1,
-      body: answer(envelope),
+      body: await answer(envelope),
     };
   });
   return { client, calls };
 }
+
+test.each(["success", "failure"] as const)(
+  "F06 #109: prior ordinary row %s leaves the fallback auto-read pending",
+  async (ordinaryOutcome) => {
+    const ordinaryRows = deferred<VizRows>();
+    const fallbackReads: ReturnType<typeof deferred<VizRows>>[] = [];
+    const fallbackRequests: VizRowsRequest[] = [];
+    let firstRender: VizRenderRequest | undefined;
+    let renderCount = 0;
+    const { client, calls } = desktop("en", {
+      render: (request) => {
+        renderCount += 1;
+        if (renderCount === 1) {
+          firstRender = request;
+          return frameFor(request);
+        }
+        return {
+          kind: "unavailable",
+          requestSeq: request.requestSeq,
+          resultRevision: request.resultRevision ?? "result",
+          observedAt: null,
+          completeness: "partial",
+          reasonKey: "viz.unavailable.no_baseline",
+          availableFormats: [],
+          fallback: {
+            modelRef: "fallback-model",
+            resultRevision: request.resultRevision ?? "result",
+          },
+        } satisfies VizRenderResponse;
+      },
+      rows: (request) => {
+        if (request.modelRef === "synthetic-layout")
+          return ordinaryRows.promise;
+        const read = deferred<VizRows>();
+        fallbackRequests.push(request);
+        fallbackReads.push(read);
+        return read.promise;
+      },
+    });
+    const label = (key: string) => realLocales.en.text(key, "");
+    render(<DesktopLocale client={client} />);
+    fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+    fireEvent.click(
+      screen.getByRole("button", { name: label("ui.analysis.review") }),
+    );
+    const start = await screen.findByRole<HTMLButtonElement>("button", {
+      name: label("ui.analysis.start"),
+    });
+    await waitFor(() => expect(start.disabled).toBe(false));
+    fireEvent.click(start);
+    fireEvent.click(
+      await screen.findByRole("button", { name: label("ui.analysis.browse") }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: label("ui.visualization.show_space_distribution"),
+      }),
+    );
+    await screen.findByRole("group", { name: "Space distribution" });
+    const ordinaryRequests = () =>
+      calls
+        .filter(({ name }) => name === "viz.rows")
+        .map(({ body }) => body as VizRowsRequest)
+        .filter(({ modelRef }) => modelRef === "synthetic-layout");
+    await waitFor(() => expect(fallbackRequests).toHaveLength(1));
+    expect(ordinaryRequests().length).toBeGreaterThan(0);
+    for (const request of ordinaryRequests())
+      expect(request).toMatchObject({
+        modelRef: "synthetic-layout",
+        resultRevision: "result",
+        start: 0,
+        count: 100,
+      });
+    const fallbackRequest = {
+      modelRef: "fallback-model",
+      resultRevision: "result",
+      start: 0,
+      count: 100,
+    };
+    expect(fallbackRequests[0]).toEqual(fallbackRequest);
+    const rowCallBodies = calls
+      .filter(({ name }) => name === "viz.rows")
+      .map(({ body }) => body as VizRowsRequest);
+    expect(
+      rowCallBodies.findIndex(({ modelRef }) => modelRef === "fallback-model"),
+    ).toBeGreaterThan(
+      rowCallBodies.findIndex(
+        ({ modelRef }) => modelRef === "synthetic-layout",
+      ),
+    );
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Loading items in this folder",
+      }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      if (ordinaryOutcome === "success")
+        ordinaryRows.resolve(rowsFor(firstRender!, "result"));
+      else ordinaryRows.reject(new Error("previous ordinary rows failed"));
+    });
+    const afterOrdinaryRows = {
+      fallbackRequests: fallbackRequests.length,
+      loading:
+        screen.queryByRole("progressbar", {
+          name: "Loading items in this folder",
+        }) !== null,
+      retry: screen.queryByRole("button", { name: "Retry rows" }) !== null,
+    };
+    for (const staleRead of fallbackReads.slice(0, -1))
+      await act(async () => staleRead.resolve(rowsFor(firstRender!, "result")));
+
+    await act(async () =>
+      fallbackReads[fallbackReads.length - 1]!.reject(
+        new Error("latest fallback failed"),
+      ),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Retry rows" }));
+    await screen.findByRole("button", { name: "Retrying rows…" });
+    await waitFor(() =>
+      expect(fallbackReads).toHaveLength(
+        afterOrdinaryRows.fallbackRequests + 1,
+      ),
+    );
+    expect(fallbackRequests[fallbackRequests.length - 1]).toEqual(
+      fallbackRequest,
+    );
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Loading items in this folder",
+      }),
+    ).toBeTruthy();
+
+    const retryResponse = rowsFor(firstRender!, "result");
+    const recoveredRow = retryResponse.rows.find(
+      (row) => row.itemRef !== null,
+    )!;
+    await act(async () =>
+      fallbackReads[fallbackReads.length - 1]!.resolve({
+        ...retryResponse,
+        rows: [{ ...recoveredRow, displayName: "Recovered fallback row" }],
+        totalCount: 1,
+      }),
+    );
+    expect(await screen.findByText("Recovered fallback row")).toBeTruthy();
+    expect(
+      screen.queryByRole("progressbar", {
+        name: "Loading items in this folder",
+      }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry rows" })).toBeNull();
+    expect(afterOrdinaryRows).toEqual({
+      fallbackRequests: 1,
+      loading: true,
+      retry: false,
+    });
+    expect(fallbackRequests).toHaveLength(2);
+  },
+);
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -301,6 +505,10 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
   const badgeWords = {
     en: ["Final", "Current analysis", "Freshness unknown"],
     ko: ["최종", "현재 분석", "최신 여부 확인 불가"],
+  }[language];
+  const smallNegativeRatio = {
+    en: "Greater than -0.1% and less than 0%",
+    ko: "-0.1% 초과 0% 미만",
   }[language];
 
   test("F06 FR10.HD1.app-host.DD2: after an analysis the folder view opens a treemap from the real provider", async () => {
@@ -336,9 +544,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
         name: label("ui.visualization.rowsFromGraph"),
       }),
     );
-    const groupLabel = language === "en" ? "Other (0)" : "기타 0개";
-    expect(await screen.findAllByText(groupLabel)).not.toHaveLength(0);
-    expect(await screen.findAllByText(OTHER_GROUP_LABEL)).not.toHaveLength(0);
+    const groupLabel = language === "en" ? "Other (1)" : "기타 1개";
 
     const request = calls.find(({ name }) => name === "viz.render");
     expect(request?.body).toMatchObject({
@@ -353,7 +559,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       colorCriterion: "none",
       denominatorBasis: "scope",
       depthLimit: 1,
-      viewport: { width: 640, height: 400, scale: 1 },
+      viewport: { width: 640, height: 296, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");
     expect(request?.body).not.toHaveProperty("focusItemRef");
@@ -365,12 +571,20 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(shell).not.toBeNull();
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
+    for (const name of names) expect(shown).toContain(name);
+    expect(shown).toContain(groupLabel);
+    expect(shown).not.toContain(OTHER_GROUP_LABEL);
+    const accessibleLabels = Array.from(
+      shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
+      (element) => element.getAttribute("aria-label") ?? "",
+    );
     expect(
-      Array.from(
-        shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
-      ).some((element) =>
-        element.getAttribute("aria-label")?.startsWith(`${groupLabel} ·`),
-      ),
+      accessibleLabels.some((name) => name.startsWith(`${groupLabel} ·`)),
+    ).toBe(true);
+    for (const name of names)
+      expect(accessibleLabels.some((label) => label.includes(name))).toBe(true);
+    expect(
+      accessibleLabels.some((label) => label.includes(smallNegativeRatio)),
     ).toBe(true);
     expect(shown).not.toContain(label("ui.visualization.freshnessUnknown"));
     // The view names itself and the folder it shows.

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,6 +14,12 @@ import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
+import {
+  ChartAreaContext,
+  chartHeight,
+  usableSize,
+  DEFAULT_BUTTON_ROW_HEIGHT,
+} from "../features/visualization/chart-area";
 import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
@@ -46,6 +53,8 @@ export type BrowseVisualizationProvider = (
 ) => BrowseVisualizationAssembly | null;
 
 const DEFAULT_DISPLAY: SizeDisplay = { system: "iec", unit: "auto" };
+/** Where the chart is assumed to start in the scroll area until it reports its place. */
+const DEFAULT_CHART_OFFSET = 40;
 
 export function useBrowseVisualization(
   client: AnalysisClient | undefined,
@@ -242,6 +251,23 @@ export function BrowseVisualizationView({
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
   >();
+  const [chartParts, setChartParts] = useState({
+    offset: DEFAULT_CHART_OFFSET,
+    row: DEFAULT_BUTTON_ROW_HEIGHT,
+  });
+  const area = useMemo(
+    () => ({
+      element: viewportElement,
+      reportOffset: (offset: number, row: number) =>
+        setChartParts((current) =>
+          Math.abs(current.offset - offset) < 1 &&
+          Math.abs(current.row - row) < 1
+            ? current
+            : { offset: Math.round(offset), row: Math.round(row) },
+        ),
+    }),
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!open || !client || !assembly || !selection) {
@@ -281,8 +307,11 @@ export function BrowseVisualizationView({
       );
     };
     const measure = () => {
-      const rect = element.getBoundingClientRect();
-      update(rect.width, rect.height);
+      const { width, height } = usableSize(
+        element.getBoundingClientRect(),
+        element,
+      );
+      update(width, height);
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
@@ -336,30 +365,42 @@ export function BrowseVisualizationView({
       </header>
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
-          <VisualizationSession
-            client={client}
-            request={{ ...assembly.request, viewport }}
-            canDisplay={(frame) =>
-              frameMatchesBrowseSelection(frame, selection) &&
-              assembly.canDisplay(frame)
-            }
-            text={assembly.text ?? productionText}
-            autoLoadRows={assembly.autoLoadRows}
-            {...(onClose
-              ? {
-                  backAction: {
-                    label: text(
-                      "ui.visualization.back_to_folders",
-                      "Back to folders",
-                    ),
-                    onPress: onClose,
-                  },
-                }
-              : {})}
-            {...(assembly.resolveRenderer
-              ? { resolveRenderer: assembly.resolveRenderer }
-              : {})}
-          />
+          <ChartAreaContext.Provider value={area}>
+            <VisualizationSession
+              client={client}
+              request={{
+                ...assembly.request,
+                viewport: {
+                  ...viewport,
+                  height: chartHeight(
+                    viewport.height,
+                    chartParts.offset,
+                    chartParts.row,
+                  ),
+                },
+              }}
+              canDisplay={(frame) =>
+                frameMatchesBrowseSelection(frame, selection) &&
+                assembly.canDisplay(frame)
+              }
+              text={assembly.text ?? productionText}
+              autoLoadRows={assembly.autoLoadRows}
+              {...(onClose
+                ? {
+                    backAction: {
+                      label: text(
+                        "ui.visualization.back_to_folders",
+                        "Back to folders",
+                      ),
+                      onPress: onClose,
+                    },
+                  }
+                : {})}
+              {...(assembly.resolveRenderer
+                ? { resolveRenderer: assembly.resolveRenderer }
+                : {})}
+            />
+          </ChartAreaContext.Provider>
         ) : (
           <Progress
             label={text("ui.visualization.loading", "Loading visualization")}

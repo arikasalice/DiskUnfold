@@ -1,28 +1,19 @@
-import { useId, useLayoutEffect, useMemo, useRef } from "react";
-import {
-  Action,
-  DataTable,
-  DetailDisclosure,
-  createChartRenderers,
-  Notice,
-  Progress,
-  Text,
-  Heading,
-} from "../../components";
+import { useMemo, useRef } from "react";
+import { createChartRenderers, Notice, Progress } from "../../components";
 import type {
   ItemRef,
-  VizModel,
   VizRenderRequest,
   VizRow,
   VizRowsRequest,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "../../viz";
-import { RowName, plainRowName, rowName } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
-import { ModelEvidence, shapeLabels, vizMessage } from "../../viz";
+import { ModelEvidence, shapeLabels } from "../../viz";
 import type { VizText } from "../../viz";
 import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
+import { ModelRows } from "./ModelRows";
+import { useChartOffset } from "./chart-area";
 
 const defaultChartRenderer = createChartRenderers([]);
 type ModelViewProps = {
@@ -63,7 +54,9 @@ type ModelViewProps = {
 export function VisualizationModelPresenter(props: ModelViewProps) {
   const { frame, page, view, selected, text } = props;
   const visualizationRef = useRef<HTMLElement>(null);
-  const headingId = useId();
+  const chartBox = useRef<HTMLDivElement>(null);
+  const contextRef = useRef<HTMLDivElement>(null);
+  useChartOffset(chartBox, contextRef);
   const ChartRenderer = (props.resolveRenderer ?? defaultChartRenderer)(
     frame.model.representation.format,
   );
@@ -83,6 +76,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         page={page}
         model={frame.model}
         text={text}
+        expanded
         returnTargetRef={props.rowsReturnTargetRef}
         {...(props.onOpenGroup ? { onOpenGroup: props.onOpenGroup } : {})}
         {...(props.onPage ? { onPage: props.onPage } : {})}
@@ -110,78 +104,85 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       }}
       className="du-review-stack"
       tabIndex={-1}
-      aria-labelledby={headingId}
+      aria-label={text.message("storageVisualization")}
     >
-      <Heading level={2} id={headingId}>
-        {text.message("storageVisualization")}
-      </Heading>
-      <div className="du-review-context">
+      <div ref={contextRef} className="du-review-context">
         <ModelStatus frame={frame} text={text} />
       </div>
-      <ChartRenderer
-        modelRef={frame.model.modelRef}
-        resultRevision={frame.resultRevision}
-        label={text.message("spaceDistribution")}
-        selectedText={text.message("selected")}
-        fallbackNotice={text.message("graphFallback")}
-        missingFallbackNotice={text.message("graphRowsUnavailable")}
-        width={view.viewport.width}
-        height={view.viewport.height}
-        viewport={view.visibleWindow}
-        shapes={adapted.shapes}
-        relations={adapted.relations}
-        selectedRowRef={selected ? selectionKey(selected, frame) : null}
-        focusedRowRef={
-          props.focus && props.focus.resultVersion === frame.resultRevision
-            ? JSON.stringify([
-                "item",
-                props.focus.resultVersion,
-                props.focus.itemNo,
-              ])
-            : null
-        }
-        {...(props.onFocusAvailability
-          ? { onFocusAvailability: props.onFocusAvailability }
-          : {})}
-        {...(props.focusFirstRequest === undefined
-          ? {}
-          : { focusFirstRequest: props.focusFirstRequest })}
-        {...(props.onFocusTargetMissing
-          ? { onFocusTargetMissing: props.onFocusTargetMissing }
-          : {})}
-        onShapeFocus={(rowRef, shapeRef, control) => {
-          const shape = eventShape(adapted, shapeRef, rowRef);
-          const target = shape
-            ? (adapted.targetsByShape.get(shapeRef) ?? null)
-            : null;
-          if (target)
-            props.onFocusItem?.(target.kind === "item" ? target.itemRef : null);
-          props.onFocusedGroupShape?.(
-            target,
-            shapeRef,
-            control && visualizationRef.current?.contains(control)
-              ? control
-              : null,
-            shape?.accessibleLabel,
-            visualizationRef.current,
-          );
-        }}
-        onSelect={(rowRef, shapeRef) => {
-          if (!eventShape(adapted, shapeRef, rowRef)) return;
-          const selection = adapted.targetsByShape.get(shapeRef);
-          if (selection) props.onSelect(selection, shapeRef);
-        }}
-        fallback={{
-          modelRef: frame.model.modelRef,
-          resultRevision: frame.resultRevision,
-          content:
-            frame.model.shapes.length === 0 ? (
-              <EmptyResult frame={frame} text={text} />
-            ) : (
-              rows
-            ),
-        }}
-      />
+      <div ref={chartBox}>
+        <ChartRenderer
+          modelRef={frame.model.modelRef}
+          resultRevision={frame.resultRevision}
+          label={text.message("spaceDistribution")}
+          selectedText={text.message("selected")}
+          fallbackNotice={text.message("graphFallback")}
+          missingFallbackNotice={text.message("graphRowsUnavailable")}
+          width={view.viewport.width}
+          height={view.viewport.height}
+          viewport={view.visibleWindow}
+          shapes={adapted.shapes}
+          relations={adapted.relations}
+          selectedRowRef={selected ? selectionKey(selected, frame) : null}
+          focusedRowRef={
+            props.focus && props.focus.resultVersion === frame.resultRevision
+              ? JSON.stringify([
+                  "item",
+                  props.focus.resultVersion,
+                  props.focus.itemNo,
+                ])
+              : null
+          }
+          {...(props.onFocusAvailability
+            ? { onFocusAvailability: props.onFocusAvailability }
+            : {})}
+          {...(props.focusFirstRequest === undefined
+            ? {}
+            : { focusFirstRequest: props.focusFirstRequest })}
+          {...(props.onFocusTargetMissing
+            ? { onFocusTargetMissing: props.onFocusTargetMissing }
+            : {})}
+          onShapeFocus={(rowRef, shapeRef, control) => {
+            const shape = eventShape(adapted, shapeRef, rowRef);
+            const target = shape
+              ? (adapted.targetsByShape.get(shapeRef) ?? null)
+              : null;
+            if (target)
+              props.onFocusItem?.(
+                target.kind === "item" ? target.itemRef : null,
+              );
+            props.onFocusedGroupShape?.(
+              target,
+              shapeRef,
+              control && visualizationRef.current?.contains(control)
+                ? control
+                : null,
+              shape?.accessibleLabel,
+              visualizationRef.current,
+            );
+          }}
+          onSelect={(rowRef, shapeRef) => {
+            if (!eventShape(adapted, shapeRef, rowRef)) return;
+            const selection = adapted.targetsByShape.get(shapeRef);
+            if (selection) props.onSelect(selection, shapeRef);
+          }}
+          fallback={{
+            modelRef: frame.model.modelRef,
+            resultRevision: frame.resultRevision,
+            content:
+              frame.model.shapes.length === 0 ? (
+                <EmptyResult
+                  frame={frame}
+                  text={text}
+                  rowsTotal={
+                    adapted.rowsMatch && page ? page.response.totalCount : null
+                  }
+                />
+              ) : (
+                rows
+              ),
+          }}
+        />
+      </div>
       <ModelEvidence frame={frame} text={text} />
     </section>
   );
@@ -198,156 +199,4 @@ function eventShape(
   return matches.length === 1 && shape?.rowRef === rowRef ? shape : null;
 }
 
-export function ModelRows({
-  page,
-  model,
-  text,
-  onPage,
-  onOpenGroup,
-  returnTargetRef,
-  title,
-}: {
-  page: ModelRowsPage;
-  /** Absent for a fallback table, which has no model of its own to look classes up in. */
-  model?: VizModel | undefined;
-  text: VizText;
-  onPage?: (request: VizRowsRequest) => void;
-  onOpenGroup?: (
-    groupRef: string,
-    size: VizRow["size"],
-    origin: HTMLElement,
-    groupLabel: string,
-    returnTarget: HTMLElement | null,
-  ) => void;
-  returnTargetRef?: { current: HTMLElement | null } | undefined;
-  title?: string;
-}) {
-  const rowTitle = title ?? text.message("rowsFromGraph");
-  const rowsRegion = useRef<HTMLElement>(null);
-  const { request, response } = page;
-  const next = request.start + response.rows.length;
-  const hasOpenableGroups =
-    onOpenGroup !== undefined &&
-    response.rows.some((row) => row.groupRef !== null && row.itemRef === null);
-  useLayoutEffect(() => {
-    if (returnTargetRef) returnTargetRef.current = rowsRegion.current;
-  }, [
-    request.modelRef,
-    request.resultRevision,
-    request.start,
-    response.rows,
-    returnTargetRef,
-  ]);
-  return (
-    <div
-      ref={(element) => {
-        rowsRegion.current = element;
-        if (returnTargetRef) returnTargetRef.current = element;
-      }}
-      {...(returnTargetRef
-        ? { role: "group", tabIndex: -1, "aria-label": rowTitle }
-        : {})}
-    >
-      <DetailDisclosure
-        title={rowTitle}
-        key={`${request.modelRef}:${request.resultRevision}`}
-      >
-        <Text>
-          {response.rows.length === 0
-            ? text.message("noRowsInPage")
-            : vizMessage(text, "rowRange", {
-                start: String(request.start + 1),
-                end: String(next),
-                total: String(response.totalCount),
-              })}
-        </Text>
-        <DataTable
-          label={text.message("loadedGraphRows")}
-          density="compact"
-          columns={[
-            text.message("name"),
-            ...(hasOpenableGroups ? [text.message("actions")] : []),
-            text.message("value"),
-            text.message("ratio"),
-            text.message("denominator"),
-            text.message("classification"),
-            text.message("flags"),
-          ]}
-          rows={response.rows}
-          getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
-          renderCells={(row) => {
-            let trigger: HTMLButtonElement | null = null;
-            // A fallback table has no model, so a group row keeps only a name it carries itself.
-            const name = model
-              ? rowName(row, model, text)
-              : (plainRowName(row) ?? text.message("group.other_unknown"));
-            return [
-              <RowName name={name} item={row.itemRef !== null} />,
-              ...(hasOpenableGroups
-                ? [
-                    row.groupRef !== null &&
-                    row.itemRef === null &&
-                    onOpenGroup ? (
-                      <Action
-                        ref={(element) => {
-                          trigger = element;
-                        }}
-                        onPress={() => {
-                          if (trigger && row.groupRef !== null)
-                            onOpenGroup(
-                              row.groupRef,
-                              row.size,
-                              trigger,
-                              name,
-                              returnTargetRef?.current ?? rowsRegion.current,
-                            );
-                        }}
-                        aria-label={vizMessage(text, "viewMembersOf", {
-                          name,
-                        })}
-                      >
-                        {text.message("viewMembers")}
-                      </Action>
-                    ) : null,
-                  ]
-                : []),
-              row.quantity ? text.quantity(row.quantity) : text.size(row.size),
-              row.ratio
-                ? (text.ratio?.(row.ratio) ?? row.ratio)
-                : text.message("unavailableValue"),
-              `${text.quantity(row.denominator.value)} · ${text.key(row.denominator.basis)}`,
-              text.key(
-                model?.legend.find((entry) => entry.key === row.legendClassKey)
-                  ?.labelKey ?? row.legendClassKey,
-              ),
-              row.displayFlags.map(text.key).join(" · "),
-            ];
-          }}
-        />
-        {onPage && (
-          <div className="du-review-actions">
-            <Action
-              isDisabled={request.start === 0}
-              onPress={() =>
-                onPage({
-                  ...request,
-                  start: Math.max(0, request.start - request.count),
-                })
-              }
-            >
-              {text.message("previousRows")}
-            </Action>
-            <Action
-              isDisabled={
-                next >= response.totalCount || response.rows.length === 0
-              }
-              onPress={() => onPage({ ...request, start: next })}
-            >
-              {text.message("nextRows")}
-            </Action>
-          </div>
-        )}
-      </DetailDisclosure>
-    </div>
-  );
-}
+export { ModelRows };

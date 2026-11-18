@@ -1,5 +1,5 @@
 import { LiveStatus, StatusBadge, Text } from "../../components";
-import type { StatusTone } from "../../components";
+import type { StatusRow, StatusTone } from "../../components";
 import type {
   ModelResponse,
   VisualizationMessageKey,
@@ -14,6 +14,18 @@ const CURRENT_ORIGINS: ReadonlySet<string> = new Set([
 ]);
 
 type Badge = { key: string; tone: StatusTone; label: string };
+
+/**
+ * A neutral badge would draw the plain circle of the neutral tone, which reads
+ * as a radio button. It takes the information shape instead.
+ */
+const NEUTRAL_NOTE: StatusRow = {
+  id: "viz-status-note",
+  tone: "neutral",
+  shape: "info",
+  messageKey: "viz-status-note",
+  colorToken: "--du-muted",
+};
 
 /**
  * Short badge words for the completeness values that need attention. The
@@ -84,12 +96,21 @@ export function ModelStatus({
     <>
       <LiveStatus>
         {badges.map(({ key, tone, label }) => (
-          <StatusBadge key={key} tone={tone}>
+          <StatusBadge
+            key={key}
+            tone={tone}
+            {...(tone === "neutral" ? { status: NEUTRAL_NOTE } : {})}
+          >
             {label}
           </StatusBadge>
         ))}
       </LiveStatus>
       <Text>{text.observedAt(frame.observedAt)}</Text>
+      <Text>
+        {text.message("scopeTotalLine", {
+          value: text.quantity(model.totals.scope.quantity),
+        })}
+      </Text>
       {unwatched && !scanRunning && (
         <Text kind="muted">{visualizationReason(UNWATCHED, text.message)}</Text>
       )}

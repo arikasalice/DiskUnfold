@@ -145,6 +145,9 @@ test("a result from another origin keeps an origin badge", () => {
     input.frame.model.staleness = { state: "current", reasonKey: null };
   });
   expect(badges(container)).toEqual(["Unknown"]);
+  // A neutral badge must not draw the plain circle that reads as a radio button.
+  expect(container.querySelector('[data-status-shape="dot"]')).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Storage chart" })).toBeNull();
 });
 
 test("the evidence table names completeness, freshness and origin", () => {

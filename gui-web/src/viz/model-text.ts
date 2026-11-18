@@ -90,9 +90,7 @@ export function shapeLabels(
   const accessibleLabel = [
     name,
     value,
-    row?.ratio
-      ? (text.ratio?.(row.ratio) ?? row.ratio)
-      : text.message("ratioUnavailable"),
+    row ? rowRatioText(row, text) : text.message("ratioUnavailable"),
     text.quantity(denominator.value),
     text.key(denominator.basis),
     text.key(legend?.labelKey ?? shape.legendClassKey),
@@ -108,5 +106,28 @@ export function shapeLabels(
       : model.representation.labelMode === "name_only"
         ? name
         : `${name} · ${value}`,
+    ...(row
+      ? {
+          displayName: name,
+          ...(model.representation.labelMode === "name_only"
+            ? {}
+            : { displayValue: value }),
+        }
+      : {}),
   };
+}
+/**
+ * The ratio of a table row in words. Only a row whose value is exact has one; a
+ * missing value or a lower bound makes the ratio unavailable too.
+ */
+export function rowRatioText(
+  row: Pick<VizRow, "ratio" | "size" | "quantity">,
+  text: VizText,
+): string {
+  const exact = row.quantity
+    ? row.quantity.state === "exact"
+    : row.size.state === "exact";
+  return row.ratio && exact
+    ? (text.ratio?.(row.ratio) ?? row.ratio)
+    : text.message("unavailableValue");
 }

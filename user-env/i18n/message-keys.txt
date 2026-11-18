@@ -769,7 +769,7 @@ ui.visualization.denominatorParentFolder
 ui.visualization.denominatorScope
 ui.visualization.differentRevision
 ui.visualization.drawnTotal
-ui.visualization.emptyResultScopeTotal value:name
+ui.visualization.emptyFolderTitle
 ui.visualization.emptyResultTitle
 ui.visualization.emptyResultUnknownItems count:name
 ui.visualization.estimatedEvidence
@@ -813,6 +813,7 @@ ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.legend.unclassified
+ui.visualization.loadFolderRows
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
 ui.visualization.loadedGraphRows
@@ -856,6 +857,8 @@ ui.visualization.previousRange
 ui.visualization.previousRows
 ui.visualization.ratio
 ui.visualization.ratioBelowMinimum value:name
+ui.visualization.ratioDenominator value:name
+ui.visualization.ratioNegativeBelowMinimum lower:name upper:name
 ui.visualization.ratioPercent value:name
 ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count
@@ -872,13 +875,16 @@ ui.visualization.retryingRows
 ui.visualization.reviewNewer
 ui.visualization.revisionStale
 ui.visualization.revisionUnverified
+ui.visualization.rowNotes
 ui.visualization.rowRange start:count end:count total:count
 ui.visualization.rowsFailed
 ui.visualization.rowsFromGraph
 ui.visualization.rowsNotRetrieved
+ui.visualization.rowsOnePage count:count
 ui.visualization.sameRevision
 ui.visualization.sankey
 ui.visualization.scopeTotal
+ui.visualization.scopeTotalLine value:name
 ui.visualization.selected
 ui.visualization.selectionLost
 ui.visualization.show_space_distribution

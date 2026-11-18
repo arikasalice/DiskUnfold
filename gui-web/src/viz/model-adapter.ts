@@ -71,7 +71,12 @@ export function adaptVizModel(
   describe: (
     shape: VizShape,
     row: VizRow | undefined,
-  ) => { accessibleLabel: string; displayLabel: string },
+  ) => {
+    accessibleLabel: string;
+    displayLabel: string;
+    displayName?: string;
+    displayValue?: string;
+  },
 ) {
   const rowsMatch = page !== undefined && matchingRowsPage(frame, page);
   const rows = rowsMatch ? page.response.rows : [];

@@ -63,7 +63,8 @@ describe.each(["en", "ko"] as const)("reasons (%s)", (language) => {
       locale.text("ui.analysis.issue_unknown_reason", ""),
     );
     expect(shown).toContain(message("unknownReason"));
-    expect(shown).toContain(message("stalenessUnwatched"));
+    // The unwatched freshness is said once, in the status line, not in this table.
+    expect(shown).not.toContain(message("stalenessUnwatched"));
     for (const raw of [
       "scan.path_denied",
       "scan.something_new",

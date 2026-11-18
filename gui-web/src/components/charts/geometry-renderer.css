@@ -2,7 +2,9 @@
   cursor: pointer;
   color: var(--du-accent);
   fill: var(--du-info-surface);
-  stroke: var(--du-accent);
+  /* A gap of the surface colour between shapes; blue is for focus and selection. */
+  stroke: var(--du-surface);
+  stroke-width: 1;
 }
 
 .du-geometry-label {
@@ -16,6 +18,22 @@
   color: var(--du-muted);
   fill: var(--du-border);
   stroke: var(--du-muted);
+}
+
+/* The shape buttons stay on one line under the chart and scroll sideways. */
+.du-geometry-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-inline-size: 100%;
+  padding-block-end: 2px;
+}
+
+.du-geometry-buttons > * {
+  flex: none;
+  white-space: nowrap;
 }
 
 .du-geometry g[data-selected="true"] > :not(text) {
