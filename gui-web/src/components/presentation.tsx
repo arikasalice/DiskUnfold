@@ -244,17 +244,25 @@ export function Notice({
  * An operation without a confirmed total is indeterminate and claims no
  * percentage. A confirmed total draws a determinate bar. A paused operation
  * keeps the bar's place without motion or a progress role.
+ *
+ * An indeterminate bar also shows its label above the track with a trailing
+ * "…", hidden from assistive technology since the bar is named by it: with
+ * reduced motion the track stands still, and the words are what tell loading
+ * from a frozen screen (F06 design README section 31). A screen that already
+ * shows the same words passes `showLabel={false}`.
  */
 export function Progress({
   label,
   value,
   maxValue,
   paused = false,
+  showLabel = true,
 }: {
   label: string;
   value?: number;
   maxValue?: number;
   paused?: boolean;
+  showLabel?: boolean;
 }) {
   if (paused)
     return (
@@ -284,6 +292,11 @@ export function Progress({
   }
   return (
     <ProgressBar aria-label={label} isIndeterminate className="du-progress">
+      {showLabel && (
+        <span className="du-progress__label" aria-hidden>
+          {label.replace(/…$/u, "")}…
+        </span>
+      )}
       <div className="du-progress__track" aria-hidden>
         <div className="du-progress__indicator" />
       </div>

@@ -41,7 +41,7 @@ export function SampleProgress({
             )}
           </Text>
         )}
-        <Progress label={label} />
+        <Progress label={label} showLabel={false} />
       </div>
       {onCancel && (
         <Action isDisabled={cancelDisabled} onPress={onCancel}>

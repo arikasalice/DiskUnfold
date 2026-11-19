@@ -426,7 +426,14 @@ label.du-field > span {
   overflow: hidden;
   height: 5px;
   border-radius: 999px;
-  background: var(--du-info-surface);
+  background: var(--du-border);
+}
+
+/* What an indeterminate bar waits for, in words right above it (README 31). */
+.du-progress__label {
+  display: block;
+  margin-block-end: 4px;
+  color: var(--du-muted);
 }
 
 .du-progress__indicator {
@@ -450,16 +457,20 @@ label.du-field > span {
   .du-progress__indicator {
     animation: none;
   }
+}
 
-  /* A still segment would read as a percentage; a dashed track does not. */
+/* With reduced motion, from the OS or the app setting, an indeterminate bar is a
+   still track only: a still segment would read as a percentage and a pattern as
+   "not confirmed" or a selection (README 31, 4.6). Its label says it is waiting. */
+@media (prefers-reduced-motion: reduce) {
   .du-progress:not(.du-progress--determinate) .du-progress__indicator {
-    width: 100%;
-    background: repeating-linear-gradient(
-      90deg,
-      var(--du-accent) 0 8px,
-      transparent 8px 16px
-    );
+    display: none;
   }
+}
+:root[data-du-motion="reduce"]
+  .du-progress:not(.du-progress--determinate)
+  .du-progress__indicator {
+  display: none;
 }
 
 .du-progress--determinate .du-progress__indicator {
@@ -509,6 +520,11 @@ label.du-field > span {
   .du-notice,
   .du-progress__track {
     outline: 1px solid var(--du-control-border);
+  }
+
+  /* --du-border is ButtonText here; the track stays Canvas with its outline. */
+  .du-progress__track {
+    background: Canvas;
   }
 }
 
