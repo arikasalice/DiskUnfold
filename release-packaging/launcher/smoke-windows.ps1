@@ -287,6 +287,7 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
         Select-Object -First 1
     }
   }
+  if ($CaptureDirectory) { $null = Save-SmokeCapture ('base-06-file-details-' + ($name -replace '[^A-Za-z0-9]', '-')) }
   if ($VerifyInspectionKeyboard) {
     Send-SmokeKey 0x1B # VK_ESCAPE
     $null = Wait-UI "file details dismissed by Escape for $name" {
@@ -1413,6 +1414,7 @@ function Test-VirtualGroups {
   }
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-Enabled 'Start analysis' $true
+  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-01-scope-reviewed' }
   Set-Scope $child
   $null = Wait-Enabled 'Start analysis' $false
   Set-Scope $scanRoot
@@ -1429,6 +1431,7 @@ function Test-VirtualGroups {
     Find-LogicalSize '18 bytes'
   }
   'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-02-analysis-result' }
   if ($VerifyLocaleSwitch) {
     Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
     $null = Wait-UI 'localized pinned result' {
@@ -1469,6 +1472,7 @@ function Test-VirtualGroups {
   Wait-Details 'Observation and difference details' 'Scoped allocated size'
   $null = Wait-UI 'scoped allocated size' { Find-UI 'Scoped allocated size' $null }
   $null = Wait-UI 'scoped unique physical size' { Find-UI 'Scoped unique physical size' $null }
+  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-03-volume-explanation' }
   Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
   $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
   'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
@@ -1478,12 +1482,14 @@ function Test-VirtualGroups {
     $details = Find-UI 'Observed item space' $null
     if ($details) { Find-UI 'Observed logical size' $null $details }
   }
+  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-04-folder-details' }
   Invoke-UI (Wait-Enabled 'Close details' $true)
   $null = Wait-UI 'closed pinned folder details' { -not (Find-UI 'Observed item space' $null) }
   'F03 native item space: opened and closed the pinned folder observations'
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
+  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-05-browse-folders' }
   Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
   if ($VerifyPathCopyContention) { Test-BrowseCopyContention 'root.bin' }
   Test-BrowseFolderInspection 'nested'
