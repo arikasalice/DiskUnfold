@@ -1344,9 +1344,10 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
-# F06 #129 item 6: a scope whose allocated space cannot be split between its folders, because the same
-# file is linked from two of them, answers no_attribution. The notice opens the folder's table
-# (#109); its title must fold and unfold with the mouse, Enter and Space, and say so (aria-expanded).
+# F06 #129 item 6: on the unique physical size basis a scan never proves that extents are unshared
+# (here a file is also linked from two folders), so the scope's own value is unknown and its space
+# cannot be attributed: no_attribution. The notice opens the folder's table (#109); its title must
+# fold and unfold with the mouse, Enter and Space, and say so (aria-expanded).
 function Get-SmokeExpanded($item) {
   $disclosure = $null
   if (-not $item.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
@@ -1376,6 +1377,20 @@ function Test-CaptureNoAttribution {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Wait-Details 'Display options' 'Size basis'
+  $basis = Wait-UI 'size basis selector' {
+    Find-UI 'Size basis' ([Windows.Automation.ControlType]::ComboBox)
+  }
+  $basis.SetFocus()
+  $null = Wait-UI 'keyboard focus on the size basis selector' {
+    $focused = Find-UI 'Size basis' ([Windows.Automation.ControlType]::ComboBox)
+    $focused -and $focused.Current.HasKeyboardFocus -and -not $focused.Current.IsOffscreen
+  }
+  # The closed native selector moves directly to its last option, unique physical size.
+  Send-SmokeKey 0x23 # VK_END
+  $null = Wait-UI 'unique physical size as the result metric' {
+    Find-UI 'Unique physical size' ([Windows.Automation.ControlType]::Group)
+  }
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'left' { Find-UI 'left' $null }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
