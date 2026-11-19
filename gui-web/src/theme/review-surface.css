@@ -68,12 +68,6 @@
   outline: 2px solid var(--du-focus);
   outline-offset: 4px;
 }
-/* The chart region takes focus by script, e.g. from "Back to chart" (README 4.7, 32).
-   It fills its scroll box, so the ring is drawn inside it where it is not clipped. */
-.du-review-stack[tabindex="-1"]:focus {
-  outline: 2px solid var(--du-focus);
-  outline-offset: -2px;
-}
 .du-review-check[data-disabled] {
   color: var(--du-disabled-text);
   cursor: default;

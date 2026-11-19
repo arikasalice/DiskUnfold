@@ -109,7 +109,6 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           props.returnTargetRef.current = null;
       }}
       className="du-review-stack"
-      tabIndex={-1}
       aria-label={text.message("storageVisualization")}
     >
       <div ref={contextRef} className="du-review-context">

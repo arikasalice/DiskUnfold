@@ -1363,6 +1363,23 @@ function Test-CaptureTreemap {
   if (Get-UINames | Where-Object { $_ -like 'tiny-*' }) { throw 'Tiny was expanded below its header band minimum' }
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  # #167: closing the combined items returns the focus to their shape, which is still drawn.
+  # The case without that shape (README 33: the screen title) is covered by the GUI tests.
+  $shape = Wait-UI "$group shape" {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object { $_.Current.Name -like "$group, *Photos*" }) | Select-Object -First 1
+  }
+  $shape.SetFocus()
+  Invoke-UI $shape
+  Invoke-UI (Wait-Enabled 'View combined items' $true)
+  $back = Wait-Enabled 'Back to chart' $true
+  $back.SetFocus()
+  Invoke-UI $back
+  Start-Sleep -Milliseconds 500
+  $focused = $ae::FocusedElement
+  $observed = if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
+  "Focus after closing the combined items: $observed"
+  Save-SmokeCapture '02-group-closed'
 }
 # F06 #134: a treemap of a scope with an NTFS junction. The Windows collector does not report the
 # junction's own size, so this is the unknown-size case: the folder holding it is drawn by its lower
@@ -1415,23 +1432,25 @@ function Test-CaptureTreemapLink {
     }
     Save-SmokeCapture '01-treemap-link'
     # README 32: at 150% and above the head and the banner scroll with the page. Focusing the
-    # chart's region brings it to the top of the window with its button row; the head then lies above.
-    # #167: the region takes focus by script (as from "Back to chart") and shows the 4.7 indicator.
-    $chart = Wait-UI 'chart region' { Find-UI 'Storage chart' ([Windows.Automation.ControlType]::Group) }
-    $chart.SetFocus()
+    # chart's first shape brings the chart into the window with its button row; the head then lies above.
+    $first = Wait-UI 'media.bin shape' {
+      @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+        Where-Object { $_.Current.Name -like 'media.bin, *' }) | Select-Object -First 1
+    }
+    $first.SetFocus()
     Start-Sleep -Milliseconds 800
     if ([int]$AppScale -ge 150) {
       $head = Find-UI 'Language and display' $button
       "Page scrolled to the chart buttons; the head is $(if ($head -and $head.Current.IsOffscreen) { 'above the window' } else { 'still in view' })"
     }
     Save-SmokeCapture '02-treemap-link-scrolled'
-    # #167: the Tab order from the chart region, one capture per stop.
+    # #167: the Tab order from the first shape, one capture per stop.
     for ($stop = 1; $stop -le 5; $stop++) {
       Send-SmokeKey 0x09 # VK_TAB
       Start-Sleep -Milliseconds 300
       $focused = $ae::FocusedElement
       $observed = if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
-      "Tab $stop from the chart region: $observed"
+      "Tab $stop from the first shape: $observed"
       Save-SmokeCapture "03-tab-$stop"
     }
     "Treemap with a junction: Docs is drawn with report.bin inside it, the junction has no area; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"

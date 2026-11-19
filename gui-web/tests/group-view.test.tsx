@@ -227,18 +227,29 @@ test("a stale frame never returns focus to its old group origin", async () => {
   expect(document.activeElement).toBe(external);
 });
 
-test("a replaced frame returns a focused group panel to the new view title", async () => {
+test("a replaced frame returns a focused group panel to the new screen title", async () => {
   const frame = modelFixture().frame;
   const next = modelFixture().frame;
   next.resultRevision = "new-result";
   const groupRef = "row-group";
   const origin = document.createElement("button");
-  const oldTitle = document.createElement("section");
-  oldTitle.tabIndex = -1;
-  const newTitle = document.createElement("section");
-  newTitle.tabIndex = -1;
-  newTitle.setAttribute("aria-label", "Storage chart");
-  document.body.append(oldTitle, newTitle);
+  // Each chart region lies in a screen whose title takes the focus (README 33).
+  const screenWith = () => {
+    const shell = document.createElement("section");
+    shell.className = "du-visualization-shell";
+    shell.innerHTML =
+      '<header class="du-visualization-title"><h2 tabindex="-1">Space distribution</h2></header><section aria-label="Storage chart"></section>';
+    document.body.append(shell);
+    return {
+      shell,
+      title: shell.querySelector("h2")!,
+      region: shell.querySelector("section")!,
+    };
+  };
+  const oldScreen = screenWith();
+  const newScreen = screenWith();
+  const oldTitle = oldScreen.region as HTMLElement;
+  const newTitle = newScreen.region as HTMLElement;
   const returnTargetRef = { current: oldTitle as HTMLElement | null };
   const controller = new GroupController({
     rows: vi.fn().mockResolvedValue({
@@ -311,10 +322,10 @@ test("a replaced frame returns a focused group panel to the new view title", asy
       .getAllByLabelText("Storage chart")
       .find((element) => element.querySelector('[role="status"]')),
   ).toBeTruthy();
-  expect(document.activeElement).toBe(newTitle);
-  expect(document.activeElement).not.toBe(oldTitle);
-  oldTitle.remove();
-  newTitle.remove();
+  expect(document.activeElement).toBe(newScreen.title);
+  expect(document.activeElement).not.toBe(oldScreen.title);
+  oldScreen.shell.remove();
+  newScreen.shell.remove();
 });
 
 test("a virtualized away table row keeps the group open and closes to a safe notice", async () => {

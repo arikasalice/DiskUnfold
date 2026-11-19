@@ -277,8 +277,18 @@ function focusReturnTitle(
   fallbackTarget: HTMLElement | null,
 ) {
   if (!returnUnavailable) return;
-  if (focusElement(currentTarget)) return;
+  if (focusElement(viewTitle(currentTarget ?? fallbackTarget))) return;
   focusElement(fallbackTarget);
+}
+
+// Without the original shape, focus goes to the screen title: a region as large as
+// the chart does not tell what is chosen (F06 README 33, F02 README 22).
+function viewTitle(from: HTMLElement | null) {
+  return (
+    from
+      ?.closest(".du-visualization-shell")
+      ?.querySelector<HTMLElement>(".du-visualization-title h2") ?? null
+  );
 }
 
 function getOriginalViewTarget(
@@ -314,7 +324,7 @@ function closeGroupView(
 ) {
   controller.close();
   if (focusElement(origin)) return;
-  if (!focusElement(originalViewTarget)) focusElement(currentViewTarget);
+  focusElement(viewTitle(currentViewTarget ?? originalViewTarget));
   setReturnUnavailable(true);
 }
 
