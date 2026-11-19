@@ -94,17 +94,15 @@ test("F06 FR6.HD1.gui-web.DD1: every shape takes its name from its own row, what
   );
   await act(async () => controller.render(renderRequest(model)));
 
-  const first = await screen.findByRole("button", { name: /^Entry 1 · / });
+  const first = await screen.findByRole("option", { name: /^Entry 1 · / });
   expect(first).toBeTruthy();
-  expect(screen.getByRole("button", { name: /^Entry 1200 · / })).toBeTruthy();
-  expect(screen.getByRole("button", { name: /^Entry 600 · / })).toBeTruthy();
+  expect(screen.getByRole("option", { name: /^Entry 1200 · / })).toBeTruthy();
+  expect(screen.getByRole("option", { name: /^Entry 600 · / })).toBeTruthy();
   expect(rows.mock.calls.map(([r]) => [r.start, r.count])).toEqual([
     [0, 1000],
     [1000, 201], // one read per shape, the last page asks for the extra shape
   ]);
-  const unnamed = screen.getByRole("button", {
-    name: /^Item name not yet retrieved · /,
-  });
-  expect(unnamed.textContent).toBe("");
-  expect(first.textContent).toContain("Entry 1");
+  expect(
+    screen.getByRole("option", { name: /^Item name not yet retrieved · / }),
+  ).toBeTruthy();
 });

@@ -756,7 +756,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(calls.some(({ name }) => name === "viz.render")).toBe(false);
 
     fireEvent.click(open);
-    await screen.findByRole("button", { name: /Photos/ }, { timeout: 5000 });
+    await screen.findByRole("option", { name: /Photos/ }, { timeout: 5000 });
     fireEvent.click(
       await screen.findByRole("button", {
         name: label("ui.visualization.rowsFromGraph"),
@@ -777,7 +777,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       colorCriterion: "none",
       denominatorBasis: "scope",
       depthLimit: 2,
-      viewport: { width: 640, height: 296, scale: 1 },
+      viewport: { width: 640, height: 344, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");
     expect(request?.body).not.toHaveProperty("focusItemRef");

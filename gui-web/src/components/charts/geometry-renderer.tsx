@@ -304,18 +304,26 @@ function boxOf(
 /**
  * The shape nearest in the direction of an arrow key on screen, or none at the
  * edge: the focus stops there (README 10, 22). Distance across the direction
- * counts double, so a shape straight ahead wins over one off to the side.
+ * counts double, so a shape straight ahead wins over one off to the side. A
+ * folder and the shapes inside it are not each other's neighbours: from a file
+ * in a folder the arrow goes to the file beside it, not to the folder around it.
  */
 function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   const centre = (box: Box) => ({
     x: (box.left + box.right) / 2,
     y: (box.top + box.bottom) / 2,
   });
-  const start = centre(boxes[from]!);
+  const origin = boxes[from]!;
+  const start = centre(origin);
+  const holds = (outer: Box, inner: Box) =>
+    outer.left <= inner.left &&
+    outer.top <= inner.top &&
+    outer.right >= inner.right &&
+    outer.bottom >= inner.bottom;
   let best: number | undefined;
   let bestScore = Infinity;
   boxes.forEach((box, index) => {
-    if (index === from) return;
+    if (index === from || holds(box, origin) || holds(origin, box)) return;
     const point = centre(box);
     const dx = point.x - start.x;
     const dy = point.y - start.y;

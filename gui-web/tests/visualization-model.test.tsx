@@ -146,7 +146,7 @@ test("pointer selection returns the generated identity and does not open details
       text={fixtureText}
     />,
   );
-  fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
+  fireEvent.click(container.querySelector(".du-geometry-target")!);
   expect(select).toHaveBeenCalledWith(
     {
       kind: "item",
@@ -445,7 +445,7 @@ test("a loaded page does not imply that names of shapes outside the page are loa
   );
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(
-    screen.getAllByRole("button", { name: /Item name not yet retrieved/ }),
+    screen.getAllByRole("option", { name: /Item name not yet retrieved/ }),
   ).toHaveLength(2);
 });
 
@@ -504,7 +504,7 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
   const { container, rerender } = render(
     <VisualizationModelPresenter {...props} />,
   );
-  const shapes = container.querySelectorAll(".du-geometry-shape rect");
+  const shapes = container.querySelectorAll(".du-geometry-target");
   fireEvent.click(shapes[0]!);
   expect(select).toHaveBeenLastCalledWith(
     expect.objectContaining({
@@ -521,11 +521,10 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
     }),
     JSON.stringify(["shape", "fixture-shape-1"]),
   );
-  // React Aria's keyboard press path must carry the same per-shape reference.
-  const buttons = screen.getAllByRole("button", { name: /^영상 ·/ });
-  buttons[0]!.focus();
-  fireEvent.keyDown(buttons[0]!, { key: "Enter", code: "Enter" });
-  fireEvent.keyUp(buttons[0]!, { key: "Enter", code: "Enter" });
+  // Space on a shape must carry the same per-shape reference.
+  const options = screen.getAllByRole("option", { name: /^영상 ·/ });
+  options[0]!.focus();
+  fireEvent.keyDown(options[0]!, { key: " ", code: "Space" });
   expect(select).toHaveBeenLastCalledWith(
     expect.objectContaining({ matchKey: first.matchKey }),
     JSON.stringify(["shape", "fixture-shape-0"]),

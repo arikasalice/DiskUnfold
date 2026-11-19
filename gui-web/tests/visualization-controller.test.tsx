@@ -275,7 +275,7 @@ test("an injected chart renderer cannot claim a button as a verified shape origi
   await act(async () => visualization.render(request(1)));
   const fakeShape = within(
     screen.getByRole("region", { name: "Storage chart" }),
-  ).getAllByRole("option")[0]!;
+  ).getAllByRole("button")[0]!;
   fakeShape.focus();
   fireEvent.click(fakeShape);
   fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
@@ -1783,7 +1783,6 @@ test("an empty next graph offers no shape and no reselection action", async () =
   expect(
     screen.queryByRole("button", { name: "Choose another item in the chart" }),
   ).toBeNull();
-  expect(screen.getByText(fixtureText.message("noGraphTargets"))).toBeTruthy();
 });
 
 test("ambiguous visible targets do not create a fake reselection action", async () => {

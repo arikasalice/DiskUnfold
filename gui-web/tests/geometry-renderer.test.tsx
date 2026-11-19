@@ -126,6 +126,46 @@ test("F06 README 10, 22, 34: arrows go to the nearest shape on screen and stop a
   expect(onClearSelection).toHaveBeenCalledTimes(1);
 });
 
+test("F06 README 10: from a file in a folder the arrow goes to the file beside it, not to the folder around it", () => {
+  const input = props();
+  const rect = (left: number, top: number, right: number, bottom: number) => ({
+    primitive: "rect",
+    points: [
+      { x: left, y: top },
+      { x: right, y: bottom },
+    ],
+  });
+  input.shapes = [
+    {
+      shapeRef: "folder",
+      rowRef: "row-folder",
+      accessibleLabel: "Photos",
+      geometry: rect(0, 0, 1_000_000, 1_000_000),
+      container: true,
+    },
+    {
+      shapeRef: "left",
+      rowRef: "row-left",
+      accessibleLabel: "album-a",
+      geometry: rect(0, 100_000, 400_000, 1_000_000),
+    },
+    {
+      shapeRef: "right",
+      rowRef: "row-right",
+      accessibleLabel: "album-b",
+      geometry: rect(400_000, 100_000, 1_000_000, 1_000_000),
+    },
+  ];
+  input.relations = [];
+  render(<GeometryRenderer {...input} />);
+  const option = (name: string) => screen.getByRole("option", { name });
+  act(() => option("album-b").focus());
+  fireEvent.keyDown(option("album-b"), { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(option("album-a"));
+  fireEvent.keyDown(option("album-a"), { key: "ArrowUp" });
+  expect(document.activeElement).toBe(option("album-a"));
+});
+
 test("F06 README 4.7: the selection is a solid band with a check", () => {
   const input = props();
   input.width = 400;
