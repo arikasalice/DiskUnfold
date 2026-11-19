@@ -31,18 +31,6 @@ test("the chart height never drops below the minimum and keeps the bottom margin
   expect(CHART_BOTTOM_MARGIN).toBe(16);
 });
 
-test.each([
-  // 1280x800: 560 px area, chart starts 44 px down, a 48 px button row under it.
-  [560, 44, 48, 560 - 44 - 48 - CHART_BOTTOM_MARGIN],
-  [560, 44, 0, 560 - 44 - CHART_BOTTOM_MARGIN],
-  [320, 44, 48, MIN_CHART_HEIGHT],
-])(
-  "an area of %s px with the chart %s px down and a %s px button row gets a chart %s px high",
-  (area, offset, row, expected) => {
-    expect(chartHeight(area, offset, row)).toBe(expected);
-  },
-);
-
 test("the chart reports where it starts in the scroll area", () => {
   const report = vi.fn();
   const areaRef = createRef<HTMLDivElement>();
@@ -50,7 +38,6 @@ test("the chart reports where it starts in the scroll area", () => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
       if (this.dataset.role === "chart") return rect(150);
-      if (this.dataset.role === "row") return { top: 0, height: 46 } as DOMRect;
       if (this.dataset.role === "area") return rect(100);
       return rect(0);
     },
@@ -62,9 +49,7 @@ test("the chart reports where it starts in the scroll area", () => {
     return (
       <>
         <div ref={above} />
-        <div ref={chart} data-role="chart">
-          <div className="du-geometry-buttons" data-role="row" />
-        </div>
+        <div ref={chart} data-role="chart" />
       </>
     );
   }
@@ -78,6 +63,6 @@ test("the chart reports where it starts in the scroll area", () => {
     </ChartAreaContext.Provider>,
   );
   // 150 - 100, plus the area's own scroll offset (0).
-  expect(report).toHaveBeenCalledWith(50, 46);
+  expect(report).toHaveBeenCalledWith(50);
   vi.restoreAllMocks();
 });

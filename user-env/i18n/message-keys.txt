@@ -786,8 +786,9 @@ ui.visualization.flagLowerBound
 ui.visualization.flagOtherGroup
 ui.visualization.flagUnknown
 ui.visualization.flags
-ui.visualization.focusGraphAction
-ui.visualization.focusLost
+ui.visualization.focusMovedNearby
+ui.visualization.focusMovedTitle
+ui.visualization.folderExpandUnavailable
 ui.visualization.format
 ui.visualization.formats
 ui.visualization.freshnessCurrent
@@ -816,6 +817,7 @@ ui.visualization.independentTotals
 ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
+ui.visualization.itemOpenUnavailable
 ui.visualization.legend.unclassified
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed

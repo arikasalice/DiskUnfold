@@ -375,7 +375,7 @@ test.each(["success", "failure"] as const)(
         name: label("ui.visualization.show_space_distribution"),
       }),
     );
-    await screen.findByRole("group", { name: "Space distribution" });
+    await screen.findByRole("listbox", { name: "Space distribution" });
     const ordinaryRequests = () =>
       calls
         .filter(({ name }) => name === "viz.rows")
@@ -617,18 +617,18 @@ test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a fold
     ),
   );
   await screen.findByRole(
-    "button",
+    "option",
     { name: /^Holiday\.mp4, in Videos, / },
     {
       timeout: 5000,
     },
   );
-  await screen.findByRole("button", { name: /^Other \(7\+\), in Videos, / });
+  await screen.findByRole("option", { name: /^Other \(7\+\), in Videos, / });
   // The folder is named as one, with the count of what it holds, and comes right
   // before those shapes, the order of the table rows.
   const names = Array.from(
-    document.querySelectorAll(".du-geometry-buttons button"),
-    (button) => button.getAttribute("aria-label") ?? "",
+    document.querySelectorAll('.du-geometry-targets [role="option"]'),
+    (option) => option.getAttribute("aria-label") ?? "",
   );
   const folderAt = names.findIndex((name) =>
     /^Videos, folder, .*, 2 shown inside$/.test(name),

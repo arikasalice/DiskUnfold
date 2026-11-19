@@ -1,6 +1,5 @@
-import { useId, useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { Action } from "../controls";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
 import { graphemes } from "../graphemes";
@@ -65,9 +64,15 @@ export type GeometryRendererProps = {
     control?: HTMLElement,
   ) => void;
   focusedRowRef?: string | null;
+  /** Enter on a shape; `container` is true for an expanded folder (README 8, 34). */
+  onActivate?: (rowRef: string, shapeRef: string, container: boolean) => void;
+  /** Esc while a shape is selected. */
+  onClearSelection?: () => void;
+  /** The focused shape left the chart and the focus moved to a shape nearby (README 34). */
+  onFocusMoved?: () => void;
+  /** The focused shape left the chart and no shape is left to take the focus. */
   onFocusTargetMissing?: () => void;
   onFocusAvailability?: (available: boolean) => void;
-  focusFirstRequest?: number;
   fallback: Fallback;
 };
 
@@ -265,20 +270,72 @@ function primitive(
       return null;
   }
 }
-function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
-  if (
-    isImeProcessingKey(event.nativeEvent) ||
-    !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-  )
-    return;
-  const buttons = Array.from(event.currentTarget.querySelectorAll("button"));
-  const index = buttons.indexOf(event.target as HTMLButtonElement);
-  if (index < 0 || buttons.length === 0) return;
-  const offset =
-    event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-  const next = (index + offset + buttons.length) % buttons.length;
-  event.preventDefault();
-  buttons[next]?.focus();
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/** Where a shape takes pointer and keyboard focus over the drawing, in chart pixels. */
+function boxOf(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+  grid: DeviceGrid,
+): Box | null {
+  const edges = drawnEdges(shape, view, width, height, grid);
+  const points = shape.geometry.points.map((point) =>
+    project(point, view, width, height, grid),
+  );
+  const box = edges ?? {
+    left: Math.min(...points.map((point) => point.x)) - 4,
+    top: Math.min(...points.map((point) => point.y)) - 4,
+    right: Math.max(...points.map((point) => point.x)) + 4,
+    bottom: Math.max(...points.map((point) => point.y)) + 4,
+  };
+  const clipped = {
+    left: Math.max(0, box.left),
+    top: Math.max(0, box.top),
+    right: Math.min(width, box.right),
+    bottom: Math.min(height, box.bottom),
+  };
+  return clipped.right > clipped.left && clipped.bottom > clipped.top
+    ? clipped
+    : null;
+}
+
+/**
+ * The shape nearest in the direction of an arrow key on screen, or none at the
+ * edge: the focus stops there (README 10, 22). Distance across the direction
+ * counts double, so a shape straight ahead wins over one off to the side.
+ */
+function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
+  const centre = (box: Box) => ({
+    x: (box.left + box.right) / 2,
+    y: (box.top + box.bottom) / 2,
+  });
+  const start = centre(boxes[from]!);
+  let best: number | undefined;
+  let bestScore = Infinity;
+  boxes.forEach((box, index) => {
+    if (index === from) return;
+    const point = centre(box);
+    const dx = point.x - start.x;
+    const dy = point.y - start.y;
+    const horizontal = key === "ArrowLeft" || key === "ArrowRight";
+    const along =
+      key === "ArrowRight"
+        ? dx
+        : key === "ArrowLeft"
+          ? -dx
+          : key === "ArrowDown"
+            ? dy
+            : -dy;
+    if (along <= 0.5) return;
+    const score = along + 2 * Math.abs(horizontal ? dy : dx);
+    if (score < bestScore) {
+      bestScore = score;
+      best = index;
+    }
+  });
+  return best;
 }
 
 /**
@@ -368,6 +425,31 @@ function selectionBand(
   );
 }
 
+/** The selection mark: a check in the top right corner inside the band (4.7). */
+function selectionCheck(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+  grid: DeviceGrid,
+) {
+  const edges = drawnEdges(shape, view, width, height, grid);
+  const size = whole(14, grid);
+  const band = whole(3, grid);
+  if (!edges || edges.right - edges.left < 2 * size + band) return null;
+  if (edges.bottom - edges.top < 2 * size + band) return null;
+  const x = edges.right - band - size;
+  const y = edges.top + band;
+  return (
+    <g className="du-geometry-check">
+      <rect x={x} y={y} width={size} height={size} />
+      <path
+        d={`M${x + size * 0.25},${y + size * 0.52} L${x + size * 0.43},${y + size * 0.7} L${x + size * 0.76},${y + size * 0.32}`}
+      />
+    </g>
+  );
+}
+
 function rectangleLabel(
   shape: Shape,
   view: Viewport,
@@ -404,9 +486,13 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const svg = useRef<SVGSVGElement>(null);
   // Where the chart falls on device pixels, so its 1 px lines stay sharp (#156).
   const grid = useDeviceGrid(svg, Math.round(props.width));
-  const controls = useRef(new Map<string, HTMLButtonElement>());
+  const controls = useRef(new Map<string, HTMLElement>());
   const restoreFocus = useRef(false);
-  const lastFocusFirstRequest = useRef(props.focusFirstRequest);
+  // The model-order place of the focused shape, for "the same place" (README 22).
+  const focusedIndex = useRef(0);
+  const order = useRef<string[]>([]);
+  // The shape that holds the chart's one Tab stop: the last focused one (README 10).
+  const [tabStop, setTabStop] = useState<string | null>(null);
   const { shapes, relations, viewport, fallback, modelRef, resultRevision } =
     props;
   const fallbackMatches =
@@ -437,34 +523,32 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   }, [modelRef, resultRevision, firstTarget?.shapeRef]);
   useLayoutEffect(() => {
     if (
-      props.focusFirstRequest !== lastFocusFirstRequest.current &&
-      firstTarget
-    )
-      controls.current
-        .get(firstTarget.shapeRef)
-        ?.focus({ preventScroll: true });
-    lastFocusFirstRequest.current = props.focusFirstRequest;
-  }, [props.focusFirstRequest]);
-  useLayoutEffect(() => {
-    if (
       restoreFocus.current &&
       (document.activeElement === document.body ||
         !document.activeElement?.isConnected)
     ) {
+      // The same item, else the shape now at the same place, else the last
+      // shape; with none left the caller takes the focus (README 22, 34).
       const matches = props.focusedRowRef
         ? props.shapes.filter((shape) => shape.rowRef === props.focusedRowRef)
         : [];
-      const target =
+      const same =
         matches.length === 1
           ? controls.current.get(matches[0]!.shapeRef)
           : undefined;
-      if (target) target.focus({ preventScroll: true });
-      else props.onFocusTargetMissing?.();
+      const refs = order.current;
+      const nearby = refs[Math.min(focusedIndex.current, refs.length - 1)];
+      const target =
+        same ?? (nearby ? controls.current.get(nearby) : undefined);
+      if (target) {
+        target.focus({ preventScroll: true });
+        if (!same) props.onFocusMoved?.();
+      } else props.onFocusTargetMissing?.();
     }
     restoreFocus.current = false;
     return () => {
       restoreFocus.current ||= Array.from(controls.current.values()).some(
-        (button) => button === document.activeElement,
+        (control) => control === document.activeElement,
       );
     };
   }, [props.modelRef, props.resultRevision]);
@@ -493,108 +577,177 @@ export function GeometryRenderer(props: GeometryRendererProps) {
     );
     return drawing === null ? [] : [{ shape, drawing }];
   });
+  // Each drawn shape is one option of the chart's list, laid over its drawing.
+  const targets = visible.flatMap(({ shape }) => {
+    const box = boxOf(shape, viewport, width, height, grid);
+    return box ? [{ shape, box }] : [];
+  });
+  order.current = targets.map(({ shape }) => shape.shapeRef);
+  const stop = targets.some(({ shape }) => shape.shapeRef === tabStop)
+    ? tabStop
+    : (targets[0]?.shape.shapeRef ?? null);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (isImeProcessingKey(event.nativeEvent)) return;
+    const index = targets.findIndex(
+      ({ shape }) => controls.current.get(shape.shapeRef) === event.target,
+    );
+    const current = targets[index];
+    if (!current) return;
+    const { rowRef, shapeRef } = current.shape;
+    let next: number | undefined;
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowRight":
+      case "ArrowUp":
+      case "ArrowDown":
+        next = nearestInDirection(
+          targets.map(({ box }) => box),
+          index,
+          event.key,
+        );
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = targets.length - 1;
+        break;
+      case " ":
+        event.preventDefault();
+        props.onSelect(rowRef, shapeRef);
+        return;
+      case "Enter":
+        event.preventDefault();
+        props.onActivate?.(rowRef, shapeRef, current.shape.container === true);
+        return;
+      case "Escape":
+        if (props.selectedRowRef !== null && props.onClearSelection) {
+          event.preventDefault();
+          props.onClearSelection();
+        }
+        return;
+      default:
+        return;
+    }
+    // At the edge the focus stays, and the page does not scroll instead.
+    event.preventDefault();
+    const target = next === undefined ? undefined : targets[next];
+    if (target) controls.current.get(target.shape.shapeRef)?.focus();
+  };
   return (
     <section aria-label={props.label}>
-      <svg
-        ref={svg}
-        className="du-geometry"
-        aria-hidden="true"
-        focusable="false"
-        width={width}
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        style={{ display: "block", maxWidth: "100%" }}
-      >
-        <defs>
-          <clipPath id={clip}>
-            <rect width={width} height={height} />
-          </clipPath>
-        </defs>
-        <g
-          clipPath={`url(#${clip})`}
-          transform={
-            grid.dx || grid.dy ? `translate(${grid.dx} ${grid.dy})` : undefined
+      <div className="du-geometry-frame">
+        <svg
+          ref={svg}
+          className="du-geometry"
+          aria-hidden="true"
+          focusable="false"
+          width={width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          style={{ display: "block", maxWidth: "100%" }}
+        >
+          <defs>
+            <clipPath id={clip}>
+              <rect width={width} height={height} />
+            </clipPath>
+          </defs>
+          <g
+            clipPath={`url(#${clip})`}
+            transform={
+              grid.dx || grid.dy
+                ? `translate(${grid.dx} ${grid.dy})`
+                : undefined
+            }
+          >
+            {relations
+              .filter(
+                (relation) =>
+                  relation.geometry != null &&
+                  intersects(relation.geometry, viewport),
+              )
+              .map((relation, index) => (
+                <g className="du-geometry-relation" key={`relation-${index}`}>
+                  {primitive(relation.geometry!, viewport, width, height, grid)}
+                </g>
+              ))}
+            {visible.map(({ shape, drawing }) => {
+              const selected = shape.rowRef === props.selectedRowRef;
+              return (
+                <g
+                  className="du-geometry-shape"
+                  key={shape.shapeRef}
+                  data-container={shape.container ? "true" : undefined}
+                  data-selected={selected ? "true" : undefined}
+                >
+                  {drawing}
+                  {selected &&
+                    selectionBand(shape, viewport, width, height, grid)}
+                  {lowerBoundEdge(shape, viewport, width, height, grid)}
+                  {rectangleLabel(shape, viewport, width, height, grid)}
+                  {selected &&
+                    selectionCheck(shape, viewport, width, height, grid)}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+        <div
+          className="du-geometry-targets"
+          role="listbox"
+          aria-label={props.label}
+          onKeyDown={onKeyDown}
+          style={
+            grid.dx || grid.dy
+              ? { transform: `translate(${grid.dx}px, ${grid.dy}px)` }
+              : undefined
           }
         >
-          {relations
-            .filter(
-              (relation) =>
-                relation.geometry != null &&
-                intersects(relation.geometry, viewport),
-            )
-            .map((relation, index) => (
-              <g className="du-geometry-relation" key={`relation-${index}`}>
-                {primitive(relation.geometry!, viewport, width, height, grid)}
-              </g>
-            ))}
-          {visible.map(({ shape, drawing }) => (
-            <g
-              className="du-geometry-shape"
-              key={shape.shapeRef}
-              data-container={shape.container ? "true" : undefined}
-              onClick={() => {
-                controls.current
-                  .get(shape.shapeRef)
-                  ?.focus({ preventScroll: true });
+          {targets.map(({ shape, box }, index) => (
+            <div
+              key={`${modelRef}:${resultRevision}:${shape.shapeRef}`}
+              className="du-geometry-target"
+              role="option"
+              data-shape-index={index}
+              aria-selected={shape.rowRef === props.selectedRowRef}
+              aria-label={shape.accessibleLabel}
+              tabIndex={shape.shapeRef === stop ? 0 : -1}
+              style={{
+                left: box.left,
+                top: box.top,
+                width: box.right - box.left,
+                height: box.bottom - box.top,
+              }}
+              ref={(element) => {
+                if (element) controls.current.set(shape.shapeRef, element);
+                else {
+                  if (
+                    controls.current.get(shape.shapeRef) ===
+                    document.activeElement
+                  )
+                    restoreFocus.current = true;
+                  controls.current.delete(shape.shapeRef);
+                }
+              }}
+              onFocus={({ currentTarget }) => {
+                focusedIndex.current = index;
+                setTabStop(shape.shapeRef);
+                props.onShapeFocus?.(
+                  shape.rowRef,
+                  shape.shapeRef,
+                  currentTarget,
+                );
+              }}
+              onBlur={() => {
+                restoreFocus.current = false;
+              }}
+              onClick={({ currentTarget }) => {
+                currentTarget.focus({ preventScroll: true });
                 props.onSelect(shape.rowRef, shape.shapeRef);
               }}
-              data-selected={
-                shape.rowRef === props.selectedRowRef ? "true" : undefined
-              }
-            >
-              {drawing}
-              {shape.rowRef === props.selectedRowRef &&
-                selectionBand(shape, viewport, width, height, grid)}
-              {lowerBoundEdge(shape, viewport, width, height, grid)}
-              {rectangleLabel(shape, viewport, width, height, grid)}
-            </g>
+            />
           ))}
-        </g>
-      </svg>
-      <div
-        className="du-geometry-buttons"
-        role="group"
-        aria-label={props.label}
-        onKeyDown={moveFocus}
-      >
-        {visible.map(({ shape }) => (
-          <Action
-            key={`${modelRef}:${resultRevision}:${shape.shapeRef}`}
-            onFocus={({ currentTarget }) => {
-              props.onShapeFocus?.(
-                shape.rowRef,
-                shape.shapeRef,
-                currentTarget instanceof HTMLElement
-                  ? currentTarget
-                  : undefined,
-              );
-              // The row scrolls sideways; the focused button must be in view.
-              if (currentTarget instanceof HTMLElement)
-                currentTarget.scrollIntoView?.({
-                  block: "nearest",
-                  inline: "nearest",
-                });
-            }}
-            onBlur={() => {
-              restoreFocus.current = false;
-            }}
-            ref={(element) => {
-              if (element) controls.current.set(shape.shapeRef, element);
-              else {
-                if (
-                  controls.current.get(shape.shapeRef) ===
-                  document.activeElement
-                )
-                  restoreFocus.current = true;
-                controls.current.delete(shape.shapeRef);
-              }
-            }}
-            aria-label={`${shape.accessibleLabel}${shape.rowRef === props.selectedRowRef ? `, ${props.selectedText}` : ""}`}
-            onPress={() => props.onSelect(shape.rowRef, shape.shapeRef)}
-          >
-            {shape.displayLabel ?? shape.accessibleLabel}
-          </Action>
-        ))}
+        </div>
       </div>
       {fallback.content}
     </section>

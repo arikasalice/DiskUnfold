@@ -84,7 +84,7 @@ function unavailableFallback(
   };
 }
 
-test.each(["keyboard", "pointer"] as const)(
+test.each(["keyboard", "pointer", "enter"] as const)(
   "returns to the actual adapted group shape after %s activation",
   async (activation) => {
     const result = frame(1);
@@ -117,16 +117,20 @@ test.each(["keyboard", "pointer"] as const)(
     );
     await act(async () => visualization.render(request(1)));
     const shapeButton = within(
-      screen.getByRole("group", { name: "Space distribution" }),
-    ).getAllByRole("button")[0]!;
+      screen.getByRole("listbox", { name: "Space distribution" }),
+    ).getAllByRole("option")[0]!;
     shapeButton.focus();
-    if (activation === "keyboard") {
-      fireEvent.keyDown(shapeButton, { key: " ", code: "Space" });
-      fireEvent.keyUp(shapeButton, { key: " ", code: "Space" });
-    } else fireEvent.click(shapeButton);
-    fireEvent.click(
-      screen.getByRole("button", { name: "View combined items" }),
-    );
+    // Enter on a group shape selects it and opens its list (README 22, 34).
+    if (activation === "enter")
+      fireEvent.keyDown(shapeButton, { key: "Enter", code: "Enter" });
+    else {
+      if (activation === "keyboard")
+        fireEvent.keyDown(shapeButton, { key: " ", code: "Space" });
+      else fireEvent.click(shapeButton);
+      fireEvent.click(
+        screen.getByRole("button", { name: "View combined items" }),
+      );
+    }
     const back = await screen.findByRole("button", {
       name: "Back to chart",
     });
@@ -140,6 +144,33 @@ test.each(["keyboard", "pointer"] as const)(
     expect(document.activeElement).toBe(shapeButton);
   },
 );
+
+test("F06 README 22, 34: Enter on an item does nothing else and says why; Esc unselects", async () => {
+  const result = frame(1);
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(result),
+    rows: vi.fn(),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  render(
+    <ControlledVisualization controller={controller} text={fixtureText} />,
+  );
+  await act(async () => controller.render(request(1)));
+  const shape = within(
+    screen.getByRole("listbox", { name: "Space distribution" }),
+  ).getAllByRole("option")[0]!;
+  shape.focus();
+  fireEvent.keyDown(shape, { key: "Enter", code: "Enter" });
+  expect(
+    screen.getByText(fixtureText.message("itemOpenUnavailable")),
+  ).toBeTruthy();
+  expect(controller.getSnapshot().selection).toBeNull();
+  fireEvent.keyDown(shape, { key: " ", code: "Space" });
+  expect(controller.getSnapshot().selection).not.toBeNull();
+  fireEvent.keyDown(shape, { key: "Escape", code: "Escape" });
+  expect(controller.getSnapshot().selection).toBeNull();
+});
 
 test("selection while an unrelated control has focus does not become a shape origin", async () => {
   const result = frame(1);
@@ -244,7 +275,7 @@ test("an injected chart renderer cannot claim a button as a verified shape origi
   await act(async () => visualization.render(request(1)));
   const fakeShape = within(
     screen.getByRole("region", { name: "Storage chart" }),
-  ).getAllByRole("button")[0]!;
+  ).getAllByRole("option")[0]!;
   fakeShape.focus();
   fireEvent.click(fakeShape);
   fireEvent.click(screen.getByRole("button", { name: "View combined items" }));
@@ -1169,8 +1200,8 @@ test("keyboard focus and selection follow verified correspondence into the new D
   await act(async () => controller.render(request(1)));
   const shape = first.model.shapes[0]!;
   const item = shape.itemRef!;
-  const group = screen.getByRole("group", { name: "Space distribution" });
-  const button = within(group).getAllByRole("button")[0]!;
+  const group = screen.getByRole("listbox", { name: "Space distribution" });
+  const button = within(group).getAllByRole("option")[0]!;
   act(() => {
     button.focus();
     fireEvent.keyDown(button, { key: " ", code: "Space" });
@@ -1188,8 +1219,8 @@ test("keyboard focus and selection follow verified correspondence into the new D
     ]),
   );
   const newButton = within(
-    screen.getByRole("group", { name: "Space distribution" }),
-  ).getAllByRole("button")[0]!;
+    screen.getByRole("listbox", { name: "Space distribution" }),
+  ).getAllByRole("option")[0]!;
   expect(document.activeElement).toBe(newButton);
   expect(controller.getSnapshot().focus).toEqual(target);
 });
@@ -1251,8 +1282,8 @@ test("lost correspondence is explained and never moves focus to another applicat
   );
   await act(async () => controller.render(request(1)));
   const graphButton = within(
-    screen.getByRole("group", { name: "Space distribution" }),
-  ).getAllByRole("button")[0]!;
+    screen.getByRole("listbox", { name: "Space distribution" }),
+  ).getAllByRole("option")[0]!;
   act(() => {
     graphButton.focus();
     fireEvent.keyDown(graphButton, { key: " ", code: "Space" });
@@ -1430,8 +1461,8 @@ test.each(["unknown", "duplicate", "outside"] as const)(
     );
     await act(async () => controller.render(request(1)));
     const old = within(
-      screen.getByRole("group", { name: "Space distribution" }),
-    ).getAllByRole("button")[0]!;
+      screen.getByRole("listbox", { name: "Space distribution" }),
+    ).getAllByRole("option")[0]!;
     act(() => {
       old.focus();
       fireEvent.keyDown(old, { key: " ", code: "Space" });
@@ -1448,12 +1479,6 @@ test.each(["unknown", "duplicate", "outside"] as const)(
     const evidence = scenario === "duplicate" ? [match, match] : [];
     await act(async () => controller.render(request(2, "next"), evidence));
     if (scenario === "outside") expect(document.activeElement).toBe(external);
-    else
-      expect(document.activeElement).toBe(
-        screen.getByText(
-          "The previously focused item is unavailable in this chart.",
-        ),
-      );
     expect(controller.getSnapshot().selection).toBeNull();
     expect(
       screen.getByText(
@@ -1461,10 +1486,13 @@ test.each(["unknown", "duplicate", "outside"] as const)(
       ),
     ).toBeTruthy();
     const current = within(
-      screen.getByRole("group", { name: "Space distribution" }),
-    ).getAllByRole("button")[0]!;
+      screen.getByRole("listbox", { name: "Space distribution" }),
+    ).getAllByRole("option")[0]!;
     expect(current).not.toBe(old);
-    expect(document.activeElement).not.toBe(current);
+    // Focus left in the chart goes to the shape at its place (README 34).
+    if (scenario === "outside")
+      expect(document.activeElement).not.toBe(current);
+    else expect(document.activeElement).toBe(current);
   },
 );
 
@@ -1569,8 +1597,8 @@ test.each(["en", "ko"] as const)(
       }),
     );
     const button = within(
-      screen.getByRole("group", { name: distributionName }),
-    ).getAllByRole("button")[0]!;
+      screen.getByRole("listbox", { name: distributionName }),
+    ).getAllByRole("option")[0]!;
     act(() => {
       button.focus();
       fireEvent.keyDown(button, { key: " ", code: "Space" });
@@ -1595,9 +1623,14 @@ test.each(["en", "ko"] as const)(
     expect(
       screen.getByText(text.message("correspondenceUnknown")),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: text.message("focusGraphAction") }),
-    ).toBeTruthy();
+    // The shape at the same place takes the focus; the lost selection's own
+    // notice is said alone (README 34).
+    expect(document.activeElement).toBe(
+      within(
+        screen.getByRole("listbox", { name: distributionName }),
+      ).getAllByRole("option")[0],
+    );
+    expect(screen.queryByText(text.message("focusMovedNearby"))).toBeNull();
   },
 );
 
@@ -1684,7 +1717,7 @@ test("F02: a lost selection marks the edge spaces of the previous item name", as
 });
 
 test.each(["en", "ko"] as const)(
-  "unmatched focus reaches the actual graph reselection control in %s",
+  "F06 README 34: a focused shape missing from the next result passes the focus to the shape at its place, said once, in %s",
   async (language) => {
     const first = frame(1),
       next = frame(2, "next");
@@ -1701,39 +1734,24 @@ test.each(["en", "ko"] as const)(
     };
     const distributionName =
       language === "ko" ? "공간 분포" : "Space distribution";
-    render(
-      <>
-        <ControlledVisualization controller={controller} text={text} />
-        <button>Next product control</button>
-      </>,
-    );
+    render(<ControlledVisualization controller={controller} text={text} />);
     await act(async () => controller.render(request(1)));
     const old = within(
-      screen.getByRole("group", { name: distributionName }),
-    ).getAllByRole("button")[0]!;
-    act(() => {
-      old.focus();
-      fireEvent.keyDown(old, { key: " ", code: "Space" });
-      fireEvent.keyUp(old, { key: " ", code: "Space" });
-    });
+      screen.getByRole("listbox", { name: distributionName }),
+    ).getAllByRole("option")[0]!;
+    act(() => old.focus());
     await act(async () => controller.render(request(2, "next")));
-    const notice = screen.getByText(text.message("focusLost"));
-    const action = screen.getByRole("button", {
-      name: text.message("focusGraphAction"),
-    });
-    expect(document.activeElement).toBe(notice);
-    expect(
-      notice.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    act(() => fireEvent.click(action));
     const target = within(
-      screen.getByRole("group", { name: distributionName }),
-    ).getAllByRole("button")[0]!;
+      screen.getByRole("listbox", { name: distributionName }),
+    ).getAllByRole("option")[0]!;
+    expect(target).not.toBe(old);
     expect(document.activeElement).toBe(target);
-    expect(controller.getSnapshot().previousSelection).not.toBeNull();
+    expect(screen.getByText(text.message("focusMovedNearby"))).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Choose another item|다른 항목/ }),
+    ).toBeNull();
     act(() => {
       fireEvent.keyDown(target, { key: " ", code: "Space" });
-      fireEvent.keyUp(target, { key: " ", code: "Space" });
     });
     expect(controller.getSnapshot().selection).toMatchObject({
       kind: "item",
@@ -1742,7 +1760,7 @@ test.each(["en", "ko"] as const)(
   },
 );
 
-test("an empty graph offers no reselection action and leaves the next actual control in document order", async () => {
+test("an empty next graph offers no shape and no reselection action", async () => {
   const first = frame(1),
     next = frame(2, "next");
   next.model.shapes = [];
@@ -1753,40 +1771,19 @@ test("an empty graph offers no reselection action and leaves the next actual con
     canDisplay: () => true,
   });
   render(
-    <>
-      <ControlledVisualization controller={controller} text={fixtureText} />
-      <button>Next product control</button>
-    </>,
+    <ControlledVisualization controller={controller} text={fixtureText} />,
   );
   await act(async () => controller.render(request(1)));
   const old = within(
-    screen.getByRole("group", { name: "Space distribution" }),
-  ).getAllByRole("button")[0]!;
-  act(() => {
-    old.focus();
-    fireEvent.keyDown(old, { key: " ", code: "Space" });
-    fireEvent.keyUp(old, { key: " ", code: "Space" });
-  });
+    screen.getByRole("listbox", { name: "Space distribution" }),
+  ).getAllByRole("option")[0]!;
+  act(() => old.focus());
   await act(async () => controller.render(request(2, "next")));
-  const notice = screen.getByText(fixtureText.message("focusLost"));
-  expect(document.activeElement).toBe(notice);
+  expect(screen.queryAllByRole("option")).toHaveLength(0);
   expect(
-    screen.queryByRole("button", {
-      name: fixtureText.message("focusGraphAction"),
-    }),
+    screen.queryByRole("button", { name: "Choose another item in the chart" }),
   ).toBeNull();
   expect(screen.getByText(fixtureText.message("noGraphTargets"))).toBeTruthy();
-  const nextControl = screen.getByRole("button", {
-    name: "Next product control",
-  });
-  const following = Array.from(
-    document.querySelectorAll("button:not([disabled])"),
-  ).filter((button) =>
-    Boolean(
-      notice.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ),
-  );
-  expect(following[0]).toBe(nextControl);
 });
 
 test("ambiguous visible targets do not create a fake reselection action", async () => {
@@ -1807,21 +1804,19 @@ test("ambiguous visible targets do not create a fake reselection action", async 
   );
   await act(async () => controller.render(request(1)));
   const old = within(
-    screen.getByRole("group", { name: "Space distribution" }),
-  ).getAllByRole("button")[0]!;
+    screen.getByRole("listbox", { name: "Space distribution" }),
+  ).getAllByRole("option")[0]!;
   act(() => {
     old.focus();
     fireEvent.keyDown(old, { key: " ", code: "Space" });
     fireEvent.keyUp(old, { key: " ", code: "Space" });
   });
   await act(async () => controller.render(request(2, "next")));
-  expect(document.activeElement).toBe(
-    screen.getByText(fixtureText.message("focusLost")),
-  );
+  // Two shapes of one row are not "the same item"; the shape at the same place
+  // takes the focus.
+  expect(document.activeElement).toBe(screen.getAllByRole("option")[0]);
   expect(
-    screen.queryByRole("button", {
-      name: fixtureText.message("focusGraphAction"),
-    }),
+    screen.queryByRole("button", { name: "Choose another item in the chart" }),
   ).toBeNull();
   expect(screen.getByText(fixtureText.message("noGraphTargets"))).toBeTruthy();
 });

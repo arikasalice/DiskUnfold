@@ -52,34 +52,52 @@
   stroke: var(--du-muted);
 }
 
-/* The shape buttons stay on one line under the chart and scroll sideways. */
-.du-geometry-buttons {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  max-inline-size: 100%;
-  /* Apart from the chart; the chart height counts this row with its padding. */
-  padding-block-start: 8px;
-  padding-block-end: 2px;
+/* Each shape is an option of the chart's list, laid over its drawing (README 34). */
+.du-geometry-frame {
+  position: relative;
 }
 
-.du-geometry-buttons > * {
-  flex: none;
-  white-space: nowrap;
+.du-geometry-targets {
+  position: absolute;
+  inset: 0;
 }
 
-/* The selection outline of a rectangle, a band of whole device pixels inside it. */
+.du-geometry-target {
+  position: absolute;
+  cursor: pointer;
+}
+
+/* Focus: a 1 px gap of the surface colour, then a 2 px --du-focus line (4.7). */
+.du-geometry-target:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--du-surface);
+}
+
+/* Selection: a solid 3 px band of whole device pixels inside the shape and a
+   check in its top right corner (4.7). Dashes mean a lower bound only. */
 .du-geometry-shape > .du-geometry-selection {
   fill: none;
   stroke: var(--du-focus);
-  stroke-dasharray: 4 2;
   pointer-events: none;
 }
 
 .du-geometry g[data-selected="true"] > :is(circle, polyline, polygon) {
   stroke: var(--du-focus);
   stroke-width: 3;
-  stroke-dasharray: 4 2;
+}
+
+.du-geometry-check {
+  pointer-events: none;
+}
+
+.du-geometry-check > rect {
+  fill: var(--du-focus);
+  stroke: none;
+}
+
+.du-geometry-check > path {
+  fill: none;
+  stroke: var(--du-accent-text);
+  stroke-width: 2;
 }

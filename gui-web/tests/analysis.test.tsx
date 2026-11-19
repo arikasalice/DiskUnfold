@@ -2061,7 +2061,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
       {} as ResizeObserver,
     );
   });
-  await screen.findByRole("group", { name: "Space distribution" });
+  await screen.findByRole("listbox", { name: "Space distribution" });
   expect(browseShell?.hidden).toBe(true);
   expect(browseShell && getComputedStyle(browseShell).display).toBe("none");
   await screen.findByRole("button", { name: "Back to folders" });
@@ -2186,7 +2186,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
   fireEvent.click(entry);
   await screen.findByText("The chart could not be loaded.");
   expect(
-    screen.queryByRole("group", { name: "Space distribution" }),
+    screen.queryByRole("listbox", { name: "Space distribution" }),
   ).toBeNull();
   expect(
     document
