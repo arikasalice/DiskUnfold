@@ -189,28 +189,56 @@ connection.close()
   $seed | & $python.Source - $database $language
   if ($LASTEXITCODE -ne 0) { throw "Could not store the display language (python exit code $LASTEXITCODE)" }
 }
-# Put the window at the top left corner with the requested outer size.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DiskUnfoldSmokeWindow {
+  [DllImport("user32.dll")]
+  private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+  // SWP_NOZORDER | SWP_NOACTIVATE
+  public static bool Place(IntPtr window, int width, int height) { return SetWindowPos(window, IntPtr.Zero, 0, 0, width, height, 0x0014); }
+}
+'@
+# Put the window at the top left corner with the requested outer size: UI Automation first, then the
+# window API when the window ignores it. The measured size is printed.
 function Set-SmokeWindowSize([string]$size) {
   if ($size -notmatch '^(\d+)x(\d+)$') { throw "Invalid -WindowSize '$size'; use WIDTHxHEIGHT" }
   $width = [int]$Matches[1]
   $height = [int]$Matches[2]
+  $measure = {
+    $bounds = $window.Current.BoundingRectangle
+    [pscustomobject]@{ Text = "$([int]$bounds.Width)x$([int]$bounds.Height)"; Fits = ([Math]::Abs($bounds.Width - $width) -le 20 -and [Math]::Abs($bounds.Height - $height) -le 20) }
+  }
   $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
   $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Normal)
   $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
+  "Window size: before $((& $measure).Text); UI Automation can resize: $($transform.Current.CanResize)"
   $transform.Move(0, 0)
   $transform.Resize($width, $height)
-  $null = Wait-UI "window size $size" {
-    $bounds = $window.Current.BoundingRectangle
-    if ([Math]::Abs($bounds.Width - $width) -le 20 -and [Math]::Abs($bounds.Height - $height) -le 20) { $bounds }
-  } 10
-  Start-Sleep -Milliseconds 500
+  Start-Sleep -Milliseconds 1000
+  $state = & $measure
+  if (-not $state.Fits) {
+    "Window size: UI Automation left $($state.Text); using SetWindowPos"
+    $null = [DiskUnfoldSmokeWindow]::Place([IntPtr]$window.Current.NativeWindowHandle, $width, $height)
+    Start-Sleep -Milliseconds 1000
+    $state = & $measure
+  }
+  "Window size: requested $size, measured $($state.Text)"
+  if (-not $state.Fits) { throw "The window did not take the size $size (measured $($state.Text)); the screen may be too small" }
 }
 if ($Locale -ne 'en') { Initialize-UiNames $Locale }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
 $appEnvironment = @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') }
-if ($Theme -eq 'dark') { $appEnvironment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--blink-settings=preferredColorScheme=1' }
 if ($Locale -ne 'en') { Initialize-SmokeLocale $Locale }
+# The WebView reports prefers-color-scheme from the Windows app color mode, which the app follows. Set
+# it for this run only and put it back in the final block below.
+$themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+$originalAppTheme = (Get-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -ErrorAction SilentlyContinue).AppsUseLightTheme
+if ($Theme -eq 'dark') {
+  if (-not (Test-Path -LiteralPath $themeKey)) { $null = New-Item -Path $themeKey -Force }
+  Set-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -Type DWord -Value 0
+}
 $process = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
 $scopeTree = [Windows.Automation.TreeScope]::Descendants
 $ae = [Windows.Automation.AutomationElement]
@@ -1110,7 +1138,7 @@ function Save-SmokeCapture($name) {
       $path = Join-Path $directory "$name.png"
       $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
     } finally { $graphics.Dispose(); $bitmap.Dispose() }
-    "Capture: $path"
+    "Capture: $path ($([int]$bounds.Width)x$([int]$bounds.Height))"
   } catch { Write-Warning "Capture '$name' failed: $($_.Exception.Message)" }
   finally {
     if ($null -ne $restore) {
@@ -1253,25 +1281,25 @@ function Test-CaptureTour {
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-Enabled 'Start analysis' $true
-  $null = Save-SmokeCapture '01-scope-reviewed'
+  Save-SmokeCapture '01-scope-reviewed'
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
-  $null = Save-SmokeCapture '02-analysis-result'
+  Save-SmokeCapture '02-analysis-result'
   Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
   $null = Wait-UI 'volume explanation' { Find-UI 'Selected scanned folder' $textType }
-  $null = Save-SmokeCapture '03-volume-explanation'
+  Save-SmokeCapture '03-volume-explanation'
   Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
   Invoke-UI (Wait-Enabled 'View folder details' $true)
   Wait-Details 'Space measurement details' 'Observed item space'
   $null = Wait-UI 'folder details' { Find-UI 'Observed item space' $null }
-  $null = Save-SmokeCapture '04-folder-details'
+  Save-SmokeCapture '04-folder-details'
   Invoke-UI (Wait-Enabled 'Close details' $true)
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
-  $null = Save-SmokeCapture '05-browse-folders'
+  Save-SmokeCapture '05-browse-folders'
   Invoke-UI (Wait-Enabled 'root.bin' $true)
-  $null = Wait-UI 'file attributes' { Find-UI 'Observed file attributes' $null }
-  $null = Save-SmokeCapture '06-file-details'
+  $null = Wait-UI 'file details' { Find-UI 'File details' $textType }
+  Save-SmokeCapture '06-file-details'
   Invoke-UI (Wait-Enabled 'Close details' $true)
   "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
@@ -1643,6 +1671,10 @@ function Test-VirtualGroups {
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw
 } finally {
+  if ($Theme -eq 'dark') {
+    if ($null -ne $originalAppTheme) { Set-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -Type DWord -Value $originalAppTheme }
+    else { Remove-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -ErrorAction SilentlyContinue }
+  }
   if (-not $process.HasExited) {
     $null = $process.CloseMainWindow()
     if (-not $process.WaitForExit(10000)) { Stop-Process -Id $process.Id; throw 'The test process did not exit' }
