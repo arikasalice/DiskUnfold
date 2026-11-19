@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { FileInspection } from "../src/features/analysis/FileInspection";
 import type { BrowseDetail } from "../src/ipc";
@@ -48,6 +48,8 @@ async function nameRow(name: string) {
 
 test("#171: a folder name that is a whole path breaks after its separators", async () => {
   const row = await nameRow(root);
+  expect(row.querySelectorAll(".du-path")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: /Full name/ }));
   const paths = row.querySelectorAll(".du-path");
   // The shown name and the one under "Full name" both follow the rule.
   expect(paths).toHaveLength(2);
