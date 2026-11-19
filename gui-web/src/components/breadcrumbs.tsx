@@ -1,4 +1,3 @@
-import { useLayoutEffect, useRef } from "react";
 import { Action } from "./controls";
 import { NameText } from "./name-text";
 import "../theme/breadcrumbs.css";
@@ -17,6 +16,10 @@ export type BreadcrumbEntry = {
  * that white space. A label that is not a file or folder name, such as a
  * translated root label, has no edge white space and renders as plain text.
  * The `title` keeps the real label.
+ *
+ * The hierarchy uses the remaining width and wraps onto more lines; no label
+ * is cut. A label that is a path, such as a scope root, breaks after its
+ * separators first.
  */
 export function Breadcrumbs({
   label,
@@ -25,30 +28,22 @@ export function Breadcrumbs({
   label: string;
   entries: readonly BreadcrumbEntry[];
 }) {
-  const viewport = useRef<HTMLElement>(null);
-  const pathKey = JSON.stringify(
-    entries.map(({ id, label: name, current }) => [id, name, current]),
-  );
-  useLayoutEffect(() => {
-    const element = viewport.current;
-    if (element) element.scrollLeft = element.scrollWidth;
-  }, [pathKey]);
   return (
-    <nav ref={viewport} className="du-breadcrumbs" aria-label={label}>
+    <nav className="du-breadcrumbs" aria-label={label}>
       <ol role="list">
         {entries.map((entry, index) => (
           <li key={entry.id} title={entry.label}>
             {index > 0 && <span aria-hidden="true">/</span>}
             {entry.onPress && !entry.current ? (
               <Action onPress={entry.onPress}>
-                <NameText name={entry.label} />
+                <NameText name={entry.label} path={isPath(entry.label)} />
               </Action>
             ) : (
               <span
                 aria-current={entry.current ? "location" : undefined}
                 title={entry.label}
               >
-                <NameText name={entry.label} />
+                <NameText name={entry.label} path={isPath(entry.label)} />
               </span>
             )}
           </li>
@@ -56,4 +51,9 @@ export function Breadcrumbs({
       </ol>
     </nav>
   );
+}
+
+/** A label with a separator, such as a scope root path, breaks after it. */
+function isPath(label: string): boolean {
+  return label.includes("/") || label.includes("\\");
 }
