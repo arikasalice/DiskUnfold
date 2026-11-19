@@ -5,13 +5,8 @@ import {
   NameText,
   Text,
   hasPathSeparator,
+  invisibleCount,
 } from "../../components";
-
-/**
- * Characters that take no visible space: format and control characters, such
- * as a zero-width space or a direction mark, and the Hangul fillers.
- */
-const INVISIBLE = /[\p{Cf}\p{Cc}\u115F\u1160\u3164\uFFA0]/u;
 
 /** True while the first element of `frame` is cut by its line clamp. */
 function useClampCut(frame: RefObject<HTMLElement | null>, name: string) {
@@ -33,7 +28,8 @@ function useClampCut(frame: RefObject<HTMLElement | null>, name: string) {
  * The name row of the item details. A name that is a whole path, as a scope
  * root names itself, follows the path rule. "Full name" is offered only while
  * the two shown lines cut the name or the name holds characters that are not
- * visible; a name shown whole needs nothing more.
+ * visible, which the expanded name draws as their code points; a name shown
+ * whole needs nothing more.
  */
 export function InspectionName({
   name,
@@ -50,10 +46,10 @@ export function InspectionName({
       <Text>
         <NameText name={name} path={path} />
       </Text>
-      {(cut || INVISIBLE.test(name)) && (
+      {(cut || invisibleCount(name, path) > 0) && (
         <DetailDisclosure title={fullLabel}>
           <Text focusable>
-            <NameText name={name} path={path} />
+            <NameText name={name} path={path} reveal />
           </Text>
         </DetailDisclosure>
       )}

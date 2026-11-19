@@ -25,6 +25,35 @@
   user-select: none;
 }
 
+/* An invisible character stays in the text for copying and takes no room.
+   Its direction controls end where it stands, so the name shows its real
+   order, and its code point is drawn in its place. */
+.du-name__hidden {
+  font-size: 0;
+  unicode-bidi: isolate;
+}
+
+.du-name__code {
+  display: inline-block;
+  margin-inline: 0.15em;
+  padding-inline: 0.2em;
+  border: 1px solid var(--du-border);
+  border-radius: 3px;
+  background: var(--du-hover-surface);
+  color: var(--du-muted);
+  font-family: var(--du-font-mono);
+  font-size: 0.85em;
+  unicode-bidi: isolate;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.du-name__count {
+  display: block;
+  color: var(--du-muted);
+  user-select: none;
+}
+
 .du-name .du-visually-hidden {
   user-select: none;
 }
