@@ -132,6 +132,16 @@ jobs:
       - name: Windows NTFS volume mount-point observation
         if: runner.os == 'Windows' && matrix.cpu == 'x64'
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
+      # A separate install keeps the cache key of the GTK and WebKit packages unchanged.
+      - name: Linux btrfs tools
+        if: runner.os == 'Linux' && matrix.cpu == 'x64'
+        timeout-minutes: 10
+        uses: ./.github/actions/apt-install
+        with:
+          packages: btrfs-progs
+      - name: Linux btrfs subvolume observation
+        if: runner.os == 'Linux' && matrix.cpu == 'x64'
+        run: cargo test --locked -p du-platform-os --test linux_btrfs_subvolume -- --ignored --nocapture
       # Ubuntu 24.04 runners set kernel.apparmor_restrict_unprivileged_userns=1, which
       # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs
       # ("bwrap: setting up uid map: Permission denied"), so the web process hangs until
