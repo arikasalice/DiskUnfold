@@ -92,6 +92,10 @@ const REASONS: Readonly<Record<string, Entry>> = {
     "ui.groups.reason_internal",
     "DiskUnfold hit an internal problem.",
   ],
+  "request.cancelled": [
+    "reason.request.cancelled.cause",
+    "The request was cancelled before it finished.",
+  ],
 };
 
 function lookup(table: Readonly<Record<string, Entry>>, key: string) {

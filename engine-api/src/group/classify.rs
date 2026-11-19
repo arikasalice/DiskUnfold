@@ -294,6 +294,7 @@ fn classify_error(error: group::Error) -> EngineError {
         group::Error::Source(QueryError::NotFound) => EngineError::reason("ref.unavailable"),
         group::Error::InvalidRule(_) => EngineError::reason("query.syntax_invalid"),
         group::Error::ScopeTooLarge => EngineError::reason("group.rule_limit"),
+        group::Error::Cancelled => EngineError::reason("request.cancelled"),
         _ => internal(),
     }
 }

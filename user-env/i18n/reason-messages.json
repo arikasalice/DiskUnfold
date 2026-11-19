@@ -47,5 +47,12 @@
     "irreversible": false,
     "certainty": "confirmed",
     "status": "failed"
+  }],
+  ["request.cancelled", {
+    "causeKey": "reason.request.cancelled.cause",
+    "actionKey": "reason.request.cancelled.action",
+    "irreversible": false,
+    "certainty": "confirmed",
+    "status": "incomplete"
   }]
 ]

@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn cancelled_request_reports_request_cancelled_and_internal_stays_internal()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f5e7b-1234-7123-8123-123456789abc")?;
+    let cancelled = folder_error(Error::Cancelled).into_envelope(id.clone());
+    assert_eq!(cancelled.reason_key, "request.cancelled");
+    assert!(!cancelled.retryable);
+    let internal = folder_error(Error::Internal).into_envelope(id);
+    assert_eq!(internal.reason_key, "support.internal_error");
+    Ok(())
+}
+
+#[test]
 fn cancelled_sync_preparation_preserves_active_job_and_sequence()
 -> Result<(), Box<dyn std::error::Error>> {
     let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
@@ -137,7 +149,7 @@ fn busy_replacement_preserves_only_an_uncancelled_prior_job()
 }
 
 #[test]
-fn closed_region_before_job_admission_keeps_existing_error()
+fn closed_region_before_job_admission_reports_request_cancelled()
 -> Result<(), Box<dyn std::error::Error>> {
     let _serial = GATE_TEST_LOCK.lock().map_err(|_| "gate lock poisoned")?;
     let gate = PREPARE_GATE.get_or_init(super::super::super::test_gate::Gate::new);
@@ -168,7 +180,7 @@ fn closed_region_before_job_admission_keeps_existing_error()
     assert!(close.error.is_none());
     assert_eq!(
         reply.error.ok_or("expected rejection")?.reason_key,
-        "support.internal_error"
+        "request.cancelled"
     );
     assert!(
         runtime.list(None)?.is_empty(),

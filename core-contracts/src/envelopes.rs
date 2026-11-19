@@ -119,6 +119,7 @@ impl ErrorEnvelope {
             }
             "db.schema_mismatch"
             | "support.internal_error"
+            | "request.cancelled"
             | "history.storage_unavailable"
             | "locale.registration_failed" => ErrorCode::Internal,
             _ => return None,

@@ -83,6 +83,21 @@ fn errors_and_event_bounds() {
 }
 
 #[test]
+fn request_cancelled_is_an_unretryable_internal_error() {
+    let id = Id::parse("018f5e7b-1234-7123-8123-123456789abc").unwrap();
+    let cancelled = ErrorEnvelope::from_reason("request.cancelled", id.clone(), vec![]).unwrap();
+    let wire = to_value(cancelled).unwrap();
+    assert_eq!(wire["code"], "INTERNAL");
+    assert_eq!(wire["reasonKey"], "request.cancelled");
+    assert_eq!(wire["messageKey"], "request.cancelled");
+    assert_eq!(wire["retryable"], false);
+    // A producer that still reports a failure as an internal error keeps meaning an internal error.
+    let internal = ErrorEnvelope::from_reason_or_internal("support.internal_error", id, vec![]);
+    assert_eq!(internal.code, ErrorCode::Internal);
+    assert_eq!(internal.reason_key, "support.internal_error");
+}
+
+#[test]
 fn search_validation_reasons_survive_error_envelope_conversion()
 -> Result<(), Box<dyn std::error::Error>> {
     let correlation = Id::parse("018f5e7b-1234-7123-8123-123456789abc")?;

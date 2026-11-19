@@ -55,6 +55,7 @@ fn read_error(error: group::Error) -> EngineError {
     match error {
         group::Error::InvalidItem => EngineError::reason("ref.unavailable"),
         group::Error::InvalidRule(_) => EngineError::reason("sort.key_unknown"),
+        group::Error::Cancelled => EngineError::reason("request.cancelled"),
         _ => internal(),
     }
 }
