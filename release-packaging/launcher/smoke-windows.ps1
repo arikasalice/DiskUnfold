@@ -18,6 +18,8 @@ param(
   [string]$WindowSize,
   # Walk the main screens once and capture each one, without the value checks of the full flow.
   [switch]$CaptureTour,
+  # Capture a depth 2 treemap of a folder of known files and check the names inside a folder.
+  [switch]$CaptureTreemap,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1277,6 +1279,48 @@ function Get-ButtonCount($buttonName) {
 }
 # One pass through the main screens for design review: the same steps in any language, size and theme,
 # without the value checks of the full flow. Names go through Get-UiName, so a Korean profile works.
+# F06 #130: a depth 2 treemap. Shapes inside a folder take their names from that folder's rows
+# and are named with it, and 400 small files in one folder, each below the minimum shape area,
+# become "Other (400)" there. Tiny is too small for a header band (README 27) and stays one shape.
+# The large files keep each small one under the minimum area at 1280x800 and 700x800 (about 11 px²
+# of 16 inside Photos at 1280x800), while the 400 of them make a group wide enough to see.
+# The group's lower-bound and unknown states need unreadable members and stay with the GUI tests.
+function Test-CaptureTreemap {
+  $scope = Join-Path $root 'treemap-scope'
+  $photos = Join-Path $scope 'Photos'
+  $videos = Join-Path $scope 'Videos'
+  $tiny = Join-Path $scope 'Tiny'
+  [IO.Directory]::CreateDirectory($photos) | Out-Null
+  [IO.Directory]::CreateDirectory($videos) | Out-Null
+  [IO.Directory]::CreateDirectory($tiny) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
+  [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
+  for ($index = 0; $index -lt 400; $index++) {
+    [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(8000))
+  }
+  [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
+  [IO.File]::WriteAllBytes((Join-Path $scope 'notes.bin'), [byte[]]::new(16MB))
+  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-a.bin'), [byte[]]::new(512KB))
+  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-b.bin'), [byte[]]::new(512KB))
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'Photos' { Find-UI 'Photos' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $group = Get-UiName 'Other (400)'
+  $null = Wait-UI 'Photos and the named shapes inside it' {
+    $names = Get-UINames
+    ($names | Where-Object { $_ -like 'Photos, *' }) -and
+    ($names | Where-Object { $_ -like 'album-a.bin, *Photos*' }) -and
+    ($names | Where-Object { $_ -like "$group, *Photos*" }) -and
+    ($names | Where-Object { $_ -like 'Tiny · *' })
+  } 60
+  if (Get-UINames | Where-Object { $_ -like 'tiny-*' }) { throw 'Tiny was expanded below its header band minimum' }
+  Save-SmokeCapture '01-treemap-depth2'
+  "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 function Test-CaptureTour {
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -1509,12 +1553,14 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  if ($startupLanguage -eq 'ko' -and -not $CaptureTour) {
+  $captureOnly = $CaptureTour -or $CaptureTreemap
+  if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   if ($CaptureTour) { Test-CaptureTour }
-  if (-not $CaptureTour) {
+  if ($CaptureTreemap) { Test-CaptureTreemap }
+  if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }
     if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }

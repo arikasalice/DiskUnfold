@@ -25,6 +25,60 @@ pub fn add_child_partition(
     max_shapes: usize,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(), Error> {
+    add_framed_child_partition(
+        model,
+        version,
+        root_shape,
+        dispatcher,
+        max_shapes,
+        FolderFrame::default(),
+        cancelled,
+    )
+}
+
+/// The part of an expanded folder's rectangle that its children leave free, in
+/// model coordinates: a header band across the top and an inset on the other
+/// three sides. A folder narrower than `min_width` or lower than `min_height` is
+/// not expanded and keeps its children behind its count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FolderFrame {
+    pub header: u32,
+    pub side: u32,
+    pub bottom: u32,
+    pub min_width: u32,
+    pub min_height: u32,
+}
+
+impl FolderFrame {
+    /// The rectangle the children of a folder drawn at `bounds` are laid out in,
+    /// or `None` when the folder is too small to be expanded.
+    fn inner(self, bounds: Rect) -> Option<Rect> {
+        if bounds.right.saturating_sub(bounds.left) < self.min_width
+            || bounds.bottom.saturating_sub(bounds.top) < self.min_height
+        {
+            return None;
+        }
+        let inner = Rect {
+            left: bounds.left.saturating_add(self.side),
+            top: bounds.top.saturating_add(self.header),
+            right: bounds.right.saturating_sub(self.side),
+            bottom: bounds.bottom.saturating_sub(self.bottom),
+        };
+        (inner.left <= inner.right && inner.top <= inner.bottom).then_some(inner)
+    }
+}
+
+/// [`add_child_partition`] inside the part of the folder's rectangle that `frame`
+/// leaves to its children. A folder too small for the frame stays unexpanded.
+pub fn add_framed_child_partition(
+    model: &mut Model,
+    version: &ResultVersion,
+    root_shape: usize,
+    dispatcher: &Dispatcher,
+    max_shapes: usize,
+    frame: FolderFrame,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(), Error> {
     if cancelled() {
         return Err(Error::Cancelled);
     }
@@ -43,11 +97,14 @@ pub fn add_child_partition(
     if parent.geometry.primitive() != "rect" || points.len() != 2 {
         return Err(Error::InvalidLayout);
     }
-    let bounds = Rect {
+    let outer = Rect {
         left: points[0].x,
         top: points[0].y,
         right: points[1].x,
         bottom: points[1].y,
+    };
+    let Some(bounds) = frame.inner(outer) else {
+        return Ok(());
     };
     // A model without a remaining slot keeps every deeper branch as a hidden count.
     let slots = max_shapes.saturating_sub(model.shape_count());

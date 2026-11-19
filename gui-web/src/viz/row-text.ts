@@ -1,4 +1,4 @@
-import type { VizModel, VizRow } from "../ipc";
+import type { VizModel, VizQuantity, VizRow } from "../ipc";
 import type { VisualizationMessageKey } from "./messages";
 
 /** The one thing a row name needs from the text: a localized message. */
@@ -17,7 +17,7 @@ const OTHER_GROUP_LABEL = "ui.visualization.group.other";
 
 type NamedRow = Pick<
   VizRow,
-  "itemRef" | "groupRef" | "displayName" | "labelKey"
+  "itemRef" | "groupRef" | "displayName" | "labelKey" | "memberCount"
 >;
 
 /**
@@ -38,9 +38,10 @@ export function plainRowName(row: NamedRow): string | null {
 
 /**
  * The name to show for a row of `model`. A group row whose label key is the
- * registered "other" key reads "Other (n)" when the model holds exactly one
- * group and its item count is known, "Other (n+)" when the count is a lower
- * bound, and "Other items" otherwise. An unregistered or missing key never
+ * registered "other" key reads "Other (n)" when its member count is exact,
+ * "Other (n+)" when it is a lower bound, and "Other items" when it is unknown.
+ * A row from before member counts uses the model's grouped item count, and only
+ * when the model holds exactly one group. An unregistered or missing key never
  * reaches the screen: it gets the general phrase "Other items".
  */
 export function rowName(
@@ -51,7 +52,9 @@ export function rowName(
   const plain = plainRowName(row);
   if (plain !== null) return plain;
   if (row.labelKey === OTHER_GROUP_LABEL && row.groupRef !== null)
-    return otherGroupName(row.groupRef, model, text);
+    return row.memberCount === undefined
+      ? otherGroupName(row.groupRef, model, text)
+      : countedName(row.memberCount, text);
   return text.message("group.other_unknown");
 }
 
@@ -70,16 +73,21 @@ function otherGroupName(
       .map((shape) => shape.groupRef),
   );
   const grouped = model.summary.groupedItems;
+  return groups.size === 1 && groups.has(groupRef)
+    ? countedName(grouped, text)
+    : text.message("group.other_unknown");
+}
+
+/** "Other (n)" for an exact item count, "Other (n+)" for a lower bound, else "Other items". */
+function countedName(count: VizQuantity, text: MessageText): string {
   if (
-    groups.size === 1 &&
-    groups.has(groupRef) &&
-    grouped.unit === "items" &&
-    grouped.state !== "unknown" &&
-    WHOLE_NUMBER.test(grouped.value)
+    count.unit === "items" &&
+    count.state !== "unknown" &&
+    WHOLE_NUMBER.test(count.value)
   )
     return text.message(
-      grouped.state === "exact" ? "group.other_count" : "group.other_at_least",
-      { count: grouped.value },
+      count.state === "exact" ? "group.other_count" : "group.other_at_least",
+      { count: count.value },
     );
   return text.message("group.other_unknown");
 }

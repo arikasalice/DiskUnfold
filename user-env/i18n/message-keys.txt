@@ -889,6 +889,8 @@ ui.visualization.scopeTotal
 ui.visualization.scopeTotalLine value:name
 ui.visualization.selected
 ui.visualization.selectionLost
+ui.visualization.shapeFolder name:name value:name ratio:name denominator:name count:count
+ui.visualization.shapeInFolder name:name folder:name value:name ratio:name denominator:name
 ui.visualization.show_space_distribution
 ui.visualization.singleObservation
 ui.visualization.sizeAtLeast value:name

@@ -1,13 +1,55 @@
 use super::*;
 use crate::viz_pages::production::{self, OtherPresentation, RowPresentation};
 use du_analysis_index::visualization::{projection, typed_layout::Dispatcher};
-use du_core_contracts::visualization::request::VizExpansion;
+use du_core_contracts::visualization::request::{VizExpansion, VizViewport, VizVisibleWindow};
 use std::collections::{HashMap, VecDeque};
 
 pub(crate) struct Policy<'a> {
     pub base_depth: u32,
     pub entries: &'a [VizExpansion],
     pub max_shapes: usize,
+    pub frame: projection::FolderFrame,
+}
+
+/// The header band of an expanded folder, in CSS px (F06 design README section 27).
+const HEADER_PX: u64 = 20;
+/// The inset of a folder's children from its left, right and bottom edges, in CSS px.
+const INSET_PX: u64 = 2;
+/// A folder narrower or lower than this, in CSS px, is drawn as one shape.
+const MIN_WIDTH_PX: u64 = 70;
+/// The header band and the minimum height of a shape label (20 + 36 CSS px).
+const MIN_HEIGHT_PX: u64 = 56;
+
+/// The folder frame of a request in model coordinates, from its viewport in CSS px
+/// and the visible window those pixels show. A part of a pixel rounds up.
+pub(crate) fn folder_frame(
+    viewport: &VizViewport,
+    window: &VizVisibleWindow,
+) -> projection::FolderFrame {
+    let units = |px: u64, span: u32, pixels: u32| {
+        u32::try_from((px * u64::from(span)).div_ceil(u64::from(pixels))).unwrap_or(u32::MAX)
+    };
+    let x = |px| {
+        units(
+            px,
+            window.right.saturating_sub(window.left),
+            viewport.width.get(),
+        )
+    };
+    let y = |px| {
+        units(
+            px,
+            window.bottom.saturating_sub(window.top),
+            viewport.height.get(),
+        )
+    };
+    projection::FolderFrame {
+        header: y(HEADER_PX),
+        side: x(INSET_PX),
+        bottom: y(INSET_PX),
+        min_width: x(MIN_WIDTH_PX),
+        min_height: y(MIN_HEIGHT_PX),
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExpansionError {
@@ -192,12 +234,13 @@ pub(super) fn extend(
         }
         let before = model.descendants.len();
         let groups_before = model.detail.groups.len();
-        projection::add_child_partition(
+        projection::add_framed_child_partition(
             model,
             source.version(),
             index,
             dispatcher,
             policy.max_shapes,
+            policy.frame,
             cancelled,
         )
         .map_err(|error| match error {

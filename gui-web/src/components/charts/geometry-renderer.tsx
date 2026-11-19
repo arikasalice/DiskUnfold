@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { Action } from "../controls";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
+import { graphemes } from "../graphemes";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -23,6 +24,8 @@ type Shape = {
   /** The drawn name and value apart, so a label that does not fit drops the value whole. */
   displayName?: string;
   displayValue?: string;
+  /** An expanded folder: drawn as a frame with a header band over the shapes it holds. */
+  container?: boolean;
 };
 type Relation = {
   fromShapeRef: string;
@@ -182,6 +185,7 @@ function primitive(
   view: Viewport,
   width: number,
   height: number,
+  inset = 0,
 ) {
   const points = geometry.points.map((point) =>
     project(point, view, width, height),
@@ -201,10 +205,10 @@ function primitive(
         return null;
       return (
         <rect
-          x={start.x}
-          y={start.y}
-          width={end.x - start.x}
-          height={end.y - start.y}
+          x={start.x + inset}
+          y={start.y + inset}
+          width={Math.max(0, end.x - start.x - 2 * inset)}
+          height={Math.max(0, end.y - start.y - 2 * inset)}
         />
       );
     }
@@ -232,12 +236,21 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-/** A text cut to `limit` characters, with an ellipsis when it was cut. */
+/**
+ * A text cut to `limit` characters with the ellipsis in the middle, so the end
+ * of a name (its extension) stays: "notes.bin" in 6 reads "no…bin" (F06 design
+ * README section 7). A grapheme cluster is never split.
+ */
 function shorten(text: string, limit: number) {
-  const characters = Array.from(text);
-  return characters.length > limit
-    ? characters.slice(0, limit - 1).join("") + "…"
-    : text;
+  const characters = graphemes(text);
+  if (characters.length <= limit) return text;
+  const kept = Math.max(1, limit - 1);
+  const tail = Math.ceil(kept / 2);
+  return (
+    characters.slice(0, kept - tail).join("") +
+    "…" +
+    characters.slice(characters.length - tail).join("")
+  );
 }
 
 /**
@@ -269,6 +282,13 @@ function rectangleLabel(
   const left = Math.max(start.x, 0);
   const top = Math.max(start.y, 0);
   const available = Math.min(end.x, width) - left;
+  // The header band of a folder: 20 px high, 12 px text 4 px from the left, centred.
+  if (shape.container)
+    return available < 70 || start.y < 0 ? null : (
+      <text className="du-geometry-header" x={left + 4} y={top + 10}>
+        {fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12)))}
+      </text>
+    );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
   const visible = fitLabel(shape, limit);
@@ -361,7 +381,15 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const height = Math.round(props.height);
   const visible = shapes.flatMap((shape) => {
     if (!intersects(shape.geometry, viewport)) return [];
-    const drawing = primitive(shape.geometry, viewport, width, height);
+    // An expanded folder is drawn 1 px inside its rectangle: with the neighbour's
+    // half of a 1 px gap it keeps 2 px apart, and its own fill shows in the inset.
+    const drawing = primitive(
+      shape.geometry,
+      viewport,
+      width,
+      height,
+      shape.container ? 1 : 0,
+    );
     return drawing === null ? [] : [{ shape, drawing }];
   });
   return (
@@ -396,6 +424,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <g
               className="du-geometry-shape"
               key={shape.shapeRef}
+              data-container={shape.container ? "true" : undefined}
               onClick={() => {
                 controls.current
                   .get(shape.shapeRef)

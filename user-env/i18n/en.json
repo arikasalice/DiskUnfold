@@ -906,6 +906,8 @@
     ["ui.visualization.scopeTotalLine","Scope total {value}",[["value","name"]]],
     ["ui.visualization.selected","selected",[]],
     ["ui.visualization.selectionLost","The previous selection could not be matched to this result.",[]],
+    ["ui.visualization.shapeFolder","{name}, folder, {value}, {ratio} of {denominator}, {count} shown inside",[["name","name"],["value","name"],["ratio","name"],["denominator","name"],["count","count"]]],
+    ["ui.visualization.shapeInFolder","{name}, in {folder}, {value}, {ratio} of {denominator}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.show_space_distribution","Show space distribution",[]],
     ["ui.visualization.singleObservation","More than one observation is required",[]],
     ["ui.visualization.sizeAtLeast","At least {value}",[["value","name"]]],

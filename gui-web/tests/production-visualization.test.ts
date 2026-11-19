@@ -41,7 +41,7 @@ describe("F06 FR1.HD1.app-host.DD1: the product provider", () => {
         measure: "size",
         sizeBasis: basis,
         denominatorBasis: "scope",
-        depthLimit: 1,
+        depthLimit: 2,
       });
     }
   });

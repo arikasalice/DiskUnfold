@@ -906,6 +906,8 @@
     ["ui.visualization.scopeTotalLine","범위 합계 {value}",[["value","name"]]],
     ["ui.visualization.selected","선택됨",[]],
     ["ui.visualization.selectionLost","이전 선택에 대응하는 항목을 이 결과에서 확인하지 못했습니다.",[]],
+    ["ui.visualization.shapeFolder","{name}, 폴더, {value}, {denominator}의 {ratio}, 안에 {count}개 표시",[["name","name"],["value","name"],["ratio","name"],["denominator","name"],["count","count"]]],
+    ["ui.visualization.shapeInFolder","{name}, {folder} 안, {value}, {denominator}의 {ratio}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.show_space_distribution","공간 분포 보기",[]],
     ["ui.visualization.singleObservation","관측이 두 개 이상 필요합니다",[]],
     ["ui.visualization.sizeAtLeast","최소 {value}",[["value","name"]]],

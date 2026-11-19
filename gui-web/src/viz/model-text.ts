@@ -71,11 +71,23 @@ export function rawSourceSize(
   return `${value} · ${evidence}`;
 }
 
+/**
+ * Where a shape sits in a depth 2 treemap: an expanded folder holds `childCount`
+ * drawn shapes, and a shape inside one has that folder's row (`undefined` while
+ * it has not arrived). A top-level shape that holds nothing has no place.
+ */
+export type ShapePlace = {
+  childCount?: number;
+  parentRow?: VizRow | undefined;
+  inFolder?: boolean;
+};
+
 export function shapeLabels(
   model: VizModel,
   shape: VizShape,
   row: VizRow | undefined,
   text: VizText,
+  place: ShapePlace = {},
 ) {
   const legend = model.legend.find(
     (entry) => entry.key === shape.legendClassKey,
@@ -87,18 +99,38 @@ export function shapeLabels(
   const value = shape.quantity
     ? text.quantity(shape.quantity)
     : text.size(shape.size);
-  const accessibleLabel = [
-    name,
-    value,
-    row ? rowRatioText(row, text) : text.message("ratioUnavailable"),
-    text.quantity(denominator.value),
-    text.key(denominator.basis),
-    text.key(legend?.labelKey ?? shape.legendClassKey),
-    ...shape.displayFlags.map(text.key),
-    text.key(model.origin),
-  ].join(" · ");
+  const ratio = row
+    ? rowRatioText(row, text)
+    : text.message("ratioUnavailable");
+  const placed = placedLabel(
+    place,
+    {
+      name,
+      value,
+      ratio,
+      denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
+      folder: place.parentRow
+        ? rowName(place.parentRow, model, text)
+        : text.message("itemNamePending"),
+    },
+    text,
+  );
+  const accessibleLabel =
+    placed !== null
+      ? [placed, ...shape.displayFlags.map(text.key)].join(", ")
+      : [
+          name,
+          value,
+          ratio,
+          text.quantity(denominator.value),
+          text.key(denominator.basis),
+          text.key(legend?.labelKey ?? shape.legendClassKey),
+          ...shape.displayFlags.map(text.key),
+          text.key(model.origin),
+        ].join(" · ");
   return {
     accessibleLabel,
+    ...(place.childCount ? { container: true } : {}),
     // A shape whose row has not arrived is named for assistive technology only;
     // the drawing carries no label rather than a placeholder.
     displayLabel: !row
@@ -115,6 +147,24 @@ export function shapeLabels(
         }
       : {}),
   };
+}
+
+/**
+ * The accessible name of an expanded folder ("{name}, folder, …, {count} shown
+ * inside") or of a shape inside one ("{name}, in {folder}, …"), F06 design README
+ * section 27; `null` for a top-level shape that holds nothing.
+ */
+function placedLabel(
+  place: ShapePlace,
+  values: Record<"name" | "value" | "ratio" | "denominator" | "folder", string>,
+  text: VizText,
+): string | null {
+  if (place.childCount)
+    return vizMessage(text, "shapeFolder", {
+      ...values,
+      count: BigInt(place.childCount),
+    });
+  return place.inFolder ? vizMessage(text, "shapeInFolder", values) : null;
 }
 /**
  * The ratio of a table row in words. Only a row whose value is exact has one; a

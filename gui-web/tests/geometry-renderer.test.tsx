@@ -64,7 +64,9 @@ test.each([
   [600, "Music", "5.7 MiB", "Music · 5.7 MiB"],
   // Half of 300 px leaves room for 9: the value goes whole, then the name is cut.
   [300, "Music", "5.7 MiB", "Music"],
-  [300, "LongFolderName", "5.7 MiB", "LongFold…"],
+  // The name is cut in the middle, so its end (an extension) stays.
+  [300, "LongFolderName", "5.7 MiB", "Long…Name"],
+  [216, "notes.bin", "16 MiB", "no…bin"],
   [300, "Ab", "1 MiB", "Ab"],
   // Without a value the name is the label.
   [300, "Notes", undefined, "Notes"],

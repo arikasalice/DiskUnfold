@@ -65,9 +65,11 @@ fn an_expanded_folder_groups_its_small_children_and_opens_them_by_position() -> 
     fixture.release.send(()).map_err(|e| e.to_string())?;
     let mut request = render_body(&view, 1);
     request["depthLimit"] = json!(2);
-    request["viewport"]["width"] = json!(40);
-    request["viewport"]["height"] = json!(40);
-    request["minAreaPx2"] = json!(16);
+    // A 210 px window keeps each folder above the 70 x 56 px it needs to be expanded below
+    // its header band, and 256 px² keeps every small child under the minimum area.
+    request["viewport"]["width"] = json!(210);
+    request["viewport"]["height"] = json!(210);
+    request["minAreaPx2"] = json!(256);
     let rendered = fixture.ok("viz.render", request)?;
     let parsed: VizRenderResponse =
         serde_json::from_value(rendered.clone()).map_err(|e| e.to_string())?;
@@ -239,8 +241,11 @@ fn the_group_of_lower_bound_folders_inside_an_expanded_folder_is_read_by_positio
     fixture.release.send(()).map_err(|e| e.to_string())?;
     let mut request = render_body(&view, 1);
     request["depthLimit"] = json!(2);
-    request["viewport"]["width"] = json!(40);
-    request["viewport"]["height"] = json!(40);
+    // A 210 px window keeps each folder above the 70 x 56 px it needs to be expanded below
+    // its header band, and 256 px² keeps every small child under the minimum area.
+    request["viewport"]["width"] = json!(210);
+    request["viewport"]["height"] = json!(210);
+    request["minAreaPx2"] = json!(256);
     let rendered = fixture.ok("viz.render", request)?;
     let parsed: VizRenderResponse =
         serde_json::from_value(rendered.clone()).map_err(|e| e.to_string())?;

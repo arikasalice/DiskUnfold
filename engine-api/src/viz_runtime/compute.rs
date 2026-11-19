@@ -132,6 +132,10 @@ impl JobBody for Compute {
                             base_depth: request.depth_limit,
                             entries: request.expanded_depth_by_item.as_deref().unwrap_or(&[]),
                             max_shapes: self.admitted.max_shapes,
+                            frame: crate::viz_pages::session::expansion::folder_frame(
+                                &request.viewport,
+                                &request.visible_window,
+                            ),
                         },
                         |source, item, _| {
                             let mut facts = self

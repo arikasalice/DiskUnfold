@@ -14,6 +14,22 @@
   pointer-events: none;
 }
 
+/* An expanded folder: its header band and inset show its own fill. It is drawn
+   1 px inside its rectangle instead of a stroke, so the gap to its neighbours
+   does not cover its inset (F06 design README section 27, 4.7). */
+.du-geometry-shape[data-container] {
+  fill: var(--du-border);
+  stroke: none;
+}
+
+.du-geometry-header {
+  fill: var(--du-text);
+  stroke: none;
+  font-size: 12px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
 .du-geometry-relation {
   color: var(--du-muted);
   fill: var(--du-border);
@@ -28,6 +44,8 @@
   overflow-x: auto;
   overflow-y: hidden;
   max-inline-size: 100%;
+  /* Apart from the chart; the chart height counts this row with its padding. */
+  padding-block-start: 8px;
   padding-block-end: 2px;
 }
 

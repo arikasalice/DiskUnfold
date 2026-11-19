@@ -25,6 +25,7 @@ import { UnavailableView } from "./UnavailableView";
 import type { BackAction } from "./UnavailablePanel";
 import { RowsRetry } from "./RetryNotices";
 import { SeparateModelTable, useFirstRows } from "./NewerModelTable";
+import { useFolderRows } from "./folder-rows";
 
 /** Injectable entry point. Visual design and product assembly remain with the host. */
 export function ControlledVisualization({
@@ -69,6 +70,7 @@ export function ControlledVisualization({
   const targetsShown = hasGraphTargets(graphTargets, graph, unavailable);
   const tableRowsFrame = getMatchingTableFrame(table, state.tablePage);
   useFirstRows(controller, state, autoLoadRows === true);
+  const folderRows = useFolderRows(controller.folderRows, graph);
   const currentTable = isCurrentTable(graph, table);
   const graphRowsFrame =
     graph && state.graphPage && matchingRowsPage(graph.frame, state.graphPage)
@@ -166,6 +168,7 @@ export function ControlledVisualization({
           returnTargetRef={visualizationTargetRef}
           rowsReturnTargetRef={graphRowsTargetRef}
           text={text}
+          folderRows={folderRows}
           {...(state.graphPage ? { page: state.graphPage } : {})}
           {...(state.pendingRows && currentTable
             ? { pendingRowsRequest: state.pendingRows }
