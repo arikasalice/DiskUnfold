@@ -9,7 +9,7 @@
 //! is a display order only: it never decides whether two items are the same
 //! item and never maps items between result versions.
 use super::{geometry::valid_bounds, reference, root_ref, squarify, value};
-use crate::{FileIdentity, ResultVersion, SharingEvidence};
+use crate::{FileIdentity, ResultVersion};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
@@ -19,6 +19,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
+mod physical;
+use physical::{link_bytes, physical_file};
 mod partial;
 pub(crate) use partial::{Partial, Unattributed, admit_partial_cancellable};
 
@@ -338,7 +340,7 @@ struct Observed {
     bytes: u64,
     /// True when the subtree holds an entry that could not be read. It has no value, so
     /// it adds no bytes and the F03 value of the subtree can only be a lower bound. A link
-    /// that was not followed is not such an entry: it is a scope boundary.
+    /// that was not followed is such an entry only when its own size is unknown.
     unmeasured: bool,
 }
 
@@ -353,12 +355,11 @@ fn lower_bound_partitions(basis: &SizeBasis) -> bool {
 
 /// Sums the measured bytes under a sibling.
 ///
-/// An untraversed link is a counted scope boundary with no bytes of its own, so it adds
-/// nothing and leaves the subtree as measured as it was; whether F03 gives the folder
-/// above it a lower bound or an exact value is then the value's business, and the sum of
-/// the measured bytes is what that value must equal either way. With allow_unmeasured, an
-/// unread entry adds no bytes and is reported in the result; without it, such an entry
-/// refuses the sibling.
+/// An untraversed link counts its own observed size like a file (F03 FR5.HD1); its target
+/// was not followed and is only a counted scope boundary, which lowers neither the value
+/// nor the completeness. A link whose own size is unknown is an unread entry. With
+/// allow_unmeasured, an unread entry adds no bytes and is reported in the result, so the
+/// subtree is placed by its lower bound; without it, such an entry refuses the sibling.
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
@@ -396,7 +397,17 @@ fn inspect_subtree(
                     .checked_add(bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
             }
-            ResultItemKind::UntraversedLink => {}
+            ResultItemKind::UntraversedLink => {
+                match link_bytes(version, no, sibling, basis, identities)? {
+                    Some(bytes) => {
+                        sum = sum
+                            .checked_add(bytes)
+                            .ok_or(AdmissionError::NoAttribution)?;
+                    }
+                    None if allow_unmeasured => unmeasured = true,
+                    None => return Err(AdmissionError::NoAttribution),
+                }
+            }
             ResultItemKind::Unknown if allow_unmeasured => {
                 unmeasured = true;
             }
@@ -407,67 +418,6 @@ fn inspect_subtree(
         bytes: sum,
         unmeasured,
     })
-}
-
-/// Attributes one file to its sibling on a physical size basis and returns the bytes it
-/// adds to that sibling.
-///
-/// The file must carry the OS-reported allocation, a file identity and a link count.
-/// A file reachable from two siblings is refused for both, so no byte is used twice.
-/// Links that lie outside the scope do not refuse the file: the link count is the
-/// observed total, and the allocation is counted once inside the scope (F03).
-///
-/// Extent-sharing evidence ([`SharingEvidence`]) matters only when the basis is
-/// `UniquePhysical`. F03 sums allocated sizes exactly whatever the sharing evidence is
-/// and makes only the unique-physical value unknown (`physical/finish.rs`). The treemap
-/// follows the same rule: an allocated partition needs identity and link evidence, not
-/// extent-sharing evidence. A scan never establishes that extents are unshared, so
-/// demanding it would leave every real allocated partition unattributed.
-fn physical_file(
-    version: &ResultVersion,
-    no: u32,
-    sibling: u32,
-    basis: &SizeBasis,
-    identities: &mut Identities,
-) -> Result<u64, AdmissionError> {
-    let observation = version
-        .physical
-        .as_ref()
-        .and_then(|v| v.get(no as usize))
-        .and_then(Option::as_ref)
-        .ok_or(AdmissionError::NoAttribution)?;
-    let identity = observation
-        .identity
-        .as_ref()
-        .filter(|id| !id.volume.is_empty() && !id.file.is_empty())
-        .ok_or(AdmissionError::NoAttribution)?;
-    let count = observation
-        .link_count
-        .filter(|n| *n > 0)
-        .ok_or(AdmissionError::NoAttribution)?;
-    if *basis == SizeBasis::UniquePhysical && observation.sharing != SharingEvidence::None {
-        return Err(AdmissionError::NoAttribution);
-    }
-    let size = observation
-        .allocated
-        .as_ref()
-        .filter(|v| v.evidence == SizeEvidence::OsReported)
-        .and_then(|v| exact(v, &SizeBasis::Allocated))
-        .ok_or(AdmissionError::NoAttribution)?;
-    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(identity) {
-        if *owner != sibling || *previous != size || *links != count || *seen >= count {
-            // Neither sibling can claim the shared file, whichever was read first.
-            identities.conflicted.extend([*owner, sibling]);
-            return Err(AdmissionError::NoAttribution);
-        }
-        *seen += 1;
-        Ok(0)
-    } else {
-        identities
-            .owners
-            .insert(identity.clone(), (sibling, size, count, 1));
-        Ok(size)
-    }
 }
 
 fn exact(value: &SizeValue, basis: &SizeBasis) -> Option<u64> {

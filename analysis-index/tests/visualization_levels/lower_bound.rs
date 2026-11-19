@@ -1,7 +1,7 @@
 //! Siblings whose F03 value is a lower bound are drawn by that bound, on any result.
 //!
-//! An untraversed link or an entry that could not be read adds no bytes, so every value
-//! above it is a lower bound (F03 FR5.HD1). HLD table 22 draws such a sibling with an
+//! An untraversed link without its own size or an entry that could not be read adds no
+//! bytes, so every value above it is a lower bound (F03 FR5.HD1). HLD table 22 draws such a sibling with an
 //! area proportional to its lower bound and marks the totals as lower bounds. What has
 //! no value of its own, and what the F03 value cannot be matched to, is still counted
 //! without an area.
@@ -20,6 +20,8 @@ pub(super) enum Entry<'a> {
     Linked(&'a str, u64, u8, u64),
     /// A link that was not followed.
     Link(&'a str),
+    /// A link that was not followed, observed with its own size: path, bytes.
+    SizedLink(&'a str, u64),
     /// An entry that could not be read: no size and an unknown kind.
     Unread(&'a str),
 }
@@ -80,6 +82,16 @@ pub(super) fn scan(
                 )
                 .unwrap(),
             Entry::Link(at) => build.add_untraversed_link(path(at)).unwrap(),
+            Entry::SizedLink(at, bytes) => {
+                identity += 1;
+                let own = Observation {
+                    path: path(at),
+                    size: Some(logical(bytes)),
+                };
+                build
+                    .add_observed_untraversed_link_at(0, own, Some(physical(identity, 1, bytes)))
+                    .unwrap();
+            }
             Entry::Unread(at) => build
                 .add(Observation {
                     path: path(at),

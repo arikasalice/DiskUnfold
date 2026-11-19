@@ -25,8 +25,13 @@ const notesOf = (flags: readonly string[]) =>
 
 type Column = { header: string; cell: (row: VizRow) => ReactNode };
 
+/**
+ * "Current scope 1.1 MiB", or "Current scope · Unavailable" when the value is
+ * unknown, so it does not read as an unavailable scope (design README 28).
+ */
 function denominatorWords(row: VizRow, text: VizText) {
-  return `${text.key(row.denominator.basis)} ${text.quantity(row.denominator.value)}`;
+  const separator = row.denominator.value.state === "unknown" ? " · " : " ";
+  return `${text.key(row.denominator.basis)}${separator}${text.quantity(row.denominator.value)}`;
 }
 
 /**

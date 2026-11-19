@@ -164,10 +164,11 @@ fn unknown_file_sizes_and_partial_scope_are_not_fabricated() -> Result<(), Strin
 }
 
 #[test]
-fn source_state_is_preserved_when_scope_has_an_untraversed_link() -> Result<(), String> {
+fn an_untraversed_link_does_not_lower_the_source_state() -> Result<(), String> {
     let id = |n| Id::from_v7_bytes([n; 16]);
     for (source_state, expected) in [
-        (ResultCompleteness::Complete, ResultCompleteness::Partial),
+        // F03 FR5.HD1: a link target that was not traversed is not an omission.
+        (ResultCompleteness::Complete, ResultCompleteness::Complete),
         (ResultCompleteness::Partial, ResultCompleteness::Partial),
         (ResultCompleteness::Missing, ResultCompleteness::Missing),
         (ResultCompleteness::Cancelled, ResultCompleteness::Cancelled),
@@ -323,5 +324,151 @@ fn another_root_gap_stays_visible_without_rewriting_source_state() -> Result<(),
         model.histogram.source_completeness,
         ResultCompleteness::Missing
     );
+    Ok(())
+}
+
+/// Builds `/` with a 10-byte file and `links/` holding one link of the given own size.
+fn linked_scope(
+    link_size: Option<u64>,
+) -> Result<std::sync::Arc<du_analysis_index::ResultVersion>, String> {
+    let id = |n| Id::from_v7_bytes([n; 16]);
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/r"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let sized = |bytes: u64| SizeValue {
+        basis: SizeBasis::Logical,
+        evidence: SizeEvidence::OsReported,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    };
+    let sink = IngestSink::default();
+    let mut build = sink
+        .open_forest(id(20), vec![root])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![b"links".to_vec()])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_file_at(
+            0,
+            Observation {
+                path: vec![b"a".to_vec()],
+                size: Some(sized(10)),
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_observed_untraversed_link_at(
+            0,
+            Observation {
+                path: vec![b"links".to_vec(), b"up".to_vec()],
+                size: link_size.map(sized),
+            },
+            None,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .seal(id(21), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))
+}
+
+fn histogram_of(
+    version: &du_analysis_index::ResultVersion,
+    item_no: u32,
+) -> Result<histogram_projection::Model, String> {
+    let scope = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no,
+    };
+    let bins = [Bin {
+        lower: 0,
+        upper: None,
+    }];
+    histogram_projection::project(
+        Request {
+            version,
+            scope: &scope,
+            size_basis: SizeBasis::Logical,
+            bins: &bins,
+            bounds: Rect {
+                left: 0,
+                top: 0,
+                right: 100,
+                bottom: 100,
+            },
+            histogram_basis: Basis::Bytes,
+            scale: Scale::Automatic,
+        },
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))
+}
+
+/// The F03 range total as a histogram weight.
+fn f03_total(model: &histogram_projection::Model) -> Weight {
+    match &model.summary.aggregate.logical.amount {
+        SizeAmount::Exact { bytes } => Weight::Exact(bytes.get()),
+        SizeAmount::LowerBound { bytes } => Weight::LowerBound(bytes.get()),
+        SizeAmount::Unknown => Weight::Unknown,
+    }
+}
+
+#[test]
+fn links_are_binned_by_their_own_size_and_their_targets_do_not_lower_completeness()
+-> Result<(), String> {
+    // A link with a known own size is binned like a file: bins and total equal the F03 total.
+    let version = linked_scope(Some(3))?;
+    let link = version
+        .items()
+        .iter()
+        .find(|item| item.name == b"up")
+        .ok_or("missing link")?
+        .item_no;
+    let model = histogram_of(&version, 0)?;
+    assert_eq!(
+        model.histogram.source_completeness,
+        ResultCompleteness::Complete
+    );
+    assert_eq!(model.histogram.bins[0].bytes, Weight::Exact(13));
+    assert!(model.histogram.bins[0].members.contains(&link));
+    assert!(model.histogram.uncertain_items.is_empty());
+    assert_eq!(model.histogram.total_bytes, f03_total(&model));
+    assert_eq!(f03_total(&model), Weight::Exact(13));
+
+    // A folder that holds only that link.
+    let links = version.items()[link as usize]
+        .parent
+        .ok_or("missing folder")?;
+    let only = histogram_of(&version, links)?;
+    assert_eq!(
+        only.histogram.source_completeness,
+        ResultCompleteness::Complete
+    );
+    assert_eq!(only.histogram.bins[0].bytes, Weight::Exact(3));
+    assert_eq!(only.histogram.total_bytes, f03_total(&only));
+    assert_eq!(f03_total(&only), Weight::Exact(3));
+
+    // A link whose own size is unknown stays out of the bins as an uncertain item, and the
+    // known part matches the F03 lower bound; the model is still not lowered to Partial.
+    let version = linked_scope(None)?;
+    let model = histogram_of(&version, 0)?;
+    assert_eq!(
+        model.histogram.source_completeness,
+        ResultCompleteness::Complete
+    );
+    assert_eq!(model.histogram.uncertain_items.len(), 1);
+    assert_eq!(model.histogram.bins[0].members.len(), 1);
+    assert_eq!(model.histogram.bins[0].bytes, Weight::LowerBound(10));
+    assert_eq!(model.histogram.total_bytes, f03_total(&model));
+    assert_eq!(f03_total(&model), Weight::LowerBound(10));
     Ok(())
 }

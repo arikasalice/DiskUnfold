@@ -54,7 +54,7 @@ pub fn summarize(
     scope: &ItemRef,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Summary, Error> {
-    summarize_inner(version, scope, cancelled, None)
+    summarize_inner(version, scope, cancelled, None, false)
 }
 
 pub(crate) fn summarize_with_files(
@@ -63,8 +63,21 @@ pub(crate) fn summarize_with_files(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<(Summary, Vec<u32>), Error> {
     let mut files = Vec::new();
-    let summary = summarize_inner(version, scope, cancelled, Some(&mut files))?;
+    let summary = summarize_inner(version, scope, cancelled, Some(&mut files), false)?;
     Ok((summary, files))
+}
+
+/// Lists the files and the untraversed links below the scope in one walk.
+///
+/// A link is listed for its own observed size; its target was not traversed.
+pub(crate) fn summarize_with_files_and_links(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<(Summary, Vec<u32>), Error> {
+    let mut items = Vec::new();
+    let summary = summarize_inner(version, scope, cancelled, Some(&mut items), true)?;
+    Ok((summary, items))
 }
 
 fn summarize_inner(
@@ -72,6 +85,7 @@ fn summarize_inner(
     scope: &ItemRef,
     cancelled: &mut dyn FnMut() -> bool,
     mut files: Option<&mut Vec<u32>>,
+    links: bool,
 ) -> Result<Summary, Error> {
     if cancelled() {
         return Err(Error::Cancelled);
@@ -98,7 +112,7 @@ fn summarize_inner(
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        if item.kind == ResultItemKind::File
+        if listed(item.kind, links)
             && let Some(files) = files.as_deref_mut()
         {
             files.push(item.item_no);
@@ -127,4 +141,10 @@ fn summarize_inner(
         aggregate,
         excluded_count: None,
     })
+}
+
+/// Whether a walked item is listed: every file, and untraversed links when requested.
+fn listed(kind: ResultItemKind, links: bool) -> bool {
+    matches!(kind, ResultItemKind::File)
+        || (links && matches!(kind, ResultItemKind::UntraversedLink))
 }
