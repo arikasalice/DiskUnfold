@@ -26,7 +26,7 @@ $results = foreach ($scenario in $scenarios) {
   $log = Join-Path $out "$($scenario.name).log"
   $started = Get-Date
   $arguments = @($scenario.arguments)
-  & pwsh -NoProfile -File $smoke -Binary $exe -CaptureDirectory $captures @arguments *>&1 | Tee-Object -FilePath $log | Out-Host
+  & pwsh -NoProfile -File $smoke -Binary $exe -CaptureDirectory $captures -KeepFixture @arguments *>&1 | Tee-Object -FilePath $log | Out-Host
   [pscustomobject]@{
     name = $scenario.name
     passed = ($LASTEXITCODE -eq 0)

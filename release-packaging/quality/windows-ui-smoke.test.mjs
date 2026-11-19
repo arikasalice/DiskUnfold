@@ -22,6 +22,7 @@ test('scenario arguments are switches that smoke-windows.ps1 declares', () => {
   }
 });
 
-test('smoke-windows.ps1 takes the capture folder as a parameter', () => {
+test('smoke-windows.ps1 takes the capture folder and the keep-fixture switch', () => {
   assert.match(smoke, /\[string\]\$CaptureDirectory/);
+  assert.ok(declared.has('KeepFixture'));
 });

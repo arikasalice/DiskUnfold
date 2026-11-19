@@ -6,6 +6,9 @@ param(
   [Parameter(Mandatory)][string]$Binary,
   # Folder for the review captures (PNG). Defaults to a folder under %TEMP%.
   [string]$CaptureDirectory,
+  # Leave the isolated fixture in %TEMP% instead of removing it. For disposable CI runners, where
+  # WebView2 can still hold profile files when the cleanup runs.
+  [switch]$KeepFixture,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1574,4 +1577,4 @@ function Remove-SmokeFixture {
   }
   Remove-Item -LiteralPath $verifiedRoot -Recurse -Force -ErrorAction Stop
 }
-Remove-SmokeFixture -FixtureRoot $root
+if ($KeepFixture) { "Fixture kept: $root" } else { Remove-SmokeFixture -FixtureRoot $root }
