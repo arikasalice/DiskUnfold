@@ -23,12 +23,12 @@ impl WindowsDirectory {
         let metadata = recall::observe_if_safe(attributes, || {
             wide(&name)
                 .and_then(|name| relative(&self.handle, &name, false, false))
-                .and_then(|file| self.metadata(&file))
+                .and_then(|file| self.metadata(&file, inode))
         });
         ObservedEntry {
             name,
             enumerated_inode: inode,
-            enumerated_kind: reparse::enumerated_kind(attributes, ea_size),
+            enumerated_kind: enumerated_kind(attributes, ea_size, &metadata),
             metadata,
         }
     }
@@ -52,7 +52,7 @@ impl WindowsDirectory {
         ObservedEntry {
             name,
             enumerated_inode: inode,
-            enumerated_kind: reparse::enumerated_kind(attributes, ea_size),
+            enumerated_kind: enumerated_kind(attributes, ea_size, &metadata),
             metadata,
         }
     }
@@ -77,9 +77,13 @@ impl WindowsDirectory {
         Ok(case.mode == super::case_sensitivity::DirectoryCaseMode::Insensitive)
     }
 
-    fn metadata(&self, file: &File) -> Result<MetadataObservation, PortError> {
+    fn metadata(
+        &self,
+        file: &File,
+        enumerated_inode: u64,
+    ) -> Result<MetadataObservation, PortError> {
         let value = info(file)?;
-        self.metadata_from_info(file, value)
+        self.metadata_from_info(file, value, enumerated_inode)
     }
 
     fn metadata_for_enumerated(
@@ -95,16 +99,23 @@ impl WindowsDirectory {
         {
             return Err(identity_changed());
         }
-        self.metadata_from_info(file, value)
+        self.metadata_from_info(file, value, enumerated_inode)
     }
 
     fn metadata_from_info(
         &self,
         file: &File,
         value: windows::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
+        enumerated_inode: u64,
     ) -> Result<MetadataObservation, PortError> {
         recall::check_handle_attributes(value.dwFileAttributes)?;
         let observed_kind = kind(value.dwFileAttributes);
+        if observed_kind == ObservedKind::Link
+            && let Some(metadata) =
+                reparse::volume_root_metadata(file, &value, self.volume, enumerated_inode)?
+        {
+            return Ok(metadata);
+        }
         let device = u64::from(value.dwVolumeSerialNumber);
         if device != self.volume {
             return Ok(other_volume(observed_kind, device, identity(&value)));
@@ -144,6 +155,21 @@ impl WindowsDirectory {
             identity(&value),
             self.ancestors.as_ref().map(|chain| chain.ids.as_slice()),
         )
+    }
+}
+
+fn enumerated_kind(
+    attributes: u32,
+    ea_size: u32,
+    metadata: &Result<MetadataObservation, PortError>,
+) -> ObservedKind {
+    if metadata
+        .as_ref()
+        .is_ok_and(|metadata| metadata.kind == ObservedKind::MountPoint)
+    {
+        ObservedKind::MountPoint
+    } else {
+        reparse::enumerated_kind(attributes, ea_size)
     }
 }
 

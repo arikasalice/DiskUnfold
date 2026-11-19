@@ -129,6 +129,9 @@ jobs:
         working-directory: gui-web
         run: npm run build
       - run: cargo test --locked --workspace --all-features
+      - name: Windows NTFS volume mount-point observation
+        if: runner.os == 'Windows' && matrix.cpu == 'x64'
+        run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
       # Ubuntu 24.04 runners set kernel.apparmor_restrict_unprivileged_userns=1, which
       # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs
       # ("bwrap: setting up uid map: Permission denied"), so the web process hangs until
