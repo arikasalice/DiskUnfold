@@ -23,6 +23,8 @@ param(
   # Capture the fallback table of an unavailable chart, and fold and unfold its title with the
   # mouse, Enter and Space.
   [switch]$CaptureFallbackTable,
+  # Capture a depth 2 treemap of a scope with an NTFS junction.
+  [switch]$CaptureTreemapLink,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1344,6 +1346,43 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# F06 #134: a treemap of a scope with an NTFS junction. The Windows collector does not report the
+# junction's own size, so this is the unknown-size case: the folder holding it is drawn by its lower
+# bound (not refused), the file beside the junction is a named shape, and the junction has no area.
+function Test-CaptureTreemapLink {
+  $fixture = Join-Path $root 'treemap-link'
+  $scope = Join-Path $fixture 'scope'
+  $docs = Join-Path $scope 'Docs'
+  $outside = Join-Path $fixture 'outside'
+  [IO.Directory]::CreateDirectory($docs) | Out-Null
+  [IO.Directory]::CreateDirectory($outside) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $docs 'report.bin'), [byte[]]::new(32MB))
+  [IO.File]::WriteAllBytes((Join-Path $scope 'media.bin'), [byte[]]::new(64MB))
+  [IO.File]::WriteAllBytes((Join-Path $outside 'outside-marker.bin'), [byte[]]::new(1MB))
+  Push-Location -LiteralPath $fixture
+  try {
+    & cmd.exe /D /C mklink /J 'scope\Docs\redirect' outside | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the isolated NTFS junction' }
+  } finally { Pop-Location }
+  try {
+    Set-Scope $scope
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
+    $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+    Invoke-UI (Wait-Enabled 'Browse folders' $true)
+    $null = Wait-UI 'Docs' { Find-UI 'Docs' $null }
+    Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+    $null = Wait-UI 'Docs and the file inside it' {
+      $names = Get-UINames
+      ($names | Where-Object { $_ -like 'Docs, *' }) -and ($names | Where-Object { $_ -like 'report.bin, *Docs*' })
+    } 60
+    if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
+    Save-SmokeCapture '01-treemap-link'
+    "Treemap with a junction: Docs is drawn with report.bin inside it, the junction has no area; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  } finally {
+    [IO.Directory]::Delete((Join-Path $docs 'redirect'))
+  }
+}
 # F06 #129 item 6: an unavailable chart opens the folder's table under its notice (#109), and the
 # table title must fold and unfold with the mouse, Enter and Space and say so (aria-expanded).
 # Every unavailable reason uses the same table. A runner cannot produce no_attribution: folders
@@ -1649,7 +1688,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -1657,6 +1696,7 @@ function Test-VirtualGroups {
   if ($CaptureTour) { Test-CaptureTour }
   if ($CaptureTreemap) { Test-CaptureTreemap }
   if ($CaptureFallbackTable) { Test-CaptureFallbackTable }
+  if ($CaptureTreemapLink) { Test-CaptureTreemapLink }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }
