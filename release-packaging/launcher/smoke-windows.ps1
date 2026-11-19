@@ -1502,6 +1502,7 @@ function Test-VirtualGroups {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
+  if ($WindowSize) { Set-SmokeWindowSize $WindowSize }
   # The smoke assertions use English UIA names. Normalize a Korean startup
   # profile for every run, including runs that do not exercise locale switching.
   $startupLanguage = Wait-UI 'initial locale' {
