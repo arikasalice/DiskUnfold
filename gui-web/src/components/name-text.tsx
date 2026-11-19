@@ -69,6 +69,15 @@ function breakAfterSeparators(path: string): ReactNode[] {
   return nodes;
 }
 
+/**
+ * True for a value with a path separator, such as a scope root that names
+ * itself with its whole path. Pass it as `path` to {@link NameText} where a
+ * value can be either a name or a path.
+ */
+export function hasPathSeparator(value: string): boolean {
+  return value.includes("/") || value.includes("\\");
+}
+
 /** Characters after which a line may break inside a path part. */
 const INNER_BREAK = /[\s\u002D\u00AD\u2010-\u2015]/u;
 
