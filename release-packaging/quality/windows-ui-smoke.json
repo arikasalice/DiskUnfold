@@ -1,0 +1,7 @@
+{
+  "scenarios": [
+    { "name": "base", "arguments": [] },
+    { "name": "virtual-groups", "arguments": ["-VerifyVirtualGroups"] },
+    { "name": "virtual-groups-sample", "arguments": ["-VerifyVirtualGroupsSample"] }
+  ]
+}

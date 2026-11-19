@@ -4,6 +4,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$Binary,
+  # Folder for the review captures (PNG). Defaults to a folder under %TEMP%.
+  [string]$CaptureDirectory,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -996,7 +998,7 @@ function Save-SmokeCapture($name) {
     Start-Sleep -Milliseconds 700
     Add-Type -AssemblyName System.Drawing
     $bounds = $window.Current.BoundingRectangle
-    $directory = Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures'
+    $directory = if ($CaptureDirectory) { $CaptureDirectory } else { Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures' }
     [IO.Directory]::CreateDirectory($directory) | Out-Null
     $bitmap = [Drawing.Bitmap]::new([int]$bounds.Width, [int]$bounds.Height)
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
