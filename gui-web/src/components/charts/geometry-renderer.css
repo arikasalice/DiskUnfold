@@ -37,6 +37,9 @@
   stroke: var(--du-muted);
   stroke-width: 1;
   stroke-dasharray: 4 3;
+  /* Snapped to device pixels: a 1 px line on a pixel boundary would blend to half
+     its colour and lose its contrast. */
+  shape-rendering: crispEdges;
   pointer-events: none;
 }
 
