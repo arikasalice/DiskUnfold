@@ -1435,7 +1435,7 @@ function Test-CaptureTreemapLink {
     # chart's first shape brings the chart into the window with its button row; the head then lies above.
     $first = Wait-UI 'media.bin shape' {
       @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
-        Where-Object { $_.Current.Name -like 'media.bin, *' }) | Select-Object -First 1
+        Where-Object { $_.Current.Name -like 'media.bin*' }) | Select-Object -First 1
     }
     $first.SetFocus()
     Start-Sleep -Milliseconds 800
