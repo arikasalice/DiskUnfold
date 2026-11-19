@@ -33,6 +33,7 @@ fn folder_registration_failure_is_returned_to_sender() -> Result<(), Box<dyn std
         counted_roots: record::FailedRanges::new(Vec::new()),
         published: false,
         cadence: PublicationCadence::default(),
+        sharing: Vec::new(),
     };
     let (reply, received) = mpsc::channel();
     progress
@@ -113,6 +114,7 @@ fn timed_publications_pin_independent_versions_and_failed_build_rolls_back()
         counted_roots: record::FailedRanges::new(vec![false]),
         published: false,
         cadence: PublicationCadence::default(),
+        sharing: Vec::new(),
     };
     progress
         .record(
@@ -247,6 +249,7 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
             counted_roots: record::FailedRanges::new(vec![false]),
             published: false,
             cadence: PublicationCadence::default(),
+            sharing: Vec::new(),
         };
         let abort = AtomicBool::new(false);
         let services = Services {
@@ -340,6 +343,7 @@ fn abort_and_cancel_do_not_publish_queued_batches() -> Result<(), Box<dyn std::e
             counted_roots: record::FailedRanges::new(vec![false]),
             published: false,
             cadence: PublicationCadence::default(),
+            sharing: Vec::new(),
         };
         let (sender, receiver) = mpsc::channel();
         sender

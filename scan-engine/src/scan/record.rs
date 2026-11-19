@@ -23,11 +23,24 @@ use du_core_contracts::{
     SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp,
     job::JobCounts,
     scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
-    scan_observation::{MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry},
+    scan_observation::{
+        AnchoredDirectory, MetadataObservation, ObservedEntry, ObservedKind, TimedObservedEntry,
+    },
 };
 
 /// Supplies the observation time of a scope gap, evaluated only for a gap.
 pub(super) type GapClock<'a> = &'a dyn Fn() -> Option<Timestamp>;
+
+/// The sharing evidence of every file below a scope root, asked of the root
+/// once. A directory below the root never crosses to another volume, so the
+/// root's volume decides for all of them (F03 FR11.HD1).
+pub(super) fn root_sharing(root: &dyn AnchoredDirectory) -> SharingEvidence {
+    if root.creates_no_shared_extents() {
+        SharingEvidence::None
+    } else {
+        SharingEvidence::Unknown
+    }
+}
 
 /// The failed ranges of one collection, so that each range fails once.
 ///
@@ -138,6 +151,7 @@ pub(super) fn record_item(
     gap_at: GapClock<'_>,
     (root_index, path, timed): (u32, Vec<Vec<u8>>, &TimedObservedEntry),
     row: Admission,
+    sharing: SharingEvidence,
 ) -> Result<(), BuildError> {
     let entry = &timed.entry;
     if let Some(unread) = row.unread() {
@@ -153,6 +167,7 @@ pub(super) fn record_item(
         &path,
         counts,
         timed.observed_at.as_ref(),
+        sharing,
     )?;
     if gap.is_none()
         && entry
@@ -247,6 +262,7 @@ fn record_at(
     path: &[Vec<u8>],
     counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
+    sharing: SharingEvidence,
 ) -> Result<(), BuildError> {
     if let Some((kind, stage, reason)) = issues::classify(entry) {
         build.record_scan_issue(ScanIssue {
@@ -281,10 +297,12 @@ fn record_at(
     match meta.kind {
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
         ObservedKind::Link => {
-            let (observation, space) = observation_and_space(meta, path.to_vec());
+            let (observation, space) = observation_and_space(meta, path.to_vec(), sharing);
             build.add_observed_untraversed_link_at(root_index, observation, space)?;
         }
-        ObservedKind::File => record_file(build, root_index, meta, path.to_vec(), counts)?,
+        ObservedKind::File => {
+            record_file(build, root_index, meta, path.to_vec(), counts, sharing)?;
+        }
         // Unreachable through the admission table, which leaves every
         // consistent mount point outside the boundary; an inconsistent one
         // fails the check above and is a gap. A boundary is not a failure.
@@ -336,8 +354,9 @@ fn record_file(
     meta: &MetadataObservation,
     path: Vec<Vec<u8>>,
     counts: &mut JobCounts,
+    sharing: SharingEvidence,
 ) -> Result<(), BuildError> {
-    let (observation, space) = observation_and_space(meta, path);
+    let (observation, space) = observation_and_space(meta, path, sharing);
     if observation.size.is_none() {
         counts.failed += 1;
     }
@@ -350,6 +369,7 @@ fn record_file(
 fn observation_and_space(
     meta: &MetadataObservation,
     path: Vec<Vec<u8>>,
+    sharing: SharingEvidence,
 ) -> (Observation, Option<SpaceObservation>) {
     let size = meta
         .size
@@ -368,7 +388,7 @@ fn observation_and_space(
             file: id.file.clone(),
         }),
         link_count: meta.link_count,
-        sharing: SharingEvidence::Unknown,
+        sharing,
     });
     (observation, space)
 }

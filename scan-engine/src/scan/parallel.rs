@@ -11,7 +11,7 @@ mod queue;
 pub(crate) use control::ScanControlSession;
 pub use control::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 use du_analysis_index::{
-    BuildError, BuildHandle, folder_collection::UnreadReason,
+    BuildError, BuildHandle, SharingEvidence, folder_collection::UnreadReason,
     publication_cadence::PublicationCadence,
 };
 use du_core_contracts::{
@@ -193,6 +193,8 @@ struct Progress {
     counted_roots: record::FailedRanges,
     published: bool,
     cadence: PublicationCadence,
+    /// The sharing evidence of each root's volume, for every file below it.
+    sharing: Vec<SharingEvidence>,
 }
 trait MonotonicClock: Sync {
     fn now(&self) -> Option<Duration>;

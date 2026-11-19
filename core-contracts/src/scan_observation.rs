@@ -317,6 +317,13 @@ pub trait AnchoredDirectory: DirectoryObservations {
         None
     }
 
+    /// True only when the volume's file system name and flags show that it
+    /// cannot share extents between files (block clones, reflinks; hard links
+    /// are file identity). `false`, the default, leaves sharing unknown.
+    fn creates_no_shared_extents(&self) -> bool {
+        false
+    }
+
     /// Optional timed metadata read. Existing adapters return their modification
     /// time without invoking the clock or claiming a new observation time.
     fn observed_modified_at_timed(
