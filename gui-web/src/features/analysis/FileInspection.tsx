@@ -7,8 +7,6 @@ import {
   DetailDisclosure,
   ExampleBadge,
   Moment,
-  NameText,
-  hasPathSeparator,
   Notice,
   Progress,
   Readout,
@@ -26,6 +24,7 @@ import { CopyPath, OwedCopyStatus, owedCopyFailure } from "./CopyPath";
 import type { CopyContinuation } from "./CopyPath";
 import { isSampleSource } from "../../state/sample-session";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
+import { InspectionName } from "./inspection-name";
 import {
   displayEvidence,
   displayKnownSpaceReason,
@@ -171,24 +170,10 @@ function attributes(
           : text("ui.inspection.folder_name", "Folder name"),
       value:
         detail.displayName.state === "present" ? (
-          <div className="du-inspection-name">
-            <Text>
-              <NameText
-                name={detail.displayName.value}
-                path={hasPathSeparator(detail.displayName.value)}
-              />
-            </Text>
-            <DetailDisclosure
-              title={text("ui.inspection.full_name", "Full name")}
-            >
-              <Text focusable>
-                <NameText
-                  name={detail.displayName.value}
-                  path={hasPathSeparator(detail.displayName.value)}
-                />
-              </Text>
-            </DetailDisclosure>
-          </div>
+          <InspectionName
+            name={detail.displayName.value}
+            fullLabel={text("ui.inspection.full_name", "Full name")}
+          />
         ) : (
           attribute(detail.displayName, String, text)
         ),
