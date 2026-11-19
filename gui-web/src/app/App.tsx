@@ -47,11 +47,11 @@ import { useSampleFlow } from "./use-sample-flow";
 import {
   BrowseVisualizationActions,
   BrowseVisualizationView,
-  browseSelectionFromOpen,
   useBrowseVisualization,
   useVisualizationFocus,
 } from "./browse-visualization";
 import type { BrowseVisualizationProvider } from "./browse-visualization";
+import { useVisualizationOffer } from "./browse-visualization-offer";
 
 const desktop = createAnalysisClient();
 
@@ -193,6 +193,11 @@ export function App({
       setBasisSelection({ version, basis }),
     [],
   );
+  const visualizationOffer = useVisualizationOffer(
+    basisSelection,
+    browseDisplay,
+    visualization.opened,
+  );
   return (
     <main
       className="du-app"
@@ -313,19 +318,13 @@ export function App({
         display={browseDisplay}
         hidden={controls.listHidden}
         priority={priority}
-        onOpening={visualization.invalidate}
+        onOpening={() => {
+          visualization.invalidate();
+          visualizationOffer.opening();
+        }}
         onOpened={(version, opened) => {
           groups.onBrowsed(version, opened);
-          visualization.opened(
-            basisSelection?.version === version
-              ? browseSelectionFromOpen(
-                  version,
-                  opened,
-                  browseDisplay,
-                  basisSelection.basis,
-                )
-              : undefined,
-          );
+          visualizationOffer.browsed(version, opened);
         }}
       />
       <BrowseVisualizationView
