@@ -1,5 +1,5 @@
 import { Action } from "./controls";
-import { NameText } from "./name-text";
+import { NameText, hasPathSeparator } from "./name-text";
 import "../theme/breadcrumbs.css";
 
 export type BreadcrumbEntry = {
@@ -36,14 +36,20 @@ export function Breadcrumbs({
             {index > 0 && <span aria-hidden="true">/</span>}
             {entry.onPress && !entry.current ? (
               <Action onPress={entry.onPress}>
-                <NameText name={entry.label} path={isPath(entry.label)} />
+                <NameText
+                  name={entry.label}
+                  path={hasPathSeparator(entry.label)}
+                />
               </Action>
             ) : (
               <span
                 aria-current={entry.current ? "location" : undefined}
                 title={entry.label}
               >
-                <NameText name={entry.label} path={isPath(entry.label)} />
+                <NameText
+                  name={entry.label}
+                  path={hasPathSeparator(entry.label)}
+                />
               </span>
             )}
           </li>
@@ -51,9 +57,4 @@ export function Breadcrumbs({
       </ol>
     </nav>
   );
-}
-
-/** A label with a separator, such as a scope root path, breaks after it. */
-function isPath(label: string): boolean {
-  return label.includes("/") || label.includes("\\");
 }

@@ -8,6 +8,7 @@ import {
   ExampleBadge,
   Moment,
   NameText,
+  hasPathSeparator,
   Notice,
   Progress,
   Readout,
@@ -172,13 +173,19 @@ function attributes(
         detail.displayName.state === "present" ? (
           <div className="du-inspection-name">
             <Text>
-              <NameText name={detail.displayName.value} />
+              <NameText
+                name={detail.displayName.value}
+                path={hasPathSeparator(detail.displayName.value)}
+              />
             </Text>
             <DetailDisclosure
               title={text("ui.inspection.full_name", "Full name")}
             >
               <Text focusable>
-                <NameText name={detail.displayName.value} />
+                <NameText
+                  name={detail.displayName.value}
+                  path={hasPathSeparator(detail.displayName.value)}
+                />
               </Text>
             </DetailDisclosure>
           </div>
