@@ -47,18 +47,33 @@ function Edge({ characters, count }: { characters: string; count: number }) {
 }
 
 /**
- * A path with a line break opportunity after each separator. The `<wbr>`
- * elements hold no text, so the text content and a copy stay the path.
+ * A path with a line break opportunity after each separator. Each part up to
+ * and including its separator is kept whole on a line, so a line breaks after
+ * a separator before it breaks at a hyphen or space inside a part; only a part
+ * wider than the line breaks inside it. The `<wbr>` elements and the part
+ * spans hold no text of their own, so the text content and a copy stay the
+ * path.
  */
 function breakAfterSeparators(path: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let start = 0;
   for (let index = 0; index < path.length; index += 1) {
     if (path[index] !== "/" && path[index] !== "\\") continue;
-    nodes.push(path.slice(start, index + 1), <wbr key={index} />);
+    nodes.push(
+      <span className="du-path__part" key={`part-${index}`}>
+        {path.slice(start, index + 1)}
+      </span>,
+      <wbr key={index} />,
+    );
     start = index + 1;
   }
-  nodes.push(path.slice(start));
+  const last = path.slice(start);
+  if (last)
+    nodes.push(
+      <span className="du-path__part" key="part-last">
+        {last}
+      </span>,
+    );
   return nodes;
 }
 

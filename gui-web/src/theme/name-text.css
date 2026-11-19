@@ -5,6 +5,13 @@
   overflow-wrap: anywhere;
 }
 
+/* A part up to its separator moves to the next line as a whole; only a part
+   wider than the line wraps inside it. */
+.du-path__part {
+  display: inline-block;
+  max-inline-size: 100%;
+}
+
 /* The real edge white space stays in the text for copying and takes no room;
    the marks stand in its place. */
 .du-name__space {
