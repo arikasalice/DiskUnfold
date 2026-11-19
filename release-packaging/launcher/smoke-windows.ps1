@@ -1280,10 +1280,10 @@ function Get-ButtonCount($buttonName) {
 # One pass through the main screens for design review: the same steps in any language, size and theme,
 # without the value checks of the full flow. Names go through Get-UiName, so a Korean profile works.
 # F06 #130: a depth 2 treemap. Shapes inside a folder take their names from that folder's rows
-# and are named with it, and 40 small files in one folder, each below the minimum shape area,
-# become "Other (40)" there. Tiny is too small for a header band (README 27) and stays one shape.
+# and are named with it, and 400 small files in one folder, each below the minimum shape area,
+# become "Other (400)" there. Tiny is too small for a header band (README 27) and stays one shape.
 # The large files keep each small one under the minimum area at 1280x800 and 700x800 (about 11 px²
-# of 16 inside Photos at 1280x800), while the 40 of them make a group large enough to see.
+# of 16 inside Photos at 1280x800), while the 400 of them make a group wide enough to see.
 # The group's lower-bound and unknown states need unreadable members and stay with the GUI tests.
 function Test-CaptureTreemap {
   $scope = Join-Path $root 'treemap-scope'
@@ -1295,7 +1295,7 @@ function Test-CaptureTreemap {
   [IO.Directory]::CreateDirectory($tiny) | Out-Null
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
-  for ($index = 0; $index -lt 40; $index++) {
+  for ($index = 0; $index -lt 400; $index++) {
     [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(8000))
   }
   [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
@@ -1309,7 +1309,7 @@ function Test-CaptureTreemap {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'Photos' { Find-UI 'Photos' $null }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
-  $group = Get-UiName 'Other (40)'
+  $group = Get-UiName 'Other (400)'
   $null = Wait-UI 'Photos and the named shapes inside it' {
     $names = Get-UINames
     ($names | Where-Object { $_ -like 'Photos, *' }) -and
