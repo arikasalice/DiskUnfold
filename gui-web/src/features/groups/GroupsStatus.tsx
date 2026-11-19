@@ -121,7 +121,10 @@ function Banner({
     case "working":
       return (
         <>
-          <Progress label={text("ui.groups.working", "Classifying…")} />
+          <Progress
+            label={text("ui.groups.working", "Classifying…")}
+            showLabel={false}
+          />
           <LiveStatus>{text("ui.groups.working", "Classifying…")}</LiveStatus>
           <Action onPress={onCancel}>
             {text("ui.groups.cancel", "Cancel classification")}

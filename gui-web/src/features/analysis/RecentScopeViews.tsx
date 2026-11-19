@@ -279,7 +279,7 @@ function LoadingMessage({
       <LiveStatus>
         <Text>{message}</Text>
       </LiveStatus>
-      <Progress label={label} />
+      <Progress label={label} showLabel={false} />
     </div>
   );
 }

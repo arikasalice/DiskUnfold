@@ -1364,6 +1364,24 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# README 31 review captures: a progress row is short-lived, so it is captured the moment it shows.
+# $name is an English progress label, or '*' for the first progress bar of any name. Not seeing it in
+# time is logged, not a failure: a fast runner can finish before the first look.
+function Save-ProgressCapture([string]$name, [string]$capture, [int]$seconds = 4) {
+  $condition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ProgressBar)
+  $wanted = if ($name -eq '*') { $null } else { Get-UiName $name }
+  $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $bar = @($window.FindAll($scopeTree, $condition) | Where-Object { -not $wanted -or $_.Current.Name -eq $wanted }) | Select-Object -First 1
+    if ($bar) {
+      Save-SmokeCapture $capture
+      "Progress capture $($capture): $($bar.Current.Name)"
+      return
+    }
+    Start-Sleep -Milliseconds 30
+  }
+  "Progress capture $($capture): not seen within $seconds s"
+}
 # F06 #134: a treemap of a scope with an NTFS junction. The Windows collector does not report the
 # junction's own size, so this is the unknown-size case: the folder holding it is drawn by its lower
 # bound (not refused), the file beside the junction is a named shape, and the junction has no area.
@@ -1386,10 +1404,13 @@ function Test-CaptureTreemapLink {
     Set-Scope $scope
     Invoke-UI (Wait-Enabled 'Review scope' $true)
     Invoke-UI (Wait-Enabled 'Start analysis' $true)
+    Save-ProgressCapture '*' '00-analysis-progress'
     $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
     Invoke-UI (Wait-Enabled 'Browse folders' $true)
     $null = Wait-UI 'Docs' { Find-UI 'Docs' $null }
     Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+    Save-ProgressCapture 'Loading chart' '00-chart-loading'
+    Save-ProgressCapture 'Loading items in this folder' '00-folder-rows-loading' 3
     $null = Wait-UI 'Docs and the file inside it' {
       $names = Get-UINames
       ($names | Where-Object { $_ -like 'Docs, *' }) -and ($names | Where-Object { $_ -like 'report.bin, *Docs*' })
