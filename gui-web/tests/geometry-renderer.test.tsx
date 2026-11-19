@@ -73,9 +73,9 @@ test("F06 FR12.HD1.gui-web.DD1: a lower-bound rectangle has a dashed right and b
     container.querySelectorAll(".du-geometry-lower-bound"),
     (edge) => edge.getAttribute("d"),
   );
-  // Both are dashed 1.5 px inside: clear of a leaf's gap, and on a folder's inset
-  // between its own edge (drawn 1 px inside) and its children (2 px inside).
-  expect(edges).toEqual(["M48.5,1.5 V98.5 H1.5", "M148.5,1.5 V98.5 H51.5"]);
+  // A 2 px band just inside the drawn edge: a leaf keeps a 1 px gap on its right
+  // and bottom, a folder is drawn 1 px inside and its children 2 px inside.
+  expect(edges).toEqual(["M48,0 V98 H0", "M148,1 V98 H51"]);
 });
 
 function labelled(width: number, name: string, value?: string) {
@@ -226,7 +226,7 @@ test("renders all common geometry and leaves same-model rows readable", async ()
   const { container } = render(<GeometryRenderer {...props()} />);
   expect(
     container.querySelector("svg rect[x='0']")?.getAttribute("width"),
-  ).toBe("100");
+  ).toBe("99");
   expect(container.querySelector("circle")?.getAttribute("cx")).toBe("200");
   expect(container.querySelectorAll("polyline")).toHaveLength(2);
   expect(container.querySelectorAll("polygon")).toHaveLength(1);

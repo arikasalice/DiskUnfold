@@ -5,7 +5,9 @@ import test from 'node:test';
 const list = JSON.parse(readFileSync(new URL('./windows-ui-smoke.json', import.meta.url), 'utf8'));
 const smoke = readFileSync(new URL('../launcher/smoke-windows.ps1', import.meta.url), 'utf8');
 const declared = new Set([...smoke.matchAll(/\[switch\]\$(\w+)/g)].map((match) => match[1]));
-const folder = (s) => `${s.name}-${s.locale ?? 'en'}-${s.theme ?? 'light'}-${s.windowSize ?? 'default'}`;
+const folder = (s) =>
+  `${s.name}-${s.locale ?? 'en'}-${s.theme ?? 'light'}-${s.windowSize ?? 'default'}` +
+  (s.appScale !== undefined && s.appScale !== 100 ? `-scale${s.appScale}` : '');
 
 test('scenario names are unique file-safe words and so are their capture folders', () => {
   const names = list.scenarios.map((scenario) => scenario.name);
@@ -30,9 +32,11 @@ test('scenario language, theme and window size are values smoke-windows.ps1 acce
     if (scenario.locale !== undefined) assert.ok(['en', 'ko'].includes(scenario.locale), scenario.name);
     if (scenario.theme !== undefined) assert.ok(['light', 'dark'].includes(scenario.theme), scenario.name);
     if (scenario.windowSize !== undefined) assert.match(scenario.windowSize, /^\d+x\d+$/, scenario.name);
+    if (scenario.appScale !== undefined) assert.ok([100, 125, 150, 200].includes(scenario.appScale), scenario.name);
   }
   assert.match(smoke, /ValidateSet\('en', 'ko'\)\]\[string\]\$Locale/);
   assert.match(smoke, /ValidateSet\('light', 'dark'\)\]\[string\]\$Theme/);
+  assert.match(smoke, /ValidateSet\('100', '125', '150', '200'\)\]\[string\]\$AppScale/);
   assert.match(smoke, /\[string\]\$WindowSize/);
 });
 
