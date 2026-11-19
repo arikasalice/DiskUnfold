@@ -846,15 +846,19 @@ function shouldFocusReview(pending: boolean, working: boolean) {
  * The result "Browse folders" opens once a total is shown: the newest result
  * known for the scan, as the summary's dialogs open it. The engine opens only
  * a scan's current result, and the summary can still show an earlier one for
- * a moment after a newer one is published, for example right after the scan
- * finishes or while a selection holds it.
+ * a moment while the newer one's totals are read, for example right after the
+ * scan finishes. When that read failed, the summary keeps the shown result
+ * until the user chooses "Show latest result", and browsing opens the shown
+ * one (F02 FR3.HD1.gui-web.DD1).
  */
 function browseVersion(scan: {
   total: { resultVersion: string } | undefined;
   currentVersion: string | undefined;
+  hasNewResult: boolean;
 }): string | undefined {
   const shown = scan.total?.resultVersion;
-  return shown === undefined ? undefined : (scan.currentVersion ?? shown);
+  if (shown === undefined || scan.hasNewResult) return shown;
+  return scan.currentVersion ?? shown;
 }
 
 function bindBrowse(
