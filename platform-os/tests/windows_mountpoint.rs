@@ -1,8 +1,6 @@
 #![cfg(windows)]
 
-use du_core_contracts::scan_observation::{
-    AnchoredDirectory, DirectoryObservations, ObservedKind,
-};
+use du_core_contracts::scan_observation::{AnchoredDirectory, DirectoryObservations, ObservedKind};
 use du_platform_os::windows_observation::open_verified;
 use std::{
     env, fs,
@@ -12,11 +10,9 @@ use std::{
     process::{Command, Output},
 };
 use windows::{
-    Win32::{
-        Storage::FileSystem::{
-            DeleteVolumeMountPointW, GetLogicalDrives, GetVolumeNameForVolumeMountPointW,
-            SetVolumeMountPointW,
-        },
+    Win32::Storage::FileSystem::{
+        DeleteVolumeMountPointW, GetLogicalDrives, GetVolumeNameForVolumeMountPointW,
+        SetVolumeMountPointW,
     },
     core::PCWSTR,
 };
@@ -110,7 +106,11 @@ impl VhdFixture {
     }
 
     fn mount_path_wide(&self) -> Vec<u16> {
-        let mut path = self.mount_path.as_os_str().encode_wide().collect::<Vec<_>>();
+        let mut path = self
+            .mount_path
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>();
         if path.last() != Some(&(b'\\' as u16)) {
             path.push(b'\\' as u16);
         }
@@ -137,8 +137,7 @@ impl VhdFixture {
 
         let target_root = PathBuf::from(format!("{}:\\", char::from(self.letter)));
         {
-            let _target_root =
-                open_verified(&target_root).map_err(|error| format!("{error:?}"))?;
+            let _target_root = open_verified(&target_root).map_err(|error| format!("{error:?}"))?;
         }
 
         let junction = Command::new("cmd.exe")
@@ -166,7 +165,8 @@ impl VhdFixture {
             SetVolumeMountPointW(PCWSTR(mount_path.as_ptr()), PCWSTR(volume.as_ptr()))?;
         }
 
-        let mut directory = open_verified(self.temp.path()).map_err(|error| format!("{error:?}"))?;
+        let mut directory =
+            open_verified(self.temp.path()).map_err(|error| format!("{error:?}"))?;
         let parent_volume = directory
             .identity()
             .map_err(|error| format!("{error:?}"))?
@@ -190,7 +190,10 @@ impl VhdFixture {
             .find(|entry| entry.name == mount_name)
             .ok_or("mounted directory was not enumerated")?;
         assert_eq!(entry.enumerated_kind, ObservedKind::MountPoint);
-        let metadata = entry.metadata.as_ref().map_err(|error| format!("{error:?}"))?;
+        let metadata = entry
+            .metadata
+            .as_ref()
+            .map_err(|error| format!("{error:?}"))?;
         assert_eq!(metadata.kind, ObservedKind::MountPoint);
         assert_eq!(metadata.device, parent_volume);
         assert_eq!(metadata.inode, entry.enumerated_inode);
@@ -211,7 +214,10 @@ impl VhdFixture {
             .find(|entry| entry.name == junction_name)
             .ok_or("NTFS directory junction was not enumerated")?;
         assert_eq!(entry.enumerated_kind, ObservedKind::Link);
-        let metadata = entry.metadata.as_ref().map_err(|error| format!("{error:?}"))?;
+        let metadata = entry
+            .metadata
+            .as_ref()
+            .map_err(|error| format!("{error:?}"))?;
         assert_eq!(metadata.kind, ObservedKind::Link);
         assert_eq!(metadata.device, parent_volume);
         assert_eq!(metadata.inode, entry.enumerated_inode);
@@ -287,6 +293,8 @@ fn volume_mount_point_uses_parent_identity_and_reports_no_file_statistics()
     match (result, cleanup) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(error), Err(cleanup)) => Err(format!("{error}; cleanup also failed: {cleanup}").into()),
+        (Err(error), Err(cleanup)) => {
+            Err(format!("{error}; cleanup also failed: {cleanup}").into())
+        }
     }
 }

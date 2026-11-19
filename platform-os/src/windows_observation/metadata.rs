@@ -23,7 +23,7 @@ impl WindowsDirectory {
         let metadata = recall::observe_if_safe(attributes, || {
             wide(&name)
                 .and_then(|name| relative(&self.handle, &name, false, false))
-                .and_then(|file| self.metadata(&file, inode))
+                .and_then(|file| self.metadata(&file, inode, ea_size))
         });
         ObservedEntry {
             name,
@@ -47,7 +47,7 @@ impl WindowsDirectory {
         let metadata = recall::observe_if_safe(attributes, || {
             let file =
                 relative_with_case(&self.handle, &wide(&name)?, false, false, case_insensitive?)?;
-            self.metadata_for_enumerated(&file, inode)
+            self.metadata_for_enumerated(&file, inode, ea_size)
         });
         ObservedEntry {
             name,
@@ -81,15 +81,17 @@ impl WindowsDirectory {
         &self,
         file: &File,
         enumerated_inode: u64,
+        ea_size: u32,
     ) -> Result<MetadataObservation, PortError> {
         let value = info(file)?;
-        self.metadata_from_info(file, value, enumerated_inode)
+        self.metadata_from_info(file, value, enumerated_inode, ea_size)
     }
 
     fn metadata_for_enumerated(
         &self,
         file: &File,
         enumerated_inode: u64,
+        ea_size: u32,
     ) -> Result<MetadataObservation, PortError> {
         let value = info(file)?;
         // The enumerated 64-bit file ID is scoped to its anchored parent volume.
@@ -99,7 +101,7 @@ impl WindowsDirectory {
         {
             return Err(identity_changed());
         }
-        self.metadata_from_info(file, value, enumerated_inode)
+        self.metadata_from_info(file, value, enumerated_inode, ea_size)
     }
 
     fn metadata_from_info(
@@ -107,10 +109,12 @@ impl WindowsDirectory {
         file: &File,
         value: windows::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
         enumerated_inode: u64,
+        ea_size: u32,
     ) -> Result<MetadataObservation, PortError> {
         recall::check_handle_attributes(value.dwFileAttributes)?;
         let observed_kind = kind(value.dwFileAttributes);
         if observed_kind == ObservedKind::Link
+            && reparse::has_mount_point_tag(ea_size)
             && let Some(metadata) =
                 reparse::volume_root_metadata(file, &value, self.volume, enumerated_inode)?
         {

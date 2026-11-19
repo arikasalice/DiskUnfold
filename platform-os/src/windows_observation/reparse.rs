@@ -1,6 +1,6 @@
 //! Kind of a directory enumeration record, including Cloud Files placeholders.
 mod mount_point;
-pub(super) use mount_point::volume_root_metadata;
+pub(super) use mount_point::{has_mount_point_tag, volume_root_metadata};
 
 use super::kind;
 use du_core_contracts::scan_observation::ObservedKind;

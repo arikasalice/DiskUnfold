@@ -14,8 +14,13 @@ const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
 const FIXED_BUFFER_SIZE: usize = 16;
 const MAX_REPARSE_BUFFER_SIZE: usize = 16 * 1024;
 
+/// Returns whether the enumeration record carries the mount-point reparse tag.
+pub(in crate::windows_observation) fn has_mount_point_tag(ea_size: u32) -> bool {
+    ea_size == IO_REPARSE_TAG_MOUNT_POINT
+}
+
 /// Returns identity-only metadata when the entry contains an exact volume-GUID root.
-pub(super) fn volume_root_metadata(
+pub(in crate::windows_observation) fn volume_root_metadata(
     file: &File,
     value: &BY_HANDLE_FILE_INFORMATION,
     parent_volume: u64,
@@ -142,9 +147,7 @@ fn is_exact_volume_guid_root(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        FIXED_BUFFER_SIZE, IO_REPARSE_TAG_MOUNT_POINT, is_volume_root_mount_point_bytes,
-    };
+    use super::{FIXED_BUFFER_SIZE, IO_REPARSE_TAG_MOUNT_POINT, is_volume_root_mount_point_bytes};
 
     fn mount_point(substitute: &[u16]) -> Vec<u8> {
         let path = substitute
@@ -167,8 +170,17 @@ mod tests {
         value.encode_utf16().collect()
     }
 
+    #[test]
+    fn limits_reparse_data_queries_to_mount_point_tags() {
+        assert!(super::has_mount_point_tag(IO_REPARSE_TAG_MOUNT_POINT));
+        assert!(!super::has_mount_point_tag(0xA000_000C));
+        assert!(!super::has_mount_point_tag(0));
+    }
+
     fn volume_root() -> Vec<u8> {
-        mount_point(&target(r"\??\Volume{01234567-89ab-cdef-0123-456789abcdef}\"))
+        mount_point(&target(
+            r"\??\Volume{01234567-89ab-cdef-0123-456789abcdef}\",
+        ))
     }
 
     #[test]
@@ -220,7 +232,9 @@ mod tests {
 
     #[test]
     fn rejects_non_guid_paths_and_malformed_guids() {
-        assert!(!is_volume_root_mount_point_bytes(&mount_point(&target(r"\??\C:\"))));
+        assert!(!is_volume_root_mount_point_bytes(&mount_point(&target(
+            r"\??\C:\"
+        ))));
         assert!(!is_volume_root_mount_point_bytes(&mount_point(&target(
             r"\??\Volume{01234567-89ab-cdef-0123-456789abcdeg}\"
         ))));
