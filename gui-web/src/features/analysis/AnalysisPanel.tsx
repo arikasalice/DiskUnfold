@@ -756,7 +756,7 @@ export function AnalysisPanel({
               exclusions={resultExclusions}
               actions={
                 <ResultActions
-                  version={scan.total?.resultVersion}
+                  version={browseVersion(scan)}
                   onBrowse={bindBrowse(onBrowse, displayChoice, scanJob)}
                   trigger={browseTrigger}
                   running={running}
@@ -840,6 +840,21 @@ function isEditorBusy(
 
 function shouldFocusReview(pending: boolean, working: boolean) {
   return pending && !working;
+}
+
+/**
+ * The result "Browse folders" opens once a total is shown: the newest result
+ * known for the scan, as the summary's dialogs open it. The engine opens only
+ * a scan's current result, and the summary can still show an earlier one for
+ * a moment after a newer one is published, for example right after the scan
+ * finishes or while a selection holds it.
+ */
+function browseVersion(scan: {
+  total: { resultVersion: string } | undefined;
+  currentVersion: string | undefined;
+}): string | undefined {
+  const shown = scan.total?.resultVersion;
+  return shown === undefined ? undefined : (scan.currentVersion ?? shown);
 }
 
 function bindBrowse(
