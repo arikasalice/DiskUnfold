@@ -190,6 +190,8 @@ jobs:
       - if: success() || failure()
         run: node --test release-packaging/quality/npm-licenses.test.mjs
       - if: success() || failure()
+        run: node --test release-packaging/quality/windows-ui-smoke.test.mjs
+      - if: success() || failure()
         run: node release-packaging/quality/npm-licenses.mjs
       - if: success() || failure()
         run: node release-packaging/quality/dependency-register.mjs
@@ -212,6 +214,43 @@ jobs:
         with:
           name: quality-policy
           path: quality-output/
+          if-no-files-found: warn
+  # Real WebView2 window on a GitHub-hosted Windows runner: runs the scenarios of
+  # release-packaging/quality/windows-ui-smoke.json with smoke-windows.ps1 and keeps the logs and
+  # review captures as an artifact. Not a required check; see the quality guide.
+  ui-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.0
+          cache: npm
+          cache-dependency-path: gui-web/package-lock.json
+      - name: Install pinned Rust
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-ui-smoke
+          save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+          cache-on-failure: true
+      - name: Install GUI dependencies
+        working-directory: gui-web
+        run: npm ci --ignore-scripts
+      - name: Build GUI assets for Rust
+        working-directory: gui-web
+        run: npm run build
+      - run: cargo build --locked -p du-launcher
+      - name: Run UI scenarios
+        shell: pwsh
+        run: ./release-packaging/quality/windows-ui-smoke.ps1 -Binary target/debug/diskunfold.exe -OutputDirectory quality-output/ui-smoke -ScreenSize 1920x1080
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ui-smoke-windows
+          path: quality-output/ui-smoke/
           if-no-files-found: warn
   reports:
     runs-on: ubuntu-24.04

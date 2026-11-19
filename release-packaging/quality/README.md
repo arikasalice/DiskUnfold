@@ -22,6 +22,7 @@ The npm gate uses the complete CycloneDX output from `npm sbom --sbom-format=cyc
 | `lint` (per target) | `cargo fmt --check`, clippy, GUI `npm run check` and `npm run test`, Windows folder-drop bridge test. |
 | `native` (per target) | Workspace tests, Linux launch and WebKit smoke under Xvfb, architecture checker, generated-contract diff. |
 | `policy` | cargo-deny, npm licenses, dependency register, release workflow policy, fuzz registry check, duplication report. Needs no GTK/WebKit packages and no GUI build. Artifact `quality-policy`. |
+| `ui-smoke` | Windows UI smoke scenarios and review captures on `windows-2022`. Not a required check. Artifact `ui-smoke-windows`. |
 | `reports` | Rust and GUI coverage, base-commit comparison. Artifacts `quality-reports` and `coverage-baseline`. |
 
 Evidence behind the layout (run 43363082548): on macOS x64 the test profile built for 8 min 39 s and ran for about 55 s; clippy built for 5 min; the other checks took about 4 min. Compilation dominates every native job, and tests, `cargo nextest` included, are not the bottleneck, so nextest is not used. `cargo-deny` and `cargo-llvm-cov` were compiled from source on every run (170 s and 71 s).
@@ -40,6 +41,15 @@ Cache policy:
 - Path filters are not used. They can skip a required check and leave a pull request waiting for a status that never appears.
 - `release.yml` and `fuzz.yml` take no Rust or npm build caches. Official release builds must come from clean sources and a fresh toolchain so the provenance covers exactly the bytes built; do not restore `target/` into a release build. The release tool builds in the gate and inventory jobs stay uncached for the same reason.
 
+## Windows UI smoke and captures
+
+The `ui-smoke` job of `quality.yml` runs on the GitHub-hosted `windows-2022` runner. It builds the web assets and the launcher, then `release-packaging/quality/windows-ui-smoke.ps1` starts `release-packaging/launcher/smoke-windows.ps1` once per scenario with isolated data (a fresh profile under `%TEMP%`, removed afterwards). Each scenario keeps its log and the review PNGs the smoke script saves with `-CaptureDirectory`; the artifact `ui-smoke-windows` holds them with `summary.json`, and the job summary lists pass or fail per scenario.
+
+Scenarios live in `release-packaging/quality/windows-ui-smoke.json`. A scenario has a unique lower-case `name`, the `arguments` (switches of `smoke-windows.ps1`) and optionally `locale` (`en` or `ko`), `theme` (`light` or `dark`) and `windowSize` (`WIDTHxHEIGHT`). Its captures go to a folder named `<name>-<locale>-<theme>-<size>`. The `-CaptureTour` switch walks the main screens once and saves a PNG of each, with no value checks; the full checks run in `functional`. A script test checks the list against the parameters of `smoke-windows.ps1`. Run one scenario locally with `pwsh release-packaging/quality/windows-ui-smoke.ps1 -Binary <diskunfold.exe> -OutputDirectory <folder> -Only <name>` in an interactive Windows session; add `-ScreenSize 1920x1080` when the display is smaller than the window size.
+
+How the settings reach the app without clicking: the theme is passed to the WebView as `prefers-color-scheme` (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`), the display language is written into the isolated profile's settings database (`locale.display_language`, with python's `sqlite3`) after a first start has created it, and the window is sized through UI Automation. For a non-English language the English UI Automation names of the script are mapped through the repository's message bundles (`user-env/i18n`).
+
+The job is not a required check yet. It drives a real window with UI Automation and the first runs decide its run time and stability; make it required only after it has passed repeatedly on pull requests without reruns. Captures show the runner's own screen size and WebView2 build, so they are review evidence and not pixel baselines.
 ## Local verification
 
 From the repository root after building the web assets, run the pinned quality tools:
