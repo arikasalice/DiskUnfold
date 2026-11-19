@@ -43,7 +43,10 @@ pub(super) fn collect(
             return Err(Error::Cancelled);
         }
         match item.kind {
-            ResultItemKind::File => files.push(item.item_no),
+            // A file outside the boundary is an unread range and never a member.
+            ResultItemKind::File if !version.is_boundary_item(item.item_no) => {
+                files.push(item.item_no);
+            }
             ResultItemKind::UntraversedLink => links.push(item.item_no),
             _ => {}
         }

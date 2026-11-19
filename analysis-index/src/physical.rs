@@ -277,6 +277,7 @@ impl Physical {
 pub(crate) fn scope_total(
     items: &[ResultItem],
     observations: Option<&[Option<Arc<SpaceObservation>>]>,
+    boundary: &[u32],
     completeness: ResultCompleteness,
     limit: usize,
     output: &mut SpaceAggregate,
@@ -284,7 +285,7 @@ pub(crate) fn scope_total(
     let mut sum = Physical::with_limit(limit);
     for item in items {
         let index = item.item_no as usize;
-        if !is_structure(item.kind) {
+        if !is_structure(item.kind) && boundary.binary_search(&item.item_no).is_err() {
             let _ = sum.observe(observations.and_then(|values| values[index].as_deref()));
         }
     }
@@ -304,6 +305,7 @@ pub(crate) fn selected_scope(
     for (index, item) in result.items.iter().enumerate() {
         if roots.binary_search(&result.root_indices[index]).is_ok()
             && !is_structure(item.kind)
+            && !result.is_boundary_item(item.item_no)
             && let Some(bytes) = sum.observe_pinned(result, index)
         {
             per_path += u128::from(bytes);

@@ -277,6 +277,7 @@ fn valid_final(
             ObservedKind::File => {
                 matches!(stored.kind, ResultItemKind::File | ResultItemKind::Unknown)
                     && child_attempt.is_none()
+                    && !store.is_boundary(child_node)
             }
             ObservedKind::Link => {
                 matches!(
@@ -294,7 +295,8 @@ fn valid_final(
             }
         },
         FolderAttemptFinal::Boundary => {
-            observed.entry.metadata.is_ok() && boundary_item(observed_kind, &stored.kind)
+            observed.entry.metadata.is_ok()
+                && boundary_item(observed_kind, &stored.kind, store.is_boundary(child_node))
         }
         FolderAttemptFinal::Revisit => {
             observed.entry.metadata.is_ok()
@@ -319,11 +321,14 @@ fn child_token_matches(
 
 /// True when a boundary row stores the item kind that the collector records
 /// for the observed kind: a directory item for another volume or a mount
-/// point, and a file item without a size for a mounted file.
-fn boundary_item(observed: &ObservedKind, stored: &ResultItemKind) -> bool {
+/// point, and a boundary file item for a mounted file or a file on another
+/// volume (F03 FR5.HD1).
+fn boundary_item(observed: &ObservedKind, stored: &ResultItemKind, boundary_file: bool) -> bool {
     match observed {
         ObservedKind::Directory | ObservedKind::MountPoint => stored == &ResultItemKind::Directory,
-        ObservedKind::MountedFile => stored == &ResultItemKind::File,
+        ObservedKind::MountedFile | ObservedKind::File => {
+            boundary_file && stored == &ResultItemKind::File
+        }
         _ => false,
     }
 }

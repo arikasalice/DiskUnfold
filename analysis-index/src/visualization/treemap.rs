@@ -87,6 +87,10 @@ pub fn admit_cancellable(
         basis == SizeBasis::Logical && version.completeness() == ResultCompleteness::Partial;
     for child in children {
         check(cancelled)?;
+        // A file outside the boundary is an unread range: not drawn and not in the total.
+        if version.is_boundary_item(child.item_no) {
+            continue;
+        }
         let observed = inspect_subtree(
             version,
             child.item_no,
@@ -384,6 +388,7 @@ fn inspect_subtree(
                     work.push(child.item_no);
                 }
             }
+            ResultItemKind::File if version.is_boundary_item(no) => {}
             ResultItemKind::File => {
                 let bytes = if *basis == SizeBasis::Logical {
                     item.size

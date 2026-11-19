@@ -28,6 +28,12 @@ pub struct ItemDetail<'a> {
 
 impl ResultVersion {
     /// Returns pinned draft attempt summaries; they never promote size values to exact.
+    /// Whether an item is a file outside the scan boundary: an unread range whose own size
+    /// is unknown and that adds neither bytes nor a missing item above it (F03 FR5.HD1).
+    pub fn is_boundary_item(&self, item_no: u32) -> bool {
+        self.boundary_items.binary_search(&item_no).is_ok()
+    }
+
     pub fn folder_attempt_summaries(&self) -> Option<&[crate::FolderAttemptSummary]> {
         self.folder_evidence
             .as_ref()

@@ -122,7 +122,11 @@ pub(crate) fn build(
         };
         own.merge(ranges[index], times);
         ranges[index] = own;
-        if let Some(parent) = item.parent {
+        // A file outside the boundary is an unread range, not an observation of its folder.
+        if let Some(parent) = item
+            .parent
+            .filter(|_| built.boundary.binary_search(&item.item_no).is_err())
+        {
             ranges[parent as usize].merge(own, times);
         }
     }
