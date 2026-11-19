@@ -289,7 +289,7 @@
   .du-app[data-analysis-open] {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    block-size: 100dvh;
+    block-size: var(--du-viewport-height, 100dvh);
     padding-block-end: 12px;
   }
 

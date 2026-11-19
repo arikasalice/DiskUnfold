@@ -199,7 +199,7 @@
 }
 
 .du-app[data-browse-open] {
-  block-size: 100dvh;
+  block-size: var(--du-viewport-height, 100dvh);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding-block-end: 8px;
@@ -336,7 +336,7 @@
     .du-browse-controls .du-notice--error
   ) {
   block-size: auto;
-  min-block-size: 100dvh;
+  min-block-size: var(--du-viewport-height, 100dvh);
 }
 .du-app[data-browse-open]:has(
     .du-browse-observation [aria-expanded="true"],
@@ -349,7 +349,7 @@
 @media (max-height: 350px) {
   .du-app[data-browse-open] {
     block-size: auto;
-    min-block-size: 100dvh;
+    min-block-size: var(--du-viewport-height, 100dvh);
   }
   .du-browse-grid-frame {
     block-size: max(18rem, 50dvh);

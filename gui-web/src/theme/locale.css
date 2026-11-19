@@ -23,6 +23,10 @@
 
 :root {
   zoom: var(--du-app-scale, 1);
+  /* The window height for layouts inside the zoomed root. The zoom also scales
+     viewport units, so 100dvh alone is the app scale times the window and the
+     document scrolls a second time (#161). */
+  --du-viewport-height: calc(100dvh / var(--du-app-scale, 1));
 }
 
 :root[data-du-motion="reduce"] {

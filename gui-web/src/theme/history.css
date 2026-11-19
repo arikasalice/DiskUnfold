@@ -1,7 +1,7 @@
 .du-app:has(> .du-history-shell) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  block-size: 100dvh;
+  block-size: var(--du-viewport-height, 100dvh);
 }
 
 .du-history-shell {
