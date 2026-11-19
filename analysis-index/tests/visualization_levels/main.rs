@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 //! Level-of-detail behavior of the projection: groups, omissions, unattributed
 //! children, totals and shape limits.
+mod links;
 mod lower_bound;
 mod nested;
 mod nested_lower_bound;
