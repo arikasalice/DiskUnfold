@@ -1457,6 +1457,14 @@ function Test-CaptureTreemapLink {
       ($names | Where-Object { $_ -like 'Docs, *' }) -and ($names | Where-Object { $_ -like 'report.bin, *Docs*' })
     } 60
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
+    # #175: the folder items table fits the window without scrolling sideways.
+    $tableArea = Wait-UI 'folder items table' { Find-UI 'Items in this folder scroll area' $null } 30
+    $scroll = $null
+    if (-not $tableArea.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) {
+      'Folder items table: no scroll pattern, so it does not scroll'
+    } elseif ($scroll.Current.HorizontallyScrollable) {
+      throw "The folder items table scrolls sideways at app scale $AppScale%, window $WindowSize"
+    } else { 'Folder items table: fits without scrolling sideways' }
     # #163: once the chart is shown it is not requested again and again. Each time the chart
     # loading row appears is a new request; it may come once more while the chart settles.
     $loading = Get-UiName 'Loading chart'

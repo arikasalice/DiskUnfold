@@ -539,6 +539,11 @@ label.du-field > span {
   max-block-size: none;
 }
 
+/* Its columns follow their content, so a short table fits a narrow window (#175). */
+.du-table-viewport--flat .du-data-table {
+  table-layout: auto;
+}
+
 .du-data-table {
   border-collapse: separate;
   border-spacing: 0;

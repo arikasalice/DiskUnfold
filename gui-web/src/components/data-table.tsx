@@ -76,16 +76,19 @@ export function DataTable<Row>({
         aria-rowcount={totalRows === -1 ? -1 : (totalRows ?? rows.length) + 1}
         style={{
           minInlineSize:
-            rows.length === 0
+            // A flat table sizes its columns to their content and fits its width (#175).
+            flat || rows.length === 0
               ? 0
               : widths.reduce((sum, width) => sum + width, 0),
         }}
       >
-        <colgroup>
-          {widths.map((width, index) => (
-            <col key={index} style={{ width }} />
-          ))}
-        </colgroup>
+        {!flat && (
+          <colgroup>
+            {widths.map((width, index) => (
+              <col key={index} style={{ width }} />
+            ))}
+          </colgroup>
+        )}
         <thead>
           <tr aria-rowindex={1}>
             {columns.map((column) => (
