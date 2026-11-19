@@ -35,10 +35,10 @@
 .du-geometry-lower-bound {
   fill: none;
   stroke: var(--du-muted);
-  stroke-width: 1;
+  /* 2 px: wherever the chart lands on device pixels, at least one pixel row has
+     the full colour, so the dash keeps the --du-muted contrast. */
+  stroke-width: 2;
   stroke-dasharray: 4 3;
-  /* Snapped to device pixels: a 1 px line on a pixel boundary would blend to half
-     its colour and lose its contrast. */
   shape-rendering: crispEdges;
   pointer-events: none;
 }

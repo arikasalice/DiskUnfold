@@ -274,8 +274,8 @@ function fitLabel(shape: Shape, limit: number) {
 
 /**
  * The dashed right and bottom edge of a lower-bound rectangle (F06 design README
- * 4.6), drawn 1 px inside a leaf so the surface gap beside it does not cover it,
- * and on the inset of an expanded folder, between its own edge and its children.
+ * 4.6), centred 1.5 px inside the shape: clear of the surface gap beside a leaf,
+ * and on the inset of an expanded folder between its own edge and its children.
  */
 function lowerBoundEdge(
   shape: Shape,
@@ -284,7 +284,7 @@ function lowerBoundEdge(
   height: number,
 ) {
   if (!shape.lowerBound || shape.geometry.primitive !== "rect") return null;
-  const inset = shape.container ? 1.5 : 1;
+  const inset = 1.5;
   const start = project(shape.geometry.points[0]!, view, width, height);
   const end = project(shape.geometry.points[1]!, view, width, height);
   const right = end.x - inset;

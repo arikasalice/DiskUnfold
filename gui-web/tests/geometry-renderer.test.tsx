@@ -73,9 +73,9 @@ test("F06 FR12.HD1.gui-web.DD1: a lower-bound rectangle has a dashed right and b
     container.querySelectorAll(".du-geometry-lower-bound"),
     (edge) => edge.getAttribute("d"),
   );
-  // A leaf is dashed 1 px inside its edge; a folder on its inset, between its own
-  // edge (drawn 1 px inside) and its children (2 px inside).
-  expect(edges).toEqual(["M49,1 V99 H1", "M148.5,1.5 V98.5 H51.5"]);
+  // Both are dashed 1.5 px inside: clear of a leaf's gap, and on a folder's inset
+  // between its own edge (drawn 1 px inside) and its children (2 px inside).
+  expect(edges).toEqual(["M48.5,1.5 V98.5 H1.5", "M148.5,1.5 V98.5 H51.5"]);
 });
 
 function labelled(width: number, name: string, value?: string) {
