@@ -173,6 +173,10 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     }
     let worker_pool = WorkerPool::start(&app)?;
     let native = create_controller(&window, &environment)?;
+    // WebView2 pumps messages for the rest of startup. Publish the controller to the
+    // resize handler first, then sync once: a resize before this point is read from the
+    // client size below, and every later one reaches the controller.
+    current.replace(Some(native.0.clone()));
     if phase.get() == window_lifecycle::WindowPhase::CloseRequested {
         return Ok(());
     }
@@ -230,7 +234,6 @@ pub(super) fn run(app: WebApp, events: Option<Events>) -> Result<(), Box<dyn Err
     }
     bridge.replace(Some(requests));
     let _timer = WindowTimer::start(HWND(window.hwnd()))?;
-    current.replace(Some(native.0.clone()));
     phase.set(window_lifecycle::WindowPhase::Running);
     windows_window::run();
     bridge.take();
