@@ -20,9 +20,9 @@ param(
   [switch]$CaptureTour,
   # Capture a depth 2 treemap of a folder of known files and check the names inside a folder.
   [switch]$CaptureTreemap,
-  # Capture the fallback table of a scope whose space cannot be attributed, and fold and unfold its
-  # title with the mouse, Enter and Space.
-  [switch]$CaptureNoAttribution,
+  # Capture the fallback table of an unavailable chart, and fold and unfold its title with the
+  # mouse, Enter and Space.
+  [switch]$CaptureFallbackTable,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1344,10 +1344,12 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
-# F06 #129 item 6: on the unique physical size basis a scan never proves that extents are unshared
-# (here a file is also linked from two folders), so the scope's own value is unknown and its space
-# cannot be attributed: no_attribution. The notice opens the folder's table (#109); its title must
-# fold and unfold with the mouse, Enter and Space, and say so (aria-expanded).
+# F06 #129 item 6: an unavailable chart opens the folder's table under its notice (#109), and the
+# table title must fold and unfold with the mouse, Enter and Space and say so (aria-expanded).
+# Every unavailable reason uses the same table. A runner cannot produce no_attribution: folders
+# that share a hard link are counted as items not drawn. On the unique physical size basis a scan
+# never proves that extents are unshared, so no item has a size and the chart is unavailable with
+# no_item_sizes, which shows the same table.
 function Get-SmokeExpanded($item) {
   $disclosure = $null
   if (-not $item.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
@@ -1361,18 +1363,15 @@ function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
     if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
   }
 }
-function Test-CaptureNoAttribution {
+function Test-CaptureFallbackTable {
   $scope = Join-Path $root 'attribution-scope'
   $left = Join-Path $scope 'left'
   $right = Join-Path $scope 'right'
   [IO.Directory]::CreateDirectory($left) | Out-Null
   [IO.Directory]::CreateDirectory($right) | Out-Null
-  $original = Join-Path $left 'original.bin'
-  $contents = [byte[]]::new(1MB)
-  [Random]::new(129).NextBytes($contents)
-  [IO.File]::WriteAllBytes($original, $contents)
+  [IO.File]::WriteAllBytes((Join-Path $left 'original.bin'), [byte[]]::new(1MB))
   [IO.File]::WriteAllBytes((Join-Path $left 'notes.bin'), [byte[]]::new(64KB))
-  $null = New-Item -ItemType HardLink -Path (Join-Path $right 'second-name.bin') -Target $original
+  [IO.File]::WriteAllBytes((Join-Path $right 'second.bin'), [byte[]]::new(256KB))
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -1394,13 +1393,13 @@ function Test-CaptureNoAttribution {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'left' { Find-UI 'left' $null }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
-  $heading = Get-UiName "The space can't be attributed"
-  $null = Wait-UI 'no_attribution notice' { Find-UI $heading $null } 60
+  $heading = Get-UiName 'No item sizes are available'
+  $null = Wait-UI 'unavailable notice' { Find-UI $heading $null } 60
   $title = Get-UiName 'Items in this folder'
   # The table opens expanded with the folder's rows.
   $toggle = Wait-SmokeExpanded $title $true 'opening'
   $null = Wait-UI 'fallback rows' { Find-UI 'right' $null }
-  Save-SmokeCapture '01-no-attribution-expanded'
+  Save-SmokeCapture '01-fallback-table-expanded'
   if ($toggle.Current.IsOffscreen) { throw "$title is outside the window" }
   $bounds = $toggle.Current.BoundingRectangle
   $process.Refresh()
@@ -1408,7 +1407,7 @@ function Test-CaptureNoAttribution {
   $y = [int]($bounds.Top + $bounds.Height / 2)
   [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
   $toggle = Wait-SmokeExpanded $title $false 'mouse'
-  Save-SmokeCapture '02-no-attribution-collapsed'
+  Save-SmokeCapture '02-fallback-table-collapsed'
   [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
   $toggle = Wait-SmokeExpanded $title $true 'mouse'
   $toggle.SetFocus()
@@ -1416,7 +1415,7 @@ function Test-CaptureNoAttribution {
   $toggle = Wait-SmokeExpanded $title $false 'Enter'
   Send-SmokeKey 0x20 # VK_SPACE
   $null = Wait-SmokeExpanded $title $true 'Space'
-  "No attribution: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 function Test-CaptureTour {
   Set-Scope $scanRoot
@@ -1650,14 +1649,14 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureNoAttribution
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   if ($CaptureTour) { Test-CaptureTour }
   if ($CaptureTreemap) { Test-CaptureTreemap }
-  if ($CaptureNoAttribution) { Test-CaptureNoAttribution }
+  if ($CaptureFallbackTable) { Test-CaptureFallbackTable }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }
