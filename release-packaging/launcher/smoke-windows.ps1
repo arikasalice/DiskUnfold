@@ -1495,9 +1495,15 @@ function Test-VirtualGroups {
   Test-ScaledFileInspection
   if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
-  if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress -or $VerifyVirtualGroupsSample) {
+  if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress -or $VerifyVirtualGroupsSample -or $CaptureDirectory) {
     $treePath = try { Write-UITree 'failure' } catch { '<tree unavailable>' }
     Write-Warning "UI tree at failure: $treePath"
+    # Keep the evidence next to the review captures when a capture folder was given.
+    if ($CaptureDirectory -and (Test-Path -LiteralPath $treePath)) {
+      [IO.Directory]::CreateDirectory($CaptureDirectory) | Out-Null
+      Copy-Item -LiteralPath $treePath -Destination $CaptureDirectory -Force
+      $null = Save-SmokeCapture 'zz-failure'
+    }
   }
   Write-Warning "Native smoke failed. Isolated fixture and logs: $root"
   throw
