@@ -1458,7 +1458,10 @@ function Test-CaptureTreemapLink {
     } 60
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
     # #175: the folder items table fits the window without scrolling sideways.
-    $tableArea = Wait-UI 'folder items table' { Find-UI 'Items in this folder scroll area' $null } 30
+    # The scroll area's name fills a template with the table's own (translated) name.
+    $tableName = Get-UiName 'Items in this folder'
+    $areaName = (Get-UiName 'Items in this folder scroll area').Replace('Items in this folder', $tableName)
+    $tableArea = Wait-UI 'folder items table' { Find-UI $areaName $null } 30
     $scroll = $null
     if (-not $tableArea.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) {
       'Folder items table: no scroll pattern, so it does not scroll'
