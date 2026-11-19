@@ -1,7 +1,10 @@
 {
   "scenarios": [
-    { "name": "base", "arguments": [] },
-    { "name": "virtual-groups", "arguments": ["-VerifyVirtualGroups"] },
-    { "name": "virtual-groups-sample", "arguments": ["-VerifyVirtualGroupsSample"] }
+    { "name": "functional", "arguments": [] },
+    { "name": "base", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureTour"] },
+    { "name": "base-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureTour"] },
+    { "name": "base-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureTour"] },
+    { "name": "virtual-groups", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroups"] },
+    { "name": "virtual-groups-sample", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroupsSample"] }
   ]
 }

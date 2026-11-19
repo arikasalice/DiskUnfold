@@ -9,6 +9,15 @@ param(
   # Leave the isolated fixture in %TEMP% instead of removing it. For disposable CI runners, where
   # WebView2 can still hold profile files when the cleanup runs.
   [switch]$KeepFixture,
+  # Display language of the isolated profile. ko is written into the profile's settings database
+  # before the app starts, so the app reads it the way it reads a saved choice.
+  [ValidateSet('en', 'ko')][string]$Locale = 'en',
+  # dark makes the WebView report prefers-color-scheme: dark; the app follows it.
+  [ValidateSet('light', 'dark')][string]$Theme = 'light',
+  # Outer window size as WIDTHxHEIGHT, for example 1280x800. The screen must be at least this large.
+  [string]$WindowSize,
+  # Walk the main screens once and capture each one, without the value checks of the full flow.
+  [switch]$CaptureTour,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -110,9 +119,99 @@ if ($VerifyCancellation -or $VerifySuspension) {
     }
   }
 }
+# The UIA names in this script are English. For another display language they are mapped through the
+# message bundles of the repository (the same text the screens show).
+function Initialize-UiNames([string]$language) {
+  $directory = Join-Path $PSScriptRoot '..\..\user-env\i18n'
+  $read = {
+    param($file)
+    $entries = [ordered]@{}
+    foreach ($line in Get-Content -LiteralPath (Join-Path $directory $file)) {
+      if ($line -match '^\s*\["([\w.]+)",\s*("(?:[^"\\]|\\.)*"),') { $entries[$Matches[1]] = ($Matches[2] | ConvertFrom-Json) }
+    }
+    $entries
+  }
+  $english = & $read 'en.json'
+  $target = & $read "$language.json"
+  $script:UiExact = @{}
+  $script:UiTemplates = @()
+  foreach ($key in $english.Keys) {
+    if (-not $target.Contains($key)) { continue }
+    $source = $english[$key]
+    if ($source -match '\{\w+\}') {
+      try {
+        $pattern = '^' + ([regex]::Escape($source) -replace '\\\{(\w+)\}', '(?<$1>.+?)') + '$'
+        $script:UiTemplates += [pscustomobject]@{ Pattern = [regex]::new($pattern); Result = $target[$key] }
+      } catch { continue }
+    } elseif (-not $script:UiExact.ContainsKey($source)) { $script:UiExact[$source] = $target[$key] }
+  }
+}
+function Get-UiName([string]$name) {
+  if ($null -eq $script:UiExact) { return $name }
+  if ($script:UiExact.ContainsKey($name)) { return $script:UiExact[$name] }
+  foreach ($template in $script:UiTemplates) {
+    $match = $template.Pattern.Match($name)
+    if ($match.Success) { return [regex]::Replace($template.Result, '\{(\w+)\}', { param($m) $match.Groups[$m.Groups[1].Value].Value }) }
+  }
+  $name
+}
+# The settings database exists only after a first start: start the app once, close it, then store the
+# display language in it with python's sqlite3 and let the real start read it.
+function Initialize-SmokeLocale([string]$language) {
+  $python = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $python) { throw 'python is needed to store the display language in the isolated profile' }
+  $database = Join-Path $profile 'DiskUnfold\diskunfold.db'
+  $first = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment
+  try {
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while ($true) {
+      $first.Refresh()
+      if ($first.HasExited) { throw 'DiskUnfold exited before it created its settings database' }
+      if ((Test-Path -LiteralPath $database) -and $first.MainWindowHandle -ne 0) { break }
+      if ([DateTime]::UtcNow -gt $deadline) { throw 'Timed out waiting for the settings database' }
+      Start-Sleep -Milliseconds 200
+    }
+    Start-Sleep -Seconds 2
+  } finally {
+    if (-not $first.HasExited) {
+      $null = $first.CloseMainWindow()
+      if (-not $first.WaitForExit(15000)) { Stop-Process -Id $first.Id -Force; $first.WaitForExit() }
+    }
+  }
+  $seed = @'
+import sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('locale.display_language', ?, 'owner', 0, 0, 1)", ('"' + sys.argv[2] + '"',))
+connection.execute("UPDATE user_env_setting_version SET settings_version = settings_version + 1, updated_at_ms = 0 WHERE version_key = 'settings'")
+connection.commit()
+connection.close()
+'@
+  $seed | & $python.Source - $database $language
+  if ($LASTEXITCODE -ne 0) { throw "Could not store the display language (python exit code $LASTEXITCODE)" }
+}
+# Put the window at the top left corner with the requested outer size.
+function Set-SmokeWindowSize([string]$size) {
+  if ($size -notmatch '^(\d+)x(\d+)$') { throw "Invalid -WindowSize '$size'; use WIDTHxHEIGHT" }
+  $width = [int]$Matches[1]
+  $height = [int]$Matches[2]
+  $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
+  $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Normal)
+  $transform = $window.GetCurrentPattern([Windows.Automation.TransformPattern]::Pattern)
+  $transform.Move(0, 0)
+  $transform.Resize($width, $height)
+  $null = Wait-UI "window size $size" {
+    $bounds = $window.Current.BoundingRectangle
+    if ([Math]::Abs($bounds.Width - $width) -le 20 -and [Math]::Abs($bounds.Height - $height) -le 20) { $bounds }
+  } 10
+  Start-Sleep -Milliseconds 500
+}
+if ($Locale -ne 'en') { Initialize-UiNames $Locale }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
-$process = Start-Process -FilePath $exe -PassThru -Environment @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') } -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
+$appEnvironment = @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') }
+if ($Theme -eq 'dark') { $appEnvironment['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--blink-settings=preferredColorScheme=1' }
+if ($Locale -ne 'en') { Initialize-SmokeLocale $Locale }
+$process = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
 $scopeTree = [Windows.Automation.TreeScope]::Descendants
 $ae = [Windows.Automation.AutomationElement]
 $edit = [Windows.Automation.ControlType]::Edit
@@ -129,6 +228,7 @@ function Wait-UI($label, [scriptblock]$probe, $seconds = 22) {
   throw "Timed out waiting for $label"
 }
 function Find-UI($name, $type, $within = $window) {
+  $name = Get-UiName $name
   $nameCondition = [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $name)
   if ($type) {
     $typeCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $type)
@@ -287,7 +387,6 @@ function Test-FileInspection($name, $size, $testCopyContention = $false, $expect
         Select-Object -First 1
     }
   }
-  if ($CaptureDirectory) { $null = Save-SmokeCapture ('base-06-file-details-' + ($name -replace '[^A-Za-z0-9]', '-')) }
   if ($VerifyInspectionKeyboard) {
     Send-SmokeKey 0x1B # VK_ESCAPE
     $null = Wait-UI "file details dismissed by Escape for $name" {
@@ -993,7 +1092,7 @@ function Save-SmokeCapture($name) {
     # Review captures show the whole window at the screen's full size; the size is restored
     # afterwards so later steps see the layout they were written for.
     $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
-    if ($windowPattern.Current.WindowVisualState -ne [Windows.Automation.WindowVisualState]::Maximized) {
+    if (-not $WindowSize -and $windowPattern.Current.WindowVisualState -ne [Windows.Automation.WindowVisualState]::Maximized) {
       $restore = $windowPattern.Current.WindowVisualState
       $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized)
       Start-Sleep -Milliseconds 800
@@ -1089,6 +1188,7 @@ function Restart-SmokeApplication {
     $process.Refresh()
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
+  if ($WindowSize) { Set-SmokeWindowSize $WindowSize }
   $null = Wait-UI 'path field after restart' { Find-UI 'Windows folder path' $edit }
 }
 # Scan the fixture, open the browse screen and return its virtual-group entry button.
@@ -1146,6 +1246,34 @@ function Get-ButtonCount($buttonName) {
     [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $buttonName),
     [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button))
   @($window.FindAll($scopeTree, $condition)).Count
+}
+# One pass through the main screens for design review: the same steps in any language, size and theme,
+# without the value checks of the full flow. Names go through Get-UiName, so a Korean profile works.
+function Test-CaptureTour {
+  Set-Scope $scanRoot
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  $null = Wait-Enabled 'Start analysis' $true
+  $null = Save-SmokeCapture '01-scope-reviewed'
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
+  $null = Save-SmokeCapture '02-analysis-result'
+  Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
+  $null = Wait-UI 'volume explanation' { Find-UI 'Selected scanned folder' $textType }
+  $null = Save-SmokeCapture '03-volume-explanation'
+  Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
+  Invoke-UI (Wait-Enabled 'View folder details' $true)
+  Wait-Details 'Space measurement details' 'Observed item space'
+  $null = Wait-UI 'folder details' { Find-UI 'Observed item space' $null }
+  $null = Save-SmokeCapture '04-folder-details'
+  Invoke-UI (Wait-Enabled 'Close details' $true)
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
+  $null = Save-SmokeCapture '05-browse-folders'
+  Invoke-UI (Wait-Enabled 'root.bin' $true)
+  $null = Wait-UI 'file attributes' { Find-UI 'Observed file attributes' $null }
+  $null = Save-SmokeCapture '06-file-details'
+  Invoke-UI (Wait-Enabled 'Close details' $true)
+  "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # Best effort: a scope over the synchronous limit (200,000 files) classifies as a job, which
 # shows "Classifying…". The job may finish before it is seen, so a miss is only a warning.
@@ -1352,157 +1480,155 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  if ($startupLanguage -eq 'ko') {
+  if ($startupLanguage -eq 'ko' -and -not $CaptureTour) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
-  $null = Wait-Enabled 'Start analysis' $false
-  if ($VerifyInitialDrive) { Test-InitialDrive }
-  if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
-  if ($VerifySettingsRestoration) {
-    Invoke-UI (Wait-VisibleAction 'Settings restoration')
-    $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
-    $restoredSettings = Wait-UI 'restored settings list' { Find-UI 'Restored settings' $null }
-    foreach ($settingName in @('Size unit', 'Unit system', 'Default size basis')) {
-      $null = Wait-UI "user-facing setting name: $settingName" { Find-UI $settingName $null $restoredSettings }
+  if ($CaptureTour) { Test-CaptureTour }
+  if (-not $CaptureTour) {
+    $null = Wait-Enabled 'Start analysis' $false
+    if ($VerifyInitialDrive) { Test-InitialDrive }
+    if ($VerifyLocaleSwitch -or $VerifyKoreanIme) { Test-LocaleSwitch }
+    if ($VerifySettingsRestoration) {
+      Invoke-UI (Wait-VisibleAction 'Settings restoration')
+      $null = Wait-UI 'startup settings defaults' { Find-UI 'Using default' $textType }
+      $restoredSettings = Wait-UI 'restored settings list' { Find-UI 'Restored settings' $null }
+      foreach ($settingName in @('Size unit', 'Unit system', 'Default size basis')) {
+        $null = Wait-UI "user-facing setting name: $settingName" { Find-UI $settingName $null $restoredSettings }
+      }
+      foreach ($key in @('display.size_unit', 'display.size_unit_system', 'space.default_basis')) {
+        if (Find-UI $key $null $restoredSettings) { throw "Settings restoration displayed an internal key: $key" }
+      }
+      Wait-Details 'Format details' 'App format version'
+      $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
+      Invoke-UI (Wait-VisibleAction 'Close details')
+      $null = Wait-UI 'settings report closed' { -not (Find-UI 'App format version' $null) }
+      $null = Wait-VisibleAction 'Settings restoration'
+      'F14 native settings restoration: user-facing setting names, startup format and defaults visible, dialog closed'
     }
-    foreach ($key in @('display.size_unit', 'display.size_unit_system', 'space.default_basis')) {
-      if (Find-UI $key $null $restoredSettings) { throw "Settings restoration displayed an internal key: $key" }
+    if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
+    if ($VerifyAutomaticScopeReview) { Test-AutomaticScopeReview }
+    if ($VerifyVirtualGroupsSample) { Test-VirtualGroupsSample }
+    if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress) { Test-VirtualGroups }
+    if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
+    if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
+    if ($VerifyReplacedScopeRoot) { Test-ReplacedScopeRoot }
+    if ($VerifySuspension) { Test-ScanSuspension $controlScope }
+    if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
+    Set-Scope (Join-Path $root 'missing')
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    $null = Wait-UI 'invalid folder notice' {
+      $notices = @(
+        'Check that every selected path is an accessible local folder, then review the scope again.'
+        'Enter a valid local folder path, then review the scope again.'
+        'One or more selected paths could not be verified. Review all paths before starting.'
+        'A selected folder no longer exists. Check the path and review the scope again.'
+        'A selected folder path could not be resolved. Check the path and review the scope again.'
+        'A selected path needs attention. Check the folder paths and review the scope again.'
+      )
+      foreach ($msg in $notices) {
+        $notice = Find-UI $msg $textType
+        if ($notice) { $notice; break }
+      }
     }
-    Wait-Details 'Format details' 'App format version'
-    $null = Wait-UI 'startup settings format' { Find-UI 'App format version' $null }
-    Invoke-UI (Wait-VisibleAction 'Close details')
-    $null = Wait-UI 'settings report closed' { -not (Find-UI 'App format version' $null) }
-    $null = Wait-VisibleAction 'Settings restoration'
-    'F14 native settings restoration: user-facing setting names, startup format and defaults visible, dialog closed'
-  }
-  if ($VerifyNativeFolderDrop) { Test-NativeFolderDrop }
-  if ($VerifyAutomaticScopeReview) { Test-AutomaticScopeReview }
-  if ($VerifyVirtualGroupsSample) { Test-VirtualGroupsSample }
-  if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress) { Test-VirtualGroups }
-  if ($VerifyDeniedSubtree) { Test-DeniedSubtree }
-  if ($VerifyJunctionBoundary) { Test-JunctionBoundary }
-  if ($VerifyReplacedScopeRoot) { Test-ReplacedScopeRoot }
-  if ($VerifySuspension) { Test-ScanSuspension $controlScope }
-  if ($VerifyCancellation) { Test-ScanCancellation $controlScope }
-  Set-Scope (Join-Path $root 'missing')
-  Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-UI 'invalid folder notice' {
-    $notices = @(
-      'Check that every selected path is an accessible local folder, then review the scope again.'
-      'Enter a valid local folder path, then review the scope again.'
-      'One or more selected paths could not be verified. Review all paths before starting.'
-      'A selected folder no longer exists. Check the path and review the scope again.'
-      'A selected folder path could not be resolved. Check the path and review the scope again.'
-      'A selected path needs attention. Check the folder paths and review the scope again.'
-    )
-    foreach ($msg in $notices) {
-      $notice = Find-UI $msg $textType
-      if ($notice) { $notice; break }
+    $null = Wait-Enabled 'Start analysis' $false
+    'F01 invalid folder: rejected, Start analysis disabled'
+    Set-Scope $scanRoot
+    if ($VerifyWorkspaceLayout) {
+      Invoke-UI (Wait-Enabled 'Add path' $true)
+      $null = Wait-UI 'additional path field' { Find-UI 'Additional folder path 2' $edit }
+      Wait-ScopeActionsVisible
+      Invoke-UI (Wait-Enabled 'Remove path 2' $true)
+      $null = Wait-UI 'additional path removed' { -not (Find-UI 'Additional folder path 2' $edit) }
+      'F01 workspace: both actions remain in view after adding a path'
     }
-  }
-  $null = Wait-Enabled 'Start analysis' $false
-  'F01 invalid folder: rejected, Start analysis disabled'
-  Set-Scope $scanRoot
-  if ($VerifyWorkspaceLayout) {
-    Invoke-UI (Wait-Enabled 'Add path' $true)
-    $null = Wait-UI 'additional path field' { Find-UI 'Additional folder path 2' $edit }
-    Wait-ScopeActionsVisible
-    Invoke-UI (Wait-Enabled 'Remove path 2' $true)
-    $null = Wait-UI 'additional path removed' { -not (Find-UI 'Additional folder path 2' $edit) }
-    'F01 workspace: both actions remain in view after adding a path'
-  }
-  Invoke-UI (Wait-Enabled 'Review scope' $true)
-  $null = Wait-Enabled 'Start analysis' $true
-  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-01-scope-reviewed' }
-  Set-Scope $child
-  $null = Wait-Enabled 'Start analysis' $false
-  Set-Scope $scanRoot
-  $null = Wait-Enabled 'Start analysis' $false
-  Invoke-UI (Wait-Enabled 'Review scope' $true)
-  'F01 changing a reviewed path: new review required'
-  Invoke-UI (Wait-Enabled 'Start analysis' $true)
-  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
-  $null = Wait-UI 'Result version: Final' { Find-ResultVersionLabel 'Final' }
-  $null = Wait-UI 'allocated size as the default result metric' {
-    Find-UI 'Allocated size' ([Windows.Automation.ControlType]::Group)
-  }
-  $null = Wait-UI '18-byte logical total' {
-    Find-LogicalSize '18 bytes'
-  }
-  'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
-  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-02-analysis-result' }
-  if ($VerifyLocaleSwitch) {
-    Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
-    $null = Wait-UI 'localized pinned result' {
-      if (Find-UI '디스크 공간 분석 결과' $null) { Find-ResultVersionLabel '최종' '결과 판: ' }
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    $null = Wait-Enabled 'Start analysis' $true
+    Set-Scope $child
+    $null = Wait-Enabled 'Start analysis' $false
+    Set-Scope $scanRoot
+    $null = Wait-Enabled 'Start analysis' $false
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    'F01 changing a reviewed path: new review required'
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
+    $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
+    $null = Wait-UI 'Result version: Final' { Find-ResultVersionLabel 'Final' }
+    $null = Wait-UI 'allocated size as the default result metric' {
+      Find-UI 'Allocated size' ([Windows.Automation.ControlType]::Group)
     }
-    Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
-    $null = Wait-FinalLogicalSize '18 bytes'
-    'F13 native locale: switched presentation on the same pinned result'
-  }
-  if ($VerifyRecentScope) { Test-RecentScopeReopen }
-  if ($VerifyOperationHistory) { Test-OperationHistory }
-  $null = Wait-VisibleAction 'Analyze again'
-  $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
-  Set-Scope $child
-  Invoke-UI (Wait-VisibleAction 'Review scope')
-  $null = Wait-Enabled 'Start analysis' $true
-  Invoke-UI (Wait-VisibleAction 'Cancel selection')
-  $null = Wait-UI 'discarded scope and retained final total' {
-    $field = Find-UI 'Windows folder path' $edit
-    if ($field -and (Find-ResultVersionLabel 'Final') -and
-        $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
+    $null = Wait-UI '18-byte logical total' {
       Find-LogicalSize '18 bytes'
     }
-  }
-  $null = Wait-Enabled 'Start analysis' $false
-  'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
-  Invoke-UI (Wait-VisibleAction 'Close target editor')
-  $null = Wait-UI 'target editor closed with the result still visible' {
-    if (-not (Find-UI 'Windows folder path' $edit)) {
-      Find-LogicalSize '18 bytes'
+    'F02/F03 native scan: Scan finished, Result version: Final, 18 bytes'
+    if ($VerifyLocaleSwitch) {
+      Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
+      $null = Wait-UI 'localized pinned result' {
+        if (Find-UI '디스크 공간 분석 결과' $null) { Find-ResultVersionLabel '최종' '결과 판: ' }
+      }
+      Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
+      $null = Wait-FinalLogicalSize '18 bytes'
+      'F13 native locale: switched presentation on the same pinned result'
     }
+    if ($VerifyRecentScope) { Test-RecentScopeReopen }
+    if ($VerifyOperationHistory) { Test-OperationHistory }
+    $null = Wait-VisibleAction 'Analyze again'
+    $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
+    Set-Scope $child
+    Invoke-UI (Wait-VisibleAction 'Review scope')
+    $null = Wait-Enabled 'Start analysis' $true
+    Invoke-UI (Wait-VisibleAction 'Cancel selection')
+    $null = Wait-UI 'discarded scope and retained final total' {
+      $field = Find-UI 'Windows folder path' $edit
+      if ($field -and (Find-ResultVersionLabel 'Final') -and
+          $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
+        Find-LogicalSize '18 bytes'
+      }
+    }
+    $null = Wait-Enabled 'Start analysis' $false
+    'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
+    Invoke-UI (Wait-VisibleAction 'Close target editor')
+    $null = Wait-UI 'target editor closed with the result still visible' {
+      if (-not (Find-UI 'Windows folder path' $edit)) {
+        Find-LogicalSize '18 bytes'
+      }
+    }
+    'F01–F03 native reanalysis: opened and closed target editing without replacing the pinned result'
+    Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
+    $null = Wait-UI 'volume explanation for the selected root' {
+      Find-UI 'Selected scanned folder' $textType
+    }
+    Wait-Details 'Observation and difference details' 'Scoped allocated size'
+    $null = Wait-UI 'scoped allocated size' { Find-UI 'Scoped allocated size' $null }
+    $null = Wait-UI 'scoped unique physical size' { Find-UI 'Scoped unique physical size' $null }
+    Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
+    $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
+    'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
+    Invoke-UI (Wait-Enabled 'View folder details' $true)
+    Wait-Details 'Space measurement details' 'Observed item space'
+    $null = Wait-UI 'pinned folder space detail' {
+      $details = Find-UI 'Observed item space' $null
+      if ($details) { Find-UI 'Observed logical size' $null $details }
+    }
+    Invoke-UI (Wait-Enabled 'Close details' $true)
+    $null = Wait-UI 'closed pinned folder details' { -not (Find-UI 'Observed item space' $null) }
+    'F03 native item space: opened and closed the pinned folder observations'
+    Invoke-UI (Wait-Enabled 'Browse folders' $true)
+    $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
+    $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
+    Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
+    if ($VerifyPathCopyContention) { Test-BrowseCopyContention 'root.bin' }
+    Test-BrowseFolderInspection 'nested'
+    $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
+    Invoke-UI $nested
+    $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }
+    $null = Wait-UI '7-byte nested row' { Find-UI '7 bytes' $null }
+    Invoke-UI (Wait-Enabled 'Up' $true)
+    $null = Wait-UI 'returned to pinned folder' { Find-UI 'root.bin' $null }
+    'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
+    if ($VerifyPopulatedWorkspace -or $VerifyInspectionPathDisclosure) { Test-PopulatedWorkspace }
+    Test-ScaledFileInspection
+    if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
   }
-  'F01–F03 native reanalysis: opened and closed target editing without replacing the pinned result'
-  Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
-  $null = Wait-UI 'volume explanation for the selected root' {
-    Find-UI 'Selected scanned folder' $textType
-  }
-  Wait-Details 'Observation and difference details' 'Scoped allocated size'
-  $null = Wait-UI 'scoped allocated size' { Find-UI 'Scoped allocated size' $null }
-  $null = Wait-UI 'scoped unique physical size' { Find-UI 'Scoped unique physical size' $null }
-  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-03-volume-explanation' }
-  Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
-  $null = Wait-UI 'closed volume explanation' { -not (Find-UI 'Selected scanned folder' $textType) }
-  'F03 native volume explanation: scoped allocation and unique physical evidence, then closed'
-  Invoke-UI (Wait-Enabled 'View folder details' $true)
-  Wait-Details 'Space measurement details' 'Observed item space'
-  $null = Wait-UI 'pinned folder space detail' {
-    $details = Find-UI 'Observed item space' $null
-    if ($details) { Find-UI 'Observed logical size' $null $details }
-  }
-  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-04-folder-details' }
-  Invoke-UI (Wait-Enabled 'Close details' $true)
-  $null = Wait-UI 'closed pinned folder details' { -not (Find-UI 'Observed item space' $null) }
-  'F03 native item space: opened and closed the pinned folder observations'
-  Invoke-UI (Wait-Enabled 'Browse folders' $true)
-  $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
-  $null = Wait-UI '11-byte root row' { Find-UI '11 bytes' $null }
-  if ($CaptureDirectory) { $null = Save-SmokeCapture 'base-05-browse-folders' }
-  Test-FileInspection 'root.bin' '11 bytes' $VerifyPathCopyContention
-  if ($VerifyPathCopyContention) { Test-BrowseCopyContention 'root.bin' }
-  Test-BrowseFolderInspection 'nested'
-  $nested = Wait-UI 'nested folder button' { Find-UI 'nested' $button }
-  Invoke-UI $nested
-  $null = Wait-UI 'nested.bin' { Find-UI 'nested.bin' $null }
-  $null = Wait-UI '7-byte nested row' { Find-UI '7 bytes' $null }
-  Invoke-UI (Wait-Enabled 'Up' $true)
-  $null = Wait-UI 'returned to pinned folder' { Find-UI 'root.bin' $null }
-  'F05 native browse: root.bin 11 bytes, nested.bin 7 bytes, Up returns to the pinned scope'
-  if ($VerifyPopulatedWorkspace -or $VerifyInspectionPathDisclosure) { Test-PopulatedWorkspace }
-  Test-ScaledFileInspection
-  if ($VerifyPhysicalAccounting) { Test-PhysicalAccounting }
 } catch {
   if ($VerifyVirtualGroups -or $VerifyVirtualGroupsProgress -or $VerifyVirtualGroupsSample -or $CaptureDirectory) {
     $treePath = try { Write-UITree 'failure' } catch { '<tree unavailable>' }

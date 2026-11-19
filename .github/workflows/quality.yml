@@ -245,7 +245,7 @@ jobs:
       - run: cargo build --locked -p du-launcher
       - name: Run UI scenarios
         shell: pwsh
-        run: ./release-packaging/quality/windows-ui-smoke.ps1 -Binary target/debug/diskunfold.exe -OutputDirectory quality-output/ui-smoke
+        run: ./release-packaging/quality/windows-ui-smoke.ps1 -Binary target/debug/diskunfold.exe -OutputDirectory quality-output/ui-smoke -ScreenSize 1920x1080
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
