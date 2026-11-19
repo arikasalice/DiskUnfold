@@ -186,11 +186,11 @@ const wording = {
   "viz.unavailable.no_item_sizes": [
     [
       "No item sizes are available",
-      "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
+      "No item in this scope has a confirmed size.",
     ],
     [
       "크기를 확인한 항목이 없습니다",
-      "이 범위에서 크기를 확인한 항목이 아직 없습니다. 스캔 중이면 잠시 뒤 나타납니다.",
+      "이 범위에서 크기를 확인한 항목이 없습니다.",
     ],
   ],
   "viz.unavailable.negative_flow": [
@@ -238,3 +238,57 @@ test.each(
   expect(screen.getByText(body)).toBeTruthy();
   expect(document.body.textContent).not.toContain("viz.unavailable");
 });
+
+// #149, F06 README 28: only a result that a scan is still adding to promises
+// that sizes appear shortly; the completeness comes from the answer itself.
+test.each([
+  [
+    "partial",
+    "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
+  ],
+  ["complete", "No item in this scope has a confirmed size."],
+  ["missing", "No item in this scope has a confirmed size."],
+] as const)("missing item sizes in a %s result", async (completeness, body) => {
+  const answer = {
+    ...unavailable(1, "viz.unavailable.no_item_sizes"),
+    completeness,
+  } as VizRenderResponse;
+  const controller = controllerFor(answer);
+  render(
+    <ControlledVisualization controller={controller} text={textFor("en")} />,
+  );
+  await act(async () => controller.render(request(1)));
+  expect(screen.getByText(body)).toBeTruthy();
+});
+
+// #149: a result without evidence for the chosen basis names that basis.
+test.each([
+  [
+    "en",
+    "Sizes on this basis aren't available",
+    "This result has no evidence to count Unique physical size. Choose another size basis.",
+  ],
+  [
+    "ko",
+    "이 크기 기준의 값을 확인하지 못했습니다",
+    "이 결과에는 중복 없는 실제 크기를 셀 근거가 없습니다. 다른 크기 기준을 고르세요.",
+  ],
+] as const)(
+  "a basis without evidence is named in %s",
+  async (language, title, body) => {
+    const controller = controllerFor({
+      ...unavailable(1, "viz.unavailable.basis_not_counted"),
+      completeness: "complete",
+    } as VizRenderResponse);
+    render(
+      <ControlledVisualization
+        controller={controller}
+        text={textFor(language)}
+        sizeBasis="unique_physical"
+      />,
+    );
+    await act(async () => controller.render(request(1)));
+    expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    expect(screen.getByText(body)).toBeTruthy();
+  },
+);

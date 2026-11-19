@@ -758,6 +758,7 @@ ui.visualization.badgeCancelled
 ui.visualization.badgeMissing
 ui.visualization.badgePartial
 ui.visualization.bar
+ui.visualization.basisNotCounted
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
 ui.visualization.catalog_failed
@@ -911,13 +912,16 @@ ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
 ui.visualization.unavailable
+ui.visualization.unavailableBodyBasisNotCounted basis:name
 ui.visualization.unavailableBodyNegativeFlow
 ui.visualization.unavailableBodyNoAttribution
 ui.visualization.unavailableBodyNoBaseline
 ui.visualization.unavailableBodyNoItemSizes
+ui.visualization.unavailableBodyNoItemSizesFinished
 ui.visualization.unavailableBodySingleObservation
 ui.visualization.unavailableBodyUnknown
 ui.visualization.unavailableEvidence
+ui.visualization.unavailableTitleBasisNotCounted
 ui.visualization.unavailableTitleNegativeFlow
 ui.visualization.unavailableTitleNoAttribution
 ui.visualization.unavailableTitleNoBaseline

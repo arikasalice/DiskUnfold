@@ -58,6 +58,7 @@ export const visualizationMessages = {
     singleObservation: "More than one observation is required",
     noAttribution: "Space attribution is unavailable",
     noItemSizes: "Item sizes are unavailable",
+    basisNotCounted: "Sizes on this basis aren't available",
     negativeFlow: "Negative flow cannot be displayed in this format",
     unknownReason: "The reason is unavailable",
     unavailableTitleNoBaseline: "There is no earlier result to compare",
@@ -72,6 +73,11 @@ export const visualizationMessages = {
     unavailableTitleNoItemSizes: "No item sizes are available",
     unavailableBodyNoItemSizes:
       "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
+    unavailableBodyNoItemSizesFinished:
+      "No item in this scope has a confirmed size.",
+    unavailableTitleBasisNotCounted: "Sizes on this basis aren't available",
+    unavailableBodyBasisNotCounted:
+      "This result has no evidence to count {basis}. Choose another size basis.",
     unavailableTitleNegativeFlow: "This chart can't show decreases",
     unavailableBodyNegativeFlow:
       "Sankey shows only amounts of zero or more. Use the waterfall chart to see increases and decreases.",
@@ -265,6 +271,7 @@ export const visualizationMessages = {
     singleObservation: "관측이 두 개 이상 필요합니다",
     noAttribution: "공간 귀속 자료를 사용할 수 없습니다",
     noItemSizes: "항목 크기를 사용할 수 없습니다",
+    basisNotCounted: "이 크기 기준의 값을 확인하지 못했습니다",
     negativeFlow: "이 형식에서는 음수 흐름을 표시할 수 없습니다",
     unknownReason: "사유를 확인할 수 없습니다",
     unavailableTitleNoBaseline: "비교할 이전 결과가 없습니다",
@@ -279,6 +286,11 @@ export const visualizationMessages = {
     unavailableTitleNoItemSizes: "크기를 확인한 항목이 없습니다",
     unavailableBodyNoItemSizes:
       "이 범위에서 크기를 확인한 항목이 아직 없습니다. 스캔 중이면 잠시 뒤 나타납니다.",
+    unavailableBodyNoItemSizesFinished:
+      "이 범위에서 크기를 확인한 항목이 없습니다.",
+    unavailableTitleBasisNotCounted: "이 크기 기준의 값을 확인하지 못했습니다",
+    unavailableBodyBasisNotCounted:
+      "이 결과에는 {basis}를 셀 근거가 없습니다. 다른 크기 기준을 고르세요.",
     unavailableTitleNegativeFlow: "줄어든 양은 이 그래프로 그릴 수 없습니다",
     unavailableBodyNegativeFlow:
       "생키는 0 이상의 양만 그립니다. 늘고 준 양은 워터폴에서 볼 수 있습니다.",
@@ -440,6 +452,7 @@ const reasons: Record<string, VisualizationMessageKey> = {
   "viz.unavailable.single_observation": "singleObservation",
   "viz.unavailable.no_attribution": "noAttribution",
   "viz.unavailable.no_item_sizes": "noItemSizes",
+  "viz.unavailable.basis_not_counted": "basisNotCounted",
   "viz.unavailable.negative_flow": "negativeFlow",
   "viz.staleness.unwatched": "stalenessUnwatched",
 };

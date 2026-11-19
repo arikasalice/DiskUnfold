@@ -246,6 +246,7 @@ fn the_five_published_unavailable_reason_keys_keep_their_spelling() {
         Reason::NoAttribution,
         Reason::NoItemSizes,
         Reason::NegativeFlow,
+        Reason::BasisNotCounted,
     ]
     .map(Reason::key);
     assert_eq!(
@@ -256,6 +257,7 @@ fn the_five_published_unavailable_reason_keys_keep_their_spelling() {
             "viz.unavailable.no_attribution",
             "viz.unavailable.no_item_sizes",
             "viz.unavailable.negative_flow",
+            "viz.unavailable.basis_not_counted",
         ]
     );
 }
@@ -267,5 +269,6 @@ fn expected_reason_key(reason: Reason) -> &'static str {
         Reason::NoAttribution => "viz.unavailable.no_attribution",
         Reason::NoItemSizes => "viz.unavailable.no_item_sizes",
         Reason::NegativeFlow => "viz.unavailable.negative_flow",
+        Reason::BasisNotCounted => "viz.unavailable.basis_not_counted",
     }
 }

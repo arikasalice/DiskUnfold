@@ -147,6 +147,10 @@ pub(crate) enum Reason {
     NoItemSizes,
     /// A confirmed attribution summary contains negative flow.
     NegativeFlow,
+    /// Item sizes are absent on the requested basis only because the result has
+    /// no evidence to count it, while another basis has values (#149). The
+    /// table never decides this; the render answer refines `NoItemSizes`.
+    BasisNotCounted,
 }
 
 impl Reason {
@@ -158,6 +162,7 @@ impl Reason {
             Self::NoAttribution => "viz.unavailable.no_attribution",
             Self::NoItemSizes => "viz.unavailable.no_item_sizes",
             Self::NegativeFlow => "viz.unavailable.negative_flow",
+            Self::BasisNotCounted => "viz.unavailable.basis_not_counted",
         }
     }
 }

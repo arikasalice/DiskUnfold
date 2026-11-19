@@ -37,6 +37,7 @@ export function ControlledVisualization({
   autoLoadRows,
   groupController,
   backAction,
+  sizeBasis,
 }: {
   controller: VisualizationController;
   text: VizText;
@@ -45,6 +46,8 @@ export function ControlledVisualization({
   autoLoadRows?: boolean;
   groupController?: GroupController;
   backAction?: BackAction;
+  /** The size basis of the current request, named when a chart lacks it. */
+  sizeBasis?: string;
 }) {
   const state = useSyncExternalStore(
     controller.subscribe,
@@ -108,6 +111,8 @@ export function ControlledVisualization({
       {unavailable && (
         <UnavailableView
           reasonKey={unavailable.reasonKey}
+          completeness={unavailable.completeness}
+          sizeBasis={sizeBasis}
           controller={controller}
           state={state}
           text={text}

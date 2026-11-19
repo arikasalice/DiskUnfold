@@ -14,15 +14,25 @@ export type BackAction = { label: string; onPress: () => void };
  */
 export function UnavailablePanel({
   reasonKey,
+  completeness,
+  sizeBasis,
   text,
   backAction,
 }: {
   reasonKey: string;
+  /** The answer's result completeness; `partial` while a scan is running. */
+  completeness?: string | undefined;
+  /** The size basis the chart was asked for. */
+  sizeBasis?: string | undefined;
   text: VizText;
   backAction?: BackAction | undefined;
 }) {
   const headingId = useId();
-  const { title, body } = visualizationUnavailableText(reasonKey, text.message);
+  const { title, body } = visualizationUnavailableText(
+    reasonKey,
+    text.message,
+    { completeness, sizeBasis },
+  );
   return (
     <section className="du-review-stack" aria-labelledby={headingId}>
       <LiveStatus>
