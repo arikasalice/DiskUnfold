@@ -8,6 +8,7 @@ import type {
   VizShape,
 } from "../ipc";
 import type { GeometryRendererProps } from "../components";
+import type { ShapePlace } from "./model-text";
 
 export type ModelResponse = Extract<VizRenderResponse, { kind: "model" }>;
 
@@ -67,7 +68,8 @@ export function matchingRowsPage(frame: ModelResponse, page: ModelRowsPage) {
 /**
  * Keeps geometry, order and identity intact; it never computes layout or totals.
  * `folderRows` names the shapes inside expanded folders; a row of `page` wins
- * when both hold the same reference.
+ * when both hold the same reference. Shapes come folder first, then what it
+ * holds (depth first), the order of the table rows.
  */
 export function adaptVizModel(
   frame: ModelResponse,
@@ -75,11 +77,13 @@ export function adaptVizModel(
   describe: (
     shape: VizShape,
     row: VizRow | undefined,
+    place: ShapePlace,
   ) => {
     accessibleLabel: string;
     displayLabel: string;
     displayName?: string;
     displayValue?: string;
+    container?: boolean;
   },
   folderRows: readonly VizRow[] = [],
 ) {
@@ -90,7 +94,33 @@ export function adaptVizModel(
   );
   const targetsByShape = new Map<string, VizSelection>();
   let validTargets = true;
-  const shapes: GeometryRendererProps["shapes"] = frame.model.shapes.map(
+  const childCount = new Map<string, number>();
+  const byRef = new Map<string, VizShape>();
+  for (const shape of frame.model.shapes) {
+    if (shape.shapeRef) byRef.set(shape.shapeRef, shape);
+    if (shape.parentShapeRef)
+      childCount.set(
+        shape.parentShapeRef,
+        (childCount.get(shape.parentShapeRef) ?? 0) + 1,
+      );
+  }
+  const placeOf = (shape: VizShape): ShapePlace => {
+    const parent = shape.parentShapeRef
+      ? byRef.get(shape.parentShapeRef)
+      : undefined;
+    const parentKey = parent ? targetKey(parent) : null;
+    const count = shape.shapeRef ? childCount.get(shape.shapeRef) : undefined;
+    return {
+      ...(count ? { childCount: count } : {}),
+      ...(parent
+        ? {
+            inFolder: true,
+            parentRow: parentKey ? rowByTarget.get(parentKey) : undefined,
+          }
+        : {}),
+    };
+  };
+  const adapted: GeometryRendererProps["shapes"] = frame.model.shapes.map(
     (shape, index) => {
       const key = targetKey(shape);
       const shapeRef = visualizationShapeRef(shape.shapeRef, index);
@@ -123,10 +153,15 @@ export function adaptVizModel(
         shapeRef,
         rowRef: key ?? "",
         geometry: shape.geometry,
-        ...describe(shape, key ? rowByTarget.get(key) : undefined),
+        ...describe(
+          shape,
+          key ? rowByTarget.get(key) : undefined,
+          placeOf(shape),
+        ),
       };
     },
   );
+  const shapes = depthFirst(frame.model.shapes).map((index) => adapted[index]!);
   const relations: GeometryRendererProps["relations"] =
     frame.model.relationships.map((relation) => ({
       fromShapeRef: visualizationShapeRef(relation.fromShapeRef, 0),
@@ -136,6 +171,32 @@ export function adaptVizModel(
         : { geometry: relation.geometry }),
     }));
   return { shapes, relations, targetsByShape, rows, rowsMatch, validTargets };
+}
+
+/** Indexes of `shapes` with each folder followed by the shapes it holds. */
+function depthFirst(shapes: readonly VizShape[]): number[] {
+  const held = new Map<string, number[]>();
+  const refs = new Set(shapes.flatMap((shape) => shape.shapeRef ?? []));
+  const roots: number[] = [];
+  shapes.forEach((shape, index) => {
+    const parent = shape.parentShapeRef;
+    if (parent && refs.has(parent))
+      held.set(parent, [...(held.get(parent) ?? []), index]);
+    else roots.push(index);
+  });
+  const order: number[] = [];
+  const seen = new Set<number>();
+  const visit = (index: number) => {
+    if (seen.has(index)) return;
+    seen.add(index);
+    order.push(index);
+    const ref = shapes[index]!.shapeRef;
+    for (const child of (ref && held.get(ref)) || []) visit(child);
+  };
+  roots.forEach(visit);
+  // A shape on a reference cycle has no root; it keeps its place at the end.
+  shapes.forEach((_, index) => visit(index));
+  return order;
 }
 
 export function visualizationShapeRef(

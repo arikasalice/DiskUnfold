@@ -1279,8 +1279,9 @@ function Get-ButtonCount($buttonName) {
 }
 # One pass through the main screens for design review: the same steps in any language, size and theme,
 # without the value checks of the full flow. Names go through Get-UiName, so a Korean profile works.
-# F06 #130: a depth 2 treemap. Shapes inside a folder take their names from that folder's rows,
-# and 40 small files in one folder, each below the minimum shape area, become "Other (40)" there.
+# F06 #130: a depth 2 treemap. Shapes inside a folder take their names from that folder's rows
+# and are named with it, and 40 small files in one folder, each below the minimum shape area,
+# become "Other (40)" there. Tiny is too small for a header band (README 27) and stays one shape.
 # The large files keep each small one under the minimum area at 1280x800 and 700x800; the small
 # ones are 1,500 bytes so that they are not stored in the MFT and keep an allocated size.
 # The group's lower-bound and unknown states need unreadable members and stay with the GUI tests.
@@ -1288,8 +1289,10 @@ function Test-CaptureTreemap {
   $scope = Join-Path $root 'treemap-scope'
   $photos = Join-Path $scope 'Photos'
   $videos = Join-Path $scope 'Videos'
+  $tiny = Join-Path $scope 'Tiny'
   [IO.Directory]::CreateDirectory($photos) | Out-Null
   [IO.Directory]::CreateDirectory($videos) | Out-Null
+  [IO.Directory]::CreateDirectory($tiny) | Out-Null
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
   for ($index = 0; $index -lt 40; $index++) {
@@ -1297,6 +1300,8 @@ function Test-CaptureTreemap {
   }
   [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
   [IO.File]::WriteAllBytes((Join-Path $scope 'notes.bin'), [byte[]]::new(16MB))
+  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-a.bin'), [byte[]]::new(512KB))
+  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-b.bin'), [byte[]]::new(512KB))
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -1305,12 +1310,16 @@ function Test-CaptureTreemap {
   $null = Wait-UI 'Photos' { Find-UI 'Photos' $null }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
   $group = Get-UiName 'Other (40)'
-  $null = Wait-UI 'named shapes inside Photos' {
+  $null = Wait-UI 'Photos and the named shapes inside it' {
     $names = Get-UINames
-    ($names | Where-Object { $_ -like 'album-a.bin · *' }) -and ($names | Where-Object { $_ -like "$group · *" })
+    ($names | Where-Object { $_ -like 'Photos, *' }) -and
+    ($names | Where-Object { $_ -like 'album-a.bin, *Photos*' }) -and
+    ($names | Where-Object { $_ -like "$group, *Photos*" }) -and
+    ($names | Where-Object { $_ -like 'Tiny · *' })
   } 60
+  if (Get-UINames | Where-Object { $_ -like 'tiny-*' }) { throw 'Tiny was expanded below its header band minimum' }
   Save-SmokeCapture '01-treemap-depth2'
-  "Treemap depth 2: Photos shows album-a.bin and $group; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 function Test-CaptureTour {
   Set-Scope $scanRoot

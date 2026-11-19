@@ -319,7 +319,9 @@ mod gaps;
 mod hierarchy;
 mod level;
 mod root;
-pub use hierarchy::{add_child_partition, finish_child_partitions};
+pub use hierarchy::{
+    FolderFrame, add_child_partition, add_framed_child_partition, finish_child_partitions,
+};
 
 /// The model-local reference of the group that merges the small children of a parent.
 fn group_ref(parent: &ItemRef) -> String {

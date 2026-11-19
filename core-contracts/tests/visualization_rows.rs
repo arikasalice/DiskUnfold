@@ -1,5 +1,5 @@
 use du_core_contracts::visualization::rows::{
-    VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow, VizRows, VizRowsRequest, VizSizeRange,
+    VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow, VizRows, VizRowsRequest,
 };
 use serde_json::{Value, json};
 const ID: &str = "018f0000-0000-7000-8000-000000000001";
@@ -267,7 +267,9 @@ fn pages_check_ranges_and_revision_but_leave_model_membership_to_engine()
 #[cfg(feature = "typescript")]
 #[test]
 fn generated_types_match_wire_declarations() {
-    use du_core_contracts::visualization::rows::{VizDenominator, VizDenominatorBasis};
+    use du_core_contracts::visualization::rows::{
+        VizDenominator, VizDenominatorBasis, VizSizeRange,
+    };
     use ts_rs::TS;
     let generated = include_str!("../../gui-web/src/ipc/generated/contracts.ts");
     let config = ts_rs::Config::default();

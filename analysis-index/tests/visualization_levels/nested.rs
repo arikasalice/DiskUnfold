@@ -1,5 +1,7 @@
 use super::*;
-use du_analysis_index::visualization::projection::{add_child_partition, finish_child_partitions};
+use du_analysis_index::visualization::projection::{
+    FolderFrame, add_child_partition, add_framed_child_partition, finish_child_partitions,
+};
 
 fn tree() -> Arc<ResultVersion> {
     let mut entries = Vec::new();
@@ -146,4 +148,57 @@ fn a_cancelled_expansion_adds_nothing() {
     let result = add_child_partition(&mut model, &version, 0, &dispatcher(), 16, &mut || true);
     assert_eq!(result, Err(projection::Error::Cancelled));
     assert_eq!(model, before);
+}
+
+#[test]
+fn a_framed_folder_lays_out_its_children_below_its_header_band_and_inside_its_inset() {
+    let version = tree();
+    let mut model = project(&version, SizeBasis::Logical, 16).unwrap();
+    let frame = FolderFrame {
+        header: 1_000,
+        side: 100,
+        bottom: 100,
+        min_width: 0,
+        min_height: 0,
+    };
+    add_framed_child_partition(
+        &mut model,
+        &version,
+        0,
+        &dispatcher(),
+        16,
+        frame,
+        &mut || false,
+    )
+    .unwrap();
+    finish_child_partitions(&model, &mut || false).unwrap();
+    let folder = model.shapes[0].geometry.points();
+    let group = model.detail.groups[0].geometry.points();
+    assert!(group[0].x >= folder[0].x + 100 && group[1].x <= folder[1].x - 100);
+    assert!(group[0].y >= folder[0].y + 1_000 && group[1].y <= folder[1].y - 100);
+}
+
+#[test]
+fn a_folder_smaller_than_its_frame_stays_one_shape_behind_its_count() {
+    let version = tree();
+    let mut model = project(&version, SizeBasis::Logical, 16).unwrap();
+    let before = model.clone();
+    let points = model.shapes[0].geometry.points();
+    let frame = FolderFrame {
+        min_width: points[1].x - points[0].x + 1,
+        ..FolderFrame::default()
+    };
+    add_framed_child_partition(
+        &mut model,
+        &version,
+        0,
+        &dispatcher(),
+        16,
+        frame,
+        &mut || false,
+    )
+    .unwrap();
+    assert!(model.descendants.is_empty() && model.detail.groups.is_empty());
+    assert_eq!(model, before);
+    assert_eq!(model.rows[model.shapes[0].row_index].omitted_children, 100);
 }

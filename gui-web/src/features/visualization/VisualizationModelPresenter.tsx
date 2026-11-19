@@ -70,7 +70,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       adaptVizModel(
         frame,
         page,
-        (shape, row) => shapeLabels(frame.model, shape, row, text),
+        (shape, row, place) =>
+          shapeLabels(frame.model, shape, row, text, place),
         folderRows,
       ),
     [frame, page, text, folderRows],

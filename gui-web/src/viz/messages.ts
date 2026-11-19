@@ -122,6 +122,9 @@ export const visualizationMessages = {
     "group.other_at_least": "Other ({count}+)",
     "group.other_count": "Other ({count})",
     "group.other_unknown": "Other items",
+    shapeFolder:
+      "{name}, folder, {value}, {ratio} of {denominator}, {count} shown inside",
+    shapeInFolder: "{name}, in {folder}, {value}, {ratio} of {denominator}",
     viewMembers: "View combined items",
     viewMembersOf: "View items in {name}",
     measurementBasisTotals: "Measurement basis and totals",
@@ -320,6 +323,9 @@ export const visualizationMessages = {
     "group.other_at_least": "기타 {count}개 이상",
     "group.other_count": "기타 {count}개",
     "group.other_unknown": "기타 항목",
+    shapeFolder:
+      "{name}, 폴더, {value}, {denominator}의 {ratio}, 안에 {count}개 표시",
+    shapeInFolder: "{name}, {folder} 안, {value}, {denominator}의 {ratio}",
     viewMembers: "묶인 항목 보기",
     viewMembersOf: "{name}의 항목 보기",
     measurementBasisTotals: "측정 기준 및 합계",

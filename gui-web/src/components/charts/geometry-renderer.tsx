@@ -23,6 +23,8 @@ type Shape = {
   /** The drawn name and value apart, so a label that does not fit drops the value whole. */
   displayName?: string;
   displayValue?: string;
+  /** An expanded folder: drawn as a frame with a header band over the shapes it holds. */
+  container?: boolean;
 };
 type Relation = {
   fromShapeRef: string;
@@ -269,6 +271,13 @@ function rectangleLabel(
   const left = Math.max(start.x, 0);
   const top = Math.max(start.y, 0);
   const available = Math.min(end.x, width) - left;
+  // The header band of a folder: 20 px high, 12 px text 4 px from the left, centred.
+  if (shape.container)
+    return available < 70 || start.y < 0 ? null : (
+      <text className="du-geometry-header" x={left + 4} y={top + 10}>
+        {fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12)))}
+      </text>
+    );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
   const visible = fitLabel(shape, limit);
@@ -396,6 +405,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <g
               className="du-geometry-shape"
               key={shape.shapeRef}
+              data-container={shape.container ? "true" : undefined}
               onClick={() => {
                 controls.current
                   .get(shape.shapeRef)

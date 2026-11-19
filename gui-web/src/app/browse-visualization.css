@@ -10,6 +10,19 @@
   padding-block-end: 8px;
 }
 
+/* The startup banner sits above the app. With the space view open the two share the
+   window height, so the chart box fits the window and the page has no second
+   scrollbar (F06 design README section 27, item 4). */
+#root:has(> .du-startup-banner ~ .du-app[data-visualization-open]) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  block-size: 100dvh;
+}
+#root > .du-startup-banner ~ .du-app[data-visualization-open] {
+  block-size: auto;
+  min-block-size: 0;
+}
+
 .du-visualization-shell {
   min-block-size: 0;
   min-inline-size: 0;

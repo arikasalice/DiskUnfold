@@ -494,7 +494,7 @@ beforeEach(() => {
   );
 });
 
-test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a folder from that folder's rows", async () => {
+test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a folder from that folder's rows and the folder in its header band", async () => {
   // Shape 1 is a folder drawn at depth 1; the engine also drew one file and one
   // group inside it. Their names come only from the folder's own table.
   const nestedFrame = (request: VizRenderRequest) => {
@@ -616,12 +616,28 @@ test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a fold
   );
   await screen.findByRole(
     "button",
-    { name: /^Holiday\.mp4 · / },
+    { name: /^Holiday\.mp4, in Videos, / },
     {
       timeout: 5000,
     },
   );
-  await screen.findByRole("button", { name: /^Other \(7\+\) · / });
+  await screen.findByRole("button", { name: /^Other \(7\+\), in Videos, / });
+  // The folder is named as one, with the count of what it holds, and comes right
+  // before those shapes, the order of the table rows.
+  const names = Array.from(
+    document.querySelectorAll(".du-geometry-buttons button"),
+    (button) => button.getAttribute("aria-label") ?? "",
+  );
+  const folderAt = names.findIndex((name) =>
+    /^Videos, folder, .*, 2 shown inside$/.test(name),
+  );
+  expect(folderAt).toBeGreaterThanOrEqual(0);
+  expect(names[folderAt + 1]).toMatch(/^Holiday\.mp4, in Videos, /);
+  expect(names[folderAt + 2]).toMatch(/^Other \(7\+\), in Videos, /);
+  expect(
+    document.querySelector('g[data-container="true"] .du-geometry-header')
+      ?.textContent,
+  ).toMatch(/^Videos/);
   expect(calls.find(({ name }) => name === "viz.render")?.body).toMatchObject({
     depthLimit: 2,
   });
