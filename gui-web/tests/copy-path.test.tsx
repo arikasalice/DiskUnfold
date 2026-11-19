@@ -111,11 +111,15 @@ test("full path is available by disclosure and copy feedback can be dismissed", 
       path={{ state: "present", value: fullPath }}
     />,
   );
-  expect(screen.queryByText(fullPath)).toBeNull();
+  // The parts with a hyphen are kept whole, so the path is found by its text.
+  const shownPath = (_: string, element: Element | null) =>
+    element?.classList.contains("du-path") === true &&
+    element.textContent === fullPath;
+  expect(screen.queryByText(shownPath)).toBeNull();
   const disclosure = screen.getByRole("button", { name: /Full path/ });
   fireEvent.click(disclosure);
   expect(
-    screen.getByText(fullPath).closest(".du-text")?.getAttribute("tabindex"),
+    screen.getByText(shownPath).closest(".du-text")?.getAttribute("tabindex"),
   ).toBe("0");
   const copy = screen.getByRole("button", { name: "Copy path" });
   fireEvent.click(copy);

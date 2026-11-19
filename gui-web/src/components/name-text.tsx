@@ -47,12 +47,12 @@ function Edge({ characters, count }: { characters: string; count: number }) {
 }
 
 /**
- * A path with a line break opportunity after each separator. Each part up to
- * and including its separator is kept whole on a line, so a line breaks after
- * a separator before it breaks at a hyphen or space inside a part; only a part
- * wider than the line breaks inside it. The `<wbr>` elements and the part
- * spans hold no text of their own, so the text content and a copy stay the
- * path.
+ * A path with a line break opportunity after each separator. A part that a
+ * line could also break inside, at a space or a hyphen, is kept whole on a
+ * line, so a line breaks after a separator first; only a part wider than the
+ * line breaks inside it. Other parts stay plain text. The `<wbr>` elements
+ * and the part spans hold no text of their own, so the text content and a
+ * copy stay the path.
  */
 function breakAfterSeparators(path: string): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -60,21 +60,25 @@ function breakAfterSeparators(path: string): ReactNode[] {
   for (let index = 0; index < path.length; index += 1) {
     if (path[index] !== "/" && path[index] !== "\\") continue;
     nodes.push(
-      <span className="du-path__part" key={`part-${index}`}>
-        {path.slice(start, index + 1)}
-      </span>,
+      pathPart(path.slice(start, index + 1), `part-${index}`),
       <wbr key={index} />,
     );
     start = index + 1;
   }
-  const last = path.slice(start);
-  if (last)
-    nodes.push(
-      <span className="du-path__part" key="part-last">
-        {last}
-      </span>,
-    );
+  nodes.push(pathPart(path.slice(start), "part-last"));
   return nodes;
+}
+
+/** Characters after which a line may break inside a path part. */
+const INNER_BREAK = /[\s\u002D\u00AD\u2010-\u2015]/u;
+
+function pathPart(part: string, key: string): ReactNode {
+  if (!INNER_BREAK.test(part)) return part;
+  return (
+    <span className="du-path__part" key={key}>
+      {part}
+    </span>
+  );
 }
 
 /**

@@ -46,7 +46,11 @@ test("a path value breaks after each separator and keeps its text", () => {
   for (const wbr of value.querySelectorAll("wbr"))
     expect(wbr.previousSibling?.textContent?.endsWith("\\")).toBe(true);
   expect(value.textContent).toBe(path);
-  expect(screen.getByText(path)).toBeDefined();
+  // The part with a space is kept whole, so the path is found by its text.
+  expect(value.querySelector(".du-path")?.textContent).toBe(path);
+  expect(value.querySelector(".du-path__part")?.textContent).toBe(
+    "2026 보고서.txt",
+  );
 });
 
 test("a path with a marked last component still breaks after its separators", () => {
