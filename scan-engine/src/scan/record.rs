@@ -288,7 +288,7 @@ fn record_at(
         // Unreachable through the admission table, which leaves every
         // consistent mount point outside the boundary; an inconsistent one
         // fails the check above and is a gap. A boundary is not a failure.
-        ObservedKind::MountPoint => {
+        ObservedKind::MountPoint | ObservedKind::MountedFile => {
             let range = (root_index, path);
             let unread = Unread::OtherVolume;
             return admission::record_unentered(build, range, entry, unread, counts, observed_at);

@@ -116,6 +116,16 @@ impl Facts {
         self.mount.is_none() && self.mount_root.is_none()
     }
 
+    /// True for a regular file on another device that the kernel reports as
+    /// a mount: the mount root attribute or a mount ID that differs from the
+    /// parent's. A different device alone is not evidence: on overlayfs a
+    /// plain file can report the device of its lower layer.
+    fn mounted_file(&self, anchor: &Anchor) -> bool {
+        self.file_type == Some(FileType::RegularFile)
+            && self.device != anchor.device
+            && (self.mount_root == Some(true) || !super::same_mount(self.mount, anchor.mount))
+    }
+
     /// True for another mount of the directory's device or an automount trigger.
     ///
     /// Mounted directories and entries on another device are handled before
@@ -160,6 +170,8 @@ fn query(dir: impl AsFd, name: &CStr, flags: AtFlags) -> Result<Facts, PortError
 /// The lookup crosses into the mounted root, so the kernel reports the mount
 /// root attribute and the mount ID there (Linux 5.8 and later). When the kernel
 /// reports neither, a directory on another device is a mount point as well.
+/// A regular file on another device with mount evidence is a
+/// [`ObservedKind::MountedFile`] with the mounted file's device and inode only.
 /// Any other entry on another device keeps its own kind under the same rule,
 /// such as a btrfs subvolume, which the evidence shows is not a mount root. A
 /// file mount on the parent's device and an unmounted automount trigger remain
@@ -179,6 +191,9 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
 fn classify(anchor: &Anchor, facts: &Facts) -> Result<MetadataObservation, PortError> {
     if facts.mounted_directory(anchor) {
         return Ok(other_volume(facts, ObservedKind::MountPoint));
+    }
+    if facts.mounted_file(anchor) {
+        return Ok(other_volume(facts, ObservedKind::MountedFile));
     }
     if facts.device != anchor.device {
         return Ok(other_volume(facts, facts.kind()));

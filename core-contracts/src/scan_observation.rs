@@ -417,6 +417,19 @@ pub enum ObservedKind {
     /// the collector compares neither with the metadata. It records the entry
     /// as a directory outside the boundary and never enters it.
     MountPoint,
+    /// A file entry at which another volume's file is bind-mounted.
+    ///
+    /// An adapter reports it only when its own observation establishes the
+    /// mount: a regular file whose device differs from its parent's and for
+    /// which the kernel reports mount evidence (on Linux, `STATX_ATTR_MOUNT_ROOT`
+    /// or a `stx_mnt_id` different from the parent's). A different device alone
+    /// is not evidence. `device` and `inode` identify the mounted file; the
+    /// size, times, allocation, link count and space identity are not reported.
+    /// Enumeration reports the inode of the covered file, so the collector
+    /// compares neither the inode nor the kind with the metadata. It records
+    /// the entry as a file without a size outside the boundary, lists it as
+    /// another volume and counts it neither as a scope gap nor as a failure.
+    MountedFile,
     Other,
     Unknown,
 }
@@ -438,8 +451,9 @@ pub enum NativeModifiedTime {
 /// is an error, and the times, allocation, link count and space identity are
 /// `None`. When the parent's volume is known, the collector classifies the
 /// entry outside the boundary. It never enters such an entry and never uses a
-/// size reported for it. A [`ObservedKind::MountPoint`] follows the same rule
-/// and is outside the boundary whether or not the parent's volume is known.
+/// size reported for it. A [`ObservedKind::MountPoint`] or an
+/// [`ObservedKind::MountedFile`] follows the same rule and is outside the
+/// boundary whether or not the parent's volume is known.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MetadataObservation {
     pub kind: ObservedKind,

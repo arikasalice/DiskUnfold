@@ -201,7 +201,28 @@ fn file_mounts_and_automount_triggers_are_not_mount_points() -> TestResult {
     };
     let meta = observed(&anchor, &other_device_file_mount)?;
     assert!(
-        other_volume(&meta, ObservedKind::File, DEVICE + 3),
+        other_volume(&meta, ObservedKind::MountedFile, DEVICE + 3),
+        "{meta:?}"
+    );
+    // Only the mount ID shows the mount.
+    let by_mount_id = Facts {
+        mount_root: None,
+        ..other_device_file_mount
+    };
+    let meta = observed(&anchor, &by_mount_id)?;
+    assert!(
+        other_volume(&meta, ObservedKind::MountedFile, DEVICE + 3),
+        "{meta:?}"
+    );
+    // On overlayfs a plain file reports its lower layer's device, on the
+    // parent's mount and not a mount root: another volume, not a mount.
+    let lower_layer = Facts {
+        device: DEVICE + 4,
+        ..file
+    };
+    let meta = observed(&anchor, &lower_layer)?;
+    assert!(
+        other_volume(&meta, ObservedKind::File, DEVICE + 4),
         "{meta:?}"
     );
     let plain = observed(&anchor, &directory())?;

@@ -159,7 +159,10 @@ fn decide_with(
         return Admission::UntraversedLink;
     }
     // The adapter established another volume even when the parent's is unknown.
-    if meta.kind == ObservedKind::MountPoint {
+    if matches!(
+        meta.kind,
+        ObservedKind::MountPoint | ObservedKind::MountedFile
+    ) {
         return Admission::OutsideBoundary;
     }
     if let Boundary::Volume(device) = parent.boundary
@@ -190,6 +193,11 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
             entry.enumerated_kind,
             ObservedKind::Unknown | ObservedKind::Directory | ObservedKind::MountPoint
         ),
+        // The mounted file's identity differs from the covered file's.
+        ObservedKind::MountedFile => matches!(
+            entry.enumerated_kind,
+            ObservedKind::Unknown | ObservedKind::File | ObservedKind::MountedFile
+        ),
         ObservedKind::Unknown | ObservedKind::Other => false,
         _ => {
             meta.inode != 0
@@ -203,7 +211,8 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
 /// Records an entry that the table did not enter, with its unread range.
 ///
 /// No size, time or space facts are kept because they may describe another
-/// volume or a range that was not read. A mount point stays a directory item.
+/// volume or a range that was not read. A mount point stays a directory item
+/// and a mounted file stays a file item without a size.
 pub(super) fn record_unentered(
     build: &mut BuildHandle,
     (root_index, path): (u32, &[Vec<u8>]),
@@ -212,22 +221,16 @@ pub(super) fn record_unentered(
     counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
-    let directory = entry.metadata.as_ref().is_ok_and(|meta| {
-        matches!(
-            meta.kind,
-            ObservedKind::Directory | ObservedKind::MountPoint
-        )
-    });
-    if directory {
-        build.add_directory_at(root_index, path.to_vec())?;
-    } else {
-        build.add_at(
-            root_index,
-            Observation {
-                path: path.to_vec(),
-                size: None,
-            },
-        )?;
+    let observation = Observation {
+        path: path.to_vec(),
+        size: None,
+    };
+    match entry.metadata.as_ref().map(|meta| &meta.kind) {
+        Ok(ObservedKind::Directory | ObservedKind::MountPoint) => {
+            build.add_directory_at(root_index, path.to_vec())?;
+        }
+        Ok(ObservedKind::MountedFile) => build.add_file_at(root_index, observation)?,
+        _ => build.add_at(root_index, observation)?,
     }
     record_unread(
         build,

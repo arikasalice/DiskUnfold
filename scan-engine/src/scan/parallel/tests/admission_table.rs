@@ -24,6 +24,8 @@ const MOUNT: u64 = 300;
 const MOUNTED_ROOT: u64 = 400;
 /// The directory that the mount at `vol` covers on the parent volume.
 const COVERED: u64 = 401;
+/// The file that a file bind mount covers on the parent volume.
+const COVERED_FILE: u64 = 404;
 /// Worker counts and delay seeds that each determinism test runs.
 const RUNS: [(usize, u64); 7] = [(1, 0), (1, 3), (2, 1), (4, 2), (8, 3), (4, 5), (8, 7)];
 
@@ -122,7 +124,8 @@ impl Tree {
 
     /// Observes like an adapter: an entry on another volume than its parent
     /// carries only its kind and identity, never a size. A mount point is
-    /// enumerated as the covered directory, as Linux and macOS list it.
+    /// enumerated as the covered directory, as Linux and macOS list it, and a
+    /// mounted file as the covered file, as Linux lists it.
     fn observe(&self, node: &Node, parent_device: u64) -> ObservedEntry {
         if let Ok(mut probes) = self.probes.lock() {
             probes.push(node.name);
@@ -139,6 +142,8 @@ impl Tree {
         };
         let (enumerated_inode, enumerated_kind) = if mount {
             (COVERED, ObservedKind::Directory)
+        } else if node.kind == ObservedKind::MountedFile {
+            (COVERED_FILE, ObservedKind::File)
         } else {
             (node.inode, node.kind.clone())
         };

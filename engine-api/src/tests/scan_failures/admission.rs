@@ -86,13 +86,19 @@ fn observed(name: &str, kind: ObservedKind, device: u64, inode: u64) -> Observed
     }
 }
 
-/// Another volume, a mount point, the root listed again and a plain file.
+/// Another volume, a mount point, a mounted file, the root listed again and
+/// a plain file.
 fn entries() -> Vec<ObservedEntry> {
     let mut mount = observed("vol", ObservedKind::MountPoint, 3, 60);
     // Enumerated as the directory that the mount covers.
     mount.enumerated_kind = ObservedKind::Directory;
     mount.enumerated_inode = 61;
+    let mut hosts = observed("hosts", ObservedKind::MountedFile, 4, 70);
+    // Enumerated as the file that the bind mount covers.
+    hosts.enumerated_kind = ObservedKind::File;
+    hosts.enumerated_inode = 71;
     vec![
+        hosts,
         observed("mnt", ObservedKind::Directory, 2, 50),
         mount,
         observed("twin", ObservedKind::Directory, 1, ROOT),
@@ -146,8 +152,10 @@ fn other_volumes_mount_points_and_revisits_are_listed_in_a_complete_result() -> 
     let (store, version, completeness) = scan(true)?;
     assert_eq!(completeness, ResultCompleteness::Complete);
     let rows = unread_rows(&engine(store, true)?, &version)?;
-    // Rows follow path bytes: mnt, twin, vol.
+    // Rows follow path bytes: hosts, mnt, twin, vol. A mounted file is
+    // another volume, not an unclassified failure.
     let expected = [
+        BOUNDARY_OTHER_VOLUME,
         BOUNDARY_OTHER_VOLUME,
         REVISIT_BLOCKED,
         BOUNDARY_OTHER_VOLUME,
@@ -162,9 +170,11 @@ fn an_unidentified_root_lists_unverifiable_ranges_in_a_result_with_missing_range
     let (store, version, completeness) = scan(false)?;
     assert_eq!(completeness, ResultCompleteness::Missing);
     let rows = unread_rows(&engine(store, true)?, &version)?;
-    // The root, then mnt, twin and the mount point, which stays outside.
+    // The root, then the mounted file, which stays outside, mnt, twin and the
+    // mount point, which stays outside as well.
     let expected = [
         (0, BOUNDARY_UNVERIFIABLE),
+        (1, BOUNDARY_OTHER_VOLUME),
         (1, BOUNDARY_UNVERIFIABLE),
         (1, BOUNDARY_UNVERIFIABLE),
         (1, BOUNDARY_OTHER_VOLUME),

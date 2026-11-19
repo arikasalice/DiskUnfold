@@ -1,14 +1,16 @@
 //! FR12.HD1.app-host.DD1: how unentered ranges set completeness and failures.
 //!
-//! Another volume, a mount point and a revisit are listed only; the result
-//! stays complete. An unverifiable range is listed, counted as a failure and
-//! kept as a scope gap, so the result has missing ranges. Each case runs
-//! through the sequential collector and through every worker count.
+//! Another volume, a mount point, a mounted file and a revisit are listed
+//! only; the result stays complete. An unverifiable range is listed, counted
+//! as a failure and kept as a scope gap, so the result has missing ranges.
+//! Each case runs through the sequential collector and through every worker
+//! count.
 use super::*;
 
-/// A verified root with another volume, a mount point and a same-volume file.
+/// A verified root with another volume, a mount point, a mounted file and a
+/// same-volume file.
 fn boundaries() -> Listings {
-    use ObservedKind::{Directory as D, File as F, MountPoint as M};
+    use ObservedKind::{Directory as D, File as F, MountPoint as M, MountedFile as MF};
     BTreeMap::from([
         (
             ROOT,
@@ -17,6 +19,7 @@ fn boundaries() -> Listings {
                 node("mnt", D, 2, MOUNT),
                 node("foreign.bin", F, 2, 301),
                 node("vol", M, 3, MOUNTED_ROOT),
+                node("hosts", MF, 4, 501),
                 node("top.txt", F, 1, 205),
             ],
         ),
@@ -108,6 +111,7 @@ fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), Strin
     let _guard = worker_test_lock();
     let issues = sorted(vec![
         other_volume(0, &["foreign.bin"]),
+        other_volume(0, &["hosts"]),
         other_volume(0, &["mnt"]),
         other_volume(0, &["vol"]),
     ]);
@@ -118,6 +122,8 @@ fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), Strin
     assert!(items.contains(&(0, path(&["vol"]), ResultItemKind::Directory, false)));
     assert!(items.contains(&(0, path(&["mnt"]), ResultItemKind::Directory, false)));
     assert!(items.contains(&(0, path(&["foreign.bin"]), ResultItemKind::Unknown, false)));
+    // The mounted file stays a file item without the mounted file's size.
+    assert!(items.contains(&(0, path(&["hosts"]), ResultItemKind::File, false)));
     for (workers, seed) in RUNS {
         let tree = tree_of(boundaries(), seed);
         let run = filtered_run(&tree, workers, true)?;

@@ -74,6 +74,85 @@ fn boundary_attempt(
     Ok((build, end))
 }
 
+/// A file bind mount: enumerated as the covered file, observed as the
+/// mounted file on another volume.
+fn mounted_file_observation() -> TimedObservedEntry {
+    let mut timed = boundary_observation();
+    timed.entry.name = b"hosts".to_vec();
+    timed.entry.enumerated_kind = ObservedKind::File;
+    timed.entry.enumerated_inode = 7;
+    if let Ok(metadata) = &mut timed.entry.metadata {
+        metadata.kind = ObservedKind::MountedFile;
+        metadata.inode = 8;
+    }
+    timed
+}
+
+/// Ends one attempt whose only child is a mounted file with `outcome`.
+fn mounted_file_attempt(
+    stored_as_file: bool,
+    outcome: FolderAttemptFinal,
+) -> Result<Result<(), FolderAttemptError>, String> {
+    let mut build = build(&IngestSink::default(), 57)?;
+    let path = vec![b"hosts".to_vec()];
+    if stored_as_file {
+        build.add_file_at(0, crate::Observation { path, size: None })
+    } else {
+        build.add_directory(path)
+    }
+    .map_err(|error| format!("{error:?}"))?;
+    let token = build
+        .begin_folder_attempt(0, &[], 57)
+        .map_err(|error| format!("{error:?}"))?;
+    let events = [
+        FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::FilterCallback {
+            child_id: 0,
+            raw_name: b"hosts".to_vec(),
+            decision: FilterDecision::Admit,
+            phase: FilterCallbackPhase::AfterMetadata,
+        }),
+        FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::Observation {
+            child_id: 0,
+            entry: mounted_file_observation(),
+        }),
+        FolderAttemptInput::Final {
+            child_id: 0,
+            outcome,
+        },
+    ];
+    for (seq, event) in events.into_iter().enumerate() {
+        let seq = u64::try_from(seq).map_err(|error| format!("{error:?}"))?;
+        build
+            .record_folder_attempt_event(token, seq, event)
+            .map_err(|error| format!("{error:?}"))?;
+    }
+    Ok(build.end_folder_attempt(token, 3, 1))
+}
+
+/// The collector stores a mounted file as a file item without a size and
+/// sends a boundary final; any other stored kind or final is rejected.
+#[test]
+fn a_mounted_file_is_a_boundary_only_as_a_stored_file() -> Result<(), String> {
+    assert_eq!(
+        mounted_file_attempt(true, FolderAttemptFinal::Boundary)?,
+        Ok(())
+    );
+    assert_eq!(
+        mounted_file_attempt(false, FolderAttemptFinal::Boundary)?,
+        Err(FolderAttemptError::InvalidEnd)
+    );
+    assert_eq!(
+        mounted_file_attempt(
+            true,
+            FolderAttemptFinal::Recorded {
+                child_attempt: None
+            }
+        )?,
+        Err(FolderAttemptError::InvalidEnd)
+    );
+    Ok(())
+}
+
 #[test]
 fn after_metadata_is_os_timing_while_callback_stays_first_on_transport() -> Result<(), String> {
     // Synthetic bulk metadata exercises F03 correlation only; it does not establish
