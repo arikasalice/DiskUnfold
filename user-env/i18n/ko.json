@@ -261,6 +261,7 @@
     ["ui.analysis.progress_heading", "스캔 진행 상황", []],
     ["ui.analysis.waiting_cancel", "스캔 취소를 기다리는 중", []],
     ["ui.analysis.scanning_folder", "폴더 스캔 중", []],
+    ["ui.analysis.waiting_scan_start", "스캔 시작을 기다리는 중", []],
     ["ui.analysis.progress_items",{"kind":"plural","parameter":"count","variants":{"other":"확인한 항목 {count}개 · 전체 개수 확인 중"}},[["count","count"]]],
     ["ui.analysis.progress_items_remaining",{"kind":"plural","parameter":"count","variants":{"other":"{percent}% · 남은 항목 {count}개"}},[["percent","count"],["count","count"]]],
     ["ui.analysis.progress_bytes","확인한 크기 {size} · 전체 크기 확인 중",[["size","size"]]],

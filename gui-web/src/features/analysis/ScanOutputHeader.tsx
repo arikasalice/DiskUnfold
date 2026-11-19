@@ -143,7 +143,12 @@ export function ScanOutputHeader({
             label={
               cancelling
                 ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
-                : text("ui.analysis.scanning_folder", "Scanning folder")
+                : scan.status?.state === "queued"
+                  ? text(
+                      "ui.analysis.waiting_scan_start",
+                      "Waiting for the scan to start",
+                    )
+                  : text("ui.analysis.scanning_folder", "Scanning folder")
             }
             paused={!cancelling && scan.status?.state === "paused"}
             {...determinateProgress(scan.progress)}

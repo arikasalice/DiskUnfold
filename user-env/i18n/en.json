@@ -261,6 +261,7 @@
     ["ui.analysis.progress_heading", "Scan progress", []],
     ["ui.analysis.waiting_cancel", "Waiting for cancellation", []],
     ["ui.analysis.scanning_folder", "Scanning folder", []],
+    ["ui.analysis.waiting_scan_start", "Waiting for the scan to start", []],
     ["ui.analysis.progress_items",{"kind":"plural","parameter":"count","variants":{"one":"{count} item checked · Counting all items","other":"{count} items checked · Counting all items"}},[["count","count"]]],
     ["ui.analysis.progress_items_remaining",{"kind":"plural","parameter":"count","variants":{"one":"{percent}% · {count} item left","other":"{percent}% · {count} items left"}},[["percent","count"],["count","count"]]],
     ["ui.analysis.progress_bytes","{size} checked · Total size not yet known",[["size","size"]]],
