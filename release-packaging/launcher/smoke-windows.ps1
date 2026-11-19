@@ -27,6 +27,8 @@ param(
   [switch]$CaptureFallbackTable,
   # Capture a depth 2 treemap of a scope with an NTFS junction.
   [switch]$CaptureTreemapLink,
+  # Capture the analysis, chart and table progress rows on a scope large enough to show them.
+  [switch]$CaptureProgress,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1374,13 +1376,37 @@ function Save-ProgressCapture([string]$name, [string]$capture, [int]$seconds = 4
   while ([DateTime]::UtcNow -lt $deadline) {
     $bar = @($window.FindAll($scopeTree, $condition) | Where-Object { -not $wanted -or $_.Current.Name -eq $wanted }) | Select-Object -First 1
     if ($bar) {
+      $shown = $bar.Current.Name
       Save-SmokeCapture $capture
-      "Progress capture $($capture): $($bar.Current.Name)"
+      "Progress capture $($capture): $shown"
       return
     }
     Start-Sleep -Milliseconds 30
   }
   "Progress capture $($capture): not seen within $seconds s"
+}
+# F06 #164: progress rows for design review. A runner answers the small fixtures before a capture,
+# so this scope holds 40,000 empty files: the analysis, the chart and its table take long enough to be
+# seen. Each capture is taken the moment its progress bar shows; one not seen in time is logged.
+function Test-CaptureProgress {
+  $scope = Join-Path $root 'progress-scope'
+  $many = Join-Path $scope 'many'
+  [IO.Directory]::CreateDirectory($many) | Out-Null
+  for ($index = 0; $index -lt 40000; $index++) {
+    [IO.File]::Create((Join-Path $many "f$index.bin")).Dispose()
+  }
+  [IO.File]::WriteAllBytes((Join-Path $scope 'large.bin'), [byte[]]::new(8MB))
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  Save-ProgressCapture '*' '01-analysis-progress' 20
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 120
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'many' { Find-UI 'many' $null } 60
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  Save-ProgressCapture 'Loading chart' '02-chart-loading' 10
+  Save-ProgressCapture 'Loading items in this folder' '03-folder-rows-loading' 10
+  "Progress captures: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' }), app scale $AppScale%"
 }
 # F06 #134: a treemap of a scope with an NTFS junction. The Windows collector does not report the
 # junction's own size, so this is the unknown-size case: the folder holding it is drawn by its lower
@@ -1404,13 +1430,10 @@ function Test-CaptureTreemapLink {
     Set-Scope $scope
     Invoke-UI (Wait-Enabled 'Review scope' $true)
     Invoke-UI (Wait-Enabled 'Start analysis' $true)
-    Save-ProgressCapture '*' '00-analysis-progress'
     $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
     Invoke-UI (Wait-Enabled 'Browse folders' $true)
     $null = Wait-UI 'Docs' { Find-UI 'Docs' $null }
     Invoke-UI (Wait-Enabled 'Show space distribution' $true)
-    Save-ProgressCapture 'Loading chart' '00-chart-loading'
-    Save-ProgressCapture 'Loading items in this folder' '00-folder-rows-loading' 3
     $null = Wait-UI 'Docs and the file inside it' {
       $names = Get-UINames
       ($names | Where-Object { $_ -like 'Docs, *' }) -and ($names | Where-Object { $_ -like 'report.bin, *Docs*' })
@@ -1755,7 +1778,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -1764,6 +1787,7 @@ function Test-VirtualGroups {
   if ($CaptureTreemap) { Test-CaptureTreemap }
   if ($CaptureFallbackTable) { Test-CaptureFallbackTable }
   if ($CaptureTreemapLink) { Test-CaptureTreemapLink }
+  if ($CaptureProgress) { Test-CaptureProgress }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }
