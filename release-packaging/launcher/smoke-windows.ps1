@@ -1381,7 +1381,35 @@ function Test-CaptureTreemapLink {
       ($names | Where-Object { $_ -like 'Docs, *' }) -and ($names | Where-Object { $_ -like 'report.bin, *Docs*' })
     } 60
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
+    # #163: once the chart is shown it is not requested again and again. Each time the chart
+    # loading row appears is a new request; it may come once more while the chart settles.
+    $loading = Get-UiName 'Loading chart'
+    $progress = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ProgressBar)
+    $requests = 0
+    $lastSeen = $null
+    $shown = $false
+    $started = [DateTime]::UtcNow
+    while ([DateTime]::UtcNow -lt $started.AddSeconds(6)) {
+      $now = @($window.FindAll($scopeTree, $progress) | Where-Object { $_.Current.Name -eq $loading }).Count -gt 0
+      if ($now -and -not $shown) { $requests++; $lastSeen = [DateTime]::UtcNow }
+      $shown = $now
+      Start-Sleep -Milliseconds 100
+    }
+    "Chart requests after it was shown: $requests"
+    if ($shown -or $requests -gt 2 -or ($lastSeen -and $lastSeen -gt $started.AddSeconds(3))) {
+      throw "The chart kept being requested: $requests loading rows in 6 s, still loading: $shown"
+    }
     Save-SmokeCapture '01-treemap-link'
+    # README 32: at 150% and above the head and the banner scroll with the page. Focusing the
+    # chart's region brings it to the top of the window with its button row; the head then lies above.
+    if ([int]$AppScale -ge 150) {
+      $chart = Wait-UI 'chart region' { Find-UI 'Storage chart' ([Windows.Automation.ControlType]::Group) }
+      $chart.SetFocus()
+      Start-Sleep -Milliseconds 800
+      $head = Find-UI 'Language and display' $button
+      "Page scrolled to the chart buttons; the head is $(if ($head -and $head.Current.IsOffscreen) { 'above the window' } else { 'still in view' })"
+      Save-SmokeCapture '02-treemap-link-scrolled'
+    }
     "Treemap with a junction: Docs is drawn with report.bin inside it, the junction has no area; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
   } finally {
     [IO.Directory]::Delete((Join-Path $docs 'redirect'))

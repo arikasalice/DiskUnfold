@@ -26,7 +26,11 @@ export function VisualizationStatus({
   return (
     <>
       {state.phase === "loading" && (
-        <Progress label={text.message("loading")} />
+        // Laid over the top of the view, so it moves nothing below it: the chart
+        // keeps its place and its requested height (#163).
+        <div className="du-viz-loading">
+          <Progress label={text.message("loading")} />
+        </div>
       )}
       {state.phase === "job" && <Notice>{text.message("working")}</Notice>}
       {state.phase === "cancelled" && (

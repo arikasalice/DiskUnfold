@@ -4,7 +4,7 @@
 }
 
 .du-app[data-visualization-open] {
-  block-size: 100dvh;
+  block-size: var(--du-viewport-height, 100dvh);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   padding-block-end: 8px;
@@ -16,7 +16,7 @@
 #root:has(> .du-startup-banner ~ .du-app[data-visualization-open]) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  block-size: 100dvh;
+  block-size: var(--du-viewport-height, 100dvh);
 }
 #root > .du-startup-banner ~ .du-app[data-visualization-open] {
   block-size: auto;
@@ -51,6 +51,20 @@
   min-block-size: 0;
   min-inline-size: 0;
   overflow: auto;
+  /* The width is the chart's requested width: a scrollbar that comes and goes
+     with the content would change it and request the chart again (#163). */
+  scrollbar-gutter: stable;
+}
+
+/* The chart loading row lies over the top of the view instead of pushing the
+   chart down: where the chart starts, and so its requested height, stays the
+   same while it loads (#163). */
+.du-viz-loading {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 1;
+  background: var(--du-page);
 }
 
 /* Title and explanation of an unavailable notice, apart by one step of the scale. */
@@ -59,9 +73,15 @@
   gap: var(--du-space-2);
 }
 
-@media (max-height: 350px) {
-  .du-app[data-browse-open][data-visualization-open] {
-    block-size: 100dvh;
-    min-block-size: 0;
-  }
+/* Without room for the smallest chart below the banner and the head, the page
+   scrolls whole and the head goes up with it: one scrollbar (README 32). The
+   chart then takes its height from the window (page-scroll.ts). */
+:root[data-du-page-scroll]
+  #root:has(> .du-startup-banner ~ .du-app[data-visualization-open]) {
+  display: block;
+  block-size: auto;
+}
+:root[data-du-page-scroll] .du-app[data-visualization-open] {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
 }

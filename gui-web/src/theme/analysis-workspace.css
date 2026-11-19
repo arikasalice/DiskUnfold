@@ -289,7 +289,7 @@
   .du-app[data-analysis-open] {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    block-size: 100dvh;
+    block-size: var(--du-viewport-height, 100dvh);
     padding-block-end: 12px;
   }
 
@@ -312,6 +312,16 @@
     overscroll-behavior-y: contain;
     scroll-padding-block: 6px;
   }
+}
+
+/* Too little room below the banner and the head at the app scale (page-scroll.ts):
+   the page scrolls whole, head included, instead of the panels inside it. */
+:root[data-du-page-scroll] .du-app[data-analysis-open] {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
+}
+:root[data-du-page-scroll] :is(.du-target-editor__body, .du-result__body) {
+  overflow-y: visible;
 }
 
 @media (min-width: 780px) and (min-height: 360px) {

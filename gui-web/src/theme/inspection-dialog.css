@@ -16,7 +16,7 @@
 .du-inspection-dialog {
   display: flex;
   flex-direction: column;
-  max-block-size: calc(100dvh - 24px);
+  max-block-size: calc(var(--du-viewport-height, 100dvh) - 24px);
   min-inline-size: 0;
   border: 1px solid var(--du-border);
   border-radius: var(--du-radius);

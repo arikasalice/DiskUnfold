@@ -1,7 +1,7 @@
 .du-app:has(> .du-history-shell) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  block-size: 100dvh;
+  block-size: var(--du-viewport-height, 100dvh);
 }
 
 .du-history-shell {
@@ -294,7 +294,7 @@
   outline-offset: -2px;
 }
 
-@media (max-width: 450px), (max-height: 350px) {
+@media (max-width: 450px) {
   .du-history-controls:not(:has([aria-expanded="true"])) {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -310,6 +310,23 @@
   .du-history-extra-filters {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   }
+}
+
+/* Too little room below the banner and the head at the app scale (page-scroll.ts),
+   the height half of the narrow rules above. */
+:root[data-du-page-scroll]
+  .du-history-controls:not(:has([aria-expanded="true"])) {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-du-page-scroll] .du-app:has(> .du-history-shell) {
+  block-size: auto;
+  grid-template-rows: auto auto;
+}
+:root[data-du-page-scroll] .du-history-table .du-table-viewport {
+  max-block-size: 55dvh;
+}
+:root[data-du-page-scroll] .du-history-extra-filters {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
 }
 
 @media (max-height: 15rem) {
