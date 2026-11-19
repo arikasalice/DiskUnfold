@@ -1522,6 +1522,10 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   Save-SmokeCapture '05-browse-folders'
+  # #145: the location path breaks after its separators on screen; the names UI Automation reads
+  # for it should still be the path itself, without spaces at the breaks.
+  $leaf = '*\' + (Split-Path -Leaf $scanRoot)
+  "Browse location names: $((@(Get-UINames | Where-Object { $_ -like $leaf })) -join ' | ')"
   Invoke-UI (Wait-Enabled 'root.bin' $true)
   $null = Wait-UI 'file details' { Find-UI 'File details' $textType }
   Save-SmokeCapture '06-file-details'

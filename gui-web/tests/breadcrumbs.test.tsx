@@ -24,6 +24,9 @@ test("keeps every ancestor accessible with its full name and current location te
 
 // #145, F02 README: the value uses the remaining width and a path breaks
 // after a separator first; the end of a label is never cut.
+// jsdom joins the parts around a <wbr> with a space when it computes an
+// accessible name, so the label is found by its text here; ui-smoke logs the
+// names UI Automation reads.
 test("#145: a path label keeps its whole text and breaks after each separator", () => {
   const root = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\scope";
   render(
@@ -35,7 +38,7 @@ test("#145: a path label keeps its whole text and breaks after each separator", 
       ]}
     />,
   );
-  const ancestor = screen.getByRole("button", { name: root });
+  const ancestor = screen.getAllByRole("button")[0]!;
   expect(ancestor.textContent).toBe(root);
   expect(ancestor.querySelectorAll("wbr")).toHaveLength(6);
   const current = screen.getByText("Photos");
