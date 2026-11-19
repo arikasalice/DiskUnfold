@@ -414,7 +414,7 @@ function Test-BrowseCopyContention($name) {
 function Test-BrowseFolderInspection($name) {
   Expand-UI (Wait-VisibleAction "Actions for $name")
   $inspect = Wait-UI 'folder inspect menu item' {
-    Find-UI 'Inspect' ([Windows.Automation.ControlType]::MenuItem)
+    Find-UI 'View details' ([Windows.Automation.ControlType]::MenuItem)
   }
   Invoke-UI $inspect
   $null = Wait-UI "observed attributes of $name" {
