@@ -1152,7 +1152,7 @@ function Test-LocaleSwitch {
   'F13 native locale: switched between Korean and English without discarding the scope draft'
 }
 # Save the window as a PNG under %TEMP% when the interactive desktop allows it.
-function Save-SmokeCapture($name) {
+function Save-SmokeCapture($name, [switch]$Now) {
   $restore = $null
   try {
     # Review captures show the whole window at the screen's full size; the size is restored
@@ -1164,7 +1164,8 @@ function Save-SmokeCapture($name) {
       Start-Sleep -Milliseconds 800
     }
     # Let entrance transitions (dialogs, panels) finish painting before the pixels are copied.
-    Start-Sleep -Milliseconds 700
+    # A progress capture skips this: its bar may be gone by then.
+    if (-not $Now) { Start-Sleep -Milliseconds 700 }
     Add-Type -AssemblyName System.Drawing
     $bounds = $window.Current.BoundingRectangle
     $directory = if ($CaptureDirectory) { $CaptureDirectory } else { Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures' }
@@ -1377,7 +1378,7 @@ function Save-ProgressCapture([string]$name, [string]$capture, [int]$seconds = 4
     $bar = @($window.FindAll($scopeTree, $condition) | Where-Object { -not $wanted -or $_.Current.Name -eq $wanted }) | Select-Object -First 1
     if ($bar) {
       $shown = $bar.Current.Name
-      Save-SmokeCapture $capture
+      Save-SmokeCapture $capture -Now
       "Progress capture $($capture): $shown"
       return
     }
