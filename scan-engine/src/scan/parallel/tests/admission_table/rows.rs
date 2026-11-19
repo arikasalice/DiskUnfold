@@ -33,7 +33,7 @@ fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<
         item(&["away"], ResultItemKind::UntraversedLink, true),
         item(&["b"], ResultItemKind::Directory, false),
         item(&["b", "b.txt"], ResultItemKind::File, true),
-        item(&["foreign.bin"], ResultItemKind::Unknown, false),
+        item(&["foreign.bin"], ResultItemKind::File, false),
         item(&["mnt"], ResultItemKind::Directory, false),
         item(&["top.txt"], ResultItemKind::File, true),
         item(&["twin"], ResultItemKind::Directory, false),
