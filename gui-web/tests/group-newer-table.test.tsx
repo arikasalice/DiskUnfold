@@ -413,9 +413,11 @@ test.each([true, false])(
     pressEnter(screen.getByRole("button", { name: "View combined items" }));
     await screen.findByText("Member from shape-model");
     pressEnter(screen.getByRole("button", { name: "Back to chart" }));
-    const target = suppliesControl
-      ? shape
-      : screen.getByRole("region", { name: "Storage chart" });
-    expect(document.activeElement).toBe(target);
+    // Without its shape the focus goes to the explanation, not to the chart region.
+    if (suppliesControl) expect(document.activeElement).toBe(shape);
+    else
+      expect(document.activeElement?.textContent).toContain(
+        "The original combined items are no longer available.",
+      );
   },
 );

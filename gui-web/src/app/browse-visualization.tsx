@@ -405,7 +405,7 @@ export function BrowseVisualizationView({
       )}
     >
       <header className="du-visualization-title">
-        <Heading level={2}>
+        <Heading level={2} programmaticFocus>
           {text("ui.visualization.space_distribution", "Space distribution")}
         </Heading>
         {selection.locationTrail && (

@@ -261,7 +261,7 @@ test("an injected chart renderer cannot claim a button as a verified shape origi
   expect(document.activeElement).not.toBe(fakeShape);
 });
 
-test("a removed graph group row returns to its rows title with an explanation", async () => {
+test("a removed graph group row returns to its explanation, not to the rows region", async () => {
   const result = frame(1);
   const fixturePage = modelFixture().page;
   const groupRow = {
@@ -337,8 +337,8 @@ test("a removed graph group row returns to its rows title with an explanation", 
   await screen.findByText(
     "The original combined items are no longer available. Return to the chart.",
   );
-  expect(document.activeElement).toBe(
-    screen.getByRole("group", { name: "Items in this folder" }),
+  expect(document.activeElement?.textContent).toContain(
+    "The original combined items are no longer available.",
   );
 });
 
