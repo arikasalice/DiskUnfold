@@ -23,6 +23,7 @@ import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
+import { shownHeight } from "./page-scroll";
 
 export type BrowseVisualizationSelection = {
   resultVersion: string;
@@ -358,11 +359,12 @@ export function BrowseVisualizationView({
         element.getBoundingClientRect(),
         element,
       );
-      update(width, height);
+      update(width, shownHeight(height));
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
-      if (entry) update(entry.contentRect.width, entry.contentRect.height);
+      if (entry)
+        update(entry.contentRect.width, shownHeight(entry.contentRect.height));
     });
     observer.observe(element);
     measure();

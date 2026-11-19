@@ -73,9 +73,15 @@
   gap: var(--du-space-2);
 }
 
-@media (max-height: 350px) {
-  .du-app[data-browse-open][data-visualization-open] {
-    block-size: var(--du-viewport-height, 100dvh);
-    min-block-size: 0;
-  }
+/* Without room for the smallest chart below the banner and the head, the page
+   scrolls whole and the head goes up with it: one scrollbar (README 32). The
+   chart then takes its height from the window (page-scroll.ts). */
+:root[data-du-page-scroll]
+  #root:has(> .du-startup-banner ~ .du-app[data-visualization-open]) {
+  display: block;
+  block-size: auto;
+}
+:root[data-du-page-scroll] .du-app[data-visualization-open] {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
 }

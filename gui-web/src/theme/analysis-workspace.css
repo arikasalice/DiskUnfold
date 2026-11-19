@@ -314,6 +314,16 @@
   }
 }
 
+/* Too little room below the banner and the head at the app scale (page-scroll.ts):
+   the page scrolls whole, head included, instead of the panels inside it. */
+:root[data-du-page-scroll] .du-app[data-analysis-open] {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
+}
+:root[data-du-page-scroll] :is(.du-target-editor__body, .du-result__body) {
+  overflow-y: visible;
+}
+
 @media (min-width: 780px) and (min-height: 360px) {
   .du-analysis__grid {
     gap: 16px;

@@ -1400,6 +1400,18 @@ function Test-CaptureTreemapLink {
       throw "The chart kept being requested: $requests loading rows in 6 s, still loading: $shown"
     }
     Save-SmokeCapture '01-treemap-link'
+    # README 32: at 150% and above the head and the banner scroll with the page. Focusing a
+    # shape button brings the chart's button row into view; the head then lies above the window.
+    if ([int]$AppScale -ge 150) {
+      $shape = $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+        Where-Object { $_.Current.Name -like 'report.bin, *' } | Select-Object -First 1
+      if (-not $shape) { throw 'No shape button for report.bin' }
+      $shape.SetFocus()
+      Start-Sleep -Milliseconds 800
+      $head = Find-UI 'Language and display' $button
+      "Page scrolled to the chart buttons; the head is $(if ($head -and $head.Current.IsOffscreen) { 'above the window' } else { 'still in view' })"
+      Save-SmokeCapture '02-treemap-link-scrolled'
+    }
     "Treemap with a junction: Docs is drawn with report.bin inside it, the junction has no area; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
   } finally {
     [IO.Directory]::Delete((Join-Path $docs 'redirect'))

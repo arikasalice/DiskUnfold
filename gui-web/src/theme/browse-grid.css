@@ -346,14 +346,14 @@
   .du-browse-grid-frame {
   block-size: max(18rem, 50dvh);
 }
-@media (max-height: 350px) {
-  .du-app[data-browse-open] {
-    block-size: auto;
-    min-block-size: var(--du-viewport-height, 100dvh);
-  }
-  .du-browse-grid-frame {
-    block-size: max(18rem, 50dvh);
-  }
+/* Too little room below the banner and the head, in the CSS pixels of the app
+   scale (page-scroll.ts): the page scrolls whole and the list keeps a usable height. */
+:root[data-du-page-scroll] .du-app[data-browse-open] {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
+}
+:root[data-du-page-scroll] .du-browse-grid-frame {
+  block-size: max(18rem, 50dvh);
 }
 
 .du-browse-title {

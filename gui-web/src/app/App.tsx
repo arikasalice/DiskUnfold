@@ -41,6 +41,7 @@ import {
   useBrowseSelection,
 } from "./browse-selection";
 import { createBrowsePort } from "./browse-port";
+import { usePageScroll } from "./page-scroll";
 import { InfoEntry } from "./InfoEntry";
 import { SampleContext, SampleEntrySlot } from "./SampleBrowse";
 import { useSampleFlow } from "./use-sample-flow";
@@ -140,6 +141,8 @@ export function App({
     browseShown.current = Boolean(browseVersion);
   }, [browseVersion]);
   const visualizationTrigger = useRef<HTMLButtonElement>(null);
+  const frame = useRef<HTMLElement>(null);
+  usePageScroll(frame);
   const visualizationFocus = useVisualizationFocus(
     visualizationOpen,
     setVisualizationOpen,
@@ -195,6 +198,7 @@ export function App({
   );
   return (
     <main
+      ref={frame}
       className="du-app"
       data-browse-open={Boolean(browseVersion) || undefined}
       data-analysis-open={Boolean(analysisOpen) || undefined}
