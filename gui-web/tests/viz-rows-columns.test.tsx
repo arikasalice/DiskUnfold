@@ -95,6 +95,25 @@ test("a denominator every row shares is said once above the table", () => {
   });
   expect(headers()).toContain("Denominator");
   expect(screen.queryByText(/^Ratio denominator: /)).toBeNull();
+  cleanup();
+  // An unknown denominator is kept apart from its basis.
+  show((input) => {
+    for (const row of input.page.response.rows)
+      row.denominator = {
+        ...row.denominator,
+        value: {
+          unit: "bytes",
+          state: "unknown",
+          reasonKey: "fixture.unknown",
+        },
+      };
+  });
+  const basis = text.key(
+    modelFixture().page.response.rows[0]!.denominator.basis,
+  );
+  expect(screen.getByText(/^Ratio denominator: /).textContent).toBe(
+    `Ratio denominator: ${basis} · Unavailable`,
+  );
 });
 
 test("the page buttons show only when there is more than one page", () => {
