@@ -1282,8 +1282,8 @@ function Get-ButtonCount($buttonName) {
 # F06 #130: a depth 2 treemap. Shapes inside a folder take their names from that folder's rows
 # and are named with it, and 40 small files in one folder, each below the minimum shape area,
 # become "Other (40)" there. Tiny is too small for a header band (README 27) and stays one shape.
-# The large files keep each small one under the minimum area at 1280x800 and 700x800; the small
-# ones are 1,500 bytes so that they are not stored in the MFT and keep an allocated size.
+# The large files keep each small one under the minimum area at 1280x800 and 700x800 (about 11 px²
+# of 16 inside Photos at 1280x800), while the 40 of them make a group large enough to see.
 # The group's lower-bound and unknown states need unreadable members and stay with the GUI tests.
 function Test-CaptureTreemap {
   $scope = Join-Path $root 'treemap-scope'
@@ -1296,7 +1296,7 @@ function Test-CaptureTreemap {
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
   [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
   for ($index = 0; $index -lt 40; $index++) {
-    [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(1500))
+    [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(8000))
   }
   [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
   [IO.File]::WriteAllBytes((Join-Path $scope 'notes.bin'), [byte[]]::new(16MB))

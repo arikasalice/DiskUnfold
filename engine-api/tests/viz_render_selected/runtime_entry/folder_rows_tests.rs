@@ -22,8 +22,11 @@ fn opened() -> Result<(Fixture, Value), String> {
 fn render_depth(fixture: &Fixture, view: &Value, seq: u32, depth: u32) -> Result<Value, String> {
     let mut request = render_body(view, seq);
     request["depthLimit"] = json!(depth);
-    request["viewport"]["width"] = json!(40);
-    request["viewport"]["height"] = json!(40);
+    // A 210 px window keeps each folder above the 70 x 56 px it needs to be expanded below
+    // its header band, and 256 px² keeps every small child under the minimum area.
+    request["viewport"]["width"] = json!(210);
+    request["viewport"]["height"] = json!(210);
+    request["minAreaPx2"] = json!(256);
     let rendered = fixture.ok("viz.render", request)?;
     let parsed: VizRenderResponse =
         serde_json::from_value(rendered.clone()).map_err(|e| e.to_string())?;
