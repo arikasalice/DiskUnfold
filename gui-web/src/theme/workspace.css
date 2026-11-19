@@ -426,7 +426,7 @@ label.du-field > span {
   overflow: hidden;
   height: 5px;
   border-radius: 999px;
-  background: var(--du-info-surface);
+  background: var(--du-border);
 }
 
 /* What an indeterminate bar waits for, in words right above it (README 31). */
@@ -520,6 +520,11 @@ label.du-field > span {
   .du-notice,
   .du-progress__track {
     outline: 1px solid var(--du-control-border);
+  }
+
+  /* --du-border is ButtonText here; the track stays Canvas with its outline. */
+  .du-progress__track {
+    background: Canvas;
   }
 }
 
