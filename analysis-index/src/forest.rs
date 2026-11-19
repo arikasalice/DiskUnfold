@@ -326,6 +326,37 @@ impl BuildHandle {
         )
     }
 
+    /// Adds a file entry outside the scan boundary, such as a file bind-mounted from another
+    /// volume or a file on another volume. It is an unread range (F03 FR5.HD1, DEC-006): its
+    /// own size stays unknown, and it adds neither bytes nor a missing item to its folder,
+    /// its ancestors or the scope. The collector reports the range separately.
+    pub fn add_boundary_file_at(
+        &mut self,
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+    ) -> Result<(), BuildError> {
+        self.insert_at(
+            root_index,
+            path.clone(),
+            StoredObservation {
+                size: None,
+                kind: ResultItemKind::File,
+                physical: None,
+                modified_at: None,
+                native_modified_at: None,
+                enumerated_inode: None,
+                placeholder_observation: None,
+                observed_at: None,
+            },
+        )?;
+        let node = self
+            .observations
+            .locate(root_index, &path)
+            .ok_or(BuildError::InvalidTree)?;
+        self.observations.mark_boundary(node);
+        Ok(())
+    }
+
     /// Records an unread range; an empty relative path identifies the root itself.
     pub fn record_gap_at(
         &mut self,

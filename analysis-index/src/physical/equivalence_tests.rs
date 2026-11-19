@@ -319,10 +319,11 @@ fn every_result_kind_keeps_its_subtree_propagation() {
         ]),
     };
     let expected = reference(&forest, ResultCompleteness::Complete, 3, false);
-    let mut actual = space::aggregate(&forest.items, ResultCompleteness::Complete, None);
+    let mut actual = space::aggregate(&forest.items, &[], ResultCompleteness::Complete, None);
     apply(
         &forest.items,
         forest.observations.as_deref(),
+        &[],
         ResultCompleteness::Complete,
         None,
         3,
@@ -393,10 +394,11 @@ fn whole_build_totals_equal_one_table_per_subtree() -> Result<(), String> {
         let limit = LIMITS[rng.below(LIMITS.len())];
         for completeness in COMPLETENESS {
             let expected = reference(&forest, completeness, limit, seed % 2 == 0);
-            let mut actual = space::aggregate(&forest.items, completeness, None);
+            let mut actual = space::aggregate(&forest.items, &[], completeness, None);
             apply(
                 &forest.items,
                 forest.observations.as_deref(),
+                &[],
                 completeness,
                 None,
                 limit,

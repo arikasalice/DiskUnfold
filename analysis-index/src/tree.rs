@@ -19,6 +19,8 @@ pub(crate) struct BuiltItems {
     pub(crate) root_indices: Vec<u32>,
     /// Item number of every store node in this publication.
     pub(crate) item_of_node: Vec<u32>,
+    /// Files outside the scan boundary, ascending by item number.
+    pub(crate) boundary: Box<[u32]>,
 }
 
 /// Numbers the observed forest: the roots in root order, then every item's
@@ -69,6 +71,12 @@ pub(crate) fn build_items(
         });
         columns.push(observation);
     }
+    let mut boundary: Vec<u32> = store
+        .boundary_nodes()
+        .iter()
+        .map(|&node| item_of_node[node as usize])
+        .collect();
+    boundary.sort_unstable();
     Ok(BuiltItems {
         items,
         physical: columns.physical,
@@ -79,6 +87,7 @@ pub(crate) fn build_items(
         item_observed_times: columns.item_observed_times,
         root_indices,
         item_of_node,
+        boundary: boundary.into_boxed_slice(),
     })
 }
 

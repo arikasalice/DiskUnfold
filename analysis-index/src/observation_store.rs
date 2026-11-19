@@ -56,6 +56,8 @@ pub(crate) struct ObservationStore {
     /// The node most recently stored or located.
     last: u32,
     limit: u32,
+    /// Observed file nodes outside the scan boundary, ascending (F03 FR5.HD1).
+    boundary: Vec<u32>,
 }
 
 impl Default for ObservationStore {
@@ -79,7 +81,25 @@ impl ObservationStore {
             next_recent: 0,
             last: NO_NODE,
             limit: limit.min(MAX_NODES),
+            boundary: Vec::new(),
         }
+    }
+
+    /// Marks an observed node as a file outside the scan boundary.
+    pub(crate) fn mark_boundary(&mut self, node: u32) {
+        if let Err(index) = self.boundary.binary_search(&node) {
+            self.boundary.insert(index, node);
+        }
+    }
+
+    /// Whether a node is a file outside the scan boundary.
+    pub(crate) fn is_boundary(&self, node: u32) -> bool {
+        self.boundary.binary_search(&node).is_ok()
+    }
+
+    /// Boundary file nodes in ascending node order.
+    pub(crate) fn boundary_nodes(&self) -> &[u32] {
+        &self.boundary
     }
 
     /// Number of nodes, including ancestors that are not observed yet.

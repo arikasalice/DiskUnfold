@@ -6,7 +6,8 @@ use crate::ResultVersion;
 use du_core_contracts::{
     Id, ItemRef,
     result::{
-        ResultCompleteness, ResultItemKind, ResultScopeGap, ResultVersionRead, SpaceAggregate,
+        ResultCompleteness, ResultItem, ResultItemKind, ResultScopeGap, ResultVersionRead,
+        SpaceAggregate,
     },
 };
 
@@ -112,7 +113,7 @@ fn summarize_inner(
         if cancelled() {
             return Err(Error::Cancelled);
         }
-        if listed(item.kind, links)
+        if listed(version, item, links)
             && let Some(files) = files.as_deref_mut()
         {
             files.push(item.item_no);
@@ -143,8 +144,12 @@ fn summarize_inner(
     })
 }
 
-/// Whether a walked item is listed: every file, and untraversed links when requested.
-fn listed(kind: ResultItemKind, links: bool) -> bool {
-    matches!(kind, ResultItemKind::File)
-        || (links && matches!(kind, ResultItemKind::UntraversedLink))
+/// Whether a walked item is listed: every file inside the boundary, and untraversed links
+/// when requested. A file outside the boundary is an unread range (F03 FR5.HD1).
+fn listed(version: &ResultVersion, item: &ResultItem, links: bool) -> bool {
+    match item.kind {
+        ResultItemKind::File => !version.is_boundary_item(item.item_no),
+        ResultItemKind::UntraversedLink => links,
+        _ => false,
+    }
 }

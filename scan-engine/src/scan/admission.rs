@@ -242,7 +242,9 @@ fn other_volume_directory(
 ///
 /// No size, time or space facts are kept because they may describe another
 /// volume or a range that was not read. A mount point stays a directory item
-/// and a mounted file stays a file item without a size.
+/// and a file on another volume, mounted or not, is a boundary file: a file
+/// item without a size that adds neither bytes nor a missing item to its
+/// folder.
 pub(super) fn record_unentered(
     build: &mut BuildHandle,
     (root_index, path): (u32, &[Vec<u8>]),
@@ -251,16 +253,21 @@ pub(super) fn record_unentered(
     counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
-    let observation = Observation {
-        path: path.to_vec(),
-        size: None,
-    };
     match entry.metadata.as_ref().map(|meta| &meta.kind) {
         Ok(ObservedKind::Directory | ObservedKind::MountPoint) => {
             build.add_directory_at(root_index, path.to_vec())?;
         }
-        Ok(ObservedKind::MountedFile) => build.add_file_at(root_index, observation)?,
-        _ => build.add_at(root_index, observation)?,
+        Ok(ObservedKind::MountedFile) => build.add_boundary_file_at(root_index, path.to_vec())?,
+        Ok(ObservedKind::File) if unread == Unread::OtherVolume => {
+            build.add_boundary_file_at(root_index, path.to_vec())?;
+        }
+        _ => build.add_at(
+            root_index,
+            Observation {
+                path: path.to_vec(),
+                size: None,
+            },
+        )?,
     }
     record_unread(
         build,

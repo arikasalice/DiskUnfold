@@ -130,3 +130,43 @@ fn a_link_whose_own_size_is_unknown_is_never_counted_as_zero() -> Result<(), Str
     ));
     Ok(())
 }
+
+#[test]
+fn a_boundary_file_is_neither_a_member_nor_in_the_scope_total() -> Result<(), String> {
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/r"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut build = IngestSink::default()
+        .open_forest(id(32), vec![root])
+        .map_err(err)?;
+    build.add_directory_at(0, vec![]).map_err(err)?;
+    build
+        .add_file_at(
+            0,
+            Observation {
+                path: vec![b"a".to_vec()],
+                size: Some(sized(10)),
+            },
+        )
+        .map_err(err)?;
+    build
+        .add_boundary_file_at(0, vec![b"hosts".to_vec()])
+        .map_err(err)?;
+    let version = build
+        .seal(id(33), ResultCompleteness::Complete)
+        .map_err(err)?;
+    let read = classify(&version, None, vec![], Parallelism::default())?;
+    let recount = read.reconcile(|| false).map_err(err)?;
+    assert!(recount.source_coverage_complete);
+    assert_eq!(recount.observed_files, 1);
+    let totals = read.totals(&[], || false).map_err(err)?;
+    let f03 = version.space(0).ok_or("missing total")?;
+    assert_eq!(f03.logical.amount, SizeAmount::Exact { bytes: 10.into() });
+    assert_eq!(totals.scope.logical.amount, f03.logical.amount);
+    Ok(())
+}

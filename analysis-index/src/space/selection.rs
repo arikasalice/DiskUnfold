@@ -113,6 +113,10 @@ fn calculate<'a>(
             return Err(Error::Cancelled);
         }
         let row = row.map_err(Error::Item)?;
+        // A file outside the boundary is an unread range: neither summed nor missing.
+        if version.is_boundary_item(row.item_no) {
+            continue;
+        }
         let summed = summed_row(row);
         let file = summed.is_some();
         complete &= file;

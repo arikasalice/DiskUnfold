@@ -77,6 +77,7 @@ fn repeated_identities(
 pub(crate) fn apply(
     items: &[ResultItem],
     observations: Option<&[Option<Arc<SpaceObservation>>]>,
+    boundary: &[u32],
     completeness: ResultCompleteness,
     proven: Option<&ProvenFolders>,
     limit: usize,
@@ -84,7 +85,7 @@ pub(crate) fn apply(
 ) {
     let source = |index| ProvenFolders::source(proven, index, completeness);
     let Some(observations) = observations else {
-        apply_unobserved(items, &source, limit, output);
+        apply_unobserved(items, boundary, &source, limit, output);
         return;
     };
     let repeated = repeated_identities(items, observations);
@@ -116,7 +117,9 @@ pub(crate) fn apply(
             let _ = own.record(observed, false);
         }
         own.finish(source(index), &mut output[index]);
-        if let (Some(parent), Some(observed)) = (item.parent, &observed) {
+        // A file outside the boundary keeps its own totals and adds nothing above it.
+        let counts_above = boundary.binary_search(&item.item_no).is_err();
+        if let (Some(parent), Some(observed), true) = (item.parent, &observed, counts_above) {
             let _ = sums[parent as usize]
                 .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
                 .record(observed, tabled);
@@ -127,6 +130,7 @@ pub(crate) fn apply(
 /// Without any evidence column, every file below a folder is missing.
 fn apply_unobserved(
     items: &[ResultItem],
+    boundary: &[u32],
     source: &dyn Fn(usize) -> ResultCompleteness,
     limit: usize,
     output: &mut [SpaceAggregate],
@@ -140,7 +144,10 @@ fn apply_unobserved(
             ..Physical::with_limit(limit)
         }
         .finish(source(index), &mut output[index]);
-        if let Some(parent) = item.parent {
+        if let Some(parent) = item
+            .parent
+            .filter(|_| boundary.binary_search(&item.item_no).is_err())
+        {
             missing[parent as usize] |= missing[index];
         }
     }

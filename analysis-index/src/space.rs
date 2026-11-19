@@ -160,6 +160,7 @@ pub(crate) fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvi
 
 pub(crate) fn aggregate(
     items: &[ResultItem],
+    boundary: &[u32],
     completeness: ResultCompleteness,
     proven: Option<&crate::folder_completion::ProvenFolders>,
 ) -> Vec<SpaceAggregate> {
@@ -171,7 +172,11 @@ pub(crate) fn aggregate(
         } else if !is_structure(item.kind) {
             sums[index].observe(item.size.as_ref());
         }
-        if let Some(parent) = item.parent {
+        // A file outside the boundary keeps its own unknown value but is an unread range
+        // for its folder, so it adds neither bytes nor a missing item above it.
+        if let Some(parent) = item.parent
+            && boundary.binary_search(&item.item_no).is_err()
+        {
             let child = sums[index].clone();
             sums[parent as usize].merge(&child);
         }
@@ -187,10 +192,14 @@ pub(crate) fn aggregate(
 /// Computes a forest-wide total directly from observations, not subtree totals.
 pub(crate) fn scope_total(
     items: &[ResultItem],
+    boundary: &[u32],
     completeness: ResultCompleteness,
 ) -> SpaceAggregate {
     let mut sum = Accumulator::default();
     for item in items {
+        if boundary.binary_search(&item.item_no).is_ok() {
+            continue;
+        }
         if item.kind == ResultItemKind::UntraversedLink {
             sum.observe_link(item.size.as_ref());
         } else if !is_structure(item.kind) {

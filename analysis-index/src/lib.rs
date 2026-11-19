@@ -132,6 +132,8 @@ pub struct ResultVersion {
     /// lock. `None` when the version was not sealed by a store that tracks freshness.
     freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
     folder_evidence: Option<folder_evidence_snapshot::FolderEvidenceSnapshot>,
+    /// Files outside the scan boundary, ascending by item number (F03 FR5.HD1).
+    boundary_items: Box<[u32]>,
 }
 
 /// A single publication point. Readers retain their snapshot after releasing the lock.
@@ -440,6 +442,7 @@ impl BuildHandle {
             observed_at,
             freshness_outcomes,
             folder_evidence,
+            boundary_items: built.boundary,
         });
         let order = self
             .events

@@ -74,31 +74,40 @@ fn boundary_attempt(
     Ok((build, end))
 }
 
-/// A file bind mount: enumerated as the covered file, observed as the
-/// mounted file on another volume.
-fn mounted_file_observation() -> TimedObservedEntry {
+/// An entry outside the boundary: enumerated as the covered file, observed
+/// with `kind` (a bind-mounted file, or a file on another volume).
+fn boundary_file_observation(kind: ObservedKind) -> TimedObservedEntry {
     let mut timed = boundary_observation();
     timed.entry.name = b"hosts".to_vec();
     timed.entry.enumerated_kind = ObservedKind::File;
     timed.entry.enumerated_inode = 7;
     if let Ok(metadata) = &mut timed.entry.metadata {
-        metadata.kind = ObservedKind::MountedFile;
+        metadata.kind = kind;
         metadata.inode = 8;
     }
     timed
 }
 
-/// Ends one attempt whose only child is a mounted file with `outcome`.
-fn mounted_file_attempt(
-    stored_as_file: bool,
+/// How the collector stored the entry before the attempt ended.
+#[derive(Clone, Copy)]
+enum Stored {
+    BoundaryFile,
+    PlainFile,
+    Directory,
+}
+
+/// Ends one attempt whose only child is a boundary entry with `outcome`.
+fn boundary_file_attempt(
+    stored: Stored,
+    observed: ObservedKind,
     outcome: FolderAttemptFinal,
 ) -> Result<Result<(), FolderAttemptError>, String> {
     let mut build = build(&IngestSink::default(), 57)?;
     let path = vec![b"hosts".to_vec()];
-    if stored_as_file {
-        build.add_file_at(0, crate::Observation { path, size: None })
-    } else {
-        build.add_directory(path)
+    match stored {
+        Stored::BoundaryFile => build.add_boundary_file_at(0, path),
+        Stored::PlainFile => build.add_file_at(0, crate::Observation { path, size: None }),
+        Stored::Directory => build.add_directory(path),
     }
     .map_err(|error| format!("{error:?}"))?;
     let token = build
@@ -113,7 +122,7 @@ fn mounted_file_attempt(
         }),
         FolderAttemptInput::Adapter(CorrelatedDirectoryEvent::Observation {
             child_id: 0,
-            entry: mounted_file_observation(),
+            entry: boundary_file_observation(observed),
         }),
         FolderAttemptInput::Final {
             child_id: 0,
@@ -129,27 +138,54 @@ fn mounted_file_attempt(
     Ok(build.end_folder_attempt(token, 3, 1))
 }
 
-/// The collector stores a mounted file as a file item without a size and
-/// sends a boundary final; any other stored kind or final is rejected.
+/// The collector stores a bind-mounted file and a file on another volume as
+/// boundary files and sends a boundary final; any other stored kind or final
+/// is rejected (F03 FR5.HD1).
 #[test]
-fn a_mounted_file_is_a_boundary_only_as_a_stored_file() -> Result<(), String> {
-    assert_eq!(
-        mounted_file_attempt(true, FolderAttemptFinal::Boundary)?,
-        Ok(())
-    );
-    assert_eq!(
-        mounted_file_attempt(false, FolderAttemptFinal::Boundary)?,
-        Err(FolderAttemptError::InvalidEnd)
-    );
-    assert_eq!(
-        mounted_file_attempt(
-            true,
-            FolderAttemptFinal::Recorded {
-                child_attempt: None
-            }
-        )?,
-        Err(FolderAttemptError::InvalidEnd)
-    );
+fn a_boundary_file_is_a_boundary_only_when_stored_as_one() -> Result<(), String> {
+    let recorded = FolderAttemptFinal::Recorded {
+        child_attempt: None,
+    };
+    for (stored, observed, outcome, expected) in [
+        (
+            Stored::BoundaryFile,
+            ObservedKind::MountedFile,
+            FolderAttemptFinal::Boundary,
+            Ok(()),
+        ),
+        (
+            Stored::BoundaryFile,
+            ObservedKind::File,
+            FolderAttemptFinal::Boundary,
+            Ok(()),
+        ),
+        (
+            Stored::Directory,
+            ObservedKind::MountedFile,
+            FolderAttemptFinal::Boundary,
+            Err(FolderAttemptError::InvalidEnd),
+        ),
+        (
+            Stored::PlainFile,
+            ObservedKind::MountedFile,
+            FolderAttemptFinal::Boundary,
+            Err(FolderAttemptError::InvalidEnd),
+        ),
+        (
+            Stored::BoundaryFile,
+            ObservedKind::MountedFile,
+            recorded,
+            Err(FolderAttemptError::InvalidEnd),
+        ),
+        (
+            Stored::BoundaryFile,
+            ObservedKind::File,
+            recorded,
+            Err(FolderAttemptError::InvalidEnd),
+        ),
+    ] {
+        assert_eq!(boundary_file_attempt(stored, observed, outcome)?, expected);
+    }
     Ok(())
 }
 

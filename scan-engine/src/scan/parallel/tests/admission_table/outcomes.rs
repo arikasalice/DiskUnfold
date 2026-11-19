@@ -141,7 +141,8 @@ fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), Strin
     // The mount point stays a directory item without the mounted volume's size.
     assert!(items.contains(&(0, path(&["vol"]), ResultItemKind::Directory, false)));
     assert!(items.contains(&(0, path(&["mnt"]), ResultItemKind::Directory, false)));
-    assert!(items.contains(&(0, path(&["foreign.bin"]), ResultItemKind::Unknown, false)));
+    // A file on another volume is a boundary file: a file item without a size.
+    assert!(items.contains(&(0, path(&["foreign.bin"]), ResultItemKind::File, false)));
     // The mounted file stays a file item without the mounted file's size.
     assert!(items.contains(&(0, path(&["hosts"]), ResultItemKind::File, false)));
     for (workers, seed) in RUNS {
