@@ -2,9 +2,16 @@
   cursor: pointer;
   color: var(--du-accent);
   fill: var(--du-info-surface);
-  /* A gap of the surface colour between shapes; blue is for focus and selection. */
+  /* A gap of the surface colour between point and line shapes; blue is for focus
+     and selection. */
   stroke: var(--du-surface);
   stroke-width: 1;
+}
+
+/* A rectangle is drawn inside its gap on whole device pixels instead of with a
+   centred stroke, which would fall between pixels and blur (#156). */
+.du-geometry-shape > rect {
+  stroke: none;
 }
 
 .du-geometry-label {
@@ -15,11 +22,10 @@
 }
 
 /* An expanded folder: its header band and inset show its own fill. It is drawn
-   1 px inside its rectangle instead of a stroke, so the gap to its neighbours
-   does not cover its inset (F06 design README section 27, 4.7). */
+   1 px inside its rectangle, so the gap to its neighbours does not cover its
+   inset (F06 design README section 27, 4.7). */
 .du-geometry-shape[data-container] {
   fill: var(--du-border);
-  stroke: none;
 }
 
 .du-geometry-header {
@@ -31,15 +37,12 @@
 }
 
 /* A lower bound keeps its own fill; only its right and bottom edges are dashed
-   (F06 design README 4.6). --du-muted keeps 4:1 on leaf and folder fills. */
+   (F06 design README 4.6). --du-muted keeps 4:1 on leaf and folder fills. The
+   width is set per chart in whole device pixels. */
 .du-geometry-lower-bound {
   fill: none;
   stroke: var(--du-muted);
-  /* 2 px: wherever the chart lands on device pixels, at least one pixel row has
-     the full colour, so the dash keeps the --du-muted contrast. */
-  stroke-width: 2;
   stroke-dasharray: 4 3;
-  shape-rendering: crispEdges;
   pointer-events: none;
 }
 
@@ -67,7 +70,15 @@
   white-space: nowrap;
 }
 
-.du-geometry g[data-selected="true"] > :not(text, .du-geometry-lower-bound) {
+/* The selection outline of a rectangle, a band of whole device pixels inside it. */
+.du-geometry-shape > .du-geometry-selection {
+  fill: none;
+  stroke: var(--du-focus);
+  stroke-dasharray: 4 2;
+  pointer-events: none;
+}
+
+.du-geometry g[data-selected="true"] > :is(circle, polyline, polygon) {
   stroke: var(--du-focus);
   stroke-width: 3;
   stroke-dasharray: 4 2;

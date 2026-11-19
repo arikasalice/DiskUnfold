@@ -2,8 +2,10 @@
 # Runs the Windows UI smoke scenarios listed in windows-ui-smoke.json, one fresh smoke-windows.ps1
 # process per scenario with isolated data, and keeps each scenario's log and review captures.
 # A scenario has a unique lower-case name, the switches of smoke-windows.ps1 to pass ("arguments"),
-# and optionally "locale" (en or ko), "theme" (light or dark) and "windowSize" (WIDTHxHEIGHT).
-# Captures go to a folder named <name>-<locale>-<theme>-<size>. Use -Only to run some scenarios.
+# and optionally "locale" (en or ko), "theme" (light or dark), "windowSize" (WIDTHxHEIGHT) and
+# "appScale" (125, 150 or 200, the app's CSS zoom; the runner's display scale stays 100%).
+# Captures go to a folder named <name>-<locale>-<theme>-<size>, with -scale<n> when the app scale
+# is not 100. Use -Only to run some scenarios.
 # -ScreenSize switches the display to a mode at least that large first, for window sizes the
 # default CI screen cannot hold. Exits 1 when any scenario failed.
 [CmdletBinding()]
@@ -98,13 +100,15 @@ $results = foreach ($scenario in $scenarios) {
   $locale = if ($scenario.locale) { $scenario.locale } else { 'en' }
   $theme = if ($scenario.theme) { $scenario.theme } else { 'light' }
   $size = if ($scenario.windowSize) { $scenario.windowSize } else { 'default' }
-  $folderName = "$($scenario.name)-$locale-$theme-$size"
+  $scale = if ($scenario.appScale) { [string]$scenario.appScale } else { '100' }
+  $folderName = "$($scenario.name)-$locale-$theme-$size" + $(if ($scale -ne '100') { "-scale$scale" } else { '' })
   $captures = Join-Path $out $folderName
   New-Item -ItemType Directory -Force -Path $captures | Out-Null
   $log = Join-Path $out "$($scenario.name).log"
   $started = Get-Date
   $arguments = @($scenario.arguments) + @('-Locale', $locale, '-Theme', $theme)
   if ($scenario.windowSize) { $arguments += @('-WindowSize', $scenario.windowSize) }
+  if ($scale -ne '100') { $arguments += @('-AppScale', $scale) }
   & pwsh -NoProfile -File $smoke -Binary $exe -CaptureDirectory $captures -KeepFixture @arguments *>&1 | Tee-Object -FilePath $log | Out-Host
   [pscustomobject]@{
     name = $scenario.name

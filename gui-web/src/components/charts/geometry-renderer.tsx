@@ -4,6 +4,8 @@ import { Action } from "../controls";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
 import { graphemes } from "../graphemes";
+import { NO_GRID, snap, useDeviceGrid, whole } from "./device-grid";
+import type { DeviceGrid } from "./device-grid";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -176,10 +178,50 @@ function project(
   view: Viewport,
   width: number,
   height: number,
+  grid: DeviceGrid = NO_GRID,
 ): DisplayPoint {
   return {
-    x: Math.round(((point.x - view.left) * width) / (view.right - view.left)),
-    y: Math.round(((point.y - view.top) * height) / (view.bottom - view.top)),
+    x: snap(((point.x - view.left) * width) / (view.right - view.left), grid),
+    y: snap(((point.y - view.top) * height) / (view.bottom - view.top), grid),
+  };
+}
+
+/** How far inside its rectangle a shape is drawn: from the left and top, and from the right and bottom. */
+type Inset = { start: number; end: number };
+const NO_INSET: Inset = { start: 0, end: 0 };
+
+/**
+ * The gap between shapes, as whole device pixels. A leaf gives half of a 1 px
+ * gap to each side, so two neighbours are one gap apart; an expanded folder is
+ * drawn 1 px inside all round, so its inset shows its own fill (README 27, 4.7).
+ */
+function insetOf(shape: Shape, grid: DeviceGrid): Inset {
+  if (shape.container) {
+    const all = whole(1, grid);
+    return { start: all, end: all };
+  }
+  const gap = Math.max(1, Math.round(grid.scale));
+  const start = Math.floor(gap / 2) / grid.scale;
+  return { start, end: gap / grid.scale - start };
+}
+
+/** The drawn edges of a rectangle shape after its inset, on device pixels. */
+function drawnEdges(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+  grid: DeviceGrid,
+) {
+  if (shape.geometry.primitive !== "rect") return null;
+  const inset = insetOf(shape, grid);
+  const start = project(shape.geometry.points[0]!, view, width, height, grid);
+  const end = project(shape.geometry.points[1]!, view, width, height, grid);
+  return {
+    left: start.x + inset.start,
+    top: start.y + inset.start,
+    right: end.x - inset.end,
+    bottom: end.y - inset.end,
   };
 }
 function primitive(
@@ -187,10 +229,11 @@ function primitive(
   view: Viewport,
   width: number,
   height: number,
-  inset = 0,
+  grid: DeviceGrid = NO_GRID,
+  inset: Inset = NO_INSET,
 ) {
   const points = geometry.points.map((point) =>
-    project(point, view, width, height),
+    project(point, view, width, height, grid),
   );
   const text = points.map((point) => `${point.x},${point.y}`).join(" ");
   switch (geometry.primitive) {
@@ -207,10 +250,10 @@ function primitive(
         return null;
       return (
         <rect
-          x={start.x + inset}
-          y={start.y + inset}
-          width={Math.max(0, end.x - start.x - 2 * inset)}
-          height={Math.max(0, end.y - start.y - 2 * inset)}
+          x={start.x + inset.start}
+          y={start.y + inset.start}
+          width={Math.max(0, end.x - start.x - inset.start - inset.end)}
+          height={Math.max(0, end.y - start.y - inset.start - inset.end)}
         />
       );
     }
@@ -274,26 +317,53 @@ function fitLabel(shape: Shape, limit: number) {
 
 /**
  * The dashed right and bottom edge of a lower-bound rectangle (F06 design README
- * 4.6), centred 1.5 px inside the shape: clear of the surface gap beside a leaf,
- * and on the inset of an expanded folder between its own edge and its children.
+ * 4.6): a 2 px band of whole device pixels just inside the drawn edge, which in an
+ * expanded folder is its inset between its own edge and its children.
  */
 function lowerBoundEdge(
   shape: Shape,
   view: Viewport,
   width: number,
   height: number,
+  grid: DeviceGrid,
 ) {
-  if (!shape.lowerBound || shape.geometry.primitive !== "rect") return null;
-  const inset = 1.5;
-  const start = project(shape.geometry.points[0]!, view, width, height);
-  const end = project(shape.geometry.points[1]!, view, width, height);
-  const right = end.x - inset;
-  const bottom = end.y - inset;
-  if (right <= start.x + inset || bottom <= start.y + inset) return null;
+  const edges = shape.lowerBound
+    ? drawnEdges(shape, view, width, height, grid)
+    : null;
+  const band = whole(2, grid);
+  if (!edges || edges.right - band <= edges.left) return null;
+  if (edges.bottom - band <= edges.top) return null;
+  const x = edges.right - band / 2;
+  const y = edges.bottom - band / 2;
   return (
     <path
       className="du-geometry-lower-bound"
-      d={`M${right},${start.y + inset} V${bottom} H${start.x + inset}`}
+      strokeWidth={band}
+      d={`M${x},${edges.top} V${y} H${edges.left}`}
+    />
+  );
+}
+
+/** The selection outline: a 3 px band of whole device pixels inside the drawn edge (4.7). */
+function selectionBand(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+  grid: DeviceGrid,
+) {
+  const edges = drawnEdges(shape, view, width, height, grid);
+  const band = whole(3, grid);
+  if (!edges || edges.right - edges.left <= band) return null;
+  if (edges.bottom - edges.top <= band) return null;
+  return (
+    <rect
+      className="du-geometry-selection"
+      strokeWidth={band}
+      x={edges.left + band / 2}
+      y={edges.top + band / 2}
+      width={edges.right - edges.left - band}
+      height={edges.bottom - edges.top - band}
     />
   );
 }
@@ -303,10 +373,11 @@ function rectangleLabel(
   view: Viewport,
   width: number,
   height: number,
+  grid: DeviceGrid,
 ) {
   if (shape.geometry.primitive !== "rect") return null;
-  const start = project(shape.geometry.points[0]!, view, width, height);
-  const end = project(shape.geometry.points[1]!, view, width, height);
+  const start = project(shape.geometry.points[0]!, view, width, height, grid);
+  const end = project(shape.geometry.points[1]!, view, width, height, grid);
   const left = Math.max(start.x, 0);
   const top = Math.max(start.y, 0);
   const available = Math.min(end.x, width) - left;
@@ -330,6 +401,9 @@ function rectangleLabel(
 /** Draws all supported common primitives or presents the supplied same-model table. */
 export function GeometryRenderer(props: GeometryRendererProps) {
   const clip = useId();
+  const svg = useRef<SVGSVGElement>(null);
+  // Where the chart falls on device pixels, so its 1 px lines stay sharp (#156).
+  const grid = useDeviceGrid(svg, Math.round(props.width));
   const controls = useRef(new Map<string, HTMLButtonElement>());
   const restoreFocus = useRef(false);
   const lastFocusFirstRequest = useRef(props.focusFirstRequest);
@@ -409,20 +483,20 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const height = Math.round(props.height);
   const visible = shapes.flatMap((shape) => {
     if (!intersects(shape.geometry, viewport)) return [];
-    // An expanded folder is drawn 1 px inside its rectangle: with the neighbour's
-    // half of a 1 px gap it keeps 2 px apart, and its own fill shows in the inset.
     const drawing = primitive(
       shape.geometry,
       viewport,
       width,
       height,
-      shape.container ? 1 : 0,
+      grid,
+      insetOf(shape, grid),
     );
     return drawing === null ? [] : [{ shape, drawing }];
   });
   return (
     <section aria-label={props.label}>
       <svg
+        ref={svg}
         className="du-geometry"
         aria-hidden="true"
         focusable="false"
@@ -436,7 +510,12 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <rect width={width} height={height} />
           </clipPath>
         </defs>
-        <g clipPath={`url(#${clip})`}>
+        <g
+          clipPath={`url(#${clip})`}
+          transform={
+            grid.dx || grid.dy ? `translate(${grid.dx} ${grid.dy})` : undefined
+          }
+        >
           {relations
             .filter(
               (relation) =>
@@ -445,7 +524,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             )
             .map((relation, index) => (
               <g className="du-geometry-relation" key={`relation-${index}`}>
-                {primitive(relation.geometry!, viewport, width, height)}
+                {primitive(relation.geometry!, viewport, width, height, grid)}
               </g>
             ))}
           {visible.map(({ shape, drawing }) => (
@@ -464,8 +543,10 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               }
             >
               {drawing}
-              {lowerBoundEdge(shape, viewport, width, height)}
-              {rectangleLabel(shape, viewport, width, height)}
+              {shape.rowRef === props.selectedRowRef &&
+                selectionBand(shape, viewport, width, height, grid)}
+              {lowerBoundEdge(shape, viewport, width, height, grid)}
+              {rectangleLabel(shape, viewport, width, height, grid)}
             </g>
           ))}
         </g>

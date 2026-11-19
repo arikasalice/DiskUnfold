@@ -14,6 +14,8 @@ param(
   [ValidateSet('en', 'ko')][string]$Locale = 'en',
   # dark makes the WebView report prefers-color-scheme: dark; the app follows it.
   [ValidateSet('light', 'dark')][string]$Theme = 'light',
+  # The app scale (a11y.app_scale), a CSS zoom of the whole page; 100 leaves the setting alone.
+  [ValidateSet('100', '125', '150', '200')][string]$AppScale = '100',
   # Outer window size as WIDTHxHEIGHT, for example 1280x800. The screen must be at least this large.
   [string]$WindowSize,
   # Walk the main screens once and capture each one, without the value checks of the full flow.
@@ -184,7 +186,7 @@ function Get-UiName([string]$name) {
 }
 # The settings database exists only after a first start: start the app once, close it, then store the
 # display language in it with python's sqlite3 and let the real start read it.
-function Initialize-SmokeLocale([string]$language) {
+function Initialize-SmokeLocale([string]$language, [string]$scale = '100') {
   $python = Get-Command python -ErrorAction SilentlyContinue
   if (-not $python) { throw 'python is needed to store the display language in the isolated profile' }
   $database = Join-Path $profile 'DiskUnfold\diskunfold.db'
@@ -209,12 +211,14 @@ function Initialize-SmokeLocale([string]$language) {
 import sqlite3, sys
 connection = sqlite3.connect(sys.argv[1])
 connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('locale.display_language', ?, 'owner', 0, 0, 1)", ('"' + sys.argv[2] + '"',))
+if sys.argv[3] != "100":
+    connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('a11y.app_scale', ?, 'owner', 0, 0, 1)", (sys.argv[3],))
 connection.execute("UPDATE user_env_setting_version SET settings_version = settings_version + 1, updated_at_ms = 0 WHERE version_key = 'settings'")
 connection.commit()
 connection.close()
 '@
-  $seed | & $python.Source - $database $language
-  if ($LASTEXITCODE -ne 0) { throw "Could not store the display language (python exit code $LASTEXITCODE)" }
+  $seed | & $python.Source - $database $language $scale
+  if ($LASTEXITCODE -ne 0) { throw "Could not store the display language and app scale (python exit code $LASTEXITCODE)" }
 }
 Add-Type -TypeDefinition @'
 using System;
@@ -257,7 +261,7 @@ if ($Locale -ne 'en') { Initialize-UiNames $Locale }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
 $appEnvironment = @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') }
-if ($Locale -ne 'en') { Initialize-SmokeLocale $Locale }
+if ($Locale -ne 'en' -or $AppScale -ne '100') { Initialize-SmokeLocale $Locale $AppScale }
 # The WebView reports prefers-color-scheme from the Windows app color mode, which the app follows. Set
 # it for this run only and put it back in the final block below.
 $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
