@@ -70,6 +70,36 @@ describe.each(["en", "ko"] as const)("row names (%s)", (language) => {
       : `기타 ${n}개${plus ? " 이상" : ""}`;
   const unknownName = language === "en" ? "Other items" : "기타 항목";
 
+  test("F06 FR12.HD1.gui-web.DD1: a group row's own member count names it, whatever the model holds", () => {
+    // Two groups: the model-wide grouped count could not name either one.
+    const model = modelWith(["g1", "g2"], items("exact", "9"));
+    expect(
+      rowName(groupRow({ memberCount: items("exact", "4") }), model, text),
+    ).toBe(other("4"));
+    expect(
+      rowName(
+        groupRow({ memberCount: items("lower_bound", "4") }),
+        model,
+        text,
+      ),
+    ).toBe(other("4", true));
+    expect(
+      rowName(
+        groupRow({
+          memberCount: {
+            unit: "items",
+            state: "unknown",
+            reasonKey: "viz.unavailable.no_attribution",
+          },
+        }),
+        model,
+        text,
+      ),
+    ).toBe(unknownName);
+    // A row from before the field keeps the one-group rule.
+    expect(rowName(groupRow(), model, text)).toBe(unknownName);
+  });
+
   test("the engine's other-group label key resolves as plain localized text", () => {
     expect(text.key(OTHER)).toBe(unknownName);
   });

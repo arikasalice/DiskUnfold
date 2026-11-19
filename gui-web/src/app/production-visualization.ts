@@ -11,8 +11,8 @@ const DENOMINATOR_BASIS = "scope";
 const COORDINATE_MAX = 1_000_000;
 /** Provisional until the display policy supplies it. */
 const MIN_AREA_PX2 = 16;
-/** One level of children: names of deeper shapes are not available yet. */
-const DEPTH_LIMIT = 1;
+/** The published default depth: shapes inside a folder take their names from its rows. */
+const DEPTH_LIMIT = 2;
 
 /**
  * The product assembly of the Browse space view.

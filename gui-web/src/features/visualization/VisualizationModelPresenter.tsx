@@ -20,6 +20,8 @@ type ModelViewProps = {
   resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;
   frame: ModelResponse;
   page?: ModelRowsPage;
+  /** Rows of the expanded folders of `frame`, for the names of nested shapes. */
+  folderRows?: readonly VizRow[];
   /** Supplied only while this exact row request is in flight. */
   pendingRowsRequest?: VizRowsRequest;
   view: Pick<VizRenderRequest, "viewport" | "visibleWindow">;
@@ -52,7 +54,7 @@ type ModelViewProps = {
 
 /** A committed model only. Request ordering and last-valid-model retention belong to its controller. */
 export function VisualizationModelPresenter(props: ModelViewProps) {
-  const { frame, page, view, selected, text } = props;
+  const { frame, page, view, selected, text, folderRows } = props;
   const visualizationRef = useRef<HTMLElement>(null);
   const chartBox = useRef<HTMLDivElement>(null);
   const contextRef = useRef<HTMLDivElement>(null);
@@ -65,10 +67,13 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     props.pendingRowsRequest.resultRevision === frame.resultRevision;
   const adapted = useMemo(
     () =>
-      adaptVizModel(frame, page, (shape, row) =>
-        shapeLabels(frame.model, shape, row, text),
+      adaptVizModel(
+        frame,
+        page,
+        (shape, row) => shapeLabels(frame.model, shape, row, text),
+        folderRows,
       ),
-    [frame, page, text],
+    [frame, page, text, folderRows],
   );
   const rowsContent =
     adapted.rowsMatch && page ? (

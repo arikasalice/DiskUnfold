@@ -64,7 +64,11 @@ export function matchingRowsPage(frame: ModelResponse, page: ModelRowsPage) {
   );
 }
 
-/** Keeps geometry, order and identity intact; it never computes layout or totals. */
+/**
+ * Keeps geometry, order and identity intact; it never computes layout or totals.
+ * `folderRows` names the shapes inside expanded folders; a row of `page` wins
+ * when both hold the same reference.
+ */
 export function adaptVizModel(
   frame: ModelResponse,
   page: ModelRowsPage | undefined,
@@ -77,10 +81,13 @@ export function adaptVizModel(
     displayName?: string;
     displayValue?: string;
   },
+  folderRows: readonly VizRow[] = [],
 ) {
   const rowsMatch = page !== undefined && matchingRowsPage(frame, page);
   const rows = rowsMatch ? page.response.rows : [];
-  const rowByTarget = new Map(rows.map((row) => [targetKey(row), row]));
+  const rowByTarget = new Map(
+    [...folderRows, ...rows].map((row) => [targetKey(row), row]),
+  );
   const targetsByShape = new Map<string, VizSelection>();
   let validTargets = true;
   const shapes: GeometryRendererProps["shapes"] = frame.model.shapes.map(

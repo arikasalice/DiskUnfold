@@ -494,6 +494,148 @@ beforeEach(() => {
   );
 });
 
+test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a folder from that folder's rows", async () => {
+  // Shape 1 is a folder drawn at depth 1; the engine also drew one file and one
+  // group inside it. Their names come only from the folder's own table.
+  const nestedFrame = (request: VizRenderRequest) => {
+    const frame = frameFor(request);
+    const revision = frame.resultRevision;
+    const shapes = frame.model.shapes;
+    shapes.forEach((shape, index) => {
+      shape.shapeRef = `s${index}`;
+      shape.parentShapeRef = null;
+      shape.visibleDepth = 1;
+    });
+    const folder = shapes[1]!;
+    shapes.push(
+      {
+        ...folder,
+        itemRef: { resultVersion: revision, itemNo: 40 },
+        shapeRef: "nested-file",
+        parentShapeRef: "s1",
+        visibleDepth: 2,
+      },
+      {
+        ...folder,
+        itemRef: null,
+        groupRef: "nested-other",
+        matchKey: { state: "not_applicable" },
+        shapeRef: "nested-other",
+        parentShapeRef: "s1",
+        visibleDepth: 2,
+        memberCount: { unit: "items", state: "lower_bound", value: "7" },
+      },
+    );
+    return frame;
+  };
+  let lastFrame: ReturnType<typeof nestedFrame> | undefined;
+  const folderReads: VizRowsRequest[] = [];
+  const { client, calls } = desktop("en", {
+    render: (request) => (lastFrame = nestedFrame(request)),
+    rows: (request) => {
+      const frame = lastFrame!;
+      if (request.parentShapeRef === undefined) {
+        const root = rowsFor(undefined, request.resultRevision);
+        root.observedAt = frame.observedAt;
+        root.rows = frame.model.shapes
+          .filter((shape) => !shape.parentShapeRef)
+          .map((shape, index) => ({
+            ...root.rows[index]!,
+            itemRef: shape.itemRef,
+            groupRef: shape.groupRef,
+            ...(shape.groupRef
+              ? {
+                  memberCount: {
+                    unit: "items",
+                    state: "exact" as const,
+                    value: "1",
+                  },
+                }
+              : {}),
+          }));
+        return root;
+      }
+      folderReads.push(request);
+      const [file, group] = frame.model.shapes.slice(-2);
+      return {
+        rows: [
+          {
+            itemRef: file!.itemRef,
+            groupRef: null,
+            displayName: "Holiday.mp4",
+            size: file!.size,
+            ratio: "0.5",
+            denominator: frame.model.denominator,
+            legendClassKey: "unclassified",
+            displayFlags: [],
+          },
+          {
+            itemRef: null,
+            groupRef: group!.groupRef,
+            displayName: OTHER_GROUP_LABEL,
+            labelKey: OTHER_GROUP_LABEL,
+            memberCount: group!.memberCount!,
+            size: group!.size,
+            ratio: "0.1",
+            denominator: frame.model.denominator,
+            legendClassKey: "unclassified",
+            displayFlags: [],
+          },
+        ],
+        totalCount: 2,
+        resultRevision: request.resultRevision,
+        observedAt: frame.observedAt,
+        completeness: "complete",
+      } satisfies VizRows;
+    },
+  });
+  const label = (key: string) => realLocales.en.text(key, "");
+  render(<DesktopLocale client={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+  fireEvent.click(
+    screen.getByRole("button", { name: label("ui.analysis.review") }),
+  );
+  const start = await screen.findByRole<HTMLButtonElement>("button", {
+    name: label("ui.analysis.start"),
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  fireEvent.click(
+    await screen.findByRole(
+      "button",
+      { name: label("ui.analysis.browse") },
+      { timeout: 5000 },
+    ),
+  );
+  fireEvent.click(
+    await screen.findByRole(
+      "button",
+      { name: label("ui.visualization.show_space_distribution") },
+      { timeout: 5000 },
+    ),
+  );
+  await screen.findByRole(
+    "button",
+    { name: /^Holiday\.mp4 · / },
+    {
+      timeout: 5000,
+    },
+  );
+  await screen.findByRole("button", { name: /^Other \(7\+\) · / });
+  expect(calls.find(({ name }) => name === "viz.render")?.body).toMatchObject({
+    depthLimit: 2,
+  });
+  expect(folderReads).toEqual([
+    {
+      modelRef: lastFrame!.model.modelRef,
+      resultRevision: "result",
+      start: 0,
+      count: 2,
+      parentShapeRef: "s1",
+    },
+  ]);
+});
+
 describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
   const locale = realLocales[language];
   const label = (key: string) => locale.text(key, "");
@@ -558,7 +700,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       classificationCriterion: "none",
       colorCriterion: "none",
       denominatorBasis: "scope",
-      depthLimit: 1,
+      depthLimit: 2,
       viewport: { width: 640, height: 296, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");

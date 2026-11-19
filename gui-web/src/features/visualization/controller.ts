@@ -365,6 +365,9 @@ export class VisualizationController {
   cancelCurrent() {
     return this.loader.cancelCurrent();
   }
+  /** Reads the rows of an expanded folder for shape names; the shared row state is untouched. */
+  folderRows = (request: VizRowsRequest) =>
+    readRowsPages((page) => this.port.rows(page), request);
   async rows(request: VizRowsRequest) {
     if (this.isFallbackRequest(request)) return this.fallbackRows(request);
     const frame = this.state.table;
