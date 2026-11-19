@@ -22,26 +22,40 @@ test("keeps every ancestor accessible with its full name and current location te
   expect(screen.queryByRole("button", { name: entries[12]!.label })).toBeNull();
 });
 
-test("reveals a changed path without resetting manual horizontal inspection on rerender", () => {
-  const entries = [{ id: "first", label: "First location", current: true }];
-  const { rerender } = render(
-    <Breadcrumbs label="Folder path" entries={entries} />,
-  );
-  const viewport = screen.getByRole("navigation", { name: "Folder path" });
-  Object.defineProperty(viewport, "scrollWidth", {
-    configurable: true,
-    value: 1200,
-  });
-  viewport.scrollLeft = 40;
-  rerender(<Breadcrumbs label="Folder path" entries={[...entries]} />);
-  expect(viewport.scrollLeft).toBe(40);
-  rerender(
+// #145, F02 README: the value uses the remaining width and a path breaks
+// after a separator first; the end of a label is never cut.
+// jsdom joins the parts around a <wbr> with a space when it computes an
+// accessible name, so the label is found by its text here; ui-smoke logs the
+// names UI Automation reads.
+test("#145: a path label keeps its whole text and breaks after each separator", () => {
+  const root = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\scope";
+  render(
     <Breadcrumbs
       label="Folder path"
-      entries={[{ id: "second", label: "Second location", current: true }]}
+      entries={[
+        { id: "root", label: root, onPress: () => undefined },
+        { id: "photos", label: "Photos", current: true },
+      ]}
     />,
   );
-  expect(viewport.scrollLeft).toBe(1200);
+  const ancestor = screen.getAllByRole("button")[0]!;
+  expect(ancestor.textContent).toBe(root);
+  expect(ancestor.querySelectorAll("wbr")).toHaveLength(6);
+  const current = screen.getByText("Photos");
+  expect(current.getAttribute("aria-current")).toBe("location");
+  expect(current.querySelectorAll("wbr")).toHaveLength(0);
+  // A current location that is a path breaks the same way.
+  render(
+    <Breadcrumbs
+      label="Scope root"
+      entries={[{ id: "root", label: root, current: true }]}
+    />,
+  );
+  const location = screen
+    .getByRole("navigation", { name: "Scope root" })
+    .querySelector('[aria-current="location"]')!;
+  expect(location.textContent).toBe(root);
+  expect(location.querySelectorAll("wbr")).toHaveLength(6);
 });
 
 test("F02: every crumb marks edge white space on screen and reads the real name with its explanation", () => {
