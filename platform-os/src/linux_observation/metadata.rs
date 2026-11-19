@@ -96,9 +96,33 @@ impl Facts {
 
     /// True when this observation itself shows a directory with another mount
     /// on it: the kernel reports a mount root or a mount ID that differs from
-    /// the parent's. A different device alone does not establish a mount.
+    /// the parent's.
+    ///
+    /// A kernel older than 5.8 reports neither. There, a directory on another
+    /// device is taken as a mount, because its enumerated inode is the covered
+    /// directory's and could never match. Where the kernel does report the
+    /// evidence, a different device alone does not establish a mount: a btrfs
+    /// subvolume shares the parent's mount and is not a mount root.
     fn mounted_directory(&self, anchor: &Anchor) -> bool {
         self.is_directory()
+            && (self.mount_root == Some(true)
+                || !super::same_mount(self.mount, anchor.mount)
+                || (self.lacks_mount_evidence() && self.device != anchor.device))
+    }
+
+    /// True when the kernel returned neither the mount ID nor the mount root
+    /// attribute, as kernels older than 5.8 do.
+    fn lacks_mount_evidence(&self) -> bool {
+        self.mount.is_none() && self.mount_root.is_none()
+    }
+
+    /// True for a regular file on another device that the kernel reports as
+    /// a mount: the mount root attribute or a mount ID that differs from the
+    /// parent's. A different device alone is not evidence: on overlayfs a
+    /// plain file can report the device of its lower layer.
+    fn mounted_file(&self, anchor: &Anchor) -> bool {
+        self.file_type == Some(FileType::RegularFile)
+            && self.device != anchor.device
             && (self.mount_root == Some(true) || !super::same_mount(self.mount, anchor.mount))
     }
 
@@ -144,10 +168,14 @@ fn query(dir: impl AsFd, name: &CStr, flags: AtFlags) -> Result<Facts, PortError
 /// A directory with a mount on it, on the same device or another, is a
 /// [`ObservedKind::MountPoint`] with the mounted root's device and inode only.
 /// The lookup crosses into the mounted root, so the kernel reports the mount
-/// root attribute and the mount ID there (Linux 5.8 and later). Without that
-/// evidence, an entry on another device keeps its own kind under the same
-/// rule. A file mount on the parent's device and an unmounted automount
-/// trigger remain per-entry failures. None of these is ever entered.
+/// root attribute and the mount ID there (Linux 5.8 and later). When the kernel
+/// reports neither, a directory on another device is a mount point as well.
+/// A regular file on another device with mount evidence is a
+/// [`ObservedKind::MountedFile`] with the mounted file's device and inode only.
+/// Any other entry on another device keeps its own kind under the same rule,
+/// such as a btrfs subvolume, which the evidence shows is not a mount root. A
+/// file mount on the parent's device and an unmounted automount trigger remain
+/// per-entry failures. None of these is ever entered.
 pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservation, PortError> {
     #[cfg(test)]
     PROBES.with(|count| count.set(count.get() + 1));
@@ -163,6 +191,9 @@ pub(super) fn observe(anchor: &Anchor, name: &CStr) -> Result<MetadataObservatio
 fn classify(anchor: &Anchor, facts: &Facts) -> Result<MetadataObservation, PortError> {
     if facts.mounted_directory(anchor) {
         return Ok(other_volume(facts, ObservedKind::MountPoint));
+    }
+    if facts.mounted_file(anchor) {
+        return Ok(other_volume(facts, ObservedKind::MountedFile));
     }
     if facts.device != anchor.device {
         return Ok(other_volume(facts, facts.kind()));

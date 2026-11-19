@@ -55,7 +55,7 @@ fn other_volume(meta: &MetadataObservation, kind: ObservedKind, device: u64) -> 
 /// A directory whose device alone differs, on the parent's mount and not a
 /// mount root (a btrfs subvolume), keeps its own kind under the other-volume
 /// rule, so the collector compares its inodes and leaves it outside the
-/// boundary of the known parent volume.
+/// boundary of the known parent volume. Partial evidence is still evidence.
 #[test]
 fn a_directory_on_another_device_without_a_mount_stays_a_directory() -> TestResult {
     let anchor = anchor()?;
@@ -68,15 +68,66 @@ fn a_directory_on_another_device_without_a_mount_stays_a_directory() -> TestResu
         other_volume(&meta, ObservedKind::Directory, DEVICE + 1),
         "{meta:?}"
     );
-    // A kernel that reports neither mount IDs nor the mount root attribute.
-    let older = Facts {
+    // Only one of the two facts is reported, and it shows no mount.
+    for partial in [
+        Facts {
+            mount: None,
+            ..directory()
+        },
+        Facts {
+            mount_root: None,
+            ..directory()
+        },
+    ] {
+        let facts = Facts {
+            device: DEVICE + 1,
+            ..partial
+        };
+        let meta = observed(&anchor, &facts)?;
+        assert!(
+            other_volume(&meta, ObservedKind::Directory, DEVICE + 1),
+            "{meta:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A kernel older than 5.8 reports neither the mount ID nor the mount root
+/// attribute. A directory on another device is then a mount point, so the
+/// collector does not compare the covered directory's enumerated inode with
+/// the mounted root's. Without evidence, the parent's device still decides.
+#[test]
+fn without_mount_evidence_a_directory_on_another_device_is_a_mount_point() -> TestResult {
+    let older = Anchor {
+        mount: None,
+        ..anchor()?
+    };
+    let no_evidence = Facts {
         mount: None,
         mount_root: None,
-        ..subvolume
+        ..directory()
     };
-    let meta = observed(&anchor, &older)?;
+    let mounted = Facts {
+        device: DEVICE + 1,
+        ..no_evidence
+    };
+    let meta = observed(&older, &mounted)?;
     assert!(
-        other_volume(&meta, ObservedKind::Directory, DEVICE + 1),
+        other_volume(&meta, ObservedKind::MountPoint, DEVICE + 1),
+        "{meta:?}"
+    );
+    let same_device = observed(&older, &no_evidence)?;
+    assert_eq!(
+        (same_device.kind, same_device.size),
+        (ObservedKind::Directory, Ok(4096))
+    );
+    let file = Facts {
+        file_type: Some(FileType::RegularFile),
+        ..mounted
+    };
+    let meta = observed(&older, &file)?;
+    assert!(
+        other_volume(&meta, ObservedKind::File, DEVICE + 1),
         "{meta:?}"
     );
     Ok(())
@@ -150,13 +201,73 @@ fn file_mounts_and_automount_triggers_are_not_mount_points() -> TestResult {
     };
     let meta = observed(&anchor, &other_device_file_mount)?;
     assert!(
-        other_volume(&meta, ObservedKind::File, DEVICE + 3),
+        other_volume(&meta, ObservedKind::MountedFile, DEVICE + 3),
+        "{meta:?}"
+    );
+    // Only the mount ID shows the mount.
+    let by_mount_id = Facts {
+        mount_root: None,
+        ..other_device_file_mount
+    };
+    let meta = observed(&anchor, &by_mount_id)?;
+    assert!(
+        other_volume(&meta, ObservedKind::MountedFile, DEVICE + 3),
+        "{meta:?}"
+    );
+    // On overlayfs a plain file reports its lower layer's device, on the
+    // parent's mount and not a mount root: another volume, not a mount.
+    let lower_layer = Facts {
+        device: DEVICE + 4,
+        ..file
+    };
+    let meta = observed(&anchor, &lower_layer)?;
+    assert!(
+        other_volume(&meta, ObservedKind::File, DEVICE + 4),
         "{meta:?}"
     );
     let plain = observed(&anchor, &directory())?;
     assert_eq!(
         (plain.kind, plain.size),
         (ObservedKind::Directory, Ok(4096))
+    );
+    Ok(())
+}
+
+/// An automount trigger is observed with `AT_NO_AUTOMOUNT` and never entered.
+/// A direct-map trigger is the root of its own autofs mount, so it is a mount
+/// point. An indirect-map trigger on the parent's device stays a per-entry
+/// failure. A trigger that reported another device on the parent's mount keeps
+/// its kind under the other-volume rule, which the collector leaves outside the
+/// boundary without opening it, so the mount is not triggered either.
+#[test]
+fn automount_triggers_are_never_crossed() -> TestResult {
+    let anchor = anchor()?;
+    let direct = Facts {
+        automount: true,
+        device: DEVICE + 5,
+        mount: Some(MOUNT + 5),
+        mount_root: Some(true),
+        ..directory()
+    };
+    let meta = observed(&anchor, &direct)?;
+    assert!(
+        other_volume(&meta, ObservedKind::MountPoint, DEVICE + 5),
+        "{meta:?}"
+    );
+    let indirect = Facts {
+        automount: true,
+        ..directory()
+    };
+    assert!(observed(&anchor, &indirect).is_err());
+    let other_device = Facts {
+        automount: true,
+        device: DEVICE + 6,
+        ..directory()
+    };
+    let meta = observed(&anchor, &other_device)?;
+    assert!(
+        other_volume(&meta, ObservedKind::Directory, DEVICE + 6),
+        "{meta:?}"
     );
     Ok(())
 }

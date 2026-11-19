@@ -134,6 +134,82 @@ fn a_mount_point_is_outside_any_boundary_and_reserves_nothing() {
 }
 
 #[test]
+fn a_mounted_file_is_outside_any_boundary_and_reserves_nothing() {
+    let visited = Visited::default();
+    // Enumerated as the covered file, observed as the mounted file.
+    let mut mounted = entry(ObservedKind::MountedFile, 2, 50);
+    mounted.enumerated_kind = ObservedKind::File;
+    mounted.enumerated_inode = 51;
+    for boundary in [Boundary::Volume(1), Boundary::Volume(2), Boundary::Unknown] {
+        assert_eq!(
+            decide(false, &mounted, at(0, boundary), &visited),
+            Admission::OutsideBoundary
+        );
+    }
+    let parent = at(0, Boundary::Volume(1));
+    assert_eq!(
+        decide(true, &mounted, parent, &visited),
+        Admission::Excluded
+    );
+    // Only a file can be a mounted file.
+    mounted.enumerated_kind = ObservedKind::Directory;
+    assert_eq!(decide(false, &mounted, parent, &visited), Admission::Record);
+}
+
+#[test]
+fn a_directory_on_another_known_volume_is_outside_without_an_inode_match() {
+    let visited = Visited::default();
+    // btrfs lists a subvolume with its ID; its root reports inode 256.
+    let mut subvolume = entry(ObservedKind::Directory, 2, 256);
+    subvolume.enumerated_inode = 257;
+    let parent = at(0, Boundary::Volume(1));
+    assert_eq!(
+        decide(false, &subvolume, parent, &visited),
+        Admission::OutsideBoundary
+    );
+    assert_eq!(
+        decide(true, &subvolume, parent, &visited),
+        Admission::Excluded
+    );
+    let mut unknown_kind = subvolume.clone();
+    unknown_kind.enumerated_kind = ObservedKind::Unknown;
+    assert_eq!(
+        decide(false, &unknown_kind, parent, &visited),
+        Admission::OutsideBoundary
+    );
+    // An unknown parent volume and the parent's own volume keep the comparison.
+    assert_eq!(
+        decide(false, &subvolume, at(0, Boundary::Unknown), &visited),
+        Admission::Record
+    );
+    let mut same_volume = entry(ObservedKind::Directory, 1, 256);
+    same_volume.enumerated_inode = 257;
+    assert_eq!(
+        decide(false, &same_volume, parent, &visited),
+        Admission::Record
+    );
+    // A file or link replaced by a directory stays a failure.
+    for kind in [ObservedKind::File, ObservedKind::Link] {
+        let mut raced = subvolume.clone();
+        raced.enumerated_kind = kind;
+        assert_eq!(decide(false, &raced, parent, &visited), Admission::Record);
+    }
+    // Files are not covered by the rule.
+    let mut file = entry(ObservedKind::File, 2, 256);
+    file.enumerated_inode = 257;
+    assert_eq!(decide(false, &file, parent, &visited), Admission::Record);
+    assert_eq!(
+        decide(
+            false,
+            &entry(ObservedKind::Directory, 1, 7),
+            parent,
+            &visited
+        ),
+        Admission::Enter
+    );
+}
+
+#[test]
 fn roots_are_reserved_in_order_and_ancestors_block_only_their_root() {
     // Root 1 lies below root 0 (inode 20); root 2 repeats root 0.
     let (visited, starts) = Visited::reserve_roots(vec![

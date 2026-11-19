@@ -132,6 +132,38 @@ jobs:
       - name: Windows NTFS volume mount-point observation
         if: runner.os == 'Windows' && matrix.cpu == 'x64'
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
+      # A separate install keeps the cache key of the GTK and WebKit packages unchanged.
+      - name: Linux btrfs tools
+        if: runner.os == 'Linux' && matrix.cpu == 'x64'
+        timeout-minutes: 10
+        uses: ./.github/actions/apt-install
+        with:
+          packages: btrfs-progs
+      - name: Linux btrfs subvolume observation
+        if: runner.os == 'Linux' && matrix.cpu == 'x64'
+        shell: bash
+        # A fresh loop image: subvolumes first, second and second/nested (IDs 256, 257, 258).
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/du-btrfs.img"
+          root="$RUNNER_TEMP/du-btrfs"
+          test ! -e "$image"
+          mkdir "$root"
+          truncate -s 256M "$image"
+          mkfs.btrfs -q "$image"
+          sudo -n mount -o loop "$image" "$root"
+          trap 'sudo -n umount "$root" || sudo -n umount -l "$root"; rm -f "$image"; rmdir "$root"' EXIT
+          for name in first second second/nested; do
+            sudo -n btrfs subvolume create "$root/$name"
+          done
+          sudo -n chown -R "$(id -u):$(id -g)" "$root"
+          mkdir "$root/plain"
+          printf '0123456789' > "$root/plain/a.bin"
+          printf '%020d' 0 > "$root/first/b.bin"
+          printf '12345' > "$root/second/c.bin"
+          export DU_TEST_BTRFS_ROOT="$root"
+          cargo test --locked -p du-platform-os --test linux_btrfs_subvolume -- --ignored --nocapture
+          cargo test --locked -p du-app-host --all-features --lib linux_scan_leaves_btrfs_subvolumes_outside_the_boundary -- --ignored --nocapture
       # Ubuntu 24.04 runners set kernel.apparmor_restrict_unprivileged_userns=1, which
       # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs
       # ("bwrap: setting up uid map: Permission denied"), so the web process hangs until

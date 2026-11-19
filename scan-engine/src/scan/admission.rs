@@ -5,6 +5,11 @@
 //! point → outside boundary, visited → revisit blocked, undecidable boundary →
 //! unverifiable, otherwise → enter. The sequential and parallel collectors use
 //! only this table.
+//!
+//! A directory on another volume than the known parent's is outside the
+//! boundary even when its enumerated inode differs from the observed one: btrfs
+//! lists a subvolume with its subvolume ID while the subvolume root reports
+//! inode 256.
 use du_analysis_index::{BuildError, BuildHandle, Observation};
 use du_core_contracts::{
     Timestamp,
@@ -152,14 +157,18 @@ fn decide_with(
     if excluded {
         return Admission::Excluded;
     }
-    let Some(meta) = consistent(entry) else {
+    let Some(meta) = consistent(entry).or_else(|| other_volume_directory(entry, parent.boundary))
+    else {
         return Admission::Record;
     };
     if meta.kind == ObservedKind::Link {
         return Admission::UntraversedLink;
     }
     // The adapter established another volume even when the parent's is unknown.
-    if meta.kind == ObservedKind::MountPoint {
+    if matches!(
+        meta.kind,
+        ObservedKind::MountPoint | ObservedKind::MountedFile
+    ) {
         return Admission::OutsideBoundary;
     }
     if let Boundary::Volume(device) = parent.boundary
@@ -190,6 +199,11 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
             entry.enumerated_kind,
             ObservedKind::Unknown | ObservedKind::Directory | ObservedKind::MountPoint
         ),
+        // The mounted file's identity differs from the covered file's.
+        ObservedKind::MountedFile => matches!(
+            entry.enumerated_kind,
+            ObservedKind::Unknown | ObservedKind::File | ObservedKind::MountedFile
+        ),
         ObservedKind::Unknown | ObservedKind::Other => false,
         _ => {
             meta.inode != 0
@@ -200,10 +214,35 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
     })
 }
 
+/// The metadata of a directory observed on another volume than the known
+/// parent's, without comparing the enumerated inode.
+///
+/// The kinds must still agree, so a file or link replaced by a directory stays
+/// a failure, and a parent whose volume is unknown keeps the comparison. The
+/// device is compared only within this scan and never stored as a volume
+/// identity, because btrfs assigns subvolume devices anonymously.
+fn other_volume_directory(
+    entry: &ObservedEntry,
+    boundary: Boundary,
+) -> Option<&MetadataObservation> {
+    let Boundary::Volume(device) = boundary else {
+        return None;
+    };
+    entry.metadata.as_ref().ok().filter(|meta| {
+        meta.kind == ObservedKind::Directory
+            && meta.device != device
+            && matches!(
+                entry.enumerated_kind,
+                ObservedKind::Directory | ObservedKind::Unknown
+            )
+    })
+}
+
 /// Records an entry that the table did not enter, with its unread range.
 ///
 /// No size, time or space facts are kept because they may describe another
-/// volume or a range that was not read. A mount point stays a directory item.
+/// volume or a range that was not read. A mount point stays a directory item
+/// and a mounted file stays a file item without a size.
 pub(super) fn record_unentered(
     build: &mut BuildHandle,
     (root_index, path): (u32, &[Vec<u8>]),
@@ -212,22 +251,16 @@ pub(super) fn record_unentered(
     counts: &mut JobCounts,
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
-    let directory = entry.metadata.as_ref().is_ok_and(|meta| {
-        matches!(
-            meta.kind,
-            ObservedKind::Directory | ObservedKind::MountPoint
-        )
-    });
-    if directory {
-        build.add_directory_at(root_index, path.to_vec())?;
-    } else {
-        build.add_at(
-            root_index,
-            Observation {
-                path: path.to_vec(),
-                size: None,
-            },
-        )?;
+    let observation = Observation {
+        path: path.to_vec(),
+        size: None,
+    };
+    match entry.metadata.as_ref().map(|meta| &meta.kind) {
+        Ok(ObservedKind::Directory | ObservedKind::MountPoint) => {
+            build.add_directory_at(root_index, path.to_vec())?;
+        }
+        Ok(ObservedKind::MountedFile) => build.add_file_at(root_index, observation)?,
+        _ => build.add_at(root_index, observation)?,
     }
     record_unread(
         build,
