@@ -103,7 +103,7 @@ test("an unavailable answer with a fallback shows the notice and an expanded tab
   });
   const opener = tableButton()!;
   const table = screen.getByRole("table", {
-    name: visualizationMessage("en", "loadedGraphRows"),
+    name: visualizationMessage("en", "rowsFromGraph"),
   });
   expect(within(table).getByText(firstName())).toBeTruthy();
   expect(opener.getAttribute("aria-expanded")).toBe("true");

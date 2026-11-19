@@ -8,7 +8,11 @@ import type {
 import type { VizRow } from "../../ipc";
 import type { VizText } from "../../viz";
 
-/** Rows read for the first table page; a model with more shapes reads one per shape. */
+/**
+ * Rows read for the first table page; a model with more shapes reads one per
+ * shape. Without a chart the table is the only way to the values, so its first
+ * page is read even when the owner did not ask for automatic rows.
+ */
 const FIRST_ROWS = 100;
 
 export function useFirstRows(
@@ -17,9 +21,10 @@ export function useFirstRows(
   autoLoadRows: boolean,
 ) {
   const table = state.table;
+  const load = autoLoadRows || !state.graph;
   useEffect(() => {
     if (
-      !autoLoadRows ||
+      !load ||
       state.phase !== "model" ||
       !table ||
       state.tablePage ||
@@ -34,7 +39,7 @@ export function useFirstRows(
       count: Math.max(FIRST_ROWS, table.model.shapes.length),
     });
   }, [
-    autoLoadRows,
+    load,
     controller,
     state.phase,
     state.tablePage,
@@ -107,20 +112,24 @@ export function SeparateModelTable({
               label={text.message(alone ? "loadingGraphRows" : "loadingNewer")}
             />
           )}
-          {!state.tablePage && !state.pendingRows && !state.failedRows && (
-            <Action
-              onPress={() => {
-                void controller.rows({
-                  modelRef: table.model.modelRef,
-                  resultRevision: table.resultRevision,
-                  start: 0,
-                  count: 100,
-                });
-              }}
-            >
-              {text.message(alone ? "loadFolderRows" : "loadNewer")}
-            </Action>
-          )}
+          {/* Beside a pinned chart, moving to the newer result is the reader's choice. */}
+          {!alone &&
+            !state.tablePage &&
+            !state.pendingRows &&
+            !state.failedRows && (
+              <Action
+                onPress={() => {
+                  void controller.rows({
+                    modelRef: table.model.modelRef,
+                    resultRevision: table.resultRevision,
+                    start: 0,
+                    count: 100,
+                  });
+                }}
+              >
+                {text.message("loadNewer")}
+              </Action>
+            )}
           {state.tablePage && (
             <ModelRows
               page={state.tablePage}

@@ -70,7 +70,15 @@ export function RenderRetry({
     <>
       {(state.phase === "error" || retained) && (
         <Notice tone="error">
-          {text.message("renderFailed")}{" "}
+          {/* With an earlier chart still shown, say that it is the one on screen. */}
+          {state.graph ? (
+            <>
+              {text.message("renderFailedRetained")}{" "}
+              {text.observedAt(state.graph.frame.observedAt)}
+            </>
+          ) : (
+            text.message("renderFailed")
+          )}{" "}
           <Action ref={button} aria-disabled={busy.current} onPress={retry}>
             {text.message(busy.current ? "retryingRender" : "retryRender")}
           </Action>

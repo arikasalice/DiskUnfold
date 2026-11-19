@@ -758,6 +758,7 @@ ui.visualization.badgePartial
 ui.visualization.bar
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
+ui.visualization.catalog_failed
 ui.visualization.classification
 ui.visualization.completenessCancelled
 ui.visualization.completenessComplete
@@ -815,10 +816,8 @@ ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.legend.unclassified
-ui.visualization.loadFolderRows
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
-ui.visualization.loadedGraphRows
 ui.visualization.loading
 ui.visualization.loadingGraphRows
 ui.visualization.loadingMembers
@@ -866,6 +865,7 @@ ui.visualization.ratioUnavailable
 ui.visualization.rawBytes count:count
 ui.visualization.rawBytesAtLeast count:count
 ui.visualization.renderFailed
+ui.visualization.renderFailedRetained
 ui.visualization.reportedEvidence
 ui.visualization.representation
 ui.visualization.retainedGraph

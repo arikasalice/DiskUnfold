@@ -174,7 +174,7 @@ test("unsupported geometry shows same-model rows without drawing a partial graph
   );
   expect(container.querySelector("svg.du-geometry")).toBeNull();
   expect(
-    screen.getByRole("table", { name: "Loaded chart rows" }).textContent,
+    screen.getByRole("table", { name: "Items in this folder" }).textContent,
   ).toContain("영상");
   expect(screen.getByText(/cannot be drawn/)).toBeDefined();
 });
@@ -260,7 +260,7 @@ test("rows only expose Actions when this page has a group and an open handler", 
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
-  let table = screen.getByRole("table", { name: "Loaded chart rows" });
+  let table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -278,7 +278,7 @@ test("rows only expose Actions when this page has a group and an open handler", 
       onOpenGroup={vi.fn()}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded chart rows" });
+  table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).getByRole("columnheader", { name: "Actions" }),
   ).toBeDefined();
@@ -308,7 +308,7 @@ test("rows omit Actions when the displayed page has no valid group row", () => {
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
-  const table = screen.getByRole("table", { name: "Loaded chart rows" });
+  const table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -347,7 +347,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
   );
   fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
 
-  let table = screen.getByRole("table", { name: "Loaded chart rows" });
+  let table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();
@@ -368,7 +368,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded chart rows" });
+  table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).getByRole("columnheader", { name: "Actions" }),
   ).toBeDefined();
@@ -389,7 +389,7 @@ test("Actions follows normal item and group page transitions with a handler", ()
       onOpenGroup={onOpenGroup}
     />,
   );
-  table = screen.getByRole("table", { name: "Loaded chart rows" });
+  table = screen.getByRole("table", { name: "Items in this folder" });
   expect(
     within(table).queryByRole("columnheader", { name: "Actions" }),
   ).toBeNull();

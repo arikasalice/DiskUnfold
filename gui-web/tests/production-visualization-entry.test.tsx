@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DesktopLocale } from "../src/app/DesktopLocale";
@@ -43,6 +44,7 @@ const catalog: VizCatalog = {
 const names = ["Videos", "Photos", "Documents"];
 
 type VisualizationAnswers = {
+  catalog?: () => unknown | Promise<unknown>;
   render?: (request: VizRenderRequest) => unknown | Promise<unknown>;
   rows?: (request: VizRowsRequest) => unknown | Promise<unknown>;
 };
@@ -285,7 +287,7 @@ function desktop(
       case "query.cancel":
         return { outcome: "no_effect" };
       case "viz.catalog":
-        return catalog;
+        return visualization.catalog?.() ?? catalog;
       case "viz.view.open":
         return { viewChannel: "view" };
       case "viz.render":
@@ -650,6 +652,64 @@ test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a fold
       parentShapeRef: "s1",
     },
   ]);
+});
+
+test("F06 FR2.HD1.gui-web.DD1: a failed catalog offers a retry where the space view button goes, and an empty one offers nothing", async () => {
+  const retried = deferred<VizCatalog>();
+  let reads = 0;
+  const { client } = desktop("en", {
+    catalog: () =>
+      ++reads === 1
+        ? Promise.reject(new Error("catalog failed"))
+        : reads === 2
+          ? retried.promise
+          : catalog,
+  });
+  const label = (key: string) => realLocales.en.text(key, "");
+  render(<DesktopLocale client={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+  fireEvent.click(
+    screen.getByRole("button", { name: label("ui.analysis.review") }),
+  );
+  const start = await screen.findByRole<HTMLButtonElement>("button", {
+    name: label("ui.analysis.start"),
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  fireEvent.click(
+    await screen.findByRole(
+      "button",
+      { name: label("ui.analysis.browse") },
+      { timeout: 5000 },
+    ),
+  );
+  const notice = await screen.findByText(
+    label("ui.visualization.catalog_failed"),
+    {},
+    { timeout: 5000 },
+  );
+  // The folder table stays usable; the failure is not taken for an empty catalog.
+  expect(
+    screen.queryByRole("button", {
+      name: label("ui.visualization.show_space_distribution"),
+    }),
+  ).toBeNull();
+  const retry = within(notice.closest(".du-notice") as HTMLElement).getByRole(
+    "button",
+    { name: label("ui.browse.retry") },
+  );
+  retry.focus();
+  fireEvent.click(retry);
+  expect(retry.textContent).toBe(label("ui.browse.retrying"));
+  expect(reads).toBe(2);
+  await act(async () => retried.resolve(catalog));
+  const show = await screen.findByRole("button", {
+    name: label("ui.visualization.show_space_distribution"),
+  });
+  await waitFor(() => expect(document.activeElement).toBe(show));
+  expect(
+    screen.queryByText(label("ui.visualization.catalog_failed")),
+  ).toBeNull();
 });
 
 describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {

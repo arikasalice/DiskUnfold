@@ -226,6 +226,7 @@ export function App({
             visible={controls.visualizationVisible}
             open={visualizationOpen}
             available={Boolean(visualization.assembly)}
+            catalogFailure={visualization.catalogFailure}
             trigger={visualizationTrigger}
             onOpen={() => setVisualizationOpen(true)}
             onClose={visualizationFocus.close}

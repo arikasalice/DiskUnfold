@@ -246,3 +246,22 @@ test("refuses a further sequence once the sequence space is used up", async () =
   await loader.render(request(0xffff_ffff), "a");
   expect(() => loader.nextRequestSequence()).toThrow(/exhausted/);
 });
+
+test("F06 FR9.HD1.gui-web.DD1: a model for another size basis is refused as a failed render and the same request can be retried", async () => {
+  const other = model(1);
+  other.model.representation.sizeBasis = "allocated";
+  const render = renderMock()
+    .mockResolvedValueOnce(other)
+    .mockResolvedValueOnce(model(2));
+  const { loader, publish, commit } = setup(render);
+  await loader.render(request(1), "a");
+  // The model is never committed, so the owner keeps its earlier chart and rows.
+  expect(commit).not.toHaveBeenCalled();
+  expect(publish).toHaveBeenLastCalledWith(
+    expect.objectContaining({ phase: "error" }),
+    undefined,
+  );
+  await loader.retry();
+  expect(render).toHaveBeenLastCalledWith({ ...request(1), requestSeq: 2 });
+  expect(commit).toHaveBeenCalledTimes(1);
+});

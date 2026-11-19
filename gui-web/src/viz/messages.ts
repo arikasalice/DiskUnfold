@@ -8,6 +8,8 @@ export const visualizationMessages = {
     cancelled:
       "The chart calculation was cancelled. The previous chart remains available when present.",
     renderFailed: "The chart could not be loaded.",
+    renderFailedRetained:
+      "The new result could not be loaded as a chart, so the previous chart is shown. Chart observed:",
     retryRender: "Retry chart",
     retryingRender: "Retrying chart…",
     graphUpdated: "Latest result applied",
@@ -34,7 +36,6 @@ export const visualizationMessages = {
     revisionUnverified:
       "Could not recheck a displayed result. Reopen the chart to check the selected result.",
     newerRegion: "Items in the latest result",
-    loadFolderRows: "Load items in this folder",
     loadNewer: "Load items in the latest result",
     loadingNewer: "Loading items in the latest result",
     newerTitle: "Items in the latest result",
@@ -109,7 +110,6 @@ export const visualizationMessages = {
     scopeTotalLine: "Scope total {value}",
     noRowsInPage: "No rows in this page",
     rowRange: "Rows {start}–{end} of {total}",
-    loadedGraphRows: "Loaded chart rows",
     name: "Name",
     actions: "Actions",
     value: "Value",
@@ -212,6 +212,8 @@ export const visualizationMessages = {
     cancelled:
       "그래프 계산을 취소했습니다. 이전 그래프가 있으면 계속 볼 수 있습니다.",
     renderFailed: "그래프를 불러오지 못했습니다.",
+    renderFailedRetained:
+      "새 결과를 그래프로 불러오지 못해 이전 그래프를 표시합니다. 그래프 관측 시각:",
     retryRender: "그래프 다시 시도",
     retryingRender: "그래프 다시 시도 중…",
     graphUpdated: "최신 결과를 반영했습니다",
@@ -237,7 +239,6 @@ export const visualizationMessages = {
     revisionUnverified:
       "표시된 결과를 다시 확인하지 못했습니다. 선택한 결과를 확인하려면 그래프를 다시 여세요.",
     newerRegion: "최신 결과의 항목",
-    loadFolderRows: "이 폴더의 항목 불러오기",
     loadNewer: "최신 결과의 항목 불러오기",
     loadingNewer: "최신 결과의 항목을 불러오는 중",
     newerTitle: "최신 결과의 항목",
@@ -310,7 +311,6 @@ export const visualizationMessages = {
     scopeTotalLine: "범위 합계 {value}",
     noRowsInPage: "이 페이지에 행이 없습니다",
     rowRange: "{total}개 중 {start}–{end}번째 행",
-    loadedGraphRows: "불러온 그래프 행",
     name: "이름",
     actions: "작업",
     value: "값",

@@ -20,6 +20,9 @@ param(
   [switch]$CaptureTour,
   # Capture a depth 2 treemap of a folder of known files and check the names inside a folder.
   [switch]$CaptureTreemap,
+  # Capture the fallback table of a scope whose space cannot be attributed, and fold and unfold its
+  # title with the mouse, Enter and Space.
+  [switch]$CaptureNoAttribution,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -84,6 +87,26 @@ namespace DiskUnfoldSmoke {
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint count, Input[] inputs, int size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetCursorPos(int x, int y);
+
+    // A real left click at a screen point, through the same input queue as a key.
+    public static void Click(IntPtr window, int x, int y) {
+      if (window == IntPtr.Zero || GetForegroundWindow() != window)
+        throw new InvalidOperationException("DiskUnfold must own the foreground window.");
+      if (!SetCursorPos(x, y))
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not move the pointer.");
+      const uint MouseType = 0;
+      const uint LeftDown = 2;
+      const uint LeftUp = 4;
+      var inputs = new Input[2];
+      inputs[0].Type = inputs[1].Type = MouseType;
+      inputs[0].Data.Mouse.Flags = LeftDown;
+      inputs[1].Data.Mouse.Flags = LeftUp;
+      if (SendInput(2, inputs, Marshal.SizeOf<Input>()) != 2)
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not send both mouse events.");
+    }
 
     // Use the Windows input queue so WebView2 handles a down/up sequence.
     public static void Press(IntPtr window, ushort key) {
@@ -1321,6 +1344,65 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# F06 #129 item 6: a scope whose allocated space cannot be split between its folders, because the same
+# file is linked from two of them, answers no_attribution. The notice opens the folder's table
+# (#109); its title must fold and unfold with the mouse, Enter and Space, and say so (aria-expanded).
+function Get-SmokeExpanded($item) {
+  $disclosure = $null
+  if (-not $item.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
+    throw "'$($item.Current.Name)' exposes no aria-expanded state"
+  }
+  $disclosure.Current.ExpandCollapseState -eq [Windows.Automation.ExpandCollapseState]::Expanded
+}
+function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
+  Wait-UI "$title $(if ($expanded) { 'expanded' } else { 'collapsed' }) by $how" {
+    $toggle = Find-UI $title $button
+    if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
+  }
+}
+function Test-CaptureNoAttribution {
+  $scope = Join-Path $root 'attribution-scope'
+  $left = Join-Path $scope 'left'
+  $right = Join-Path $scope 'right'
+  [IO.Directory]::CreateDirectory($left) | Out-Null
+  [IO.Directory]::CreateDirectory($right) | Out-Null
+  $original = Join-Path $left 'original.bin'
+  $contents = [byte[]]::new(1MB)
+  [Random]::new(129).NextBytes($contents)
+  [IO.File]::WriteAllBytes($original, $contents)
+  [IO.File]::WriteAllBytes((Join-Path $left 'notes.bin'), [byte[]]::new(64KB))
+  $null = New-Item -ItemType HardLink -Path (Join-Path $right 'second-name.bin') -Target $original
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'left' { Find-UI 'left' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $heading = Get-UiName "The space can't be attributed"
+  $null = Wait-UI 'no_attribution notice' { Find-UI $heading $null } 60
+  $title = Get-UiName 'Items in this folder'
+  # The table opens expanded with the folder's rows.
+  $toggle = Wait-SmokeExpanded $title $true 'opening'
+  $null = Wait-UI 'fallback rows' { Find-UI 'right' $null }
+  Save-SmokeCapture '01-no-attribution-expanded'
+  if ($toggle.Current.IsOffscreen) { throw "$title is outside the window" }
+  $bounds = $toggle.Current.BoundingRectangle
+  $process.Refresh()
+  $x = [int]($bounds.Left + $bounds.Width / 2)
+  $y = [int]($bounds.Top + $bounds.Height / 2)
+  [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
+  $toggle = Wait-SmokeExpanded $title $false 'mouse'
+  Save-SmokeCapture '02-no-attribution-collapsed'
+  [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
+  $toggle = Wait-SmokeExpanded $title $true 'mouse'
+  $toggle.SetFocus()
+  Send-SmokeKey 0x0D # VK_RETURN
+  $toggle = Wait-SmokeExpanded $title $false 'Enter'
+  Send-SmokeKey 0x20 # VK_SPACE
+  $null = Wait-SmokeExpanded $title $true 'Space'
+  "No attribution: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 function Test-CaptureTour {
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -1553,13 +1635,14 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureNoAttribution
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
   $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
   if ($CaptureTour) { Test-CaptureTour }
   if ($CaptureTreemap) { Test-CaptureTreemap }
+  if ($CaptureNoAttribution) { Test-CaptureNoAttribution }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }

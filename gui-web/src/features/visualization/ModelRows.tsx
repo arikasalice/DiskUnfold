@@ -183,7 +183,7 @@ export function ModelRows({
         )}
         <Text>{pageWords(page, paged, text)}</Text>
         <DataTable
-          label={text.message("loadedGraphRows")}
+          label={rowTitle}
           density="compact"
           flat
           rowHeight={ROW_HEIGHT}

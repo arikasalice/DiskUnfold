@@ -56,9 +56,15 @@ function validFrame(frame: ModelResponse) {
   })).validTargets;
 }
 
+/**
+ * A model answers its request only for the same scopes and size basis. A model
+ * for another basis would draw its values under the requested basis label, so
+ * it is refused as a failed render: the previous chart stays and can be retried.
+ */
 function modelMatchesRequest(frame: ModelResponse, request: VizRenderRequest) {
   return (
     validFrame(frame) &&
+    frame.model.representation.sizeBasis === request.sizeBasis &&
     sameItem(frame.model.aggregateScopeRef, request.aggregateScopeRef) &&
     sameItem(frame.model.navigationScopeRef, request.navigationScopeRef)
   );

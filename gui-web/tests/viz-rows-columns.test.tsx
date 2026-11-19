@@ -146,9 +146,9 @@ test("a small negative exact ratio keeps its sign in the row", () => {
     input.page.response.rows[0]!.ratio = "-0.00004";
   });
   expect(
-    within(screen.getByRole("table", { name: "Loaded chart rows" })).getByText(
-      "Greater than -0.1% and less than 0%",
-    ),
+    within(
+      screen.getByRole("table", { name: "Items in this folder" }),
+    ).getByText("Greater than -0.1% and less than 0%"),
   ).toBeTruthy();
 });
 
