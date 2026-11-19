@@ -179,6 +179,8 @@ reason.locale.registration_failed.action
 reason.locale.translation_fallback.cause
 reason.locale.translation_fallback.action
 reason.i18n.bundle_integrity_failed.action
+reason.request.cancelled.cause
+reason.request.cancelled.action
 ui.app.history
 ui.app.back_to_analysis
 ui.app.screen_analysis

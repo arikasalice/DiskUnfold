@@ -330,7 +330,8 @@ fn folder_error(error: Error) -> EngineError {
         Error::UnknownPredicate => "predicate.unknown",
         Error::UnknownSort => "sort.key_unknown",
         Error::InvalidCondition => "command.body_invalid",
-        Error::Cancelled | Error::Internal => "support.internal_error",
+        Error::Cancelled => "request.cancelled",
+        Error::Internal => "support.internal_error",
     })
 }
 

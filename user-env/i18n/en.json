@@ -196,6 +196,8 @@
     ["reason.locale.translation_fallback.cause", "Some text is shown in English or as a message key because the selected language has no translation for it.", []],
     ["reason.locale.translation_fallback.action", "Report the key and language shown on this line.", []],
     ["reason.i18n.bundle_integrity_failed.action", "Reinstall DiskUnfold from a trusted package to restore Korean.", []],
+    ["reason.request.cancelled.cause", "The request was cancelled before it finished.", []],
+    ["reason.request.cancelled.action", "Repeat the action if you still need the result.", []],
     ["ui.app.history", "Operation history", []],
     ["ui.app.back_to_analysis", "Back to analysis", []],
     ["ui.app.screen_analysis", "Analysis", []],

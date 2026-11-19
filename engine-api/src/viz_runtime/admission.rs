@@ -359,7 +359,7 @@ fn normalize(
     .map_err(|error| match error {
         ExpansionError::Limit => EngineError::reason("viz.viewport_invalid"),
         ExpansionError::Invalid => invalid(),
-        ExpansionError::Cancelled => internal(),
+        ExpansionError::Cancelled => EngineError::reason("request.cancelled"),
     })?;
     if request.format == "treemap" {
         request.expanded_depth_by_item = (!expansions.is_empty()).then_some(expansions);

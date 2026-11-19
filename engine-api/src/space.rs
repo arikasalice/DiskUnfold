@@ -88,7 +88,7 @@ impl UseCase for Total {
                 .space_total_with_observation_range(|| caller.is_cancelled())
                 .map_err(|error| match error {
                     SpaceTotalError::Item(error) => query_error(error),
-                    SpaceTotalError::Cancelled => EngineError::reason("support.internal_error"),
+                    SpaceTotalError::Cancelled => EngineError::reason("request.cancelled"),
                 })?;
             // A matched set has no single subtree to count below, so the count stays absent.
             return Ok(SpaceTotal {

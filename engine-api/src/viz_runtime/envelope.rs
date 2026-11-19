@@ -381,6 +381,7 @@ pub(super) fn page_error(error: crate::viz_pages::Error) -> EngineError {
         match error {
             crate::viz_pages::Error::StaleVersion => "result.version_stale",
             crate::viz_pages::Error::ModelExpired => "viz.model_expired",
+            crate::viz_pages::Error::Cancelled => "request.cancelled",
             _ => "support.internal_error",
         },
         vec![],

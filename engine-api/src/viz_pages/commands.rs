@@ -151,6 +151,7 @@ fn rows_error(error: Error) -> EngineError {
         Error::ModelExpired => "viz.model_expired",
         Error::StaleVersion => "result.version_stale",
         Error::ItemUnavailable => "ref.unavailable",
+        Error::Cancelled => "request.cancelled",
         _ => "support.internal_error",
     })
 }
