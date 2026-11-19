@@ -34,12 +34,18 @@
 }
 
 .du-name__code {
-  margin-inline: 0.1em;
+  display: inline-block;
+  margin-inline: 0.15em;
+  padding-inline: 0.2em;
+  border: 1px solid var(--du-border);
+  border-radius: 3px;
+  background: var(--du-hover-surface);
   color: var(--du-muted);
   font-family: var(--du-font-mono);
   font-size: 0.85em;
   unicode-bidi: isolate;
   user-select: none;
+  white-space: nowrap;
 }
 
 .du-name__count {
