@@ -92,7 +92,8 @@ impl BtrfsFixture {
             mount: temp.join(format!("du-btrfs-{id}")),
             mounted: false,
         };
-        fs::File::create(&fixture.image)?.set_len(IMAGE_BYTES)?;
+        // A leftover file of the same name fails the test instead of being reformatted.
+        fs::File::create_new(&fixture.image)?.set_len(IMAGE_BYTES)?;
         fs::create_dir(&fixture.mount)?;
         command(
             "mkfs.btrfs",
@@ -131,7 +132,11 @@ impl BtrfsFixture {
 
     fn cleanup(&mut self) -> TestResult {
         if self.mounted {
-            sudo(&["umount".as_ref(), self.mount.as_os_str()])?;
+            // A busy mount is detached lazily so a reused runner keeps no mount.
+            sudo(&["umount".as_ref(), self.mount.as_os_str()]).or_else(|error| {
+                eprintln!("btrfs fixture umount failed, detaching lazily: {error}");
+                sudo(&["umount".as_ref(), "-l".as_ref(), self.mount.as_os_str()])
+            })?;
             self.mounted = false;
         }
         if self.mount.exists() {
@@ -192,7 +197,11 @@ fn check_subvolume(
         .map_err(|error| format!("{name}: {error:?}"))?;
     assert_eq!(meta.kind, ObservedKind::Directory, "{name}");
     assert_ne!(meta.device, fs::metadata(parent)?.dev(), "{name}");
-    assert_eq!((meta.device, meta.inode), (stat.dev(), stat.ino()), "{name}");
+    assert_eq!(
+        (meta.device, meta.inode),
+        (stat.dev(), stat.ino()),
+        "{name}"
+    );
     assert!(meta.size.is_err(), "{name}");
     assert!(meta.modified_at.is_none(), "{name}");
     assert!(meta.allocated.is_none(), "{name}");
@@ -219,7 +228,10 @@ impl BtrfsFixture {
         report(&nested, &second, &["nested"])?;
 
         let plain = find(&entries, "plain")?;
-        let meta = plain.metadata.as_ref().map_err(|error| format!("{error:?}"))?;
+        let meta = plain
+            .metadata
+            .as_ref()
+            .map_err(|error| format!("{error:?}"))?;
         assert_eq!(meta.kind, ObservedKind::Directory);
         assert_eq!(meta.device, fs::metadata(&self.mount)?.dev());
         assert_eq!(meta.inode, plain.enumerated_inode);
@@ -256,4 +268,3 @@ fn btrfs_subvolumes_are_other_volumes_that_are_never_entered() -> TestResult {
         }
     }
 }
-

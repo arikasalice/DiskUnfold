@@ -1,6 +1,6 @@
 //! Linux scope review, scan, results and failures through the real adapters.
-use super::*;
 use super::ipc_calls::{finished, logical, read};
+use super::*;
 use du_core_contracts::{
     PathBytes,
     analysis_ipc::{AnalysisJobStatus, ScanStart, ScopeReview, SpaceTotal, TargetAccess},
