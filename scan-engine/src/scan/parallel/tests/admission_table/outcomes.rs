@@ -49,6 +49,26 @@ fn revisits() -> Listings {
     ])
 }
 
+/// btrfs subvolumes with the IDs 256, 257 and 258; every subvolume root
+/// reports inode 256.
+fn subvolumes() -> Listings {
+    use ObservedKind::{Directory as D, File as F};
+    BTreeMap::from([
+        (
+            ROOT,
+            vec![
+                node("a", D, 1, 101),
+                subvolume("first", 5, 256),
+                subvolume("second", 6, 257),
+                subvolume("third", 7, 258),
+                node("top.txt", F, 1, 205),
+            ],
+        ),
+        (101, vec![node("deep.txt", F, 1, 201)]),
+        (SUBVOLUME_ROOT, vec![node("inside.txt", F, 5, 601)]),
+    ])
+}
+
 /// A child directory, a file and a name that the exclusion cannot decide.
 fn undecidable() -> Listings {
     use ObservedKind::{Directory as D, File as F};
@@ -136,6 +156,42 @@ fn other_volumes_and_mount_points_keep_the_result_complete() -> Result<(), Strin
             assert_eq!(tree.enumerated(inode), 0, "workers={workers} seed={seed}");
         }
         assert!(!tree.probed("mounted.txt") && !tree.probed("covered.txt"));
+    }
+    Ok(())
+}
+
+/// Each subvolume is one boundary row whatever ID enumeration lists for it:
+/// no failure, no gap, a complete result and nothing below it read.
+#[test]
+fn btrfs_subvolumes_stay_outside_whatever_inode_their_parent_lists() -> Result<(), String> {
+    let _guard = worker_test_lock();
+    let names = ["first", "second", "third"];
+    let issues = sorted(
+        names
+            .into_iter()
+            .map(|name| other_volume(0, &[name]))
+            .collect(),
+    );
+    let baseline = sequential(&tree_of(subvolumes(), 0), true)?;
+    check(&baseline, true, 0, &issues, &[]);
+    for name in names {
+        let item = (0, path(&[name]), ResultItemKind::Directory, false);
+        assert!(baseline.summary.0.contains(&item), "{name}");
+    }
+    for (workers, seed) in RUNS {
+        let tree = tree_of(subvolumes(), seed);
+        let run = filtered_run(&tree, workers, true)?;
+        check(&run, true, 0, &issues, &[]);
+        assert_eq!(
+            run.summary, baseline.summary,
+            "workers={workers} seed={seed}"
+        );
+        assert_eq!(
+            tree.enumerated(SUBVOLUME_ROOT),
+            0,
+            "workers={workers} seed={seed}"
+        );
+        assert!(!tree.probed("inside.txt"));
     }
     Ok(())
 }

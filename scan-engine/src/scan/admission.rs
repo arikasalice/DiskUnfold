@@ -5,6 +5,11 @@
 //! point → outside boundary, visited → revisit blocked, undecidable boundary →
 //! unverifiable, otherwise → enter. The sequential and parallel collectors use
 //! only this table.
+//!
+//! A directory on another volume than the known parent's is outside the
+//! boundary even when its enumerated inode differs from the observed one: btrfs
+//! lists a subvolume with its subvolume ID while the subvolume root reports
+//! inode 256.
 use du_analysis_index::{BuildError, BuildHandle, Observation};
 use du_core_contracts::{
     Timestamp,
@@ -152,7 +157,8 @@ fn decide_with(
     if excluded {
         return Admission::Excluded;
     }
-    let Some(meta) = consistent(entry) else {
+    let Some(meta) = consistent(entry).or_else(|| other_volume_directory(entry, parent.boundary))
+    else {
         return Admission::Record;
     };
     if meta.kind == ObservedKind::Link {
@@ -205,6 +211,30 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
                 && (entry.enumerated_kind == ObservedKind::Unknown
                     || entry.enumerated_kind == meta.kind)
         }
+    })
+}
+
+/// The metadata of a directory observed on another volume than the known
+/// parent's, without comparing the enumerated inode.
+///
+/// The kinds must still agree, so a file or link replaced by a directory stays
+/// a failure, and a parent whose volume is unknown keeps the comparison. The
+/// device is compared only within this scan and never stored as a volume
+/// identity, because btrfs assigns subvolume devices anonymously.
+fn other_volume_directory(
+    entry: &ObservedEntry,
+    boundary: Boundary,
+) -> Option<&MetadataObservation> {
+    let Boundary::Volume(device) = boundary else {
+        return None;
+    };
+    entry.metadata.as_ref().ok().filter(|meta| {
+        meta.kind == ObservedKind::Directory
+            && meta.device != device
+            && matches!(
+                entry.enumerated_kind,
+                ObservedKind::Directory | ObservedKind::Unknown
+            )
     })
 }
 

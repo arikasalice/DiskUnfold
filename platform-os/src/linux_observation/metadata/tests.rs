@@ -232,3 +232,42 @@ fn file_mounts_and_automount_triggers_are_not_mount_points() -> TestResult {
     );
     Ok(())
 }
+
+/// An automount trigger is observed with `AT_NO_AUTOMOUNT` and never entered.
+/// A direct-map trigger is the root of its own autofs mount, so it is a mount
+/// point. An indirect-map trigger on the parent's device stays a per-entry
+/// failure. A trigger that reported another device on the parent's mount keeps
+/// its kind under the other-volume rule, which the collector leaves outside the
+/// boundary without opening it, so the mount is not triggered either.
+#[test]
+fn automount_triggers_are_never_crossed() -> TestResult {
+    let anchor = anchor()?;
+    let direct = Facts {
+        automount: true,
+        device: DEVICE + 5,
+        mount: Some(MOUNT + 5),
+        mount_root: Some(true),
+        ..directory()
+    };
+    let meta = observed(&anchor, &direct)?;
+    assert!(
+        other_volume(&meta, ObservedKind::MountPoint, DEVICE + 5),
+        "{meta:?}"
+    );
+    let indirect = Facts {
+        automount: true,
+        ..directory()
+    };
+    assert!(observed(&anchor, &indirect).is_err());
+    let other_device = Facts {
+        automount: true,
+        device: DEVICE + 6,
+        ..directory()
+    };
+    let meta = observed(&anchor, &other_device)?;
+    assert!(
+        other_volume(&meta, ObservedKind::Directory, DEVICE + 6),
+        "{meta:?}"
+    );
+    Ok(())
+}
