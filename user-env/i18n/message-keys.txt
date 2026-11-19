@@ -244,6 +244,7 @@ ui.analysis.result_heading
 ui.analysis.progress_heading
 ui.analysis.waiting_cancel
 ui.analysis.scanning_folder
+ui.analysis.waiting_scan_start
 ui.analysis.progress_items count:count
 ui.analysis.progress_items_remaining percent:count count:count
 ui.analysis.progress_bytes size:size
