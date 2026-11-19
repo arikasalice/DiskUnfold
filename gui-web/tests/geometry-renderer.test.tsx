@@ -166,6 +166,44 @@ test("F06 README 10: from a file in a folder the arrow goes to the file beside i
   expect(document.activeElement).toBe(option("album-a"));
 });
 
+test("F06 README 10: a wide shape's right neighbour is the shape level with it, not one nearer below", () => {
+  const input = props();
+  const rect = (left: number, top: number, right: number, bottom: number) => ({
+    primitive: "rect",
+    points: [
+      { x: left, y: top },
+      { x: right, y: bottom },
+    ],
+  });
+  // A wide shape on top left, a tall one on the right, a small one under the wide one.
+  input.shapes = [
+    {
+      shapeRef: "wide",
+      rowRef: "row-wide",
+      accessibleLabel: "Videos",
+      geometry: rect(0, 0, 900_000, 500_000),
+    },
+    {
+      shapeRef: "tall",
+      rowRef: "row-tall",
+      accessibleLabel: "notes",
+      geometry: rect(900_000, 0, 1_000_000, 1_000_000),
+    },
+    {
+      shapeRef: "below",
+      rowRef: "row-below",
+      accessibleLabel: "album",
+      geometry: rect(500_000, 500_000, 900_000, 1_000_000),
+    },
+  ];
+  input.relations = [];
+  render(<GeometryRenderer {...input} />);
+  const option = (name: string) => screen.getByRole("option", { name });
+  act(() => option("Videos").focus());
+  fireEvent.keyDown(option("Videos"), { key: "ArrowRight" });
+  expect(document.activeElement).toBe(option("notes"));
+});
+
 test("F06 README 4.7: the selection is a solid band with a check", () => {
   const input = props();
   input.width = 400;
