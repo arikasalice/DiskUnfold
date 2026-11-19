@@ -315,11 +315,12 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   });
   const origin = boxes[from]!;
   const start = centre(origin);
+  // A folder is drawn a pixel or two inside its own rectangle (insetOf).
   const holds = (outer: Box, inner: Box) =>
-    outer.left <= inner.left &&
-    outer.top <= inner.top &&
-    outer.right >= inner.right &&
-    outer.bottom >= inner.bottom;
+    outer.left <= inner.left + 2 &&
+    outer.top <= inner.top + 2 &&
+    outer.right >= inner.right - 2 &&
+    outer.bottom >= inner.bottom - 2;
   let best: number | undefined;
   let bestScore = Infinity;
   boxes.forEach((box, index) => {

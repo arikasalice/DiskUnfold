@@ -789,13 +789,17 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(shell).not.toBeNull();
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
-    for (const name of names) expect(shown).toContain(name);
     expect(shown).toContain(groupLabel);
     expect(shown).not.toContain(OTHER_GROUP_LABEL);
     const accessibleLabels = Array.from(
-      shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
+      shell?.querySelectorAll<HTMLElement>('[role="option"][aria-label]') ?? [],
       (element) => element.getAttribute("aria-label") ?? "",
     );
+    // Every shape is named in full by its option; a narrow drawn label is cut.
+    for (const name of names)
+      expect(accessibleLabels.some((label) => label.startsWith(name))).toBe(
+        true,
+      );
     expect(
       accessibleLabels.some((name) => name.startsWith(`${groupLabel} ·`)),
     ).toBe(true);
