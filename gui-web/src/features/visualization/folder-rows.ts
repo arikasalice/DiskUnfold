@@ -13,22 +13,24 @@ const NO_ROWS: readonly VizRow[] = [];
  * A folder is expanded when other shapes name it as their parent; its table
  * holds one row for each of those shapes. A read that fails, or a page that
  * does not belong to `frame`, leaves those shapes unnamed. Answers for an
- * earlier model are dropped. The shared row state of the controller is not
- * touched.
+ * earlier model are dropped, and a model committed again with the same folders
+ * is not read again. The shared row state of the controller is not touched.
  */
 export function useFolderRows(
   read: (request: VizRowsRequest) => Promise<VizRows>,
   graph: { frame: ModelResponse } | null | undefined,
 ): readonly VizRow[] {
   const frame = graph?.frame ?? null;
+  const requests = frame ? folderRequests(frame) : [];
+  const key = frame
+    ? JSON.stringify([frame.observedAt, frame.completeness, requests])
+    : "";
   const [loaded, setLoaded] = useState<{
-    frame: ModelResponse;
+    key: string;
     rows: readonly VizRow[];
   } | null>(null);
   useEffect(() => {
-    if (!frame) return;
-    const requests = folderRequests(frame);
-    if (requests.length === 0) return;
+    if (!frame || requests.length === 0) return;
     let live = true;
     void Promise.allSettled(
       requests.map(async (request) => {
@@ -40,7 +42,7 @@ export function useFolderRows(
     ).then((results) => {
       if (live)
         setLoaded({
-          frame,
+          key,
           rows: results.flatMap((result) =>
             result.status === "fulfilled" ? result.value : [],
           ),
@@ -49,8 +51,9 @@ export function useFolderRows(
     return () => {
       live = false;
     };
-  }, [read, frame]);
-  return loaded?.frame === frame ? loaded.rows : NO_ROWS;
+    // The key holds everything the reads and their checks use from `frame`.
+  }, [read, key]);
+  return loaded?.key === key ? loaded.rows : NO_ROWS;
 }
 
 function folderRequests(frame: ModelResponse): VizRowsRequest[] {
