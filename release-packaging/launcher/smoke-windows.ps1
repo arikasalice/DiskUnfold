@@ -1416,13 +1416,23 @@ function Test-CaptureTreemapLink {
     Save-SmokeCapture '01-treemap-link'
     # README 32: at 150% and above the head and the banner scroll with the page. Focusing the
     # chart's region brings it to the top of the window with its button row; the head then lies above.
+    # #167: the region takes focus by script (as from "Back to chart") and shows the 4.7 indicator.
+    $chart = Wait-UI 'chart region' { Find-UI 'Storage chart' ([Windows.Automation.ControlType]::Group) }
+    $chart.SetFocus()
+    Start-Sleep -Milliseconds 800
     if ([int]$AppScale -ge 150) {
-      $chart = Wait-UI 'chart region' { Find-UI 'Storage chart' ([Windows.Automation.ControlType]::Group) }
-      $chart.SetFocus()
-      Start-Sleep -Milliseconds 800
       $head = Find-UI 'Language and display' $button
       "Page scrolled to the chart buttons; the head is $(if ($head -and $head.Current.IsOffscreen) { 'above the window' } else { 'still in view' })"
-      Save-SmokeCapture '02-treemap-link-scrolled'
+    }
+    Save-SmokeCapture '02-treemap-link-scrolled'
+    # #167: the Tab order from the chart region, one capture per stop.
+    for ($stop = 1; $stop -le 5; $stop++) {
+      Send-SmokeKey 0x09 # VK_TAB
+      Start-Sleep -Milliseconds 300
+      $focused = $ae::FocusedElement
+      $observed = if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
+      "Tab $stop from the chart region: $observed"
+      Save-SmokeCapture "03-tab-$stop"
     }
     "Treemap with a junction: Docs is drawn with report.bin inside it, the junction has no area; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
   } finally {
