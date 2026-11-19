@@ -6,9 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Ref } from "react";
 import type { RefObject } from "react";
-import { Action, Heading, Progress, Text } from "../components";
+import { Action, Heading, Notice, Progress, Text } from "../components";
 import type { SizeDisplay } from "../i18n/bytes";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
@@ -56,6 +55,12 @@ const DEFAULT_DISPLAY: SizeDisplay = { system: "iec", unit: "auto" };
 /** Where the chart is assumed to start in the scroll area until it reports its place. */
 const DEFAULT_CHART_OFFSET = 40;
 
+/**
+ * A `viz.catalog` request that failed for the current folder, kept apart from
+ * an empty catalog: only a failure offers a retry. It is never retried on its own.
+ */
+export type BrowseCatalogFailure = { retrying: boolean; retry: () => void };
+
 export function useBrowseVisualization(
   client: AnalysisClient | undefined,
   provider: BrowseVisualizationProvider | undefined,
@@ -67,11 +72,14 @@ export function useBrowseVisualization(
     provider: BrowseVisualizationProvider;
     assembly: BrowseVisualizationAssembly;
   }>();
+  const [failure, setFailure] = useState<{ key: string; retrying: boolean }>();
+  const [attempt, setAttempt] = useState(0);
   const generation = useRef(0);
   const invalidate = useCallback(() => {
     generation.current += 1;
     setSelection(undefined);
     setState(undefined);
+    setFailure(undefined);
   }, []);
   const opened = useCallback(
     (next: BrowseVisualizationSelection | undefined) => {
@@ -98,6 +106,7 @@ export function useBrowseVisualization(
       .call("viz.catalog", {})
       .then((catalog) => {
         if (!active || requestGeneration !== generation.current) return;
+        setFailure(undefined);
         const assembly = provider(selection, catalog);
         if (
           !assembly ||
@@ -107,22 +116,33 @@ export function useBrowseVisualization(
         setState({ key, provider, assembly });
       })
       .catch(() => {
-        if (active && requestGeneration === generation.current)
+        if (active && requestGeneration === generation.current) {
           setState(undefined);
+          setFailure({ key, retrying: false });
+        }
       });
     return () => {
       active = false;
     };
-  }, [client, provider, resultVersion, selection]);
+  }, [client, provider, resultVersion, selection, attempt]);
 
   const key = selection ? JSON.stringify(selection) : undefined;
   const assembly =
     key && state?.key === key && state.provider === provider
       ? state.assembly
       : undefined;
+  const retry = useCallback(() => {
+    setFailure((current) => current && { ...current, retrying: true });
+    setAttempt((current) => current + 1);
+  }, []);
+  const catalogFailure: BrowseCatalogFailure | undefined =
+    key && failure?.key === key
+      ? { retrying: failure.retrying, retry }
+      : undefined;
   return {
     selection: assembly ? selection : undefined,
     assembly,
+    catalogFailure,
     invalidate,
     opened,
   };
@@ -196,6 +216,7 @@ export function BrowseVisualizationActions({
   visible,
   open,
   available,
+  catalogFailure,
   trigger,
   onOpen,
   onClose,
@@ -203,17 +224,43 @@ export function BrowseVisualizationActions({
   visible: boolean;
   open: boolean;
   available: boolean;
-  trigger: Ref<HTMLButtonElement>;
+  catalogFailure?: BrowseCatalogFailure | undefined;
+  trigger: RefObject<HTMLButtonElement | null>;
   onOpen: () => void;
   onClose: () => void;
 }) {
   const text = useLocaleText();
+  // A retry that succeeds moves the focus to the button it brought back.
+  const retried = useRef(false);
+  useLayoutEffect(() => {
+    if (available && retried.current) trigger.current?.focus();
+    if (available || !catalogFailure) retried.current = false;
+  }, [available, catalogFailure, trigger]);
   return (
     <>
       {visible && open && (
         <Action variant="quiet" icon="back" autoFocus onPress={onClose}>
           {text("ui.visualization.back_to_folders", "Back to folders")}
         </Action>
+      )}
+      {visible && !open && !available && catalogFailure && (
+        <Notice tone="error">
+          {text(
+            "ui.visualization.catalog_failed",
+            "The space distribution could not be prepared.",
+          )}{" "}
+          <Action
+            isPending={catalogFailure.retrying}
+            onPress={() => {
+              retried.current = true;
+              catalogFailure.retry();
+            }}
+          >
+            {catalogFailure.retrying
+              ? text("ui.browse.retrying", "Retrying…")
+              : text("ui.browse.retry", "Retry")}
+          </Action>
+        </Notice>
       )}
       {visible && available && (
         <div hidden={open}>

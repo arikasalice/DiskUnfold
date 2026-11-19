@@ -1098,7 +1098,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
     space.getByText("At least 42 bytes · Reported by the file system"),
   ).toBeDefined();
   expect(
-    space.getByText("Unique physical space").nextElementSibling?.textContent,
+    space.getByText("Unique physical size").nextElementSibling?.textContent,
   ).toBe(
     "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached · File identity could not be verified · A measurement limitation was reported",
   );

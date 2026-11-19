@@ -651,7 +651,14 @@ test("entry point shows loading, failure and a newer table independently of the 
   );
   expect(screen.getByText("No rows in this page")).toBeTruthy();
   await act(async () => controller.render(request(3, "new-revision")));
-  expect(screen.getByText("The chart could not be loaded.")).toBeTruthy();
+  // The chart of the first result is still on screen: the failure says so, with its time.
+  expect(
+    screen.getByText(
+      /^The new result could not be loaded as a chart, so the previous chart is shown\. Chart observed:/,
+    ).textContent,
+  ).toContain(fixtureText.observedAt(first.observedAt));
+  expect(screen.queryByText("The chart could not be loaded.")).toBeNull();
+  expect(screen.getByRole("region", { name: "Storage chart" })).toBeTruthy();
   expect(
     screen.getByRole("region", { name: "Items in the latest result" }),
   ).toBeTruthy();
@@ -1963,4 +1970,32 @@ test("a cancelled visualization job retains its prior graph and does not retry",
   expect(
     screen.getAllByText(fixtureText.message("cancelled")).length,
   ).toBeGreaterThan(0);
+});
+
+test("F06 FR9.HD1.gui-web.DD1: a table shown without a chart reads its first page by itself", async () => {
+  const shown = frame(1);
+  const rows = vi.fn().mockResolvedValue({
+    ...modelFixture().page.response,
+    resultRevision: shown.resultRevision,
+    observedAt: shown.observedAt,
+    completeness: shown.completeness,
+  });
+  const controller = new VisualizationController({
+    render: vi.fn().mockResolvedValue(shown),
+    rows,
+    cancel: vi.fn(),
+    canDisplay: () => false,
+  });
+  // The owner did not ask for automatic rows: without a chart the table is the
+  // only way to the values, so it opens anyway and offers no load button.
+  render(
+    <ControlledVisualization controller={controller} text={fixtureText} />,
+  );
+  await act(async () => controller.render(request(1)));
+  await waitFor(() =>
+    expect(rows).toHaveBeenCalledWith(
+      expect.objectContaining({ modelRef: shown.model.modelRef, start: 0 }),
+    ),
+  );
+  expect(screen.queryByRole("button", { name: /^Load items/ })).toBeNull();
 });

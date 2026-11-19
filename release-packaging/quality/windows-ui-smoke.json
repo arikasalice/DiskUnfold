@@ -7,6 +7,9 @@
     { "name": "treemap", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureTreemap"] },
     { "name": "treemap-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureTreemap"] },
     { "name": "treemap-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureTreemap"] },
+    { "name": "fallback-table", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureFallbackTable"] },
+    { "name": "fallback-table-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureFallbackTable"] },
+    { "name": "fallback-table-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureFallbackTable"] },
     { "name": "virtual-groups", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroups"] },
     { "name": "virtual-groups-sample", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroupsSample"] }
   ]

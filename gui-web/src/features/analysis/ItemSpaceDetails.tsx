@@ -83,7 +83,7 @@ function rows(
       value: describe(detail.allocated, formatSize, text),
     },
     {
-      label: text("ui.analysis.space_unique_physical", "Unique physical space"),
+      label: text("ui.analysis.space_unique_physical", "Unique physical size"),
       value: describe(detail.uniquePhysical, formatSize, text),
     },
     {
