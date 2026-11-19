@@ -136,6 +136,7 @@ pub fn classify_scope_bounded(
         rule_unavailable,
         files: scope.files,
         decisions,
+        links: scope.links,
         coverage_complete: scope.coverage_complete,
     });
     classification.prepare_reads(registry, control)?;

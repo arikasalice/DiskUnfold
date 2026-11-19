@@ -11,11 +11,15 @@ use crate::ResultVersion;
 /// Items are visited this many apart between cancellation checks.
 const CANCEL_INTERVAL: usize = 4096;
 
-/// The member files of a scope and whether the source covers all of it.
+/// The member files of a scope, its untraversed links and whether the source covers all of it.
 pub(super) struct ScopeFiles {
     /// Item numbers of the files in observed path order.
     pub(super) files: Vec<u32>,
-    /// False when the scope holds an item that is neither a file nor a folder.
+    /// Item numbers of the untraversed links. They are never group members; the scope
+    /// total counts each by its own size (F03 FR5.HD1).
+    pub(super) links: Vec<u32>,
+    /// False when the scope holds an item that is neither a file, a folder nor an
+    /// untraversed link. A link target that was not traversed does not lower coverage.
     pub(super) coverage_complete: bool,
 }
 
@@ -31,19 +35,23 @@ pub(super) fn collect(
     control: &dyn Control,
 ) -> Result<ScopeFiles, Error> {
     let mut files = Vec::new();
+    let mut links = Vec::new();
     let mut visited = 0usize;
     let coverage_complete = walk(version, root, |item| {
         visited += 1;
         if visited.is_multiple_of(CANCEL_INTERVAL) && control.cancelled() {
             return Err(Error::Cancelled);
         }
-        if item.kind == ResultItemKind::File {
-            files.push(item.item_no);
+        match item.kind {
+            ResultItemKind::File => files.push(item.item_no),
+            ResultItemKind::UntraversedLink => links.push(item.item_no),
+            _ => {}
         }
         Ok(())
     })?;
     Ok(ScopeFiles {
         files,
+        links,
         coverage_complete,
     })
 }
@@ -63,7 +71,8 @@ fn starting_items<'a>(
 }
 
 /// Visits every item below the scope, parents before children and siblings in stored path
-/// order, without recursion. Returns whether every visited item was a file or a folder.
+/// order, without recursion. Returns whether every visited item was a file, a folder or an
+/// untraversed link.
 fn walk(
     version: &ResultVersion,
     root: Option<&ItemRef>,
@@ -77,7 +86,10 @@ fn walk(
             continue;
         };
         visit(item)?;
-        complete &= matches!(item.kind, ResultItemKind::File | ResultItemKind::Directory);
+        complete &= matches!(
+            item.kind,
+            ResultItemKind::File | ResultItemKind::Directory | ResultItemKind::UntraversedLink
+        );
         let children = version.children(item.item_no);
         if !children.is_empty() {
             branches.push(children.iter());

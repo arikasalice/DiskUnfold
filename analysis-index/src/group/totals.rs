@@ -26,7 +26,7 @@ pub struct Totals {
     pub unclassified: SpaceAggregate,
     /// Files that match no rule and have an undecided rule; independent of the selection.
     pub undecidable: SpaceAggregate,
-    /// Every file of the scope.
+    /// Every file and untraversed link of the scope; a link counts by its own size.
     pub scope: SpaceAggregate,
 }
 
@@ -158,8 +158,23 @@ impl Classification {
             groups,
             unclassified: self.sum_set(&unclassified, cancelled)?,
             undecidable: self.sum_set(&undecidable, cancelled)?,
-            scope: self.sum_set(&self.files, cancelled)?,
+            scope: self.sum_scope(cancelled)?,
         })
+    }
+
+    /// Sums the member files and the untraversed links of the scope. A link with a known
+    /// own size is summed like a file; one without keeps the total unknown, never zero.
+    fn sum_scope(&self, cancelled: &mut impl FnMut() -> bool) -> Result<SpaceAggregate, Error> {
+        if self.links.is_empty() {
+            return self.sum_set(&self.files, cancelled);
+        }
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(self.files.len() + self.links.len())
+            .map_err(|_| Error::Unavailable)?;
+        items.extend_from_slice(&self.files);
+        items.extend_from_slice(&self.links);
+        self.sum_set(&items, cancelled)
     }
 
     /// Visits every file's decisions in path order, checking for cancellation regularly.

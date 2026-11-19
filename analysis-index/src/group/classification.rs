@@ -24,6 +24,7 @@ pub(super) struct Parts {
     pub(super) predicates: Vec<(String, u32)>,
     pub(super) files: Vec<u32>,
     pub(super) decisions: Vec<Decision>,
+    pub(super) links: Vec<u32>,
     pub(super) coverage_complete: bool,
 }
 
@@ -41,6 +42,8 @@ pub struct Classification {
     pub(super) files: Vec<u32>,
     /// `rules.len()` decisions for each file, in file order.
     pub(super) decisions: Vec<Decision>,
+    /// Untraversed links of the scope, counted only in the scope total by their own size.
+    pub(super) links: Vec<u32>,
     pub(super) coverage_complete: bool,
     pub(super) summary: Summary,
     pub(super) orders: Mutex<OrderCache>,
@@ -80,6 +83,7 @@ impl Classification {
             predicates: parts.predicates,
             files: parts.files,
             decisions: parts.decisions,
+            links: parts.links,
             coverage_complete: parts.coverage_complete,
             summary,
             orders: Mutex::default(),
