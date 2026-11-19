@@ -273,7 +273,7 @@ fn reconciliation_uses_all_rules_and_counts_each_reason_once_per_undecidable_fil
 }
 
 #[test]
-fn partial_results_and_untraversed_links_are_not_exhaustive_coverage() -> Result<(), String> {
+fn partial_results_are_not_exhaustive_coverage_but_untraversed_links_are() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)).map_err(err)?;
     build.add_directory(vec![]).map_err(err)?;
@@ -302,7 +302,8 @@ fn partial_results_and_untraversed_links_are_not_exhaustive_coverage() -> Result
     let read = classify(&version, None, vec![], default())?;
     let recount = read.reconcile(|| false).map_err(err)?;
     assert_eq!(recount.observed_files, 0);
-    assert!(!recount.source_coverage_complete);
+    // F03 FR5.HD1: a link target that was not traversed does not lower coverage.
+    assert!(recount.source_coverage_complete);
     assert!(read.summary().reconciled);
     Ok(())
 }
