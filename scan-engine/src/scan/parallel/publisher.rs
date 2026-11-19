@@ -315,11 +315,18 @@ std::thread_local! {
     pub(super) static REJECT_CHILD_ATTEMPTS: std::cell::Cell<bool> = const {
         std::cell::Cell::new(false)
     };
+    pub(super) static REJECTED_CHILD_ATTEMPTS: std::cell::Cell<usize> = const {
+        std::cell::Cell::new(0)
+    };
 }
 
 #[cfg(test)]
 fn rejects_child_attempt(path: &[Vec<u8>]) -> bool {
-    !path.is_empty() && REJECT_CHILD_ATTEMPTS.with(std::cell::Cell::get)
+    let rejected = !path.is_empty() && REJECT_CHILD_ATTEMPTS.with(std::cell::Cell::get);
+    if rejected {
+        REJECTED_CHILD_ATTEMPTS.with(|count| count.set(count.get().saturating_add(1)));
+    }
+    rejected
 }
 
 #[cfg(not(test))]
