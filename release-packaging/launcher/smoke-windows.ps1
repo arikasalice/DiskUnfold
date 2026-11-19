@@ -1577,6 +1577,10 @@ function Test-CaptureFallbackTable {
   "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 function Test-CaptureTour {
+  # #178: a name with a zero-width space and a direction mark. The table draws it as it is; the
+  # expanded Full name in its details draws each one as its code point.
+  $invisibleName = 'report' + [char]0x200B + 'final' + [char]0x200E + '.bin'
+  [IO.File]::WriteAllBytes((Join-Path $scanRoot $invisibleName), [byte[]]::new(5))
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-Enabled 'Start analysis' $true
@@ -1603,6 +1607,17 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'root.bin' $true)
   $null = Wait-UI 'file details' { Find-UI 'File details' $textType }
   Save-SmokeCapture '06-file-details'
+  Invoke-UI (Wait-Enabled 'Close details' $true)
+  $invisibleRow = Wait-UI 'name with invisible characters' {
+    $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object { ($_.Current.Name -replace '[\u200B\u200E]', '') -eq 'reportfinal.bin' -and $_.Current.IsEnabled } |
+      Select-Object -First 1
+  }
+  Invoke-UI $invisibleRow
+  $null = Wait-UI 'file details' { Find-UI 'File details' $textType }
+  Expand-UI (Wait-Enabled 'Full name' $true)
+  $null = Wait-SmokeExpanded 'Full name' $true 'opening'
+  Save-SmokeCapture '07-invisible-name'
   Invoke-UI (Wait-Enabled 'Close details' $true)
   "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }

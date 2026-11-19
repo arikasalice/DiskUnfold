@@ -39,7 +39,12 @@ export type { StatusRow, StatusShape, StatusTone } from "./status-table";
 export { ClampedText, MiddleEllipsisText } from "./text-fit";
 export { NameText, hasPathSeparator } from "./name-text";
 export { ExplainedText } from "./explained-text";
-export { NAME_SPACE_MARK, nameEdges, pathNameEdges } from "./name-edges";
+export {
+  NAME_SPACE_MARK,
+  invisibleCount,
+  nameEdges,
+  pathNameEdges,
+} from "./name-edges";
 export type { NameEdges, PathNameEdges } from "./name-edges";
 export { DataTable } from "./data-table";
 export { DetailDisclosure } from "./detail-disclosure";

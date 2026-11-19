@@ -439,6 +439,7 @@ ui.analysis.choose_path_again
 ui.common.close_details
 ui.common.name_leading_spaces count:count
 ui.common.name_trailing_spaces count:count
+ui.common.name_invisible_characters count:count
 ui.common.details
 ui.common.unknown
 ui.common.dismiss

@@ -456,6 +456,7 @@
     ["ui.common.close_details", "Close details", []],
     ["ui.common.name_leading_spaces",{"kind":"plural","parameter":"count","variants":{"one":"The name starts with {count} space","other":"The name starts with {count} spaces"}},[["count","count"]]],
     ["ui.common.name_trailing_spaces",{"kind":"plural","parameter":"count","variants":{"one":"The name ends with {count} space","other":"The name ends with {count} spaces"}},[["count","count"]]],
+    ["ui.common.name_invisible_characters",{"kind":"plural","parameter":"count","variants":{"one":"{count} invisible character","other":"{count} invisible characters"}},[["count","count"]]],
     ["ui.common.details", "Details", []],
     ["ui.common.unknown", "Unknown", []],
     ["ui.common.dismiss", "Dismiss", []],

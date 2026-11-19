@@ -26,6 +26,44 @@ export type PathNameEdges = { head: string; name: NameEdges; tail: string };
 const WHITE_SPACE = /^\p{White_Space}+$/u;
 
 /**
+ * Characters that take no visible space: format and control characters, such
+ * as a zero-width space or a direction mark, and the Hangul fillers.
+ */
+const INVISIBLE_CHARACTER = /[\p{Cf}\p{Cc}\u115F\u1160\u3164\uFFA0]/u;
+
+const PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
+
+/** A run of visible text, or one invisible character. */
+export type NamePiece = { text: string; invisible: boolean };
+
+/**
+ * Splits text at its invisible characters, one piece for each. A joiner or a
+ * tag inside an emoji sequence is part of the emoji that is drawn, so it is
+ * not invisible.
+ */
+export function invisiblePieces(text: string): NamePiece[] {
+  const pieces: NamePiece[] = [];
+  let run = "";
+  for (const unit of graphemes(text)) {
+    if (PICTOGRAPHIC.test(unit)) {
+      run += unit;
+      continue;
+    }
+    for (const character of unit) {
+      if (!INVISIBLE_CHARACTER.test(character)) {
+        run += character;
+        continue;
+      }
+      if (run !== "") pieces.push({ text: run, invisible: false });
+      pieces.push({ text: character, invisible: true });
+      run = "";
+    }
+  }
+  if (run !== "") pieces.push({ text: run, invisible: false });
+  return pieces;
+}
+
+/**
  * Only a character that is white space on its own counts. A space that
  * carries a combining mark is drawn as that mark, so it is not blank.
  */
@@ -78,4 +116,26 @@ export function pathNameEdges(path: string): PathNameEdges {
     name: nameEdges(path.slice(start, end)),
     tail: path.slice(end),
   };
+}
+
+/**
+ * A name, or with `path` a path, split around the name whose edge white space
+ * is marked.
+ */
+export function nameParts(value: string, path: boolean): PathNameEdges {
+  return path
+    ? pathNameEdges(value)
+    : { head: "", name: nameEdges(value), tail: "" };
+}
+
+/**
+ * The number of invisible characters an expanded name draws a marker for:
+ * every one in the value except the edge white space of the name, which is
+ * drawn as "\u2423".
+ */
+export function invisibleCount(value: string, path = false): number {
+  const parts = nameParts(value, path);
+  return [parts.head, parts.name.middle, parts.tail]
+    .flatMap(invisiblePieces)
+    .filter((piece) => piece.invisible).length;
 }
