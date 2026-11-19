@@ -92,6 +92,7 @@ pub(crate) fn build(
     built: &crate::tree::BuiltItems,
     aggregates: &[SpaceAggregate],
     completeness: ResultCompleteness,
+    proven: Option<&crate::folder_completion::ProvenFolders>,
 ) -> (Vec<RangeIndices>, RangeIndices) {
     let items = &built.items;
     let times = built.item_observed_times.as_deref();
@@ -136,8 +137,9 @@ pub(crate) fn build(
     }
     // The aggregator uses None for no recorded gap; Some(count) is set only by
     // the gap marking pass. It is not a general proof of external scan coverage.
-    for (range, aggregate) in ranges.iter_mut().zip(aggregates) {
-        range.complete &= completeness == ResultCompleteness::Complete
+    for (index, (range, aggregate)) in ranges.iter_mut().zip(aggregates).enumerate() {
+        let source = crate::folder_completion::ProvenFolders::source(proven, index, completeness);
+        range.complete &= source == ResultCompleteness::Complete
             && aggregate.inaccessible_ranges.is_none_or(|count| count == 0);
     }
     let mut scope = scope.unwrap_or_default();

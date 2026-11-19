@@ -5,6 +5,7 @@ mod cancelled_below;
 mod current_pin;
 mod directory_case;
 pub mod folder_collection;
+mod folder_completion;
 mod folder_evidence_api;
 mod folder_evidence_attempt;
 mod folder_evidence_budget;
@@ -15,6 +16,8 @@ mod folder_evidence_snapshot;
 mod folder_evidence_snapshot_builder;
 mod folder_evidence_validation;
 mod folder_marks;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 pub use folder_evidence_api::{
     FolderAttemptError, FolderAttemptFinal, FolderAttemptInput, FolderAttemptStatus,
     FolderAttemptToken,
@@ -346,9 +349,17 @@ impl BuildHandle {
                 return Err(error);
             }
         };
-        let mut aggregates =
-            self.size_rule
-                .aggregate(&built, completeness, self.shared_table_limit);
+        let folder_evidence = self.pin_folder_evidence(&built, finish)?;
+        let proven = folder_completion::ProvenFolders::decide(
+            &built,
+            folder_evidence.as_ref(),
+            completeness,
+            self.expected_base.is_some(),
+        );
+        let limit = self.shared_table_limit;
+        let mut aggregates = self
+            .size_rule
+            .aggregate(&built, completeness, proven.as_ref(), limit);
         let gaps = forest::mark_gaps(&built, &self.observations, &self.gaps, &mut aggregates);
         let exact_gaps = match gaps {
             Ok(exact) => exact,
@@ -375,25 +386,8 @@ impl BuildHandle {
             Some(total)
         };
         let (observation_ranges, scope_observation_range) =
-            observation_range::build(&built, &aggregates, completeness);
+            observation_range::build(&built, &aggregates, completeness, proven.as_ref());
         let directory_case = directory_case::bind(&built, &self.directory_case);
-        if finish {
-            self.folder_attempts.hold_pending();
-        }
-        let folder_evidence = match self.folder_attempts.snapshot(&built) {
-            Ok(evidence) => evidence,
-            Err(BuildError::CapacityExceeded) => {
-                // Preserve the ordinary observations and publish without optional evidence.
-                self.folder_attempts.discard();
-                None
-            }
-            Err(error) => {
-                // Withdraw any partial from this build and restore its baseline through abort.
-                self.abort();
-                self.folder_attempts.discard();
-                return Err(error);
-            }
-        };
         let folder_marks = folder_marks::FolderMarks::bind(
             &built,
             &self.observations,

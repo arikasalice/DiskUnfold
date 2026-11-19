@@ -113,19 +113,30 @@ fn oversized_directory_observation_holds_evidence_but_continues_f02_traversal()
     Ok(())
 }
 
-struct RejectChildAttempts(bool);
+pub(super) struct RejectChildAttempts {
+    previous_enabled: bool,
+    previous_rejections: usize,
+}
 
 impl RejectChildAttempts {
-    fn enable() -> Self {
+    pub(super) fn enable() -> Self {
         let previous = crate::scan::parallel::publisher::REJECT_CHILD_ATTEMPTS
             .with(|enabled| enabled.replace(true));
-        Self(previous)
+        let previous_rejections = crate::scan::parallel::publisher::REJECTED_CHILD_ATTEMPTS
+            .with(|count| count.replace(0));
+        Self {
+            previous_enabled: previous,
+            previous_rejections,
+        }
     }
 }
 
 impl Drop for RejectChildAttempts {
     fn drop(&mut self) {
-        crate::scan::parallel::publisher::REJECT_CHILD_ATTEMPTS.with(|enabled| enabled.set(self.0));
+        crate::scan::parallel::publisher::REJECT_CHILD_ATTEMPTS
+            .with(|enabled| enabled.set(self.previous_enabled));
+        crate::scan::parallel::publisher::REJECTED_CHILD_ATTEMPTS
+            .with(|count| count.set(self.previous_rejections));
     }
 }
 

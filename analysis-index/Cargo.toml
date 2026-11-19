@@ -9,5 +9,9 @@ license.workspace = true
 blake3 = "=1.8.3"
 du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
 
+[features]
+# Narrow hooks that tests of dependent crates use to force failure paths. Not for products.
+test-hooks = []
+
 [lints]
 workspace = true
