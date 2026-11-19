@@ -1,4 +1,4 @@
-//! Pinned file observations projected into an internal histogram.
+//! Pinned file and link observations projected into an internal histogram.
 //!
 //! Boundaries and presentation policy remain supplied by their owners. This is
 //! not a registered F06 strategy or a published visualization model.
@@ -25,7 +25,9 @@ pub struct Request<'a> {
 /// F03 aggregate and coverage are independent of the histogram's observed sums.
 /// The summary retains all source gaps, including gaps outside the selected root.
 /// Histogram completeness retains any non-complete source state; a complete source
-/// is downgraded only when the selected root has possible omissions.
+/// is downgraded only when the selected root has possible omissions. An untraversed
+/// link is not an omission: it is placed by its own observed size, and a link whose own
+/// size is unknown stays uncertain like a file of unknown size.
 pub struct Model {
     pub summary: statistics_summary::Summary,
     pub histogram: Histogram,
@@ -39,7 +41,8 @@ pub enum Error {
     Cancelled,
 }
 
-/// Uses actual observed files of one pinned scope; directories are not added as files.
+/// Uses the observed files and untraversed links of one pinned scope; directories are
+/// not added as items.
 pub fn project(request: Request<'_>, cancelled: &mut dyn FnMut() -> bool) -> Result<Model, Error> {
     project_inner(request, cancelled, true)
 }
@@ -54,15 +57,18 @@ fn project_inner(
     cancelled: &mut dyn FnMut() -> bool,
     with_geometry: bool,
 ) -> Result<Model, Error> {
-    let (summary, files) =
-        statistics_summary::summarize_with_files(request.version, request.scope, cancelled)
-            .map_err(|e| {
-                if e == statistics_summary::Error::Cancelled {
-                    Error::Cancelled
-                } else {
-                    Error::Source(e)
-                }
-            })?;
+    let (summary, files) = statistics_summary::summarize_with_files_and_links(
+        request.version,
+        request.scope,
+        cancelled,
+    )
+    .map_err(|e| {
+        if e == statistics_summary::Error::Cancelled {
+            Error::Cancelled
+        } else {
+            Error::Source(e)
+        }
+    })?;
     let mut items = Vec::with_capacity(files.len());
     for item_no in files {
         if cancelled() {
@@ -94,8 +100,8 @@ fn project_inner(
             break;
         }
     }
-    let omissions =
-        summary.counts.unknown_kind > 0 || summary.counts.untraversed_links > 0 || possible_gap;
+    // F03 FR5.HD1 keeps an untraversed link target apart from the scope's accuracy.
+    let omissions = summary.counts.unknown_kind > 0 || possible_gap;
     let completeness = if summary.result_completeness == ResultCompleteness::Complete && omissions {
         ResultCompleteness::Partial
     } else {
