@@ -1,4 +1,7 @@
 //! Kind of a directory enumeration record, including Cloud Files placeholders.
+mod mount_point;
+pub(super) use mount_point::{has_mount_point_tag, volume_root_metadata};
+
 use super::kind;
 use du_core_contracts::scan_observation::ObservedKind;
 use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
@@ -25,9 +28,9 @@ fn is_cloud_tag(tag: u32) -> bool {
 /// `ea_size` is the record's `EaSize` field, which holds the reparse tag only
 /// when the record has `FILE_ATTRIBUTE_REPARSE_POINT`; otherwise it is an
 /// extended-attribute size and is not read. Every other tag, and a missing
-/// tag, stays a `Link`. The recall guard and the no-recall open do not depend
-/// on this kind, and a handle that still reports a reparse point remains a
-/// `Link`, so the collector records a disagreement instead of entering it.
+/// tag, stays a `Link` here. Metadata upgrades a mount-point record only when
+/// the opened handle's reparse data verifies an exact volume-GUID root. The
+/// recall guard and no-recall open do not depend on this classification.
 pub(super) fn enumerated_kind(attributes: u32, ea_size: u32) -> ObservedKind {
     let reparse = FILE_ATTRIBUTE_REPARSE_POINT.0;
     if attributes & reparse != 0 && is_cloud_tag(ea_size) {
