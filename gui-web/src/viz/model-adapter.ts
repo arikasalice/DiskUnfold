@@ -84,6 +84,7 @@ export function adaptVizModel(
     displayName?: string;
     displayValue?: string;
     container?: boolean;
+    lowerBound?: boolean;
   },
   folderRows: readonly VizRow[] = [],
 ) {

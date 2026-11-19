@@ -29,6 +29,55 @@ test("the shape buttons are one scrolling row, and a focused button is brought i
   });
 });
 
+test("F06 FR12.HD1.gui-web.DD1: a lower-bound rectangle has a dashed right and bottom edge, an exact one has none", () => {
+  const base = props();
+  const rect = (left: number, right: number) => ({
+    primitive: "rect",
+    points: [
+      { x: left, y: 0 },
+      { x: right, y: 1_000_000 },
+    ],
+  });
+  const { container } = render(
+    <GeometryRenderer
+      {...base}
+      width={200}
+      height={100}
+      relations={[]}
+      shapes={[
+        {
+          shapeRef: "lower-leaf",
+          rowRef: "row-lower-leaf",
+          accessibleLabel: "At least 10 bytes",
+          geometry: rect(0, 250_000),
+          lowerBound: true,
+        },
+        {
+          shapeRef: "lower-folder",
+          rowRef: "row-lower-folder",
+          accessibleLabel: "Folder, at least 20 bytes",
+          geometry: rect(250_000, 750_000),
+          lowerBound: true,
+          container: true,
+        },
+        {
+          shapeRef: "exact",
+          rowRef: "row-exact",
+          accessibleLabel: "Exactly 10 bytes",
+          geometry: rect(750_000, 1_000_000),
+        },
+      ]}
+    />,
+  );
+  const edges = Array.from(
+    container.querySelectorAll(".du-geometry-lower-bound"),
+    (edge) => edge.getAttribute("d"),
+  );
+  // Both are dashed 1.5 px inside: clear of a leaf's gap, and on a folder's inset
+  // between its own edge (drawn 1 px inside) and its children (2 px inside).
+  expect(edges).toEqual(["M48.5,1.5 V98.5 H1.5", "M148.5,1.5 V98.5 H51.5"]);
+});
+
 function labelled(width: number, name: string, value?: string) {
   const base = props();
   const { container } = render(

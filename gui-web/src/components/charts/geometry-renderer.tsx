@@ -26,6 +26,8 @@ type Shape = {
   displayValue?: string;
   /** An expanded folder: drawn as a frame with a header band over the shapes it holds. */
   container?: boolean;
+  /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
+  lowerBound?: boolean;
 };
 type Relation = {
   fromShapeRef: string;
@@ -270,6 +272,32 @@ function fitLabel(shape: Shape, limit: number) {
     : shorten(shape.displayName, limit);
 }
 
+/**
+ * The dashed right and bottom edge of a lower-bound rectangle (F06 design README
+ * 4.6), centred 1.5 px inside the shape: clear of the surface gap beside a leaf,
+ * and on the inset of an expanded folder between its own edge and its children.
+ */
+function lowerBoundEdge(
+  shape: Shape,
+  view: Viewport,
+  width: number,
+  height: number,
+) {
+  if (!shape.lowerBound || shape.geometry.primitive !== "rect") return null;
+  const inset = 1.5;
+  const start = project(shape.geometry.points[0]!, view, width, height);
+  const end = project(shape.geometry.points[1]!, view, width, height);
+  const right = end.x - inset;
+  const bottom = end.y - inset;
+  if (right <= start.x + inset || bottom <= start.y + inset) return null;
+  return (
+    <path
+      className="du-geometry-lower-bound"
+      d={`M${right},${start.y + inset} V${bottom} H${start.x + inset}`}
+    />
+  );
+}
+
 function rectangleLabel(
   shape: Shape,
   view: Viewport,
@@ -436,6 +464,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               }
             >
               {drawing}
+              {lowerBoundEdge(shape, viewport, width, height)}
               {rectangleLabel(shape, viewport, width, height)}
             </g>
           ))}

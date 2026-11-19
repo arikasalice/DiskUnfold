@@ -131,6 +131,10 @@ export function shapeLabels(
   return {
     accessibleLabel,
     ...(place.childCount ? { container: true } : {}),
+    // A lower bound is drawn with a dashed right and bottom edge: it may be larger (4.6).
+    ...((shape.quantity ?? shape.size).state === "lower_bound"
+      ? { lowerBound: true }
+      : {}),
     // A shape whose row has not arrived is named for assistive technology only;
     // the drawing carries no label rather than a placeholder.
     displayLabel: !row

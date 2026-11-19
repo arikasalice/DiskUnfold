@@ -30,6 +30,19 @@
   pointer-events: none;
 }
 
+/* A lower bound keeps its own fill; only its right and bottom edges are dashed
+   (F06 design README 4.6). --du-muted keeps 4:1 on leaf and folder fills. */
+.du-geometry-lower-bound {
+  fill: none;
+  stroke: var(--du-muted);
+  /* 2 px: wherever the chart lands on device pixels, at least one pixel row has
+     the full colour, so the dash keeps the --du-muted contrast. */
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  shape-rendering: crispEdges;
+  pointer-events: none;
+}
+
 .du-geometry-relation {
   color: var(--du-muted);
   fill: var(--du-border);
@@ -54,7 +67,7 @@
   white-space: nowrap;
 }
 
-.du-geometry g[data-selected="true"] > :not(text) {
+.du-geometry g[data-selected="true"] > :not(text, .du-geometry-lower-bound) {
   stroke: var(--du-focus);
   stroke-width: 3;
   stroke-dasharray: 4 2;
