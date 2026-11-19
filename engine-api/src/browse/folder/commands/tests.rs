@@ -14,6 +14,7 @@ mod admission;
 mod completion;
 mod delivery_busy;
 mod search;
+mod stale_version;
 mod unknown_fields;
 static GATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

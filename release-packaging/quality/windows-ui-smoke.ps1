@@ -6,6 +6,8 @@
 # "appScale" (125, 150 or 200, the app's CSS zoom; the runner's display scale stays 100%).
 # Captures go to a folder named <name>-<locale>-<theme>-<size>, with -scale<n> when the app scale
 # is not 100. Use -Only to run some scenarios.
+# -Repeat runs each scenario that many times, each run in its own folder and log with -run<n>, to
+# look for intermittent failures.
 # -ScreenSize switches the display to a mode at least that large first, for window sizes the
 # default CI screen cannot hold. Exits 1 when any scenario failed.
 [CmdletBinding()]
@@ -14,6 +16,7 @@ param(
   [Parameter(Mandatory)][string]$OutputDirectory,
   [string]$ScenarioFile = (Join-Path $PSScriptRoot 'windows-ui-smoke.json'),
   [string[]]$Only = @(),
+  [ValidateRange(1, 20)][int]$Repeat = 1,
   [string]$ScreenSize
 )
 $ErrorActionPreference = 'Stop'
@@ -96,15 +99,20 @@ if ($Only.Count) {
 }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $out = (Resolve-Path -LiteralPath $OutputDirectory).Path
-$results = foreach ($scenario in $scenarios) {
+$runs = foreach ($scenario in $scenarios) {
+  foreach ($run in 1..$Repeat) { [pscustomobject]@{ Scenario = $scenario; Run = $run } }
+}
+$results = foreach ($entry in $runs) {
+  $scenario = $entry.Scenario
+  $runSuffix = if ($Repeat -gt 1) { "-run$($entry.Run)" } else { '' }
   $locale = if ($scenario.locale) { $scenario.locale } else { 'en' }
   $theme = if ($scenario.theme) { $scenario.theme } else { 'light' }
   $size = if ($scenario.windowSize) { $scenario.windowSize } else { 'default' }
   $scale = if ($scenario.appScale) { [string]$scenario.appScale } else { '100' }
-  $folderName = "$($scenario.name)-$locale-$theme-$size" + $(if ($scale -ne '100') { "-scale$scale" } else { '' })
+  $folderName = "$($scenario.name)-$locale-$theme-$size" + $(if ($scale -ne '100') { "-scale$scale" } else { '' }) + $runSuffix
   $captures = Join-Path $out $folderName
   New-Item -ItemType Directory -Force -Path $captures | Out-Null
-  $log = Join-Path $out "$($scenario.name).log"
+  $log = Join-Path $out "$($scenario.name)$runSuffix.log"
   $started = Get-Date
   $arguments = @($scenario.arguments) + @('-Locale', $locale, '-Theme', $theme)
   if ($scenario.windowSize) { $arguments += @('-WindowSize', $scenario.windowSize) }

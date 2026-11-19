@@ -374,6 +374,11 @@ function Find-ResultVersionLabel($label, $prefix = 'Result version: ') {
   if ($summary) { return $summary }
   Find-UI $label $textType
 }
+# The summary's "Result version: <status>" label in the profile's language; the template and the
+# status are translated separately, because Get-UiName leaves a template's value as given.
+function Get-ResultVersionName($status) {
+  (Get-UiName 'Result version: {status}').Replace('{status}', (Get-UiName $status))
+}
 # Wait for the expected total, selecting a newer result if the interim one stays pinned.
 function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
   $selection = @{ LastSwitch = [DateTime]::MinValue }
@@ -1335,8 +1340,17 @@ function Test-CaptureTreemap {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  # #155: right after the scan finishes the summary may still show an earlier result. Browse
+  # folders opens the scan's newest result, which the engine accepts; an earlier one it refuses.
+  $summary = if (Find-UI (Get-ResultVersionName 'Final') $textType) { 'final' } else { 'earlier' }
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
-  $null = Wait-UI 'Photos' { Find-UI 'Photos' $null }
+  "Browse folders pressed while the summary showed the $summary result"
+  $null = Wait-UI 'Photos' {
+    if (Find-UI 'Could not open this folder.' $null) {
+      throw "Browse could not open the first folder; the summary showed the $summary result when Browse folders was pressed"
+    }
+    Find-UI 'Photos' $null
+  }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
   $group = Get-UiName 'Other (400)'
   $null = Wait-UI 'Photos and the named shapes inside it' {
