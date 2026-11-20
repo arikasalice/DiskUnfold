@@ -445,6 +445,97 @@ test("support information leads with the startup checks", async () => {
   ).toBeTruthy();
 });
 
+test("remembered keys come from the host and every change is stored there (#195)", async () => {
+  const writes: unknown[] = [];
+  let failWrites = 1;
+  let status: StartupStatus = {
+    ...accessUnknown(),
+    grade: "unverifiable",
+    noticeDismissed: "full_disk_access:unknown",
+  };
+  const client = clientFor((name, body) => {
+    if (name === "app.startup_memory_set") {
+      writes.push(body);
+      if (failWrites-- > 0) return new Error("db.busy");
+      return body;
+    }
+    if (name === "app.startup_access") return { settingsOpened: false };
+    if (name === "app.support_info") return supportReport();
+    return status;
+  });
+  const view = render(
+    <StartupGate client={client}>
+      <InfoEntry client={client} />
+      <FirstScreen />
+    </StartupGate>,
+  );
+  // The stored dismissal holds: no notice, and nothing to store.
+  await waitFor(() => expect(startupMemory.get().status).toBeDefined());
+  expect(screen.queryByRole("region")).toBeNull();
+  expect(writes).toEqual([]);
+
+  // Opening support information stores the seen state; this write fails.
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Support information, items to review",
+    }),
+  );
+  await screen.findByRole("dialog", { name: "Support information" });
+  const seen = "grade:unverifiable|full_disk_access:unverifiable";
+  expect(writes).toEqual([{ kind: "review_seen", stateKey: seen }]);
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // The key still holds for this run.
+  expect(
+    screen.getByRole("button", { name: "Support information" }),
+  ).toBeTruthy();
+  view.unmount();
+
+  // The next status read stores it again. Access is now confirmed, so the
+  // stored dismissal no longer matches and is cleared on the host as well.
+  status = {
+    ...accessUnknown("confirmed"),
+    grade: "unverifiable",
+    checks: status.checks,
+    noticeDismissed: "full_disk_access:unknown",
+  };
+  render(
+    <StartupGate client={client}>
+      <FirstScreen />
+    </StartupGate>,
+  );
+  await waitFor(() =>
+    expect(writes).toEqual([
+      { kind: "review_seen", stateKey: seen },
+      { kind: "notice_dismissed", stateKey: "" },
+      { kind: "review_seen", stateKey: seen },
+    ]),
+  );
+});
+
+test("dismissing the notice stores its state key", async () => {
+  const writes: unknown[] = [];
+  const client = clientFor((name, body) => {
+    if (name === "app.startup_memory_set") {
+      writes.push(body);
+      return body;
+    }
+    return accessUnknown();
+  });
+  render(
+    <StartupGate client={client}>
+      <FirstScreen />
+    </StartupGate>,
+  );
+  const notice = await screen.findByRole("region", { name: "Startup notice" });
+  fireEvent.click(
+    within(notice).getByRole("button", { name: "Dismiss notice" }),
+  );
+  expect(writes).toEqual([
+    { kind: "notice_dismissed", stateKey: "full_disk_access:unknown" },
+  ]);
+});
+
 test("a state key keeps to the stored grammar and size", () => {
   const names = [
     "resource_integrity",

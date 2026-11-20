@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { StartupStatus } from "../../ipc";
+import type { StartupMemoryKind, StartupStatus } from "../../ipc";
 
 /**
  * What the startup checks found and what the user has already seen of it
@@ -13,9 +13,15 @@ import type { StartupStatus } from "../../ipc";
  * {@link STATE_KEY_LIMIT} bytes. The empty string means nothing is
  * remembered. When the current state no longer matches a
  * remembered key, the key is forgotten, so the same state returning later
- * shows again. These keys are kept for this run; they move to the user-env
- * settings `startup.notice_dismissed` and `startup.review_seen` once the host
- * can store them (#195).
+ * shows again.
+ *
+ * The keys outlive the run in the user-env settings `startup.notice_dismissed`
+ * and `startup.review_seen` (#195): the startup status brings the stored keys,
+ * and a connected writer stores each change. Whenever a status arrives whose
+ * stored key differs from the one kept here, the kept key is written again, so
+ * a forgotten key is cleared on the host too and a write that failed (for
+ * example while the database was busy) is tried again. Until then the key
+ * holds for this run.
  */
 type StartupMemory = {
   status: StartupStatus | undefined;
@@ -26,10 +32,17 @@ type StartupMemory = {
 const empty: StartupMemory = { status: undefined, dismissed: "", seen: "" };
 let memory = empty;
 const listeners = new Set<() => void>();
+type Writer = (kind: StartupMemoryKind, stateKey: string) => void;
+let writer: Writer | undefined;
 
 function update(next: Partial<StartupMemory>) {
   memory = { ...memory, ...next };
   for (const listener of listeners) listener();
+}
+
+/** The remembered key that matches the current state, or "". */
+function kept(current: string, ...remembered: (string | undefined)[]) {
+  return current !== "" && remembered.includes(current) ? current : "";
 }
 
 export const startupMemory = {
@@ -40,17 +53,43 @@ export const startupMemory = {
     };
   },
   get: () => memory,
-  setStatus: (status: StartupStatus) =>
-    update({
-      status,
-      dismissed: memory.dismissed === noticeKey(status) ? memory.dismissed : "",
-      seen: memory.seen === reviewKey(status) ? memory.seen : "",
-    }),
-  dismiss: () => update({ dismissed: noticeKey(memory.status) }),
+  /** Stores each change of a key through `write` until the returned call. */
+  connect(write: Writer) {
+    writer = write;
+    return () => {
+      if (writer === write) writer = undefined;
+    };
+  },
+  setStatus(status: StartupStatus) {
+    const dismissed = kept(
+      noticeKey(status),
+      memory.dismissed,
+      status.noticeDismissed,
+    );
+    const seen = kept(reviewKey(status), memory.seen, status.reviewSeen);
+    update({ status, dismissed, seen });
+    if ((status.noticeDismissed ?? "") !== dismissed) {
+      writer?.("notice_dismissed", dismissed);
+    }
+    if ((status.reviewSeen ?? "") !== seen) writer?.("review_seen", seen);
+  },
+  dismiss() {
+    const dismissed = noticeKey(memory.status);
+    update({ dismissed });
+    writer?.("notice_dismissed", dismissed);
+  },
   /** Marks the current state as reviewed; the dot stays away until it changes. */
-  markSeen: () => update({ seen: reviewKey(memory.status) }),
+  markSeen() {
+    const seen = reviewKey(memory.status);
+    if (seen === memory.seen) return;
+    update({ seen });
+    writer?.("review_seen", seen);
+  },
   /** For tests: forget everything, as a launch without stored keys would. */
-  reset: () => update(empty),
+  reset: () => {
+    writer = undefined;
+    update(empty);
+  },
 };
 
 export function useStartupMemory() {
