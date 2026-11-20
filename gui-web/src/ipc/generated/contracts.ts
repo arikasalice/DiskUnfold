@@ -1194,7 +1194,17 @@ export type AnalysisJobListRequest = {
 states?: Array<JobState>, };
 export type AnalysisJobPriority = "high" | "normal" | "low";
 export type AnalysisJobWaitReason = "none" | "paused" | "queue_full" | "io_wait" | "device_cap" | "backpressure" | "unknown";
-export type AnalysisJobListRow = { jobRef: Id, kind: string, scopeSummary: string, state: JobState, waitReason: AnalysisJobWaitReason, priority: AnalysisJobPriority,
+export type AnalysisJobListRow = { jobRef: Id, kind: string, scopeSummary: string,
+/**
+ * Display string of the first scope root captured at submission.
+ * Omitted, together with `scope_root_count`, for a kind without scope roots.
+ */
+scopeFirstRoot?: string,
+/**
+ * Number of scope roots captured at submission (1 or more).
+ * Omitted, together with `scope_first_root`, for a kind without scope roots.
+ */
+scopeRootCount?: number, state: JobState, waitReason: AnalysisJobWaitReason, priority: AnalysisJobPriority,
 /**
  * Supported controls for the job kind, independent of state eligibility.
  */
