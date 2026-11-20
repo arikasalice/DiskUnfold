@@ -1,5 +1,6 @@
 //! Fake root and directory adapters used by the scan admission tests.
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -168,10 +169,13 @@ impl DirectoryObservations for Directory {
                 device: 1,
                 inode: 2,
                 size: Ok(64),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z").ok(),
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::or_unknown(
+                    du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z").ok(),
+                    du_core_contracts::scan_observation::attribute_reason::QUERY_FAILED,
+                ),
                 native_modified_at: std::num::NonZeroU64::new(132_224_078_450_060_001)
                     .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime),
             }),
@@ -243,10 +247,10 @@ fn priority_entry(name: &[u8], inode: u64, kind: ObservedKind) -> ObservedEntry 
             device: 1,
             inode,
             size: Ok(0),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

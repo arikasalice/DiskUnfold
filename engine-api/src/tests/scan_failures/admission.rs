@@ -3,6 +3,7 @@
 //! A real sequential collection supplies the rows, so the reason keys, kind,
 //! stage and completeness are those the collector publishes.
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     job::Checkpoint,
     result::ResultVersionRead,
@@ -77,10 +78,10 @@ fn observed(name: &str, kind: ObservedKind, device: u64, inode: u64) -> Observed
             device,
             inode,
             size,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

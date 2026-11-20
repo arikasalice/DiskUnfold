@@ -2,7 +2,7 @@
 use du_core_contracts::{
     ports::PortError,
     scan_observation::{
-        CorrelatedDirectoryEvent, MetadataObservation, ObservedEntry, SpaceIdentity,
+        CorrelatedDirectoryEvent, MetadataObservation, ObservedEntry, ObservedValue, SpaceIdentity,
         TimedObservedEntry,
     },
 };
@@ -200,7 +200,7 @@ pub(super) fn entry_heap_capacity(entry: &ObservedEntry) -> Option<usize> {
         if let Err(error) = &metadata.size {
             bytes = bytes.checked_add(error.reason_key.capacity())?;
         }
-        if let Some(identity) = &metadata.space_identity {
+        if let Some(identity) = metadata.space_identity.known() {
             bytes = bytes
                 .checked_add(identity.volume.capacity())?
                 .checked_add(identity.file.capacity())?;
@@ -233,8 +233,11 @@ pub(super) fn try_clone_entry(entry: &ObservedEntry) -> Option<ObservedEntry> {
             allocated: metadata.allocated,
             link_count: metadata.link_count,
             space_identity: match &metadata.space_identity {
-                Some(identity) => Some(try_clone_space_identity(identity)?),
-                None => None,
+                ObservedValue::Known(identity) => {
+                    ObservedValue::Known(try_clone_space_identity(identity)?)
+                }
+                ObservedValue::Unknown(reason) => ObservedValue::Unknown(reason),
+                ObservedValue::NotApplicable => ObservedValue::NotApplicable,
             },
         }),
         Err(error) => Err(try_clone_port_error(error)?),

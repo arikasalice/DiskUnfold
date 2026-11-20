@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{
     DirectoryCaseEvidence, DirectoryCaseState, FilterDecision, FilteredBatch,
 };
@@ -42,10 +43,10 @@ impl DirectoryObservations for CaseDir {
                 device: self.device,
                 inode: 6 + self.step as u64,
                 size: Ok(0),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }]))

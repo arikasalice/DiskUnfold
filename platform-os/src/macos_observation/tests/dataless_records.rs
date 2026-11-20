@@ -1,6 +1,7 @@
 //! #211, F03 FR6.HD1: a dataless file record reports a placeholder and no allocation,
 //! from the flags of the same record and without opening the file.
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::PlaceholderObservation;
 
 fn record(object_type: u32, flags: Option<u32>) -> bulk::Record {
@@ -30,9 +31,9 @@ fn a_dataless_file_is_a_placeholder_without_an_allocation() -> TestResult {
         .metadata
         .map_err(|e| format!("{e:?}"))?;
     // The logical size, identity and link count stay; st_blocks is not a local occupancy.
-    assert_eq!((meta.size, meta.allocated), (Ok(5_000_000), None));
-    assert_eq!(meta.link_count, Some(1));
-    assert!(meta.space_identity.is_some());
+    assert_eq!((meta.size, meta.allocated.get()), (Ok(5_000_000), None));
+    assert_eq!(meta.link_count, ObservedValue::Known(1));
+    assert!(meta.space_identity.known().is_some());
     Ok(())
 }
 
@@ -47,7 +48,7 @@ fn only_a_file_with_the_dataless_flag_is_a_placeholder() -> TestResult {
             .observe(local)
             .metadata
             .map_err(|e| format!("{e:?}"))?;
-        assert_eq!(meta.allocated, Some(0), "{flags:?}");
+        assert_eq!(meta.allocated, ObservedValue::Known(0), "{flags:?}");
     }
     // A directory or a link with the flag is not a file placeholder.
     for object_type in [2, 5] {

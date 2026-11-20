@@ -1,5 +1,6 @@
 //! F24 FR2.HD1.app-host.DD1: a metadata scan reports item progress.
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobProgress},
@@ -66,10 +67,10 @@ fn file(name: u8, readable: bool) -> ObservedEntry {
                 device: 1,
                 inode: u64::from(name),
                 size: Ok(3),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             })
         } else {

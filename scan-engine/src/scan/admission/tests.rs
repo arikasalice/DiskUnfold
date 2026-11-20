@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::HandleIdentity,
@@ -14,11 +15,11 @@ fn entry(kind: ObservedKind, device: u64, inode: u64) -> ObservedEntry {
             device,
             inode,
             size: Ok(0),
-            modified_at: None,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
         }),
     }
 }

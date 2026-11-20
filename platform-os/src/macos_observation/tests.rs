@@ -1,5 +1,6 @@
 //! Record parsing, classification and thread policy checks without fixture files.
 use super::{MacDirectory, bulk, dataless, errors, scope, volume};
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ports::PortErrorKind,
     scan_observation::{HandleIdentity, ObservedKind},
@@ -230,18 +231,21 @@ fn sizes_follow_stat_and_only_files_report_allocation() -> TestResult {
         .observe(base(1))
         .metadata
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!((file.size, file.allocated), (Ok(4), Some(24_576)));
-    assert_eq!(file.link_count, Some(1));
-    assert!(file.space_identity.is_some());
+    assert_eq!((file.size, file.allocated.get()), (Ok(4), Some(24_576)));
+    assert_eq!(file.link_count, ObservedValue::Known(1));
+    assert!(file.space_identity.known().is_some());
     let link = parent
         .observe(base(5))
         .metadata
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        (link.kind, link.size, link.allocated),
+        (link.kind, link.size, link.allocated.get()),
         (ObservedKind::Link, Ok(4), None)
     );
-    assert_eq!((link.link_count, link.space_identity), (None, None));
+    assert_eq!(
+        (link.link_count.get(), link.space_identity.get()),
+        (None, None)
+    );
     let mut directory = base(2);
     directory.directory_length = Some(256);
     let directory = parent
@@ -249,7 +253,7 @@ fn sizes_follow_stat_and_only_files_report_allocation() -> TestResult {
         .metadata
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        (directory.kind, directory.size, directory.allocated),
+        (directory.kind, directory.size, directory.allocated.get()),
         (ObservedKind::Directory, Ok(256), None)
     );
     // A directory length the file system did not return stays unknown.
@@ -292,9 +296,9 @@ fn mount_points_and_other_devices_carry_identity_and_kind_only() -> TestResult {
         let meta = entry.metadata.map_err(|e| format!("{e:?}"))?;
         assert_eq!((meta.kind, meta.device, meta.inode), (kind, device, 42));
         assert!(meta.size.is_err());
-        assert!(meta.modified_at.is_none() && meta.native_modified_at.is_none());
-        assert!(meta.allocated.is_none() && meta.link_count.is_none());
-        assert!(meta.space_identity.is_none());
+        assert!(meta.modified_at.known().is_none() && meta.native_modified_at.is_none());
+        assert!(meta.allocated.known().is_none() && meta.link_count.known().is_none());
+        assert!(meta.space_identity.known().is_none());
     }
     // A per-entry error still wins over the mount rule.
     mount.error = Some(libc::EACCES.cast_unsigned());

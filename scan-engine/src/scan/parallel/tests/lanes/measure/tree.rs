@@ -6,6 +6,7 @@
 //! sizes of the subtrees before it. Only open handles hold their child list.
 //! Subdirectories are listed before files and a read returns `batch` entries.
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use std::sync::atomic::AtomicU64;
 
 /// Tree families of the measurement.
@@ -223,10 +224,10 @@ fn observed(name: Vec<u8>, inode: u64, directory: bool) -> ObservedEntry {
             device: 1,
             inode,
             size: Ok(u64::from(!directory)),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

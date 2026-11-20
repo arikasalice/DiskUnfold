@@ -2,6 +2,7 @@
 //! macOS observation adapter checks on isolated temporary fixtures.
 mod machine;
 
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Timestamp,
     ports::PortErrorKind,
@@ -154,20 +155,23 @@ fn normal_tree_reports_sizes_times_and_identities() -> TestResult {
     let mut b = child(&*a, find(&a_entries, b"b")?)?;
     let file = meta(find(&all(&mut *b)?, b"c.txt")?)?;
     assert_eq!(file.size, Ok(3));
-    assert!(file.allocated.is_some_and(|bytes| bytes > 0));
-    assert_eq!(file.link_count, Some(2));
+    assert!(file.allocated.get().is_some_and(|bytes| bytes > 0));
+    assert_eq!(file.link_count, ObservedValue::Known(2));
     assert_eq!(
         file.modified_at
-            .as_ref()
+            .known()
             .map(Timestamp::to_string)
             .as_deref(),
         Some("2020-09-13T12:26:40.000Z")
     );
-    let identity = file.space_identity.ok_or("missing space identity")?;
+    let identity = file.space_identity.get().ok_or("missing space identity")?;
     assert_eq!(identity.volume, root.volume_id);
     assert_eq!(identity.file, fs::metadata(&content)?.ino().to_le_bytes());
     let hard = meta(find(&entries, b"hard")?)?;
-    assert_eq!(hard.space_identity.map(|id| id.file), Some(identity.file));
+    assert_eq!(
+        hard.space_identity.map(|id| id.file),
+        ObservedValue::Known(identity.file)
+    );
     Ok(())
 }
 

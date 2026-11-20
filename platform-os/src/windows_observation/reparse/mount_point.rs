@@ -34,21 +34,16 @@ pub(in crate::windows_observation) fn volume_root_metadata(
         return Ok(None);
     }
 
-    Ok(Some(MetadataObservation {
-        kind: ObservedKind::MountPoint,
-        device: parent_volume,
-        inode: enumerated_inode,
-        size: Err(PortError {
+    Ok(Some(MetadataObservation::other_volume(
+        ObservedKind::MountPoint,
+        parent_volume,
+        enumerated_inode,
+        PortError {
             kind: PortErrorKind::Unsupported,
             reason_key: "os.unsupported".into(),
             os_code: None,
-        }),
-        modified_at: None,
-        native_modified_at: None,
-        allocated: None,
-        link_count: None,
-        space_identity: None,
-    }))
+        },
+    )))
 }
 
 fn is_volume_root_mount_point(file: &File) -> bool {

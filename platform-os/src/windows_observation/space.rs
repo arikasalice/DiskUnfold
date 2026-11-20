@@ -2,7 +2,7 @@
 use super::{identity, info, raw};
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
-    scan_observation::SpaceIdentity,
+    scan_observation::{ObservedValue, SpaceIdentity, attribute_reason},
 };
 use std::{fs::File, mem::size_of};
 use windows::Win32::Storage::FileSystem::{
@@ -11,11 +11,21 @@ use windows::Win32::Storage::FileSystem::{
     FileCompressionInfo, FileIdInfo, FileStandardInfo, GetFileInformationByHandleEx,
 };
 
-#[derive(Default)]
 pub(super) struct Facts {
-    pub allocated: Option<u64>,
-    pub link_count: Option<u64>,
-    pub identity: Option<SpaceIdentity>,
+    pub allocated: ObservedValue<u64>,
+    pub link_count: ObservedValue<u64>,
+    pub identity: ObservedValue<SpaceIdentity>,
+}
+
+impl Facts {
+    /// The facts of an entry that is not a file: none of them apply.
+    pub(super) fn not_applicable() -> Self {
+        Self {
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            identity: ObservedValue::NotApplicable,
+        }
+    }
 }
 
 /// Reads allocation and link count without reopening the path.
@@ -65,17 +75,24 @@ pub(super) fn read(
             os_code: None,
         });
     }
-    let allocated = if first.dwFileAttributes & FILE_ATTRIBUTE_ENCRYPTED.0 != 0
-        || !queried
-        || standard.DeletePending
-    {
-        None
+    let failed = ObservedValue::Unknown(attribute_reason::QUERY_FAILED);
+    let allocated = if first.dwFileAttributes & FILE_ATTRIBUTE_ENCRYPTED.0 != 0 {
+        // The allocation evidence of an encrypted file is incomplete.
+        ObservedValue::Unknown(attribute_reason::UNSUPPORTED)
+    } else if !queried || standard.DeletePending {
+        failed
     } else if first.dwFileAttributes & special != 0 {
-        compression_available
-            .then(|| u64::try_from(compression.CompressedFileSize).ok())
-            .flatten()
+        ObservedValue::or_unknown(
+            compression_available
+                .then(|| u64::try_from(compression.CompressedFileSize).ok())
+                .flatten(),
+            attribute_reason::QUERY_FAILED,
+        )
     } else {
-        u64::try_from(standard.AllocationSize).ok()
+        ObservedValue::or_unknown(
+            u64::try_from(standard.AllocationSize).ok(),
+            attribute_reason::QUERY_FAILED,
+        )
     };
     let link_count = if queried
         && !standard.DeletePending
@@ -83,14 +100,17 @@ pub(super) fn read(
         && standard.NumberOfLinks == first.nNumberOfLinks
         && first.nNumberOfLinks == last.nNumberOfLinks
     {
-        Some(u64::from(standard.NumberOfLinks))
+        ObservedValue::Known(u64::from(standard.NumberOfLinks))
     } else {
-        None
+        failed
     };
-    let file_identity = file_id.map(|id| SpaceIdentity {
-        volume: volume_guid.to_vec(),
-        file: id.to_vec(),
-    });
+    let file_identity = ObservedValue::or_unknown(
+        file_id.map(|id| SpaceIdentity {
+            volume: volume_guid.to_vec(),
+            file: id.to_vec(),
+        }),
+        attribute_reason::QUERY_FAILED,
+    );
     Ok(Facts {
         allocated,
         link_count,

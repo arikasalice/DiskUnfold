@@ -1,5 +1,6 @@
 //! Races, permissions and mount boundaries observed on real directories.
 use super::{TestResult, drain, entry, fail, link_creation_is_unavailable, open};
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ports::PortErrorKind,
     scan_observation::{
@@ -19,11 +20,11 @@ fn mount_point(item: &ObservedEntry) -> bool {
         meta.inode != 0
             && meta.kind == ObservedKind::MountPoint
             && meta.size.is_err()
-            && meta.modified_at.is_none()
+            && meta.modified_at.known().is_none()
             && meta.native_modified_at.is_none()
-            && meta.allocated.is_none()
-            && meta.link_count.is_none()
-            && meta.space_identity.is_none()
+            && meta.allocated.known().is_none()
+            && meta.link_count.known().is_none()
+            && meta.space_identity.known().is_none()
     })
 }
 
@@ -44,11 +45,11 @@ fn forged(item: &ObservedEntry, device: u64) -> ObservedEntry {
             device,
             inode: item.enumerated_inode,
             size: Ok(0),
-            modified_at: None,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
         }),
         ..item.clone()
     }

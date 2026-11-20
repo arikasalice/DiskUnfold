@@ -91,6 +91,7 @@ fn change(entry: &ObservedEntry, meta: &MetadataObservation) -> Option<&'static 
 #[cfg(test)]
 mod reason_tests {
     use super::*;
+    use du_core_contracts::scan_observation::ObservedValue;
 
     #[test]
     fn only_explicit_io_disconnection_is_preserved() {
@@ -119,11 +120,11 @@ mod reason_tests {
                 device: 1,
                 inode: looked_up.0,
                 size: Ok(1),
-                modified_at: None,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
-                allocated: None,
-                link_count: None,
-                space_identity: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
             }),
         }
     }

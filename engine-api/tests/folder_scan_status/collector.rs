@@ -1,6 +1,7 @@
 //! A real collection from scan-engine, with exclusion rules and a cancellation, end to end.
 use super::support::{Check, absent, err, id, item, present, unknown};
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id,
     browse_page_ipc::FolderFlags,
@@ -93,11 +94,11 @@ fn entry(name: &str, kind: ObservedKind, device: u64, inode: u64) -> ObservedEnt
             device,
             inode,
             size: Ok(1),
-            modified_at: None,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
         }),
     }
 }

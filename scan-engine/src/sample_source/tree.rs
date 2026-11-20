@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
-    scan_observation::{MetadataObservation, ObservedEntry, ObservedKind, SpaceIdentity},
+    scan_observation::{
+        MetadataObservation, ObservedEntry, ObservedKind, ObservedValue, SpaceIdentity,
+        attribute_reason,
+    },
 };
 
 use crate::sample_bundle::{SampleItem, SampleItemKind, SampleObservationState, ValidatedBundle};
@@ -161,11 +164,18 @@ fn entry(item: &SampleItem) -> ObservedEntry {
             } else {
                 Ok(item.size)
             },
-            modified_at: item.modified_at.clone(),
+            modified_at: ObservedValue::or_unknown(
+                item.modified_at.clone(),
+                attribute_reason::UNSUPPORTED,
+            ),
             native_modified_at: None,
-            allocated: item.allocated,
-            link_count: Some(1),
-            space_identity: Some(SpaceIdentity {
+            allocated: match (item.allocated, &kind) {
+                (Some(bytes), _) => ObservedValue::Known(bytes),
+                (None, ObservedKind::File) => ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+                (None, _) => ObservedValue::NotApplicable,
+            },
+            link_count: ObservedValue::Known(1),
+            space_identity: ObservedValue::Known(SpaceIdentity {
                 volume: Vec::new(),
                 file: inode.to_le_bytes().to_vec(),
             }),

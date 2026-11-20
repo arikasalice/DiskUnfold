@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 
 struct Clock {
     values: Mutex<VecDeque<Duration>>,
@@ -71,10 +72,10 @@ fn file_entry(name: &[u8], inode: u64) -> ObservedEntry {
             device: 1,
             inode,
             size: Ok(5),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

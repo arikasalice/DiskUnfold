@@ -6,7 +6,9 @@ use super::{
 use du_core_contracts::{
     Timestamp,
     ports::PortError,
-    scan_observation::{MetadataObservation, ObservedKind, SpaceIdentity},
+    scan_observation::{
+        MetadataObservation, ObservedKind, ObservedValue, SpaceIdentity, attribute_reason,
+    },
 };
 use rustix::{
     fd::AsFd,
@@ -203,18 +205,31 @@ fn classify(anchor: &Anchor, facts: &Facts) -> Result<MetadataObservation, PortE
     }
     let kind = facts.kind();
     let file = kind == ObservedKind::File;
+    // A value the kernel did not return is unsupported here; a returned value
+    // that cannot be used is a failed query.
+    let file_value = |returned: Option<u64>, usable: fn(u64) -> Option<u64>| {
+        if !file {
+            return ObservedValue::NotApplicable;
+        }
+        match returned {
+            None => ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+            Some(value) => ObservedValue::or_unknown(usable(value), attribute_reason::QUERY_FAILED),
+        }
+    };
     Ok(MetadataObservation {
         device: facts.device,
         inode: facts.inode.unwrap_or(0),
         size: facts.size.ok_or_else(unavailable),
-        modified_at: facts.modified_at(),
+        modified_at: match facts.modified {
+            None => ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+            Some(_) => {
+                ObservedValue::or_unknown(facts.modified_at(), attribute_reason::QUERY_FAILED)
+            }
+        },
         native_modified_at: None,
-        allocated: facts
-            .blocks
-            .filter(|_| file)
-            .and_then(|blocks| blocks.checked_mul(BLOCK_BYTES)),
-        link_count: facts.links.filter(|&links| file && links > 0),
-        space_identity: facts.inode.filter(|_| file).map(|inode| SpaceIdentity {
+        allocated: file_value(facts.blocks, |blocks| blocks.checked_mul(BLOCK_BYTES)),
+        link_count: file_value(facts.links, |links| (links > 0).then_some(links)),
+        space_identity: file_value(facts.inode, Some).map(|inode| SpaceIdentity {
             volume: anchor.volume_id.to_vec(),
             file: inode.to_le_bytes().to_vec(),
         }),
@@ -226,17 +241,7 @@ fn classify(anchor: &Anchor, facts: &Facts) -> Result<MetadataObservation, PortE
 /// time, allocation, link count or space identity, as `MetadataObservation`
 /// requires.
 fn other_volume(facts: &Facts, kind: ObservedKind) -> MetadataObservation {
-    MetadataObservation {
-        kind,
-        device: facts.device,
-        inode: facts.inode.unwrap_or(0),
-        size: Err(unavailable()),
-        modified_at: None,
-        native_modified_at: None,
-        allocated: None,
-        link_count: None,
-        space_identity: None,
-    }
+    MetadataObservation::other_volume(kind, facts.device, facts.inode.unwrap_or(0), unavailable())
 }
 
 #[cfg(test)]

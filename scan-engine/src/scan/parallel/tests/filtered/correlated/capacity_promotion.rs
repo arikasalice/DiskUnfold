@@ -1,6 +1,7 @@
 use super::super::*;
 use super::{budget_exhaustion::RejectChildAttempts, fixtures::*};
 use du_analysis_index::{IngestSink, ResultVersion, test_hooks::FolderEvidenceBudgetHold};
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     SizeAmount, Timestamp,
     job::{Checkpoint, JobContext, JobFlow, JobFlowError},
@@ -138,10 +139,10 @@ fn leaf(name: &[u8], inode: u64) -> TimedObservedEntry {
             device: 1,
             inode,
             size: Ok(4),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

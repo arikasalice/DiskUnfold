@@ -3,7 +3,7 @@ use crate::folder_evidence_api::{FolderAttemptFinal, FolderAttemptInput, FolderA
 use du_core_contracts::{
     ports::PortError,
     scan_observation::{
-        CorrelatedDirectoryEvent, MetadataObservation, ObservedEntry, SpaceIdentity,
+        CorrelatedDirectoryEvent, MetadataObservation, ObservedEntry, ObservedValue, SpaceIdentity,
         TimedObservedEntry,
     },
 };
@@ -87,8 +87,9 @@ fn try_clone_metadata(metadata: &MetadataObservation) -> Option<MetadataObservat
         allocated: metadata.allocated,
         link_count: metadata.link_count,
         space_identity: match &metadata.space_identity {
-            Some(identity) => Some(try_clone_identity(identity)?),
-            None => None,
+            ObservedValue::Known(identity) => ObservedValue::Known(try_clone_identity(identity)?),
+            ObservedValue::Unknown(reason) => ObservedValue::Unknown(reason),
+            ObservedValue::NotApplicable => ObservedValue::NotApplicable,
         },
     })
 }

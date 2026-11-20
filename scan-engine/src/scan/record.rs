@@ -329,7 +329,7 @@ fn record_at(
         build.retain_enumerated_inode(root_index, path, inode)?;
     }
     if matches!(meta.kind, ObservedKind::File | ObservedKind::Directory)
-        && let Some(time) = &meta.modified_at
+        && let Some(time) = meta.modified_at.known()
     {
         build.set_modified_at(root_index, path, time.clone())?;
     }
@@ -377,17 +377,19 @@ fn observation_and_space(
         .ok()
         .map(|&bytes| os_size(SizeBasis::Logical, bytes));
     let observation = Observation { path, size };
-    let has_space =
-        meta.allocated.is_some() || meta.space_identity.is_some() || meta.link_count.is_some();
+    let has_space = meta.allocated.known().is_some()
+        || meta.space_identity.known().is_some()
+        || meta.link_count.known().is_some();
     let space = has_space.then(|| SpaceObservation {
         allocated: meta
             .allocated
+            .get()
             .map(|bytes| os_size(SizeBasis::Allocated, bytes)),
-        identity: meta.space_identity.as_ref().map(|id| FileIdentity {
+        identity: meta.space_identity.known().map(|id| FileIdentity {
             volume: id.volume.clone(),
             file: id.file.clone(),
         }),
-        link_count: meta.link_count,
+        link_count: meta.link_count.get(),
         sharing,
     });
     (observation, space)

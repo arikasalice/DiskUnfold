@@ -1,4 +1,5 @@
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id, SizeAmount,
     job::Checkpoint,
@@ -65,11 +66,11 @@ fn entry(name: &[u8], kind: ObservedKind, size: Result<u64, PortError>) -> Obser
             device: 1,
             inode: 1,
             size,
-            modified_at: None,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
         }),
     }
 }
@@ -85,9 +86,9 @@ fn untraversed_links_keep_their_observed_size_and_space() -> Result<(), Box<dyn 
     let ids = ids();
     let mut first = entry(b"first", ObservedKind::Link, Ok(7));
     if let Ok(meta) = &mut first.metadata {
-        meta.allocated = Some(4096);
-        meta.link_count = Some(2);
-        meta.space_identity = Some(SpaceIdentity {
+        meta.allocated = ObservedValue::Known(4096);
+        meta.link_count = ObservedValue::Known(2);
+        meta.space_identity = ObservedValue::Known(SpaceIdentity {
             volume: vec![1],
             file: vec![2],
         });

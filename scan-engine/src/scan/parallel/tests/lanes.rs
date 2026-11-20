@@ -17,6 +17,7 @@ mod control;
 mod determinism;
 mod gate;
 mod isolation;
+use du_core_contracts::scan_observation::ObservedValue;
 use gate::{Gate, Opened};
 mod lending;
 mod measure;
@@ -179,10 +180,10 @@ fn entry(root: u32, parent: &[Vec<u8>], name: Vec<u8>, directory: bool) -> Obser
             device: 1,
             inode,
             size: Ok(u64::from(!directory)),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

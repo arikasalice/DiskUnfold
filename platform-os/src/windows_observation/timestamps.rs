@@ -1,13 +1,16 @@
 //! Convert last-write timestamps read from an already verified handle.
 use super::{info, raw};
-use du_core_contracts::{Timestamp, scan_observation::NativeModifiedTime};
+use du_core_contracts::{
+    Timestamp,
+    scan_observation::{NativeModifiedTime, ObservedValue, attribute_reason},
+};
 use std::{fs::File, mem::size_of};
 use windows::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
 };
 
 pub(super) fn modified_at(file: &File) -> Option<Timestamp> {
-    observe(file).0
+    observe(file).0.into_known()
 }
 
 /// Keeps native evidence only when metadata around the time query agree.
@@ -47,7 +50,10 @@ fn matching_native(
 }
 
 /// Derives both forms from one query on the same verified handle.
-pub(super) fn observe(file: &File) -> (Option<Timestamp>, Option<NativeModifiedTime>) {
+/// The last write time and its native form. A failed query is
+/// `os.query_failed`; a time the volume did not record or that is out of range
+/// is `os.attribute_unsupported`.
+pub(super) fn observe(file: &File) -> (ObservedValue<Timestamp>, Option<NativeModifiedTime>) {
     let mut basic = FILE_BASIC_INFO::default();
     // SAFETY: file is live and basic is a correctly sized writable structure.
     let result = unsafe {
@@ -60,13 +66,16 @@ pub(super) fn observe(file: &File) -> (Option<Timestamp>, Option<NativeModifiedT
     }
     .ok();
     if result.is_none() {
-        return (None, None);
+        return (ObservedValue::Unknown(attribute_reason::QUERY_FAILED), None);
     }
     let native = u64::try_from(basic.LastWriteTime)
         .ok()
         .and_then(std::num::NonZeroU64::new)
         .map(NativeModifiedTime::WindowsFiletime);
-    (filetime(basic.LastWriteTime), native)
+    (
+        ObservedValue::or_unknown(filetime(basic.LastWriteTime), attribute_reason::UNSUPPORTED),
+        native,
+    )
 }
 
 fn filetime(ticks: i64) -> Option<Timestamp> {

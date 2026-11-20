@@ -32,6 +32,9 @@ pub enum FolderAttemptFinal {
 }
 
 /// One ordered F02 event. The adapter's EOF marker is passed separately to `end_folder_attempt`.
+// The adapter event stays inline like `CorrelatedDirectoryEvent` itself, without one extra
+// heap allocation per observed child.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FolderAttemptInput {
     /// Adapter callback, observation, or progress event. Adapter End uses the separate barrier API.
@@ -63,7 +66,7 @@ impl FolderAttemptInput {
                         if let Err(error) = &metadata.size {
                             bytes = bytes.checked_add(error.reason_key.len())?;
                         }
-                        if let Some(identity) = &metadata.space_identity {
+                        if let Some(identity) = metadata.space_identity.known() {
                             bytes = bytes
                                 .checked_add(identity.volume.len())?
                                 .checked_add(identity.file.len())?;
@@ -90,7 +93,7 @@ impl FolderAttemptInput {
                         if let Err(error) = &metadata.size {
                             bytes = bytes.checked_add(error.reason_key.capacity())?;
                         }
-                        if let Some(identity) = &metadata.space_identity {
+                        if let Some(identity) = metadata.space_identity.known() {
                             bytes = bytes
                                 .checked_add(identity.volume.capacity())?
                                 .checked_add(identity.file.capacity())?;

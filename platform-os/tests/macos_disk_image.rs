@@ -77,8 +77,8 @@ fn a_mount_point_is_listed_with_the_covered_identity_and_never_entered() -> Test
     assert_eq!(meta.inode, entry.enumerated_inode);
     assert_ne!((meta.device, meta.inode), (mounted.dev(), mounted.ino()));
     assert!(meta.size.is_err());
-    assert!(meta.modified_at.is_none() && meta.allocated.is_none());
-    assert!(meta.link_count.is_none() && meta.space_identity.is_none());
+    assert!(meta.modified_at.known().is_none() && meta.allocated.known().is_none());
+    assert!(meta.link_count.known().is_none() && meta.space_identity.known().is_none());
     assert!(root.directory.open_child(entry).is_err());
     // The mount itself opens as the root of another volume.
     let volume = open(&mount)?;

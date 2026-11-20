@@ -5,8 +5,9 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
         CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase, FilterDecision,
-        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, PlaceholderObservation,
-        SpaceIdentity, TimedFilteredBatch, TimedObservedEntry,
+        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, ObservedValue,
+        PlaceholderObservation, SpaceIdentity, TimedFilteredBatch, TimedObservedEntry,
+        attribute_reason,
     },
 };
 use std::os::fd::AsFd;
@@ -117,6 +118,24 @@ impl MacDirectory {
         }
         let file = *kind == ObservedKind::File;
         let dataless = record.placeholder().is_some();
+        // An attribute the bulk reply did not carry is unsupported here; a
+        // carried value that cannot be used is a failed query.
+        let carried = |returned: bool, usable: Option<u64>| {
+            if returned {
+                ObservedValue::or_unknown(usable, attribute_reason::QUERY_FAILED)
+            } else {
+                ObservedValue::Unknown(attribute_reason::UNSUPPORTED)
+            }
+        };
+        let file_only = |value: ObservedValue<u64>| {
+            if file {
+                value
+            } else {
+                ObservedValue::NotApplicable
+            }
+        };
+        let allocated = record.allocated.and_then(|bytes| u64::try_from(bytes).ok());
+        let link_count = record.link_count.map(u64::from);
         Ok(MetadataObservation {
             kind: kind.clone(),
             device,
@@ -125,19 +144,28 @@ impl MacDirectory {
                 .length()
                 .and_then(|bytes| u64::try_from(bytes).ok())
                 .ok_or_else(errors::unavailable),
-            modified_at: record
-                .modified
-                .and_then(|(seconds, nanoseconds)| bulk::timestamp(seconds, nanoseconds)),
+            modified_at: match record.modified {
+                None => ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+                Some((seconds, nanoseconds)) => ObservedValue::or_unknown(
+                    bulk::timestamp(seconds, nanoseconds),
+                    attribute_reason::QUERY_FAILED,
+                ),
+            },
             native_modified_at: None,
-            allocated: record
-                .allocated
-                .filter(|_| file && !dataless)
-                .and_then(|bytes| u64::try_from(bytes).ok()),
-            link_count: record
-                .link_count
-                .filter(|&count| file && count > 0)
-                .map(u64::from),
-            space_identity: (file && inode != 0).then(|| SpaceIdentity {
+            allocated: if file && dataless {
+                ObservedValue::Unknown(attribute_reason::PLACEHOLDER)
+            } else {
+                file_only(carried(record.allocated.is_some(), allocated))
+            },
+            link_count: file_only(carried(
+                link_count.is_some(),
+                link_count.filter(|&count| count > 0),
+            )),
+            space_identity: file_only(carried(
+                record.file_id.is_some(),
+                Some(inode).filter(|&id| id != 0),
+            ))
+            .map(|inode| SpaceIdentity {
                 volume: self.volume_id.to_vec(),
                 file: inode.to_le_bytes().to_vec(),
             }),
@@ -250,17 +278,7 @@ impl MacDirectory {
 /// only, as `MetadataObservation` requires. A mount point carries the device
 /// and inode of the directory it covers, which is what the record reports.
 pub(super) fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> MetadataObservation {
-    MetadataObservation {
-        kind,
-        device,
-        inode,
-        size: Err(errors::unavailable()),
-        modified_at: None,
-        native_modified_at: None,
-        allocated: None,
-        link_count: None,
-        space_identity: None,
-    }
+    MetadataObservation::other_volume(kind, device, inode, errors::unavailable())
 }
 
 /// Adds the observation time and the dataless placeholder observation of a file whose

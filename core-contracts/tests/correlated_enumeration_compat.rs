@@ -1,3 +1,4 @@
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
@@ -156,11 +157,11 @@ fn correlated_events_keep_child_ids_raw_names_times_errors_and_eof_count() -> Te
         device: 1,
         inode: 8,
         size: Err(metadata_error.clone()),
-        modified_at: None,
+        modified_at: ObservedValue::NotApplicable,
         native_modified_at: None,
-        allocated: Some(16),
-        link_count: None,
-        space_identity: None,
+        allocated: ObservedValue::Known(16),
+        link_count: ObservedValue::NotApplicable,
+        space_identity: ObservedValue::NotApplicable,
     };
     let observation = CorrelatedDirectoryEvent::Observation {
         child_id: 0,
@@ -188,7 +189,7 @@ fn correlated_events_keep_child_ids_raw_names_times_errors_and_eof_count() -> Te
         return Err("individual size error was lost".into());
     };
     assert_eq!(size_error, metadata_error);
-    assert_eq!(metadata.allocated, Some(16));
+    assert_eq!(metadata.allocated, ObservedValue::Known(16));
 
     let end = CorrelatedDirectoryEvent::End {
         child_count_exclusive: 2,
