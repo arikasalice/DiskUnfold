@@ -5,7 +5,11 @@
 //! and read by binary search, so a lookup is O(log n) in the number of marked
 //! folders. Cancelled marks are evidence for the named folders only; they do not
 //! establish complete coverage for a cancelled-unread total.
-use crate::{BuildError, BuildHandle, observation_store::ObservationStore, tree::BuiltItems};
+use crate::{
+    BuildError, BuildHandle, folder_evidence_api::FolderAttemptStatus,
+    folder_evidence_snapshot::FolderEvidenceSnapshot, observation_store::ObservationStore,
+    tree::BuiltItems,
+};
 use du_core_contracts::{
     result::ResultItemKind,
     scan_failures::{ScanIssue, unentered_reason},
@@ -47,6 +51,8 @@ pub(crate) struct FolderMarks {
     boundaries: Box<[(u32, BoundaryKind)]>,
     /// Folders reported as left unread, ascending by item number.
     unread: Box<[(u32, UnreadReason)]>,
+    /// Folders whose own pinned attempts all ended, ascending by item number.
+    ended: Box<[u32]>,
     unread_counts: UnreadFolderCounts,
 }
 
@@ -127,6 +133,7 @@ impl FolderMarks {
         store: &ObservationStore,
         issues: &[ScanIssue],
         unread: &BTreeMap<u32, UnreadReason>,
+        evidence: Option<&FolderEvidenceSnapshot>,
         sealed: bool,
     ) -> Self {
         let mut boundaries: Vec<(u32, BoundaryKind)> = issues
@@ -156,6 +163,7 @@ impl FolderMarks {
             sealed,
             boundaries: boundaries.into_boxed_slice(),
             unread: unread.into_boxed_slice(),
+            ended: ended_folders(evidence),
             unread_counts,
         }
     }
@@ -183,6 +191,35 @@ impl FolderMarks {
             .ok()?;
         self.boundaries.get(at).map(|mark| mark.1)
     }
+
+    /// Whether every pinned attempt for this folder ended, so it was entered and read.
+    pub(crate) fn ended(&self, item_no: u32) -> bool {
+        self.ended.binary_search(&item_no).is_ok()
+    }
+}
+
+/// Folders with at least one pinned attempt, every one of them `EndedUnproven`: the
+/// enumeration end and the direct-child terminals validated. Linear in the attempts.
+fn ended_folders(evidence: Option<&FolderEvidenceSnapshot>) -> Box<[u32]> {
+    let Some(evidence) = evidence else {
+        return Box::default();
+    };
+    let mut attempts: Vec<(u32, bool)> = evidence
+        .summaries()
+        .iter()
+        .map(|summary| {
+            (
+                summary.folder_item,
+                summary.status == FolderAttemptStatus::EndedUnproven,
+            )
+        })
+        .collect();
+    attempts.sort_unstable();
+    attempts
+        .chunk_by(|left, right| left.0 == right.0)
+        .filter(|group| group.iter().all(|attempt| attempt.1))
+        .map(|group| group[0].0)
+        .collect()
 }
 
 /// The boundary mark of an issue whose path is an observed directory item.

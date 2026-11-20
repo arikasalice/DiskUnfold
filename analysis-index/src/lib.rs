@@ -395,6 +395,9 @@ impl BuildHandle {
             &self.observations,
             &self.issues,
             &self.unread_folders,
+            folder_evidence
+                .as_ref()
+                .filter(|_| self.expected_base.is_none()),
             finish,
         );
         // Linear in items and gaps, so it runs here and never under the state lock below.
