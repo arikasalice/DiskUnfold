@@ -182,3 +182,33 @@ export function rememberFocusedGroupShape(
     ...(returnTarget === undefined ? {} : { returnTarget }),
   };
 }
+
+/**
+ * The title of the screen around `from`. Without a shape to take the focus, it
+ * goes there: a region as large as the chart does not tell what is chosen
+ * (F06 README 33, 34; F02 README 22).
+ */
+export function viewTitle(from: HTMLElement | null) {
+  return (
+    from
+      ?.closest(".du-visualization-shell")
+      ?.querySelector<HTMLElement>(".du-visualization-title h2") ?? null
+  );
+}
+
+/**
+ * The chart shape now at the model-order place of `origin`, a shape that is no
+ * longer drawn, else the last shape (README 22).
+ */
+export function nearbyShape(
+  origin: HTMLElement | null,
+  from: HTMLElement | null,
+) {
+  const index = Number(origin?.dataset.shapeIndex);
+  if (!origin || origin.isConnected || !Number.isInteger(index)) return null;
+  const shapes = from
+    ?.closest(".du-visualization-shell")
+    ?.querySelectorAll<HTMLElement>('.du-geometry-targets [role="option"]');
+  if (!shapes?.length) return null;
+  return shapes[Math.min(index, shapes.length - 1)] ?? null;
+}

@@ -375,7 +375,7 @@ test.each(["success", "failure"] as const)(
         name: label("ui.visualization.show_space_distribution"),
       }),
     );
-    await screen.findByRole("group", { name: "Space distribution" });
+    await screen.findByRole("listbox", { name: "Space distribution" });
     const ordinaryRequests = () =>
       calls
         .filter(({ name }) => name === "viz.rows")
@@ -617,18 +617,18 @@ test("F06 FR12.HD1.gui-web.DD1: a depth 2 treemap names the shapes inside a fold
     ),
   );
   await screen.findByRole(
-    "button",
+    "option",
     { name: /^Holiday\.mp4, in Videos, / },
     {
       timeout: 5000,
     },
   );
-  await screen.findByRole("button", { name: /^Other \(7\+\), in Videos, / });
+  await screen.findByRole("option", { name: /^Other \(7\+\), in Videos, / });
   // The folder is named as one, with the count of what it holds, and comes right
   // before those shapes, the order of the table rows.
   const names = Array.from(
-    document.querySelectorAll(".du-geometry-buttons button"),
-    (button) => button.getAttribute("aria-label") ?? "",
+    document.querySelectorAll('.du-geometry-targets [role="option"]'),
+    (option) => option.getAttribute("aria-label") ?? "",
   );
   const folderAt = names.findIndex((name) =>
     /^Videos, folder, .*, 2 shown inside$/.test(name),
@@ -756,7 +756,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(calls.some(({ name }) => name === "viz.render")).toBe(false);
 
     fireEvent.click(open);
-    await screen.findByRole("button", { name: /Photos/ }, { timeout: 5000 });
+    await screen.findByRole("option", { name: /Photos/ }, { timeout: 5000 });
     fireEvent.click(
       await screen.findByRole("button", {
         name: label("ui.visualization.rowsFromGraph"),
@@ -777,7 +777,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       colorCriterion: "none",
       denominatorBasis: "scope",
       depthLimit: 2,
-      viewport: { width: 640, height: 296, scale: 1 },
+      viewport: { width: 634, height: 344, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");
     expect(request?.body).not.toHaveProperty("focusItemRef");
@@ -789,15 +789,19 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(shell).not.toBeNull();
     const shown = shell?.textContent ?? "";
     for (const word of expected) expect(shown).toContain(word);
-    for (const name of names) expect(shown).toContain(name);
     expect(shown).toContain(groupLabel);
     expect(shown).not.toContain(OTHER_GROUP_LABEL);
     const accessibleLabels = Array.from(
-      shell?.querySelectorAll<HTMLElement>("button[aria-label]") ?? [],
+      shell?.querySelectorAll<HTMLElement>('[role="option"][aria-label]') ?? [],
       (element) => element.getAttribute("aria-label") ?? "",
     );
+    // Every shape is named in full by its option; a narrow drawn label is cut.
+    for (const name of names)
+      expect(accessibleLabels.some((label) => label.startsWith(name))).toBe(
+        true,
+      );
     expect(
-      accessibleLabels.some((name) => name.startsWith(`${groupLabel} ·`)),
+      accessibleLabels.some((name) => name.startsWith(`${groupLabel},`)),
     ).toBe(true);
     for (const name of names)
       expect(accessibleLabels.some((label) => label.includes(name))).toBe(true);

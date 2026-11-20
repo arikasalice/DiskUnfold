@@ -89,9 +89,6 @@ export function shapeLabels(
   text: VizText,
   place: ShapePlace = {},
 ) {
-  const legend = model.legend.find(
-    (entry) => entry.key === shape.legendClassKey,
-  );
   const denominator = row?.denominator ?? model.denominator;
   const name = row
     ? rowName(row, model, text)
@@ -115,19 +112,13 @@ export function shapeLabels(
     },
     text,
   );
-  const accessibleLabel =
-    placed !== null
-      ? [placed, ...shape.displayFlags.map(text.key)].join(", ")
-      : [
-          name,
-          value,
-          ratio,
-          text.quantity(denominator.value),
-          text.key(denominator.basis),
-          text.key(legend?.labelKey ?? shape.legendClassKey),
-          ...shape.displayFlags.map(text.key),
-          text.key(model.origin),
-        ].join(" · ");
+  // Every shape is named alike: name, value, share of the scope, its flags
+  // (F06 README 10, 35); no internal marks such as class or origin.
+  // Without its row the share is unknown and is left out (README 35).
+  const accessibleLabel = [
+    row ? placed : `${name}, ${value}`,
+    ...shape.displayFlags.map(text.key),
+  ].join(", ");
   return {
     accessibleLabel,
     ...(place.childCount ? { container: true } : {}),
@@ -162,13 +153,17 @@ function placedLabel(
   place: ShapePlace,
   values: Record<"name" | "value" | "ratio" | "denominator" | "folder", string>,
   text: VizText,
-): string | null {
+): string {
   if (place.childCount)
     return vizMessage(text, "shapeFolder", {
       ...values,
       count: BigInt(place.childCount),
     });
-  return place.inFolder ? vizMessage(text, "shapeInFolder", values) : null;
+  return vizMessage(
+    text,
+    place.inFolder ? "shapeInFolder" : "shapeTop",
+    values,
+  );
 }
 /**
  * The ratio of a table row in words. Only a row whose value is exact has one; a

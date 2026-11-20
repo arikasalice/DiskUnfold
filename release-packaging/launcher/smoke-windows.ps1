@@ -1361,28 +1361,76 @@ function Test-CaptureTreemap {
     ($names | Where-Object { $_ -like 'Photos, *' }) -and
     ($names | Where-Object { $_ -like 'album-a.bin, *Photos*' }) -and
     ($names | Where-Object { $_ -like "$group, *Photos*" }) -and
-    ($names | Where-Object { $_ -like 'Tiny · *' })
+    ($names | Where-Object { $_ -like 'Tiny, *' })
   } 60
   if (Get-UINames | Where-Object { $_ -like 'tiny-*' }) { throw 'Tiny was expanded below its header band minimum' }
   Save-SmokeCapture '01-treemap-depth2'
   "Treemap depth 2: Photos holds album-a.bin and $group, Tiny stays one shape; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
-  # #167: closing the combined items returns the focus to their shape, which is still drawn.
-  # The case without that shape (README 33: the screen title) is covered by the GUI tests.
+  # F06 #180 (README 34): the shapes are the options of one list. The screen opens on its title;
+  # one Tab reaches the chart, arrows move on screen, Space selects, Enter on an item says why it
+  # does nothing. Each step logs where the focus is and is captured.
+  $focusName = {
+    $focused = $ae::FocusedElement
+    if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
+  }
+  "Focus on entry: $(& $focusName)"
+  Save-SmokeCapture '02-entry'
+  Send-SmokeKey 0x09 # VK_TAB
+  Start-Sleep -Milliseconds 300
+  "Focus after one Tab: $(& $focusName)"
+  Save-SmokeCapture '03-first-shape'
+  # README 35: a folder stands where its header band is; Down reaches the first row inside it.
+  Send-SmokeKey 0x28 # VK_DOWN
+  Start-Sleep -Milliseconds 300
+  "Focus after Down from the Videos header: $(& $focusName)"
+  Save-SmokeCapture '03a-header-down'
+  Send-SmokeKey 0x26 # VK_UP
+  Start-Sleep -Milliseconds 300
+  "Focus after Up from clip.bin: $(& $focusName)"
+  Save-SmokeCapture '03b-child-up'
+  Send-SmokeKey 0x27 # VK_RIGHT
+  Start-Sleep -Milliseconds 300
+  "Focus after Right: $(& $focusName)"
+  Save-SmokeCapture '04-arrow'
+  Send-SmokeKey 0x20 # VK_SPACE
+  Start-Sleep -Milliseconds 300
+  "Focus after Space: $(& $focusName)"
+  Save-SmokeCapture '05-selected-focused'
+  Send-SmokeKey 0x25 # VK_LEFT
+  Start-Sleep -Milliseconds 300
+  "Focus after Left: $(& $focusName)"
+  Save-SmokeCapture '06-selected'
+  $options = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) |
+    Where-Object { $_.Current.Name -like '*,*' })
+  foreach ($option in @($options | Select-Object -First 6) + @($options | Where-Object { $_.Current.Name -like 'notes.bin*' })) {
+    $item = $null
+    $selected = if ($option.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$item)) { $item.Current.IsSelected } else { 'no pattern' }
+    'Shape: {0} "{1}" selected={2}' -f $option.Current.ControlType.ProgrammaticName, $option.Current.Name, $selected
+  }
+  # Enter on a shape that is not a group: the status says why nothing opens.
+  $file = $options | Where-Object { $_.Current.Name -like 'album-a.bin, *' } | Select-Object -First 1
+  if ($file) {
+    $file.SetFocus()
+    Start-Sleep -Milliseconds 200
+    Send-SmokeKey 0x0D # VK_RETURN
+    Start-Sleep -Milliseconds 400
+    $said = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName "This item can't be opened or expanded here yet.")))).Count
+    "Enter on album-a.bin: status says it cannot be opened or expanded here: $($said -gt 0)"
+    Save-SmokeCapture '07-enter-item'
+  } else { 'album-a.bin is not among the shapes' }
+  # Enter on the group shape opens its list; closing returns the focus to that shape (README 22).
   $shape = Wait-UI "$group shape" {
-    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
-      Where-Object { $_.Current.Name -like "$group, *Photos*" }) | Select-Object -First 1
+    $options | Where-Object { $_.Current.Name -like "$group, *Photos*" } | Select-Object -First 1
   }
   $shape.SetFocus()
-  Invoke-UI $shape
-  Invoke-UI (Wait-Enabled 'View combined items' $true)
+  Start-Sleep -Milliseconds 200
+  Send-SmokeKey 0x0D # VK_RETURN
   $back = Wait-Enabled 'Back to chart' $true
   $back.SetFocus()
   Invoke-UI $back
   Start-Sleep -Milliseconds 500
-  $focused = $ae::FocusedElement
-  $observed = if ($focused) { '{0} "{1}"' -f $focused.Current.ControlType.ProgrammaticName, $focused.Current.Name } else { 'none' }
-  "Focus after closing the combined items: $observed"
-  Save-SmokeCapture '02-group-closed'
+  "Focus after closing the combined items: $(& $focusName)"
+  Save-SmokeCapture '08-group-closed'
 }
 # README 31 review captures: a progress row is short-lived, so it is captured the moment it shows.
 # $name is an English progress label, or '*' for the first progress bar of any name. Not seeing it in
@@ -1488,9 +1536,9 @@ function Test-CaptureTreemapLink {
     }
     Save-SmokeCapture '01-treemap-link'
     # README 32: at 150% and above the head and the banner scroll with the page. Focusing the
-    # chart's first shape brings the chart into the window with its button row; the head then lies above.
+    # chart's first shape brings the chart into the window; the head then lies above.
     $first = Wait-UI 'media.bin shape' {
-      @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) |
         Where-Object { $_.Current.Name -like 'media.bin*' }) | Select-Object -First 1
     }
     $first.SetFocus()
@@ -2077,3 +2125,5 @@ function Remove-SmokeFixture {
   Remove-Item -LiteralPath $verifiedRoot -Recurse -Force -ErrorAction Stop
 }
 if ($KeepFixture) { "Fixture kept: $root" } else { Remove-SmokeFixture -FixtureRoot $root }
+
+

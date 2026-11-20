@@ -403,13 +403,9 @@ test.each([true, false])(
       />,
     );
     await act(async () => visualization.render(renderRequest(graph)));
-    // The graph rows are open now, so their "View items in Shared group" button matches too.
-    const shape = (
-      await screen.findAllByRole("button", { name: /Shared group/ })
-    ).find(
-      (button) => !/^View items/.test(button.getAttribute("aria-label") ?? ""),
-    )!;
-    pressEnter(shape);
+    const shape = await screen.findByRole("option", { name: /Shared group/ });
+    shape.focus();
+    fireEvent.keyDown(shape, { key: " " });
     pressEnter(screen.getByRole("button", { name: "View combined items" }));
     await screen.findByText("Member from shape-model");
     pressEnter(screen.getByRole("button", { name: "Back to chart" }));

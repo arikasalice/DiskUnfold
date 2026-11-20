@@ -36,9 +36,17 @@ type ModelViewProps = {
   ) => void;
   focus?: ItemRef | null;
   onFocusItem?: (item: ItemRef | null) => void;
+  /** The focused shape left the chart and no shape could take the focus. */
   onFocusTargetMissing?: () => void;
+  onFocusMoved?: () => void;
   onFocusAvailability?: (available: boolean) => void;
-  focusFirstRequest?: number;
+  /** Enter on a shape (README 8, 34); `container` for an expanded folder. */
+  onActivate?: (
+    selection: VizSelection,
+    shapeRef: string,
+    container: boolean,
+  ) => void;
+  onClearSelection?: () => void;
   onPage?: (request: VizRowsRequest) => void;
   onOpenGroup?: (
     groupRef: string,
@@ -137,15 +145,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
                 ])
               : null
           }
-          {...(props.onFocusAvailability
-            ? { onFocusAvailability: props.onFocusAvailability }
-            : {})}
-          {...(props.focusFirstRequest === undefined
-            ? {}
-            : { focusFirstRequest: props.focusFirstRequest })}
-          {...(props.onFocusTargetMissing
-            ? { onFocusTargetMissing: props.onFocusTargetMissing }
-            : {})}
+          {...keyboardCallbacks(props, adapted)}
           onShapeFocus={(rowRef, shapeRef, control) => {
             const shape = eventShape(adapted, shapeRef, rowRef);
             const target = shape
@@ -191,6 +191,30 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       <ModelEvidence frame={frame} text={text} />
     </section>
   );
+}
+
+/** The renderer's focus and key callbacks the caller supplied (README 34). */
+function keyboardCallbacks(
+  props: ModelViewProps,
+  adapted: ReturnType<typeof adaptVizModel>,
+) {
+  return {
+    ...(props.onFocusAvailability
+      ? { onFocusAvailability: props.onFocusAvailability }
+      : {}),
+    ...(props.onFocusTargetMissing
+      ? { onFocusTargetMissing: props.onFocusTargetMissing }
+      : {}),
+    ...(props.onFocusMoved ? { onFocusMoved: props.onFocusMoved } : {}),
+    ...(props.onClearSelection
+      ? { onClearSelection: props.onClearSelection }
+      : {}),
+    onActivate: (rowRef: string, shapeRef: string, container: boolean) => {
+      if (!eventShape(adapted, shapeRef, rowRef)) return;
+      const target = adapted.targetsByShape.get(shapeRef);
+      if (target) props.onActivate?.(target, shapeRef, container);
+    },
+  };
 }
 
 /** Matches a renderer event to one shape and its source row in this model. */

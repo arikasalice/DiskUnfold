@@ -119,7 +119,7 @@ test("a completed job does not offer pause, resume or cancel controls", async ()
 
 test("selecting a graph shape preserves the workspace until details are requested", async () => {
   const { container } = render(<Gallery />);
-  fireEvent.click(container.querySelector(".du-geometry-shape rect")!);
+  fireEvent.click(container.querySelector(".du-geometry-target")!);
   expect(screen.queryByRole("dialog")).toBeNull();
   const details = screen.getByRole("button", { name: "선택 항목 자세히 보기" });
   act(() => details.focus());

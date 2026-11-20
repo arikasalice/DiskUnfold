@@ -15,9 +15,9 @@ import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
 import {
   ChartAreaContext,
+  CHART_FOCUS_ROOM,
   chartHeight,
   usableSize,
-  DEFAULT_BUTTON_ROW_HEIGHT,
 } from "../features/visualization/chart-area";
 import { useProductionVizText } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
@@ -240,7 +240,7 @@ export function BrowseVisualizationActions({
   return (
     <>
       {visible && open && (
-        <Action variant="quiet" icon="back" autoFocus onPress={onClose}>
+        <Action variant="quiet" icon="back" onPress={onClose}>
           {text("ui.visualization.back_to_folders", "Back to folders")}
         </Action>
       )}
@@ -296,22 +296,32 @@ export function BrowseVisualizationView({
     selection?.display ?? DEFAULT_DISPLAY,
   );
   const viewportElement = useRef<HTMLDivElement>(null);
+  // The screen opens with the focus on its title, without a frame; one Tab
+  // reaches the chart (README 21, 34).
+  const title = useRef<HTMLHeadingElement>(null);
+  const titleFocused = useRef(false);
+  const ready = open && !!client && !!assembly && !!selection;
+  useLayoutEffect(() => {
+    if (!open) titleFocused.current = false;
+    else if (ready && !titleFocused.current) {
+      titleFocused.current = true;
+      title.current?.focus({ preventScroll: true });
+    }
+  }, [open, ready]);
   const [viewport, setViewport] = useState<
     VisualizationViewRequest["viewport"] | undefined
   >();
   const [chartParts, setChartParts] = useState({
     offset: DEFAULT_CHART_OFFSET,
-    row: DEFAULT_BUTTON_ROW_HEIGHT,
   });
   const area = useMemo(
     () => ({
       element: viewportElement,
-      reportOffset: (offset: number, row: number) =>
+      reportOffset: (offset: number) =>
         setChartParts((current) =>
-          Math.abs(current.offset - offset) < 1 &&
-          Math.abs(current.row - row) < 1
+          Math.abs(current.offset - offset) < 1
             ? current
-            : { offset: Math.round(offset), row: Math.round(row) },
+            : { offset: Math.round(offset) },
         ),
     }),
     [],
@@ -359,12 +369,15 @@ export function BrowseVisualizationView({
         element.getBoundingClientRect(),
         element,
       );
-      update(width, shownHeight(height));
+      update(width - 2 * CHART_FOCUS_ROOM, shownHeight(height));
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
       if (entry)
-        update(entry.contentRect.width, shownHeight(entry.contentRect.height));
+        update(
+          entry.contentRect.width - 2 * CHART_FOCUS_ROOM,
+          shownHeight(entry.contentRect.height),
+        );
     });
     observer.observe(element);
     measure();
@@ -405,7 +418,7 @@ export function BrowseVisualizationView({
       )}
     >
       <header className="du-visualization-title">
-        <Heading level={2} programmaticFocus>
+        <Heading level={2} ref={title} programmaticFocus>
           {text("ui.visualization.space_distribution", "Space distribution")}
         </Heading>
         {selection.locationTrail && (
@@ -421,11 +434,7 @@ export function BrowseVisualizationView({
                 ...assembly.request,
                 viewport: {
                   ...viewport,
-                  height: chartHeight(
-                    viewport.height,
-                    chartParts.offset,
-                    chartParts.row,
-                  ),
+                  height: chartHeight(viewport.height, chartParts.offset),
                 },
               }}
               canDisplay={(frame) =>

@@ -13,6 +13,7 @@ import type { ModelResponse, VizSelection } from "../../viz";
 import { visualizationShapeRef } from "../../viz";
 import type { VizText } from "../../viz";
 import type { GroupOrigin } from "./group-navigation";
+import { nearbyShape, viewTitle } from "./group-navigation";
 
 export function GroupView({
   controller,
@@ -20,6 +21,7 @@ export function GroupView({
   selection,
   origin = null,
   returnTargetRef,
+  openRequest = 0,
   text,
 }: {
   controller: GroupController;
@@ -27,6 +29,8 @@ export function GroupView({
   selection: VizSelection | null;
   origin?: GroupOrigin | null;
   returnTargetRef?: { current: HTMLElement | null };
+  /** Raised by Enter on a group shape: opens the selected group's list (README 22). */
+  openRequest?: number;
   text: VizText;
 }) {
   const state = useSyncExternalStore(
@@ -49,6 +53,13 @@ export function GroupView({
         completeness: frame.completeness,
       }
     : null;
+  const lastOpenRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === lastOpenRequest.current) return;
+    lastOpenRequest.current = openRequest;
+    if (selected && current)
+      void openSelectedGroup(controller, current, selected);
+  }, [openRequest]);
   const matches = sameFrame(current, state.frame);
   useEffect(
     () => synchronizeFrame(controller, current),
@@ -105,6 +116,7 @@ export function GroupView({
   useLayoutEffect(() => {
     focusReturnTitle(
       returnUnavailable,
+      origin?.element ?? null,
       returnTargetRef?.current ?? null,
       returnNotice.current,
     );
@@ -139,6 +151,7 @@ export function GroupView({
               closeGroupView(
                 controller,
                 validOrigin,
+                origin?.element ?? null,
                 getOriginalViewTarget(origin, originMatches),
                 returnTargetRef?.current ?? null,
                 setReturnUnavailable,
@@ -273,22 +286,15 @@ function focusGroupStatus(
 
 function focusReturnTitle(
   returnUnavailable: boolean,
+  originElement: HTMLElement | null,
   currentTarget: HTMLElement | null,
   fallbackTarget: HTMLElement | null,
 ) {
   if (!returnUnavailable) return;
-  if (focusElement(viewTitle(currentTarget ?? fallbackTarget))) return;
+  const anchor = currentTarget ?? fallbackTarget;
+  if (focusElement(nearbyShape(originElement, anchor))) return;
+  if (focusElement(viewTitle(anchor))) return;
   focusElement(fallbackTarget);
-}
-
-// Without the original shape, focus goes to the screen title: a region as large as
-// the chart does not tell what is chosen (F06 README 33, F02 README 22).
-function viewTitle(from: HTMLElement | null) {
-  return (
-    from
-      ?.closest(".du-visualization-shell")
-      ?.querySelector<HTMLElement>(".du-visualization-title h2") ?? null
-  );
 }
 
 function getOriginalViewTarget(
@@ -318,13 +324,18 @@ function openSelectedGroup(
 function closeGroupView(
   controller: GroupController,
   origin: HTMLElement | null,
+  originElement: HTMLElement | null,
   originalViewTarget: HTMLElement | null,
   currentViewTarget: HTMLElement | null,
   setReturnUnavailable: (value: boolean) => void,
 ) {
   controller.close();
   if (focusElement(origin)) return;
-  focusElement(viewTitle(currentViewTarget ?? originalViewTarget));
+  // The original shape is gone: the shape now at its place, else the last
+  // shape, else the screen title (README 22, 34).
+  const anchor = currentViewTarget ?? originalViewTarget;
+  if (!focusElement(nearbyShape(originElement, anchor)))
+    focusElement(viewTitle(anchor));
   setReturnUnavailable(true);
 }
 

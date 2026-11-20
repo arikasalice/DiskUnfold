@@ -787,8 +787,9 @@ ui.visualization.flagLowerBound
 ui.visualization.flagOtherGroup
 ui.visualization.flagUnknown
 ui.visualization.flags
-ui.visualization.focusGraphAction
-ui.visualization.focusLost
+ui.visualization.focusMovedNearby
+ui.visualization.focusMovedTitle
+ui.visualization.folderExpandUnavailable
 ui.visualization.format
 ui.visualization.formats
 ui.visualization.freshnessCurrent
@@ -817,6 +818,7 @@ ui.visualization.independentTotals
 ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
+ui.visualization.itemOpenUnavailable
 ui.visualization.legend.unclassified
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed
@@ -893,6 +895,7 @@ ui.visualization.selected
 ui.visualization.selectionLost
 ui.visualization.shapeFolder name:name value:name ratio:name denominator:name count:count
 ui.visualization.shapeInFolder name:name folder:name value:name ratio:name denominator:name
+ui.visualization.shapeTop name:name value:name ratio:name denominator:name
 ui.visualization.show_space_distribution
 ui.visualization.singleObservation
 ui.visualization.sizeAtLeast value:name
