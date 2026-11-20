@@ -58,6 +58,10 @@ pub struct JobListEntry {
     pub job_id: Id,
     pub snapshot: JobSnapshot,
     pub scope_summary: String,
+    /// First scope root captured at submission; none for a kind without scope roots.
+    pub scope_first_root: Option<String>,
+    /// Number of scope roots captured at submission.
+    pub scope_root_count: usize,
     pub priority: JobPriority,
     pub wait_reason: JobWaitReason,
     /// Controls declared by the job kind, independent of the current state.
@@ -127,6 +131,8 @@ impl JobRuntime {
                         job_id: id.clone(),
                         snapshot: job.snapshot(),
                         scope_summary: job.submission.scope_summary.clone(),
+                        scope_first_root: job.submission.scope_roots.first().cloned(),
+                        scope_root_count: job.submission.scope_roots.len(),
                         priority: job.submission.priority,
                         wait_reason: wait_reason(job.state),
                         supported_controls: job.descriptor.controls.clone(),

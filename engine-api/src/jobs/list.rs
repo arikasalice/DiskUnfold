@@ -38,10 +38,16 @@ impl UseCase for List {
 
 fn project(row: JobListEntry) -> AnalysisJobListRow {
     let snapshot = row.snapshot;
+    let scope_root_count = row
+        .scope_first_root
+        .is_some()
+        .then(|| u32::try_from(row.scope_root_count).unwrap_or(u32::MAX));
     AnalysisJobListRow {
         job_ref: row.job_id,
         kind: snapshot.kind_id,
         scope_summary: row.scope_summary,
+        scope_first_root: row.scope_first_root,
+        scope_root_count,
         state: snapshot.state,
         wait_reason: wait_reason(row.wait_reason),
         priority: match row.priority {

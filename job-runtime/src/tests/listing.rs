@@ -22,6 +22,7 @@ fn list_filters_and_returns_submission_order_with_current_snapshots()
     }))?)?)?;
     let mut next = sample_submission(Arc::new(InstantBody))?;
     next.scope_summary = "second scope".into();
+    next.scope_roots = vec!["/first/root".into(), "/second/root".into()];
     next.priority = JobPriority::Low;
     let second = created(runtime.submit(next)?)?;
     let worker_runtime = runtime.clone();
@@ -37,6 +38,10 @@ fn list_filters_and_returns_submission_order_with_current_snapshots()
     assert_eq!(rows[0].wait_reason, JobWaitReason::Unknown);
     assert_eq!(rows[1].wait_reason, JobWaitReason::QueueFull);
     assert_eq!(rows[1].scope_summary, "second scope");
+    assert_eq!(rows[0].scope_first_root, None);
+    assert_eq!(rows[0].scope_root_count, 0);
+    assert_eq!(rows[1].scope_first_root.as_deref(), Some("/first/root"));
+    assert_eq!(rows[1].scope_root_count, 2);
     assert_eq!(rows[1].priority, JobPriority::Low);
     assert_eq!(rows[1].supported_controls, vec![JobControl::Cancel]);
     for row in &rows {
