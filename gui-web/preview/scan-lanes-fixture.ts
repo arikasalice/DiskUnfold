@@ -5,6 +5,7 @@ export const scanLaneRoots = [
   windowsPath("C:\\Users\\민서\\문서"),
   windowsPath("C:\\Users\\민서\\사진"),
   windowsPath("D:\\프로젝트\\활성 작업"),
+  windowsPath("E:\\백업"),
 ];
 
 const lanes: ScanLaneStatus["lanes"] = [
@@ -30,7 +31,7 @@ const lanes: ScanLaneStatus["lanes"] = [
   },
   {
     laneIndex: 2,
-    rootIndexes: [0],
+    rootIndexes: [3],
     inFlight: 0,
     limit: 3,
     waitReason: "backpressure",

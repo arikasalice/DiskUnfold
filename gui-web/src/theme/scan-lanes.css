@@ -12,6 +12,19 @@
   border-block-start: 0;
 }
 
+/* A row's own disclosure draws no line of its own: the table rows already
+   separate the lanes, so a second line would sit off the row border. */
+.du-scan-lanes .du-table-cell .du-detail-disclosure {
+  border-block-start: 0;
+}
+
+/* A header that wraps at narrow widths grows instead of overflowing its row. */
+.du-scan-lanes .du-data-table th > div {
+  block-size: auto;
+  min-block-size: 36px;
+  white-space: normal;
+}
+
 .du-scan-lanes > .du-detail-disclosure > .du-action {
   min-block-size: 38px;
   padding-inline: 8px;
