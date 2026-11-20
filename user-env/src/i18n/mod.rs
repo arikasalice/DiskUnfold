@@ -332,10 +332,11 @@ fn validate_variant_keys(
             let Some(base) = variant_base(key) else {
                 continue;
             };
-            if !declared.contains(base)
-                || messages
-                    .get(base)
-                    .is_none_or(|base_message| base_message.parameters != message.parameters)
+            // A variant needs its base message in the same bundle with the same
+            // parameters; declarations stay optional as for any other key.
+            if messages
+                .get(base)
+                .is_none_or(|base_message| base_message.parameters != message.parameters)
             {
                 return Err(RegistrationError);
             }
