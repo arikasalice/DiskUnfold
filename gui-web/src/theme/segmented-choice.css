@@ -46,3 +46,12 @@
 .du-segmented__option[data-selected] .du-segmented__note {
   color: inherit;
 }
+
+/* Forced colors show the chosen option by a Highlight edge, never by fill. */
+@media (forced-colors: active) {
+  .du-segmented__option[data-selected] {
+    border: 2px solid Highlight;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
