@@ -1154,7 +1154,52 @@ function Test-LocaleSwitch {
   'F13 native locale: switched between Korean and English without discarding the scope draft'
 }
 # Save the window as a PNG under %TEMP% when the interactive desktop allows it.
-function Save-SmokeCapture($name, [switch]$Now) {
+# True when the element is on screen and lies inside the window's bounds.
+function Test-InWindow($item) {
+  if ($item.Current.IsOffscreen) { return $false }
+  $box = $item.Current.BoundingRectangle
+  $frame = $window.Current.BoundingRectangle
+  $box.Width -gt 0 -and $box.Top -ge $frame.Top -and $box.Bottom -le $frame.Bottom
+}
+# Brings an element into the window: its own scroll item pattern first, then the scrollable
+# ancestors one page at a time. Returns whether the element ends up inside the window.
+function Show-InWindow($item) {
+  if (Test-InWindow $item) { return $true }
+  $itemPattern = $null
+  if ($item.TryGetCurrentPattern([Windows.Automation.ScrollItemPattern]::Pattern, [ref]$itemPattern)) {
+    try { $itemPattern.ScrollIntoView(); Start-Sleep -Milliseconds 300 } catch {}
+    if (Test-InWindow $item) { return $true }
+  }
+  $walker = [Windows.Automation.TreeWalker]::ControlViewWalker
+  for ($parent = $walker.GetParent($item); $parent -and -not [Windows.Automation.Automation]::Compare($parent, $window); $parent = $walker.GetParent($parent)) {
+    $scroll = $null
+    if (-not $parent.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) { continue }
+    if (-not $scroll.Current.VerticallyScrollable) { continue }
+    for ($page = 0; $page -lt 30 -and -not (Test-InWindow $item); $page++) {
+      $before = $scroll.Current.VerticalScrollPercent
+      $scroll.Scroll([Windows.Automation.ScrollAmount]::NoAmount, [Windows.Automation.ScrollAmount]::LargeIncrement)
+      Start-Sleep -Milliseconds 150
+      if ($scroll.Current.VerticalScrollPercent -eq $before) { break }
+    }
+    if (Test-InWindow $item) { return $true }
+  }
+  try { $item.SetFocus(); Start-Sleep -Milliseconds 300 } catch {}
+  Test-InWindow $item
+}
+# #146: after the volume explanation opens, scroll its last readout into the window so the capture
+# shows the opened content. The lowest readout that exists is used, since what the explanation
+# lists depends on the scan; the first one stands in when the read failed.
+function Show-VolumeExplanation {
+  foreach ($label in @('Volume difference', 'Volume usage summary', 'Selected scanned folder')) {
+    $item = Find-UI $label $null
+    if (-not $item) { continue }
+    if (Show-InWindow $item) { return "Volume explanation in view: $(Get-UiName $label)" }
+    Write-Warning "Volume explanation: '$(Get-UiName $label)' stays outside the window"
+    return
+  }
+  Write-Warning 'Volume explanation: no readout found to scroll to'
+}
+function Save-SmokeCapture($name, [switch]$Now, [scriptblock]$Prepare) {
   $restore = $null
   try {
     # Review captures show the whole window at the screen's full size; the size is restored
@@ -1168,6 +1213,8 @@ function Save-SmokeCapture($name, [switch]$Now) {
     # Let entrance transitions (dialogs, panels) finish painting before the pixels are copied.
     # A progress capture skips this: its bar may be gone by then.
     if (-not $Now) { Start-Sleep -Milliseconds 700 }
+    # A preparation that depends on the final layout (a scroll) runs after the resize above.
+    if ($Prepare) { & $Prepare; Start-Sleep -Milliseconds 400 }
     Add-Type -AssemblyName System.Drawing
     $bounds = $window.Current.BoundingRectangle
     $directory = if ($CaptureDirectory) { $CaptureDirectory } else { Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures' }
@@ -1696,7 +1743,7 @@ function Test-CaptureTour {
   Save-SmokeCapture '02-analysis-result'
   Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
   $null = Wait-UI 'volume explanation' { Find-UI 'Selected scanned folder' $textType }
-  Save-SmokeCapture '03-volume-explanation'
+  Save-SmokeCapture '03-volume-explanation' -Prepare { Show-VolumeExplanation }
   Invoke-UI (Wait-Enabled 'Hide volume explanation' $true)
   Invoke-UI (Wait-Enabled 'View folder details' $true)
   Wait-Details 'Space measurement details' 'Observed item space'
