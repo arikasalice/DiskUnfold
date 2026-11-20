@@ -935,13 +935,13 @@ ui.visualization.legendLess
 ui.visualization.legendFolderNote
 ui.visualization.filterClearType
 ui.visualization.filterNotApplicable
-ui.visualization.filterTotalLine type:message_key size:size scope:size
-ui.visualization.filterFilteredOut size:size
-ui.visualization.filterFilteredOutAtLeast size:size
+ui.visualization.filterTotalLine type:name size:name scope:name
+ui.visualization.filterFilteredOut size:name
+ui.visualization.filterFilteredOutAtLeast size:name
 ui.visualization.filterFilteredOutCalculating
 ui.visualization.filterFilteredOutUnavailable
-ui.visualization.filterTypeAbsent type:message_key
-ui.visualization.filterAnnounceType type:message_key
+ui.visualization.filterTypeAbsent type:name
+ui.visualization.filterAnnounceType type:name
 ui.visualization.filterAnnounceAll
 ui.visualization.legendMore count:count
 ui.visualization.legend.unclassified
