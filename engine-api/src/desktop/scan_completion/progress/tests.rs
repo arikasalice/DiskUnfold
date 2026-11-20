@@ -2,6 +2,7 @@ use super::*;
 use crate::desktop::scan_completion::ScanEvents;
 use du_core_contracts::{
     Id,
+    analysis_ipc::{ScanLaneStrategy, ScanResourceMode},
     job::{LaneReport, LaneStatusReport, LaneWait, ProgressUnit},
 };
 use du_job_runtime::{JobEvent, JobLaneStatusEvent, JobWaitReason};
@@ -51,6 +52,12 @@ fn lane_status(job: &Id) -> JobLaneStatusEvent {
             },
             in_flight: 1,
             limit: 2,
+            mode: (lane_index == 0).then_some(ScanResourceMode::Quiet),
+            permit: (lane_index == 0).then_some(16),
+            strategy: (lane_index == 0).then(|| ScanLaneStrategy {
+                id: "resource.static".into(),
+                version: 1,
+            }),
             wait: if lane_index == 0 {
                 LaneWait::Backpressure
             } else {
@@ -117,6 +124,10 @@ fn the_desktop_relay_sorts_and_caps_lane_status_with_decimal_counts() -> TestRes
     assert_eq!(lanes.len(), 64);
     assert_eq!(lanes[0]["laneIndex"], json!(0));
     assert_eq!(lanes[63]["laneIndex"], json!(63));
+    assert_eq!(lanes[0]["mode"], json!("quiet"));
+    assert_eq!(lanes[0]["permit"], json!(16));
+    assert_eq!(lanes[0]["strategy"]["id"], json!("resource.static"));
+    assert_eq!(lanes[0]["strategy"]["version"], json!(1));
     assert_eq!(lanes[0]["rootCount"], json!("65"));
     let roots = lanes[0]["rootIndexes"].as_array().ok_or("root indexes")?;
     assert_eq!(roots.len(), 64);

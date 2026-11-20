@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use du_analysis_index::{IngestSink, query::page::ResultSets};
 use du_core_contracts::{
     Id,
-    analysis_ipc::{ScanStart, ScanStartRequest},
+    analysis_ipc::{ScanCollection, ScanResourceMode, ScanStart, ScanStartRequest},
     job::JobBody,
     scan_observation::ScopeRootPort,
 };
@@ -24,6 +24,7 @@ use crate::{
 
 pub use du_core_contracts::settings::SharedTableLimit;
 mod priority;
+mod resource;
 
 /// Creates in-process scan diagnostics for one submission attempt.
 pub type ScanDiagnosticsFactory =
@@ -186,8 +187,9 @@ pub(crate) fn register_with_options(
         priority_control,
     });
     if priority_control {
-        priority::register(builder, admitted, workers, store.clone());
+        priority::register(builder, admitted.clone(), workers.clone(), store.clone());
     }
+    resource::register(builder, admitted, workers);
     Ok(sets)
 }
 
@@ -236,6 +238,7 @@ struct ScanAdmission {
     scope_fingerprint: String,
     review_fingerprint: String,
     root_count: usize,
+    collection: ScanCollection,
     recent: Option<PendingRecentScope>,
     control: Option<du_scan_engine::scan::ScanControlHandle>,
 }
@@ -262,6 +265,14 @@ impl UseCase for StartScan {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
+        let condition = request.collection.as_ref();
+        let resource_mode = condition
+            .and_then(|condition| condition.resource_mode)
+            .unwrap_or(ScanResourceMode::Auto);
+        let user_limit = condition.and_then(|condition| condition.user_limit);
+        if !du_scan_engine::scan::valid_resource_limit(user_limit) {
+            return Err(EngineError::reason("scan.resource_limit_invalid"));
+        }
         // Pin the rule before anything is opened or created: an unknown ID must
         // consume no scope root and leave no job or lineage behind.
         let size_rule = self.size_rules.bind_latest()?;
@@ -298,17 +309,16 @@ impl UseCase for StartScan {
         )
         .with_lineage(lineage.clone())
         .with_scope_fingerprint(scope_fingerprint.clone())
+        .with_resource_condition(resource_mode, user_limit)
         .with_shared_table_limit((self.limit)().entries())
         .with_size_rule(size_rule);
         if let Some(factory) = &self.diagnostics {
             job = job.with_diagnostics(factory());
         }
-        let control = if self.priority_control {
+        if self.priority_control {
             job = job.with_priority_control();
-            Some(job.control_handle().ok_or_else(internal)?)
-        } else {
-            None
-        };
+        }
+        let control = Some(job.control_handle().ok_or_else(internal)?);
         if let Some(filter) = verified.filter {
             job = job.with_pre_metadata_filter(filter);
         }
@@ -339,6 +349,10 @@ impl UseCase for StartScan {
                 scope_fingerprint,
                 review_fingerprint: request.review_fingerprint,
                 root_count,
+                collection: ScanCollection {
+                    resource_mode,
+                    user_limit,
+                },
                 recent,
                 control,
             },
@@ -358,6 +372,7 @@ impl StartScan {
             scope_fingerprint,
             review_fingerprint,
             root_count,
+            collection,
             recent,
             control,
         } = admission;
@@ -389,6 +404,7 @@ impl StartScan {
                     existing: false,
                     scope_version,
                     scope_fingerprint,
+                    collection: Some(collection),
                     lineage_id: Some(lineage),
                 };
                 *admitted = Some(Admitted {

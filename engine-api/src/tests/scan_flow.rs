@@ -89,6 +89,7 @@ mod fixture;
 mod observation;
 mod priority;
 mod recent;
+mod resource;
 mod settings;
 mod size_rule;
 mod terminal;
