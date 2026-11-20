@@ -179,6 +179,17 @@ function rank(state: string) {
   return 0;
 }
 
+/**
+ * Job kinds the user starts and can name. Screens also run short jobs of their
+ * own (target probes, folder queries, chart computation); those stay out of the
+ * Job Center, its header count and its finish notices.
+ */
+const USER_TASK_KINDS = new Set(["scan.metadata", "duplicate.check"]);
+
+function userTask(card: JobCenterCard) {
+  return USER_TASK_KINDS.has(card.row.kind);
+}
+
 /** Maintains the live, session-only task list from its baseline and ordered events. */
 export function createJobCenterStore(
   client: AnalysisClient,
@@ -204,7 +215,7 @@ export function createJobCenterStore(
   function snapshot(): JobCenterSnapshot {
     const all = [...cards.values()];
     const inProgress = all
-      .filter((card) => !isTerminal(card.row.state))
+      .filter((card) => !isTerminal(card.row.state) && userTask(card))
       .sort(
         (left, right) =>
           rank(left.row.state) - rank(right.row.state) ||
@@ -262,7 +273,10 @@ export function createJobCenterStore(
   }
 
   function addRecentlyFinished(card: JobCenterCard) {
-    if (recentlyFinished.some((item) => item.row.jobRef === card.row.jobRef))
+    if (
+      !userTask(card) ||
+      recentlyFinished.some((item) => item.row.jobRef === card.row.jobRef)
+    )
       return;
     recentlyFinished = [
       card,

@@ -174,6 +174,25 @@ test("accepts job.list rows with both optional scope fields omitted", async () =
   expect(store.getSnapshot().error).toBe(false);
 });
 
+test("jobs that screens run for themselves stay out of the lists and notices", async () => {
+  const fixture = clientFor(async () => [
+    row("job-a"),
+    { ...row("probe"), kind: "job.kind.target_probe" },
+  ]);
+  const onFinished = vi.fn();
+  const store = createJobCenterStore(fixture.client, onFinished);
+  stores.push(store);
+  store.start();
+  await vi.waitFor(() => expect(store.getSnapshot().loading).toBe(false));
+
+  expect(store.getSnapshot().inProgress.map((card) => card.row.jobRef)).toEqual(
+    ["job-a"],
+  );
+  fixture.send(event("job.finished", "probe", finished(2), 2));
+  expect(store.getSnapshot().recentlyFinished).toEqual([]);
+  expect(onFinished).not.toHaveBeenCalled();
+});
+
 test("ignores stale and duplicate sequences and discards events after terminal", async () => {
   const fixture = clientFor(async () => [row("job-a")]);
   const store = createJobCenterStore(fixture.client);
