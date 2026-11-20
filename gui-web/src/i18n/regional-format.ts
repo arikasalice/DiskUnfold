@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import { useLocaleText } from "./presentation";
 
 export type RegionalFormat = {
+  language?: string;
   decimalSeparator: string;
   groupingSeparator: string;
   groupingSize: number;
@@ -19,6 +20,32 @@ export const RegionalFormatContext = createContext<RegionalFormat | undefined>(
 
 export function useRegionalFormat() {
   return useContext(RegionalFormatContext);
+}
+
+/** Returns a React Aria locale whose date segment order matches the setting. */
+export function dateInputLocale(language: string, pattern?: string): string {
+  const fields = [...(pattern?.matchAll(/yyyy|MM|dd/g) ?? [])]
+    .slice(0, 3)
+    .map((field) => field[0])
+    .join("-");
+  if (fields === "yyyy-MM-dd")
+    return language.startsWith("ko") ? "ko-KR" : "en-CA";
+  if (fields === "MM-dd-yyyy") return "en-US";
+  if (fields === "dd-MM-yyyy") return "en-GB";
+  return language.startsWith("ko") ? "ko-KR" : "en-US";
+}
+
+/** Returns the two literal separators in the date part of a regional pattern. */
+export function dateInputSeparators(pattern?: string): string[] {
+  const source = pattern ?? "";
+  const fields = [...source.matchAll(/yyyy|MM|dd/g)].slice(0, 3);
+  if (fields.length !== 3) return [];
+  return [0, 1].map((index) => {
+    const current = fields[index];
+    const next = fields[index + 1];
+    if (current?.index === undefined || next?.index === undefined) return "";
+    return source.slice(current.index + current[0].length, next.index);
+  });
 }
 
 export function displayInteger(value: bigint, format?: RegionalFormat): string {

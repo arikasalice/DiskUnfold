@@ -21,7 +21,48 @@ import type {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  document.documentElement.lang = "";
 });
+
+async function selectHistoryDate(label: string, value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const monthNames = Array.from({ length: 12 }, (_, index) =>
+    new Intl.DateTimeFormat("en-US", { month: "long" }).format(
+      new Date(2020, index, 1),
+    ),
+  );
+  const targetMonth = year! * 12 + month! - 1;
+  const targetHeading = `${monthNames[month! - 1]} ${year}`;
+  fireEvent.click(
+    screen.getByRole("button", { name: `Open calendar for ${label}` }),
+  );
+  for (let attempt = 0; attempt < 240; attempt++) {
+    const heading = document.querySelector(
+      ".du-date-picker__month",
+    )?.textContent;
+    if (heading === targetHeading) break;
+    const match = heading?.match(/^([A-Za-z]+)\s+(\d{4})$/);
+    const displayedMonth = monthNames.indexOf(match?.[1] ?? "");
+    const displayedYear = Number(match?.[2]);
+    const currentMonth = displayedYear * 12 + displayedMonth;
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: currentMonth < targetMonth ? "Next month" : "Previous month",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector(".du-date-picker__month")?.textContent,
+      ).not.toBe(heading),
+    );
+  }
+  const monthName = monthNames[month! - 1];
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: new RegExp(`${monthName} ${day}, ${year}`),
+    }),
+  );
+}
 
 const response = (
   rows: HistoryListResponse["rows"] = [],
@@ -416,6 +457,7 @@ test("history is a separate screen and closing returns focus", async () => {
 });
 
 test("keeps secondary filters collapsed and preserves their active state", async () => {
+  document.documentElement.lang = "en";
   const call = vi.fn().mockResolvedValue(response());
   render(
     <HistoryPanel client={historyEvents(call).client} onClose={() => {}} />,
@@ -426,16 +468,17 @@ test("keeps secondary filters collapsed and preserves their active state", async
   extra.focus();
   fireEvent.keyDown(extra, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(extra, { key: "Enter", code: "Enter" });
-  fireEvent.change(screen.getByLabelText("From date"), {
-    target: { value: "2026-11-10" },
-  });
-  fireEvent.change(screen.getByLabelText("Through date"), {
-    target: { value: "2026-11-09" },
-  });
-  await screen.findByText("Choose a valid date range.");
-  fireEvent.change(screen.getByLabelText("Through date"), {
-    target: { value: "2026-11-10" },
-  });
+  await selectHistoryDate("From date", "2026-11-10");
+  await waitFor(() =>
+    expect(call.mock.lastCall?.[1].filter.finishedFromMs).toBe(
+      new Date("2026-11-10T00:00:00").getTime(),
+    ),
+  );
+  const callsBeforeInvalidRange = call.mock.calls.length;
+  await selectHistoryDate("Through date", "2026-11-09");
+  await screen.findByText("The start date is after the end date.");
+  expect(call).toHaveBeenCalledTimes(callsBeforeInvalidRange);
+  await selectHistoryDate("Through date", "2026-11-10");
   await screen.findByText("No history matches these filters.");
   expect(call.mock.lastCall?.[1]).toMatchObject({
     filter: {

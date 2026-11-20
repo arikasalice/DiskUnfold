@@ -12,6 +12,7 @@
     "build:preview": "vite build --config preview/vite.config.ts",
     "capture:history-gallery": "node scripts/capture-gallery.mjs history",
     "capture:browse-gallery": "node scripts/capture-gallery.mjs browse",
+    "capture:date-picker-gallery": "node scripts/capture-gallery.mjs date-picker",
     "build": "vite build",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch && npm run locale:check",
     "locale:check": "node scripts/check-locale.mjs",
@@ -23,6 +24,7 @@
     "test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile=../quality-output/gui-tests.json"
   },
   "dependencies": {
+    "@internationalized/date": "3.12.4",
     "lucide-react": "1.69.0",
     "react": "19.3.1",
     "react-aria-components": "1.22.1",

@@ -38,6 +38,7 @@ import { ResultSummaryPreview } from "./ResultSummaryPreview";
 import { HistoryItemsPreview } from "./HistoryItemsPreview";
 import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
 import { ScanLanesPreview } from "./ScanLanesPreview";
+import { DatePickerPreview } from "./DatePickerPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -197,7 +198,8 @@ export function Gallery() {
     surface === "history" ||
     surface === "summary" ||
     surface === "browse" ||
-    surface === "scan-lanes"
+    surface === "scan-lanes" ||
+    surface === "date-picker"
       ? null
       : presenters[surface];
   return (
@@ -258,6 +260,8 @@ export function Gallery() {
             <HistoryItemsPreview />
           ) : surface === "scan-lanes" ? (
             <ScanLanesPreview />
+          ) : surface === "date-picker" ? (
+            <DatePickerPreview />
           ) : (
             <>
               {primary}

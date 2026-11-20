@@ -120,6 +120,12 @@ export function HistoryPanel({
     filter.finishedFromMs !== null &&
     filter.finishedBeforeMs !== null &&
     filter.finishedFromMs >= filter.finishedBeforeMs;
+  const invalidRangeMessage = invalid
+    ? text(
+        "ui.history.invalid_date_range",
+        "The start date is after the end date.",
+      )
+    : undefined;
   const extraFilters = Boolean(from || through || kind !== "all");
   const hasFilters = extraFilters || state !== "all";
 
@@ -179,6 +185,7 @@ export function HistoryPanel({
                 label={text("ui.history.from_date", "From date")}
                 value={from}
                 onChange={setFrom}
+                error={invalidRangeMessage}
               />
               <DateField
                 label={text("ui.history.through_date", "Through date")}
@@ -194,14 +201,7 @@ export function HistoryPanel({
             </div>
           </DetailDisclosure>
         </div>
-        {invalid ? (
-          <Notice tone="error">
-            {text(
-              "ui.history.invalid_date_range",
-              "Choose a valid date range.",
-            )}
-          </Notice>
-        ) : (
+        {!invalid ? (
           <HistoryPages
             client={client}
             filter={filter}
@@ -212,7 +212,7 @@ export function HistoryPanel({
               setSelected(job);
             }}
           />
-        )}
+        ) : null}
       </div>
       {selected && (
         <HistoryDetailPanel

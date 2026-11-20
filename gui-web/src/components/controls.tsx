@@ -1,18 +1,42 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
+import { parseDate } from "@internationalized/date";
 import {
   Button,
+  Calendar,
+  CalendarCell,
+  CalendarGrid,
+  CalendarGridBody,
+  CalendarGridHeader,
+  CalendarHeaderCell,
+  CalendarHeading,
+  DateInput,
+  DatePicker as AriaDatePicker,
+  DateSegment,
+  Dialog,
+  Group,
   Input,
+  I18nProvider,
   Label,
+  Popover,
   Radio,
   RadioGroup,
   Text,
   TextField,
+  Tooltip,
+  TooltipTrigger,
 } from "react-aria-components";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
 import { useImeComposition } from "./ime-composition";
+import { useLocaleText } from "../i18n/presentation";
+import {
+  dateInputLocale,
+  dateInputSeparators,
+  useRegionalFormat,
+} from "../i18n/regional-format";
 
 type ActionProps = Pick<
   ButtonProps,
@@ -59,21 +83,174 @@ export function Action({
   );
 }
 
-/** A labelled date input using the browser's local calendar. */
+/**
+ * A localized date picker that accepts and returns `YYYY-MM-DD` or an empty
+ * string. An optional error is shown and announced below the field.
+ */
 export function DateField({
   label,
   value,
   onChange,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  error?: string | undefined;
 }) {
+  const text = useLocaleText();
+  const regional = useRegionalFormat();
+  const labelId = useId();
+  const errorId = useId();
+  const dateInput = useRef<HTMLDivElement>(null);
+  const activeLanguage = regional?.language ?? document.documentElement.lang;
+  const language = activeLanguage.toLowerCase().startsWith("ko") ? "ko" : "en";
+  const locale = language === "ko" ? "ko-KR" : "en-US";
+  const separators = dateInputSeparators(regional?.datePattern);
+  const inputLocale = dateInputLocale(language, regional?.datePattern);
+  const placeholders = {
+    year: text("ui.date_picker.placeholder_year", "YYYY"),
+    month: text("ui.date_picker.placeholder_month", "MM"),
+    day: text("ui.date_picker.placeholder_day", "DD"),
+  };
+  const calendarLabel = text(
+    "ui.date_picker.open_calendar",
+    "Open calendar for {label}",
+    { label },
+  );
+  const clearLabel = text("ui.date_picker.clear", "Clear {label}", { label });
+  const previousMonth = text("ui.date_picker.previous_month", "Previous month");
+  const nextMonth = text("ui.date_picker.next_month", "Next month");
+
   return (
-    <TextField value={value} onChange={onChange} className="du-field">
-      <Label>{label}</Label>
-      <Input type="date" />
-    </TextField>
+    <I18nProvider locale={locale}>
+      <div className="du-field du-date-picker">
+        <Label id={labelId}>{label}</Label>
+        <div
+          className="du-date-picker__control"
+          data-clearable={value ? "" : undefined}
+        >
+          <AriaDatePicker
+            className="du-date-picker__picker"
+            aria-labelledby={labelId}
+            {...(error !== undefined && { "aria-describedby": errorId })}
+            value={value ? parseDate(value) : null}
+            onChange={(date) => onChange(date?.toString() ?? "")}
+            isInvalid={error !== undefined}
+          >
+            <Group className="du-date-picker__input">
+              <I18nProvider locale={inputLocale}>
+                <DateInput ref={dateInput} className="du-date-picker__segments">
+                  {(segment) => {
+                    const separator =
+                      segment.type === "literal"
+                        ? segment.text.trim() === "." &&
+                          !segment.text.endsWith(" ")
+                          ? ""
+                          : (separators[0] ?? segment.text)
+                        : undefined;
+                    const placeholder =
+                      segment.type === "year" ||
+                      segment.type === "month" ||
+                      segment.type === "day"
+                        ? placeholders[segment.type]
+                        : undefined;
+                    return (
+                      <DateSegment
+                        segment={segment}
+                        className="du-date-picker__segment"
+                      >
+                        {segment.type === "literal"
+                          ? separator
+                          : segment.isPlaceholder
+                            ? placeholder
+                            : undefined}
+                      </DateSegment>
+                    );
+                  }}
+                </DateInput>
+              </I18nProvider>
+              <TooltipTrigger delay={500}>
+                <Button
+                  slot="trigger"
+                  className="du-date-picker__button"
+                  aria-label={calendarLabel}
+                >
+                  <CalendarDays aria-hidden focusable="false" size={18} />
+                </Button>
+                <Tooltip className="du-date-picker__tooltip">
+                  {calendarLabel}
+                </Tooltip>
+              </TooltipTrigger>
+            </Group>
+            <Popover className="du-date-picker__popover">
+              <Dialog className="du-date-picker__dialog">
+                <Calendar className="du-date-picker__calendar">
+                  <header className="du-date-picker__calendar-header">
+                    <Button
+                      slot="previous"
+                      className="du-date-picker__button"
+                      aria-label={previousMonth}
+                    >
+                      <ChevronLeft aria-hidden focusable="false" size={18} />
+                    </Button>
+                    <CalendarHeading className="du-date-picker__month" />
+                    <Button
+                      slot="next"
+                      className="du-date-picker__button"
+                      aria-label={nextMonth}
+                    >
+                      <ChevronRight aria-hidden focusable="false" size={18} />
+                    </Button>
+                  </header>
+                  <CalendarGrid
+                    className="du-date-picker__grid"
+                    weekdayStyle="short"
+                  >
+                    <CalendarGridHeader>
+                      {(day) => (
+                        <CalendarHeaderCell className="du-date-picker__weekday">
+                          {day}
+                        </CalendarHeaderCell>
+                      )}
+                    </CalendarGridHeader>
+                    <CalendarGridBody>
+                      {(date) => (
+                        <CalendarCell
+                          date={date}
+                          className="du-date-picker__day"
+                        />
+                      )}
+                    </CalendarGridBody>
+                  </CalendarGrid>
+                </Calendar>
+              </Dialog>
+            </Popover>
+          </AriaDatePicker>
+          {value && (
+            <Button
+              className="du-date-picker__button du-date-picker__clear"
+              aria-label={clearLabel}
+              onPress={() => {
+                onChange("");
+                requestAnimationFrame(() =>
+                  dateInput.current
+                    ?.querySelector<HTMLElement>('[role="spinbutton"]')
+                    ?.focus(),
+                );
+              }}
+            >
+              ×
+            </Button>
+          )}
+        </div>
+        {error !== undefined && (
+          <Text id={errorId} role="alert" className="du-date-picker__error">
+            {error}
+          </Text>
+        )}
+      </div>
+    </I18nProvider>
   );
 }
 

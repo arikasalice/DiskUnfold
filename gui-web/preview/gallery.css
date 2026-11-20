@@ -40,6 +40,13 @@
   min-block-size: 18rem;
 }
 
+.du-date-picker-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
 .du-gallery .du-geometry-shape:nth-of-type(4n + 1) {
   fill: color-mix(in srgb, var(--du-accent) 17%, var(--du-surface));
 }
