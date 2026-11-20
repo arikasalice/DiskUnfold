@@ -13,6 +13,7 @@ use crate::{
 use du_core_contracts::{
     result::ResultItemKind,
     scan_failures::{ScanIssue, unentered_reason},
+    scan_observation::FilterDecision,
 };
 use std::collections::BTreeMap;
 
@@ -279,17 +280,19 @@ impl FolderMarks {
     }
 }
 
-/// Counts the excluded direct children of every folder with exactly one pinned attempt,
-/// and that attempt `EndedUnproven`: the distinct child IDs whose filter callback decided
-/// `Exclude`. Child IDs are unique within an attempt, so no child counts twice; a folder
-/// with several attempts or an event whose input was not kept gives no count.
-/// Linear in the attempts and events plus a sort.
+/// Counts the excluded direct children of every folder whose only pinned attempt ended.
+///
+/// The count is the number of child IDs whose filter callback decided `Exclude` in that
+/// attempt (see [`count_excluded`]). A folder with several attempts has no count: nothing
+/// proves they listed the same children. Like the evidence itself, the value is what one
+/// enumeration observed, not a guarantee about the folder now. Linear in the attempts and
+/// events plus a sort.
 fn excluded_children(evidence: Option<&FolderEvidenceSnapshot>) -> Box<[(u32, u32)]> {
-    use du_core_contracts::scan_observation::{CorrelatedDirectoryEvent, FilterDecision};
+    use du_core_contracts::scan_observation::CorrelatedDirectoryEvent;
     let Some(evidence) = evidence else {
         return Box::default();
     };
-    let mut folders: Vec<(u32, u64, bool)> = evidence
+    let mut attempts: Vec<(u32, u64, bool, Option<u64>)> = evidence
         .summaries()
         .iter()
         .map(|summary| {
@@ -297,56 +300,73 @@ fn excluded_children(evidence: Option<&FolderEvidenceSnapshot>) -> Box<[(u32, u3
                 summary.folder_item,
                 summary.attempt_id,
                 summary.status == FolderAttemptStatus::EndedUnproven,
+                summary.child_count_exclusive,
             )
         })
         .collect();
-    folders.sort_unstable();
-    // Attempt ID -> folder item, for folders whose only attempt ended.
-    let mut single: Vec<(u64, u32)> = folders
+    attempts.sort_unstable_by_key(|attempt| (attempt.0, attempt.1));
+    // (attempt ID, folder item, validated child count) of every folder whose only attempt ended.
+    let mut single: Vec<(u64, u32, u64)> = attempts
         .chunk_by(|left, right| left.0 == right.0)
         .filter(|group| group.len() == 1 && group[0].2)
-        .map(|group| (group[0].1, group[0].0))
+        .filter_map(|group| Some((group[0].1, group[0].0, group[0].3?)))
         .collect();
     single.sort_unstable();
-    let folder_of = |attempt: u64| {
-        single
-            .binary_search_by_key(&attempt, |entry| entry.0)
-            .ok()
-            .map(|at| single[at].1)
-    };
-    let mut excluded: Vec<(u32, u64)> = Vec::new();
-    let mut incomplete: Vec<u32> = Vec::new();
+    let mut callbacks: Vec<Vec<(u64, FilterDecision)>> = vec![Vec::new(); single.len()];
+    let mut missing = vec![false; single.len()];
     for event in evidence.events() {
-        let Some(folder) = folder_of(event.attempt_id) else {
+        let Ok(at) = single.binary_search_by_key(&event.attempt_id, |entry| entry.0) else {
             continue;
         };
         match &event.input {
-            None => incomplete.push(folder),
+            None => missing[at] = true,
             Some(crate::FolderAttemptInput::Adapter(
                 CorrelatedDirectoryEvent::FilterCallback {
-                    child_id,
-                    decision: FilterDecision::Exclude,
-                    ..
+                    child_id, decision, ..
                 },
-            )) => excluded.push((folder, *child_id)),
+            )) => callbacks[at].push((*child_id, *decision)),
             Some(_) => {}
         }
     }
-    excluded.sort_unstable();
-    excluded.dedup();
-    incomplete.sort_unstable();
     let mut counts: Vec<(u32, u32)> = single
         .iter()
-        .map(|entry| entry.1)
-        .filter(|folder| incomplete.binary_search(folder).is_err())
-        .map(|folder| {
-            let start = excluded.partition_point(|entry| entry.0 < folder);
-            let end = excluded.partition_point(|entry| entry.0 <= folder);
-            (folder, u32::try_from(end - start).unwrap_or(u32::MAX))
+        .zip(callbacks.iter_mut().zip(missing))
+        .filter(|(_, (_, missing))| !missing)
+        .filter_map(|(&(_, folder, children), (kept, _))| {
+            Some((folder, count_excluded(children, kept)?))
         })
         .collect();
     counts.sort_unstable();
     counts.into_boxed_slice()
+}
+
+/// The excluded count of one ended attempt, from its kept filter callbacks.
+///
+/// Every direct-child record of an attempt has one callback, with child IDs dense from 0,
+/// so the kept callbacks must cover `0..children` (the attempt's validated end) exactly
+/// once each. A callback lost to the retention bound or repeated by a damaged record
+/// would miscount, and an `Undecidable` decision leaves a child unclassified; each gives
+/// no count.
+fn count_excluded(children: u64, kept: &mut [(u64, FilterDecision)]) -> Option<u32> {
+    kept.sort_unstable_by_key(|callback| callback.0);
+    let dense = u64::try_from(kept.len()).is_ok_and(|kept| kept == children)
+        && kept
+            .iter()
+            .enumerate()
+            .all(|(index, callback)| u64::try_from(index).is_ok_and(|index| index == callback.0));
+    if !dense
+        || kept
+            .iter()
+            .any(|callback| callback.1 == FilterDecision::Undecidable)
+    {
+        return None;
+    }
+    u32::try_from(
+        kept.iter()
+            .filter(|callback| callback.1 == FilterDecision::Exclude)
+            .count(),
+    )
+    .ok()
 }
 
 /// Folders with at least one pinned attempt, every one of them `EndedUnproven`: the
@@ -390,4 +410,36 @@ fn boundary_mark(
     let item = *built.item_of_node.get(node as usize)?;
     let observed = built.items.get(item as usize)?;
     (observed.kind == ResultItemKind::Directory).then_some((item, kind))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use FilterDecision::{Admit, Exclude, Undecidable};
+
+    #[test]
+    fn an_attempt_whose_callbacks_cover_every_child_once_gives_its_exclusions() {
+        let mut kept = vec![(2, Exclude), (0, Admit), (1, Exclude)];
+        assert_eq!(count_excluded(3, &mut kept), Some(2));
+        // Without exclusion rules every child is admitted: exactly none.
+        let mut admitted = vec![(0, Admit), (1, Admit)];
+        assert_eq!(count_excluded(2, &mut admitted), Some(0));
+        assert_eq!(count_excluded(0, &mut []), Some(0));
+    }
+
+    #[test]
+    fn a_damaged_or_incomplete_attempt_gives_no_count() {
+        // A repeated child ID is damaged evidence, not one child.
+        assert_eq!(count_excluded(2, &mut [(0, Exclude), (0, Exclude)]), None);
+        // A callback lost to the retention bound would undercount.
+        assert_eq!(count_excluded(3, &mut [(0, Exclude), (2, Admit)]), None);
+        // More callbacks than the validated end, or an ID beyond it.
+        assert_eq!(count_excluded(1, &mut [(0, Admit), (1, Exclude)]), None);
+        assert_eq!(count_excluded(2, &mut [(0, Admit), (5, Exclude)]), None);
+        // An undecided child leaves the folder unclassified.
+        assert_eq!(
+            count_excluded(2, &mut [(0, Exclude), (1, Undecidable)]),
+            None
+        );
+    }
 }
