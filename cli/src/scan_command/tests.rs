@@ -186,11 +186,12 @@ fn a_path_through_a_symbolic_link_explains_the_resolved_scan_path()
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     let scan = scan(&[&root.to_string_lossy()])?;
-    let engine = engine()?;
+    let (engine, history) = engine()?;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
 
     let exit = run(
         &engine,
+        &history,
         &scan,
         scan.format(),
         &message,
@@ -234,11 +235,12 @@ fn a_dangling_link_reports_its_target_without_a_suggestion()
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     let scan = scan(&[&link.to_string_lossy()])?;
-    let engine = engine()?;
+    let (engine, history) = engine()?;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
 
     let exit = run(
         &engine,
+        &history,
         &scan,
         scan.format(),
         &message,
