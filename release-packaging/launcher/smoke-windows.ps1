@@ -2129,10 +2129,12 @@ function Test-VirtualGroups {
   if ($WindowSize) { Set-SmokeWindowSize $WindowSize }
   # The smoke assertions use English UIA names. Normalize a Korean startup
   # profile for every run, including runs that do not exercise locale switching.
+  # The first start on a runner also starts WebView2 cold; its page has been seen to
+  # take over 22 s to show its first control (#281, empty UI tree at the timeout).
   $startupLanguage = Wait-UI 'initial locale' {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
-  }
+  } 60
   $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
