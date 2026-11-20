@@ -25,12 +25,13 @@ import {
   TextField,
   Tooltip,
   TooltipTrigger,
+  VisuallyHidden,
 } from "react-aria-components";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
-import { useImeComposition } from "./ime-composition";
+import { isImeProcessingKey, useImeComposition } from "./ime-composition";
 import { useLocaleText } from "../i18n/presentation";
 import {
   dateInputLocale,
@@ -102,6 +103,7 @@ export function DateField({
   const regional = useRegionalFormat();
   const labelId = useId();
   const errorId = useId();
+  const calendarButtonLabelId = useId();
   const dateInput = useRef<HTMLDivElement>(null);
   const activeLanguage = regional?.language ?? document.documentElement.lang;
   const language = activeLanguage.toLowerCase().startsWith("ko") ? "ko" : "en";
@@ -128,6 +130,10 @@ export function DateField({
         <Label id={labelId}>{label}</Label>
         <div
           className="du-date-picker__control"
+          onKeyDownCapture={(event) => {
+            if (event.key === "Enter" && isImeProcessingKey(event.nativeEvent))
+              event.stopPropagation();
+          }}
           data-clearable={value ? "" : undefined}
         >
           <AriaDatePicker
@@ -174,8 +180,11 @@ export function DateField({
                 <Button
                   slot="trigger"
                   className="du-date-picker__button"
-                  aria-label={calendarLabel}
+                  aria-labelledby={calendarButtonLabelId}
                 >
+                  <VisuallyHidden id={calendarButtonLabelId}>
+                    {calendarLabel}
+                  </VisuallyHidden>
                   <CalendarDays aria-hidden focusable="false" size={18} />
                 </Button>
                 <Tooltip className="du-date-picker__tooltip">

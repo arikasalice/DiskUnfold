@@ -81,7 +81,8 @@ test("the calendar button name and tooltip use the app language", async () => {
   const button = screen.getByRole("button", {
     name: "Open calendar for Start date",
   });
-  fireEvent.mouseEnter(button);
+  fireEvent.pointerMove(button, { pointerType: "mouse" });
+  fireEvent.pointerEnter(button, { pointerType: "mouse" });
   expect((await screen.findByRole("tooltip")).textContent).toBe(
     "Open calendar for Start date",
   );
