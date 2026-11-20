@@ -948,3 +948,29 @@ F02: 탐색 화면의 「짧은 알림 한 번」(F02 README browse 3번)은 이
 4. 고대비 01(분석할 위치 선택)에서 드라이브 카드의 테두리가 아래 모서리만 일부 보인다. 카드 경계는 강제 색상에서 CanvasText 1px 전체 테두리로 그린다.
 
 미확인: 실제 낭독기, 고대비 흰 바탕 구성표, #199의 Dark 09·02b(Light와 같은 부품이라 보지 않았다).
+
+## 39. 「확인할 수 없음」을 「확인 불가」로 맞추는 범위 (2026-11-20, 총괄 경유 F06 질의, 0.0.1 user-env/i18n/ko.json 기준)
+
+규칙은 TERMS의 「확인 불가」 행에 적었다. 값 칸이면 「확인 불가」, 이름표 없는 짧은 표시면 「{대상} 확인 불가」, 문장이면 그대로 둔다. 영어 값은 Unavailable이다.
+
+1. 「확인 불가」로 바꾼다. 모두 이름표가 있는 칸의 값이다.
+   - ui.analysis.capacity_could_not_verify
+   - ui.product.install_unknown
+   - ui.product.build_unknown
+   - ui.support.status_unknown
+   - ui.support.capability_unknown
+2. 쓰이는 자리를 보고 정한다. 값 칸이면 「확인 불가」, 혼자 서는 표시면 괄호 안의 꼴로 쓴다. 이름표가 같은 대상을 이미 말하면 대상을 되풀이하지 않는다.
+   - ui.analysis.status_unavailable: 「스캔 상태 확인 불가」
+   - ui.inspection.unavailable_in_scan: 「이 스캔에서 확인 불가」
+   - ui.visualization.observedAtUnknown: 「관측 시각 확인 불가」
+   - ui.analysis.target_type_unavailable: 「유형 확인 불가」
+   - ui.analysis.volume_time_unavailable: 「시각 확인 불가」
+   - ui.analysis.volume_evidence_unavailable: 「근거 확인 불가」
+   - ui.analysis.capacity_available_unverified: 「사용 가능 용량 확인 불가」
+   - ui.analysis.capacity_total_unverified: 「전체 용량 확인 불가」
+   - ui.analysis.issue_reason_unverified: 「항목 확인 불가」
+   - ui.analysis.issue_reason_range_unconfirmed: 「선택한 범위 안인지 확인 불가」
+3. 그대로 둔다. 마침표로 끝나는 문장이거나 제목 문장이다. 예: scope_uncertain, scope_unresolvable, space_sharing_unknown, inspection.file_unavailable, visualization.unknownReason, basisNotCounted, support.env_unknown, product.install_unknown_reason 등. 「…확인할 수 없습니다」, 「…확인하지 못했습니다」로 끝나는 키 전부가 여기에 든다.
+4. 이번 범위 밖: CLI 키(cli.support.security_unknown, os.unknown, cpu.unknown)의 「확인할 수 없는 …」는 GUI가 아니다. CLI 출력 담당이 같은 규칙으로 「… 확인 불가」로 맞추도록 총괄이 배정한다.
+
+영어 값도 같이 본다. 1·2의 영어가 Unknown이나 Could not verify면 Unavailable로 맞춘다. 「알 수 없음」 / Unknown은 화면이 모르는 값을 받았을 때만 쓴다(TERMS).
