@@ -410,7 +410,6 @@ impl Page {
     pub fn metadata(&self) -> Metadata<'_> {
         let count = self.result.items.len() as u64;
         // A missing byte count in a known child is not an enumeration gap.
-        // Folder-level enumeration evidence is not retained by the current source.
         let completeness = match self.result.folder {
             Some(_) => self.result.version.completeness(),
             None => self.result.version.space(0).map_or_else(
@@ -418,7 +417,14 @@ impl Page {
                 |aggregate| aggregate.completeness,
             ),
         };
-        let total = if completeness == ResultCompleteness::Complete
+        // A folder whose own pinned attempts all ended was listed to its end, so its
+        // direct children are all known even when the version is not complete (#226).
+        let listed = self
+            .result
+            .folder
+            .and_then(FolderLocation::parent_item)
+            .is_some_and(|item| self.result.version.listing_complete(item));
+        let total = if (completeness == ResultCompleteness::Complete || listed)
             && self.result.unknown_count == 0
             && !self.result.inherited_uncertainty
         {
