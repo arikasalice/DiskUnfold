@@ -7,7 +7,14 @@ import {
   useState,
 } from "react";
 import type { RefObject } from "react";
-import { Action, Heading, Notice, Progress, Text } from "../components";
+import {
+  Action,
+  Heading,
+  Notice,
+  Progress,
+  SegmentedChoice,
+  Text,
+} from "../components";
 import type { SizeDisplay } from "../i18n/bytes";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
@@ -19,7 +26,7 @@ import {
   chartHeight,
   usableSize,
 } from "../features/visualization/chart-area";
-import { useProductionVizText } from "../viz";
+import { useProductionVizText, visualizationFormatName } from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
@@ -72,6 +79,7 @@ export function useBrowseVisualization(
     key: string;
     provider: BrowseVisualizationProvider;
     assembly: BrowseVisualizationAssembly;
+    catalog: VizCatalog;
   }>();
   const [failure, setFailure] = useState<{ key: string; retrying: boolean }>();
   const [attempt, setAttempt] = useState(0);
@@ -114,7 +122,7 @@ export function useBrowseVisualization(
           !supportsBrowseVisualization(assembly, catalog, selection)
         )
           return;
-        setState({ key, provider, assembly });
+        setState({ key, provider, assembly, catalog });
       })
       .catch(() => {
         if (active && requestGeneration === generation.current) {
@@ -132,6 +140,7 @@ export function useBrowseVisualization(
     key && state?.key === key && state.provider === provider
       ? state.assembly
       : undefined;
+  const catalog = assembly ? state?.catalog : undefined;
   const retry = useCallback(() => {
     setFailure((current) => current && { ...current, retrying: true });
     setAttempt((current) => current + 1);
@@ -143,6 +152,7 @@ export function useBrowseVisualization(
   return {
     selection: assembly ? selection : undefined,
     assembly,
+    catalog,
     catalogFailure,
     invalidate,
     opened,
@@ -282,12 +292,15 @@ export function BrowseVisualizationView({
   open,
   selection,
   assembly,
+  catalog,
   onClose,
 }: {
   client: AnalysisClient | undefined;
   open: boolean;
   selection: BrowseVisualizationSelection | undefined;
   assembly: BrowseVisualizationAssembly | undefined;
+  /** The formats offered in the format strip, in catalog order (F06 README 3). */
+  catalog?: VizCatalog | undefined;
   /** Leaves the view; the unavailable notice offers it next to its text. */
   onClose?: () => void;
 }) {
@@ -295,6 +308,7 @@ export function BrowseVisualizationView({
   const productionText = useProductionVizText(
     selection?.display ?? DEFAULT_DISPLAY,
   );
+  const vizText = assembly?.text ?? productionText;
   const viewportElement = useRef<HTMLDivElement>(null);
   // The screen opens with the focus on its title, without a frame; one Tab
   // reaches the chart (README 21, 34).
@@ -314,6 +328,7 @@ export function BrowseVisualizationView({
   const [chartParts, setChartParts] = useState({
     offset: DEFAULT_CHART_OFFSET,
   });
+  const formats = useFormatChoice(catalog, assembly, selection);
   const area = useMemo(
     () => ({
       element: viewportElement,
@@ -424,6 +439,22 @@ export function BrowseVisualizationView({
         {selection.locationTrail && (
           <Text kind="path">{selection.locationTrail.join(" › ")}</Text>
         )}
+        {formats.options.length > 1 && (
+          <div ref={formats.strip}>
+            <SegmentedChoice
+              label={vizText.message("formatChoice")}
+              value={formats.format}
+              onChange={formats.choose}
+              options={formats.options.map((format) => ({
+                value: format,
+                label: visualizationFormatName(format, vizText.message),
+                note: formats.noData(format)
+                  ? vizText.message("formatNoData")
+                  : undefined,
+              }))}
+            />
+          </div>
+        )}
       </header>
       <div ref={viewportElement} className="du-visualization-viewport">
         {viewport ? (
@@ -432,6 +463,7 @@ export function BrowseVisualizationView({
               client={client}
               request={{
                 ...assembly.request,
+                format: formats.format,
                 viewport: {
                   ...viewport,
                   height: chartHeight(viewport.height, chartParts.offset),
@@ -441,8 +473,20 @@ export function BrowseVisualizationView({
                 frameMatchesBrowseSelection(frame, selection) &&
                 assembly.canDisplay(frame)
               }
-              text={assembly.text ?? productionText}
+              text={vizText}
               autoLoadRows={assembly.autoLoadRows}
+              onAvailableFormats={formats.learn}
+              {...(formats.available
+                ? {
+                    formatAction: {
+                      label: vizText.message("availableFormat"),
+                      onPress: () => {
+                        if (formats.available)
+                          formats.choose(formats.available, true);
+                      },
+                    },
+                  }
+                : {})}
               {...(onClose
                 ? {
                     backAction: {
@@ -540,4 +584,62 @@ function sameItemRef(left: ItemRef, right: ItemRef): boolean {
   return (
     left.resultVersion === right.resultVersion && left.itemNo === right.itemNo
   );
+}
+
+/**
+ * The chosen chart format of the space view (F06 README 3, 9).
+ *
+ * The strip lists the catalog formats in catalog order and starts on the
+ * owner's format. A choice is kept while the view moves between folders; the
+ * request changes only its format, so the selection, scope, denominator and
+ * colour criterion stay. What can be drawn is learned from an unavailable
+ * answer, which lists the formats the engine can draw for this result and
+ * folder; until then no format carries a mark. Choosing a format from the
+ * unavailable notice returns the focus to the strip.
+ */
+function useFormatChoice(
+  catalog: VizCatalog | undefined,
+  assembly: BrowseVisualizationAssembly | undefined,
+  selection: BrowseVisualizationSelection | undefined,
+) {
+  const [chosen, setChosen] = useState<string>();
+  const [learned, setLearned] = useState<{
+    key: string;
+    formats: readonly string[];
+  }>();
+  const strip = useRef<HTMLDivElement>(null);
+  const refocus = useRef(false);
+  const key = selection
+    ? `${selection.resultVersion}:${selection.location.itemNo}:${selection.sizeBasis}`
+    : "";
+  const options = catalog?.formats ?? [];
+  const fallback = assembly?.request.format ?? "";
+  const format = chosen && options.includes(chosen) ? chosen : fallback;
+  const known = learned?.key === key ? learned.formats : undefined;
+  const available =
+    known && !known.includes(format)
+      ? options.find((option) => known.includes(option))
+      : undefined;
+  useLayoutEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    strip.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
+  }, [format]);
+  const choose = useCallback((next: string, focusStrip = false) => {
+    refocus.current = focusStrip;
+    setChosen(next);
+  }, []);
+  const learn = useCallback(
+    (formats: readonly string[]) => setLearned({ key, formats }),
+    [key],
+  );
+  return {
+    format,
+    options,
+    strip,
+    available,
+    noData: (option: string) => !!known && !known.includes(option),
+    choose,
+    learn,
+  };
 }

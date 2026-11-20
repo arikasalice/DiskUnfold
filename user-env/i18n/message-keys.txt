@@ -940,6 +940,9 @@ ui.visualization.unavailableTitleUnknown
 ui.visualization.unavailableValue
 ui.visualization.unavailable_for_folder
 ui.visualization.unknownFormat
+ui.visualization.formatChoice
+ui.visualization.formatNoData
+ui.visualization.availableFormat
 ui.visualization.unknownItems
 ui.visualization.unknownReason
 ui.visualization.unrecognizedValue

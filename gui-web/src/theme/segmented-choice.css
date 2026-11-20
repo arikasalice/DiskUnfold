@@ -1,0 +1,48 @@
+/* A one-line radio group (F06 README 3): it scrolls sideways, never wraps. */
+.du-segmented {
+  display: flex;
+  gap: 4px;
+  min-inline-size: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.du-segmented__option {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--du-control-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  color: var(--du-text);
+  font-size: 13px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.du-segmented__option[data-hovered]:not([data-selected]) {
+  background: var(--du-hover-surface);
+}
+
+.du-segmented__option[data-selected] {
+  border-color: var(--du-selected-border);
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+}
+
+.du-segmented__option[data-focus-visible] {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 1px;
+}
+
+.du-segmented__note {
+  color: var(--du-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.du-segmented__option[data-selected] .du-segmented__note {
+  color: inherit;
+}

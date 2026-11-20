@@ -16,6 +16,7 @@ export function UnavailableView({
   controller,
   state,
   text,
+  formatAction,
   backAction,
 }: {
   reasonKey: string;
@@ -24,6 +25,7 @@ export function UnavailableView({
   controller: VisualizationController;
   state: VisualizationSnapshot;
   text: VizText;
+  formatAction?: BackAction | undefined;
   backAction?: BackAction | undefined;
 }) {
   const reference = fallbackReference(state);
@@ -34,6 +36,7 @@ export function UnavailableView({
         completeness={completeness}
         sizeBasis={sizeBasis}
         text={text}
+        formatAction={formatAction}
         backAction={backAction}
       />
       {reference && (

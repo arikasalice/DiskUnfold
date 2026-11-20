@@ -31,6 +31,8 @@ export function VisualizationSession({
   resolveRenderer,
   onApplyRevision,
   backAction,
+  formatAction,
+  onAvailableFormats,
 }: {
   client: AnalysisClient;
   request: VisualizationViewRequest;
@@ -43,6 +45,8 @@ export function VisualizationSession({
   >[0]["resolveRenderer"];
   onApplyRevision?: (revision: string) => void;
   backAction?: Parameters<typeof ControlledVisualization>[0]["backAction"];
+  formatAction?: Parameters<typeof ControlledVisualization>[0]["formatAction"];
+  onAvailableFormats?: (formats: readonly string[]) => void;
 }) {
   const localizedText = useLocalizedVizText(text);
   const [session, setSession] = useState<Session | null>(null);
@@ -171,6 +175,8 @@ export function VisualizationSession({
           {...(resolveRenderer ? { resolveRenderer } : {})}
           {...(onApplyRevision ? { onApplyRevision } : {})}
           {...(backAction ? { backAction } : {})}
+          {...(formatAction ? { formatAction } : {})}
+          {...(onAvailableFormats ? { onAvailableFormats } : {})}
         />
       </>
     );

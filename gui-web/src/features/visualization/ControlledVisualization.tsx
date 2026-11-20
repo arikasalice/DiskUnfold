@@ -37,6 +37,8 @@ export function ControlledVisualization({
   autoLoadRows,
   groupController,
   backAction,
+  formatAction,
+  onAvailableFormats,
   sizeBasis,
 }: {
   controller: VisualizationController;
@@ -46,6 +48,10 @@ export function ControlledVisualization({
   autoLoadRows?: boolean;
   groupController?: GroupController;
   backAction?: BackAction;
+  /** Offered first in the unavailable notice: a chart that can be drawn. */
+  formatAction?: BackAction;
+  /** Told the formats that can be drawn whenever the engine cannot draw the asked one. */
+  onAvailableFormats?: (formats: readonly string[]) => void;
   /** The size basis of the current request, named when a chart lacks it. */
   sizeBasis?: string;
 }) {
@@ -71,6 +77,11 @@ export function ControlledVisualization({
   const table = state.table;
   // The panel takes the chart's place; the previous model stays in the controller.
   const unavailable = unavailableResponse(state);
+  const onAvailableRef = useRef(onAvailableFormats);
+  onAvailableRef.current = onAvailableFormats;
+  useEffect(() => {
+    if (unavailable) onAvailableRef.current?.(unavailable.availableFormats);
+  }, [unavailable]);
   const targetsShown = hasGraphTargets(graphTargets, graph, unavailable);
   const tableRowsFrame = getMatchingTableFrame(table, state.tablePage);
   useFirstRows(controller, state, autoLoadRows === true);
@@ -116,6 +127,7 @@ export function ControlledVisualization({
           controller={controller}
           state={state}
           text={text}
+          formatAction={formatAction}
           backAction={backAction}
         />
       )}

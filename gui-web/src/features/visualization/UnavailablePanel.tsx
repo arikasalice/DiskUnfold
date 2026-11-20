@@ -10,13 +10,15 @@ export type BackAction = { label: string; onPress: () => void };
  * Takes the place of the chart when the engine cannot draw the requested
  * format. It states what is missing and what to do, draws no chart, and takes
  * no focus. Its text is a status region, so it is announced once when it
- * appears; `backAction` leaves the view from beside the text.
+ * appears. `formatAction` moves to a chart that can be drawn and comes first
+ * (F06 README 9); `backAction` leaves the view from beside the text.
  */
 export function UnavailablePanel({
   reasonKey,
   completeness,
   sizeBasis,
   text,
+  formatAction,
   backAction,
 }: {
   reasonKey: string;
@@ -25,6 +27,7 @@ export function UnavailablePanel({
   /** The size basis the chart was asked for. */
   sizeBasis?: string | undefined;
   text: VizText;
+  formatAction?: BackAction | undefined;
   backAction?: BackAction | undefined;
 }) {
   const headingId = useId();
@@ -43,9 +46,14 @@ export function UnavailablePanel({
           {body && <Text>{body}</Text>}
         </div>
       </LiveStatus>
-      {backAction && (
+      {(formatAction || backAction) && (
         <div className="du-review-actions">
-          <Action onPress={backAction.onPress}>{backAction.label}</Action>
+          {formatAction && (
+            <Action onPress={formatAction.onPress}>{formatAction.label}</Action>
+          )}
+          {backAction && (
+            <Action onPress={backAction.onPress}>{backAction.label}</Action>
+          )}
         </div>
       )}
     </section>
