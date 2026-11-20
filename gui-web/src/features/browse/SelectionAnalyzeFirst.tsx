@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import { Action, NameText, SelectionActions } from "../../components";
+import { Action, NameText, SelectionActions, Toast } from "../../components";
 import { scanPriorityText, scanPriorityTone } from "../../ipc";
 import type { FolderQueryRow, ScanPriorityAnnouncement } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
@@ -264,6 +264,29 @@ function useBarFocus(
 }
 
 /**
+ * The outcome of "Analyze first" as the shared short notice at the bottom of
+ * the window (F02 README browse 3, F06 README 35), whether the folder was
+ * asked from its row or from the selection bar. It stays mounted with the
+ * list so the notice keeps its own time after the bar goes. Screen readers
+ * hear the outcome once from the bar's status region; the notice is not read.
+ */
+export function PriorityToast({
+  priority,
+}: {
+  priority: ScanPriority | undefined;
+}) {
+  const text = useLocaleText();
+  const notice = priority?.notice;
+  return (
+    <Toast
+      message={notice ? noticeText(notice, text) : ""}
+      version={notice?.id ?? 0}
+      icon={notice ? scanPriorityTone(notice.outcome) : "info"}
+    />
+  );
+}
+
+/**
  * The selection action bar offers "Analyze first" while the list shows the
  * running scan's current result. It acts only on one selected folder that the
  * row action would also offer; otherwise the summary says why.
@@ -289,10 +312,10 @@ function useBarFocus(
  * another result meanwhile), moves to "Analyze first" otherwise, or to the
  * list when the new result shows no bar. No large area takes the focus frame.
  *
- * The bar also shows the outcome of the last request in place of its summary
+ * The bar announces the outcome of the last request through its status region
  * for as long as the scan priority state offers it, and stays while it does,
- * so an outcome such as "The scan has already finished." is not removed with the
- * bar when the scan ends.
+ * so an outcome such as "The scan has already finished." is still announced
+ * when the scan ends. The words show in {@link PriorityToast}; the summary stays.
  */
 export function SelectionAnalyzeFirst({
   pages,
@@ -365,13 +388,7 @@ export function SelectionAnalyzeFirst({
           : summaryText(count, row, priority, text)
       }
       summaryId={summaryId}
-      notice={
-        notice && {
-          id: notice.id,
-          tone: scanPriorityTone(notice.outcome),
-          text: noticeText(notice, text),
-        }
-      }
+      notice={notice && { id: notice.id, text: noticeText(notice, text) }}
     >
       {(showLatest || held) && (
         <Action

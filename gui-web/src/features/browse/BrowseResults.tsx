@@ -29,7 +29,7 @@ import { useLocaleText } from "../../i18n/presentation";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
-import { SelectionAnalyzeFirst } from "./SelectionAnalyzeFirst";
+import { PriorityToast, SelectionAnalyzeFirst } from "./SelectionAnalyzeFirst";
 import type { Selection } from "./SelectionAnalyzeFirst";
 import {
   analyzeFirstActions,
@@ -289,6 +289,7 @@ export function BrowseResults({
           openFailures={openFailures}
           retryOpen={retryOpen}
         />
+        <PriorityToast priority={priority} />
         {pages.count === 0 && (
           <Text>
             {text("ui.browse.no_items", "No observed items in this folder.")}

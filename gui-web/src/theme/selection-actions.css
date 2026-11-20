@@ -23,31 +23,6 @@
   font-size: 0.875em;
 }
 
-.du-selection-actions__notice {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--du-text);
-  font-size: 0.875em;
-  font-weight: 600;
-}
-
-.du-selection-actions__notice svg {
-  flex: none;
-}
-
-.du-selection-actions__notice[data-tone="success"] svg {
-  color: var(--du-success-text);
-}
-
-.du-selection-actions__notice[data-tone="info"] svg {
-  color: var(--du-info-text);
-}
-
-.du-selection-actions__notice[data-tone="error"] svg {
-  color: var(--du-danger-text);
-}
-
 .du-selection-actions__items {
   display: flex;
   gap: var(--du-space-2);

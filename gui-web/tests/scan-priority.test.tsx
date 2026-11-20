@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { TOAST_DURATION } from "../src/components";
 import { interpolate } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
 import { AnalysisError, scanPriorityText } from "../src/ipc";
@@ -331,11 +332,18 @@ function selectionBar() {
   return screen.queryByRole("toolbar", { name: "Selection actions" });
 }
 
-test("F02 FR8.HD1: the bar shows the outcome in place of its summary with a mark for its kind", async () => {
+function toast() {
+  return document.querySelector(".du-toast");
+}
+
+// #192, F06 README 35: the outcome shows in the shared short notice with an
+// icon for its kind, the bar reads it once and keeps its summary.
+test("F02 FR8.HD1: the outcome shows in the short notice, is read once by the bar and the summary stays", async () => {
   const { answers } = await setup();
   const bar = selectionBar()!;
   const status = within(bar).getByRole("status");
   expect(status.textContent).toBe("");
+  expect(toast()).toBeNull();
   await requestFirst("Photos");
   await act(async () =>
     answers[0]?.resolve({
@@ -344,17 +352,21 @@ test("F02 FR8.HD1: the bar shows the outcome in place of its summary with a mark
     }),
   );
   expect(status.textContent).toBe("‘Photos’ is analyzed first");
-  expect(status.querySelector('[data-tone="success"] svg')).not.toBeNull();
+  expect(status.className).toBe("du-visually-hidden");
+  expect(toast()?.textContent).toBe("‘Photos’ is analyzed first");
+  expect(toast()?.getAttribute("aria-hidden")).toBe("true");
+  expect(toast()?.getAttribute("data-icon")).toBe("success");
+  expect(toast()?.querySelector("svg")).not.toBeNull();
   expect(
     within(bar).getByText("Select one folder to analyze it first").hidden,
-  ).toBe(true);
+  ).toBe(false);
 
   await requestFirst("Videos");
   await act(async () => answers[1]?.reject(new Error("closed")));
   expect(status.textContent).toBe("This folder could not be analyzed first.");
-  expect(status.querySelector('[data-tone="error"] svg')).not.toBeNull();
-  // Nothing floats over the list any more.
-  expect(document.querySelector(".du-toast-region")).toBeNull();
+  expect(toast()?.textContent).toBe("This folder could not be analyzed first.");
+  expect(toast()?.getAttribute("data-icon")).toBe("error");
+  expect(document.querySelectorAll(".du-toast")).toHaveLength(1);
 });
 
 test("F02 FR8.HD1: the bar stays while an outcome shows after the scan ended, then the summary returns or the bar goes", async () => {
@@ -380,13 +392,17 @@ test("F02 FR8.HD1: the bar stays while an outcome shows after the scan ended, th
   expect(within(ended).getByRole("status").textContent).toBe(
     "The scan has already finished.",
   );
-  expect(
-    within(ended).getByRole("status").querySelector('[data-tone="info"] svg'),
-  ).not.toBeNull();
+  expect(toast()?.getAttribute("data-icon")).toBe("info");
   act(() => {
     vi.advanceTimersByTime(SCAN_PRIORITY_NOTICE_MS);
   });
   expect(selectionBar()).toBeNull();
+  // The notice keeps its own time after the bar goes, then leaves.
+  expect(toast()?.textContent).toBe("The scan has already finished.");
+  act(() => {
+    vi.advanceTimersByTime(TOAST_DURATION);
+  });
+  expect(toast()).toBeNull();
 });
 
 test("F02 FR8.HD1: a receipt without the applied area can be sent again and returns to neutral", async () => {

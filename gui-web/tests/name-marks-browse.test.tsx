@@ -168,9 +168,10 @@ test("F02: the Analyze first notice marks the name on screen, reads the real nam
     }),
   );
   const status = noticeStatus();
-  expect(
-    document.querySelectorAll(".du-selection-actions__notice"),
-  ).toHaveLength(1);
+  // The short notice draws the same marks; it is not read.
+  const shown = document.querySelector(".du-toast");
+  expect(shown?.getAttribute("aria-hidden")).toBe("true");
+  expect(shown?.querySelectorAll(".du-name__mark")).toHaveLength(1);
   const marks = status.querySelectorAll(".du-name__mark");
   expect(marks).toHaveLength(1);
   expect(marks[0]?.getAttribute("aria-hidden")).toBe("true");

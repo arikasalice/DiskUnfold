@@ -32,7 +32,7 @@ test("body keeps Korean words whole and breaks only a word longer than its line"
 const inheriting = [
   '.du-item-menu [role="menuitem"]',
   ".du-selection-actions__summary",
-  ".du-selection-actions__notice",
+  ".du-toast",
   ".du-text--muted",
   '.du-field [slot="description"]',
   '.du-field [slot="errorMessage"]',
