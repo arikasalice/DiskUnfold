@@ -261,6 +261,23 @@ ui.analysis.selected_paths
 ui.analysis.result_details
 ui.analysis.paused_hint
 ui.analysis.collecting_hint
+ui.analysis.lanes_and_more count:count
+ui.analysis.lanes_done
+ui.analysis.lanes_folders_column
+ui.analysis.lanes_folders_left count:count
+ui.analysis.lanes_heading
+ui.analysis.lanes_idle_announcement
+ui.analysis.lanes_not_read
+ui.analysis.lanes_reading
+ui.analysis.lanes_reads_detail inFlight:count limit:count
+ui.analysis.lanes_root_unavailable
+ui.analysis.lanes_status
+ui.analysis.lanes_storage
+ui.analysis.lanes_wait_backpressure
+ui.analysis.lanes_wait_device_cap
+ui.analysis.lanes_wait_io
+ui.analysis.lanes_wait_unconfirmed
+ui.analysis.lanes_wait_unknown
 ui.analysis.result_heading
 ui.analysis.progress_heading
 ui.analysis.waiting_cancel

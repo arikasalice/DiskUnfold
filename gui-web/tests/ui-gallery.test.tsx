@@ -33,6 +33,13 @@ test("every AIDA feature has one accountable primary surface and explicit integr
   }
 });
 
+test("F02 links the storage-lane progress review scene", () => {
+  expect(coverage.find((item) => item.feature === "F02")).toMatchObject({
+    reviewScenes: ["scan-lanes"],
+  });
+  expect(Object.hasOwn(fixtures, "scan-lanes")).toBe(true);
+});
+
 test("gallery recovery is explicit and inspection returns to its originating control", async () => {
   render(<Gallery />);
   fireEvent.change(screen.getByLabelText("검토할 화면"), {

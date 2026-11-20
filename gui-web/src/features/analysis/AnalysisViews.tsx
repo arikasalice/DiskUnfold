@@ -88,6 +88,7 @@ export function ScanOutput({
         holding={holding}
         awaitingTotals={awaitingTotals}
         actions={actions}
+        roots={roots}
       />
       <section
         ref={body}

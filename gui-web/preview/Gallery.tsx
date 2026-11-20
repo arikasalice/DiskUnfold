@@ -37,6 +37,7 @@ import type { SelectedRecord } from "./GalleryContent";
 import { ResultSummaryPreview } from "./ResultSummaryPreview";
 import { HistoryItemsPreview } from "./HistoryItemsPreview";
 import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
+import { ScanLanesPreview } from "./ScanLanesPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -193,7 +194,10 @@ export function Gallery() {
   );
   const props = { context, primary, secondary, actions: tools };
   const Presenter =
-    surface === "history" || surface === "summary" || surface === "browse"
+    surface === "history" ||
+    surface === "summary" ||
+    surface === "browse" ||
+    surface === "scan-lanes"
       ? null
       : presenters[surface];
   return (
@@ -252,6 +256,8 @@ export function Gallery() {
             <BrowseScanStatusPreview />
           ) : surface === "history" ? (
             <HistoryItemsPreview />
+          ) : surface === "scan-lanes" ? (
+            <ScanLanesPreview />
           ) : (
             <>
               {primary}

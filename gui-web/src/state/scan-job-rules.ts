@@ -1,5 +1,4 @@
 import type {
-  AnalysisJobProgress,
   AnalysisJobStatus,
   EventEnvelope,
   JobState,
@@ -109,12 +108,12 @@ export function jobValue<T extends { jobRef: string }>(
 }
 
 /** Progress is shown only for the current job while it can still change. */
-export function runningValue(
-  progress: { jobRef: string; value: AnalysisJobProgress } | undefined,
+export function runningValue<T>(
+  value: { jobRef: string; value: T } | undefined,
   jobRef: string | undefined,
   status: AnalysisJobStatus | undefined,
-): AnalysisJobProgress | undefined {
+): T | undefined {
   return status && isRunning(status.state)
-    ? jobValue(progress, jobRef)?.value
+    ? jobValue(value, jobRef)?.value
     : undefined;
 }

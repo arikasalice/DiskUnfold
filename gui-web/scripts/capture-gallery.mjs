@@ -1,6 +1,5 @@
-// Captures a surface of the preview gallery in a headless Chromium browser (Edge
-// or Chrome), not in the app's WebView2: Light and Dark at 1280 px and Light at
-// 700 px.
+// Captures preview gallery surfaces in headless Edge or Chrome, not WebView2.
+// The scan-lanes surface also covers Dark at 700 px, an expanded row and one lane.
 //
 // - history: the operation history item results (F02 README #170), and the full
 //   location shown to a pointer resting 0.4 s on the cell cut in the middle;
@@ -29,6 +28,7 @@ const surfaces = {
   // 4 + 1 + 2 location cells: the main record and the two count sentence records.
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
   browse: { ready: ".du-browse-grid__row", count: 6, pointer: false },
+  "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -38,11 +38,19 @@ const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
-const shots = [
-  { name: "light-1280", theme: "light", width: 1280 },
-  { name: "dark-1280", theme: "dark", width: 1280 },
-  { name: "light-700", theme: "light", width: 700 },
-];
+const shots =
+  surface === "scan-lanes"
+    ? [
+        { name: "light-1280", theme: "light", width: 1280 },
+        { name: "dark-1280", theme: "dark", width: 1280 },
+        { name: "light-700", theme: "light", width: 700 },
+        { name: "dark-700", theme: "dark", width: 700 },
+      ]
+    : [
+        { name: "light-1280", theme: "light", width: 1280 },
+        { name: "dark-1280", theme: "dark", width: 1280 },
+        { name: "light-700", theme: "light", width: 700 },
+      ];
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -172,7 +180,7 @@ function cutCell() {
 }
 
 /** Opens the gallery's surface in a theme and waits until it is drawn. */
-async function open(session, base, theme, width) {
+async function open(session, base, theme, width, scene) {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
     height,
@@ -184,11 +192,28 @@ async function open(session, base, theme, width) {
   });
   const loaded = session.once("Page.loadEventFired");
   await session.send("Page.navigate", {
-    url: base + "?surface=" + surface + "&theme=" + theme,
+    url:
+      base +
+      "?surface=" +
+      surface +
+      "&theme=" +
+      theme +
+      (scene ? "&scene=" + scene : ""),
   });
   await loaded;
-  if ((await session.run(drawn, ready, count)) !== count)
+  if (surface === "scan-lanes") {
+    const selector =
+      scene === "one-lane"
+        ? ".du-scan-lanes__single"
+        : ".du-scan-lanes .du-data-table tbody tr";
+    const expected = scene === "one-lane" ? 1 : 3;
+    if ((await session.run(drawn, selector, expected)) !== expected)
+      throw new Error(
+        "The scan lanes were not drawn for " + (scene ?? "three lanes"),
+      );
+  } else if ((await session.run(drawn, ready, count)) !== count) {
     throw new Error("The " + surface + " surface was not drawn");
+  }
 }
 
 /** Saves the whole page, or with `viewport` only what the window shows. */
@@ -214,6 +239,32 @@ async function save(session, name, viewport = false) {
   console.log(file);
 }
 
+/** Captures only the product progress header, without gallery controls. */
+async function saveLanes(session, name) {
+  const clip = await session.run(function headerClip() {
+    const element = document.querySelector(
+      ".du-scan-lanes-preview .du-result__header",
+    );
+    if (!element) return null;
+    const box = element.getBoundingClientRect();
+    return {
+      x: Math.floor(box.x),
+      y: Math.floor(box.y),
+      width: Math.ceil(box.width),
+      height: Math.ceil(box.height),
+    };
+  });
+  if (!clip) throw new Error("The progress header was not found");
+  const { data } = await session.send("Page.captureScreenshot", {
+    format: "png",
+    captureBeyondViewport: true,
+    clip: { ...clip, scale: 1 },
+  });
+  const file = join(output, "gallery-scan-lanes-browser-ko-" + name + ".png");
+  await writeFile(file, Buffer.from(data, "base64"));
+  console.log(file);
+}
+
 await mkdir(output, { recursive: true });
 const server = await createServer({
   configFile: join(gui, "preview", "vite.config.ts"),
@@ -228,7 +279,31 @@ try {
   await session.send("Page.enable");
   for (const shot of shots) {
     await open(session, base, shot.theme, shot.width);
-    await save(session, shot.name);
+    if (surface === "scan-lanes") await saveLanes(session, shot.name);
+    else await save(session, shot.name);
+  }
+  if (surface === "scan-lanes") {
+    await open(session, base, "light", 1280);
+    const expanded = await session.run(function expandLastLane() {
+      const rows = document.querySelectorAll(
+        ".du-scan-lanes .du-data-table tbody tr",
+      );
+      const button = rows[2]?.querySelector(
+        "td:first-child button[aria-expanded='false']",
+      );
+      button?.click();
+      return Boolean(button);
+    });
+    if (!expanded)
+      throw new Error("The unconfirmed lane row was not available");
+    await session.run(
+      drawn,
+      ".du-scan-lanes .du-data-table tbody tr:nth-child(3) td:first-child .du-detail-disclosure__content",
+      1,
+    );
+    await saveLanes(session, "light-1280-expanded");
+    await open(session, base, "light", 1280, "one-lane");
+    await saveLanes(session, "light-1280-one-lane");
   }
   if (pointer) {
     await open(session, base, "light", 1280);
