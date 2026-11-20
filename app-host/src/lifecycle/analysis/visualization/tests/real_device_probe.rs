@@ -93,6 +93,28 @@ fn unique_physical_render(assembled: &Assembled, revision: &Id) -> Result<Value,
     Ok(json!({"kind": answer["kind"], "reasonKey": answer["reasonKey"]}))
 }
 
+/// The browse listing of the scope root, after any browse job: the header total and, for
+/// each row, its name, size and scan state flags.
+fn browse_root(assembled: &Assembled, revision: &Id) -> Result<Value, Failure> {
+    let request = |seq: u32| {
+        json!({
+            "regionRef": Id::from_v7_bytes([7; 16]), "viewKind": "list", "requestSeq": seq,
+            "resultVersion": revision, "location": {"resultVersion": revision, "itemNo": 0},
+            "pageSize": 200,
+        })
+    };
+    let mut answer = ok(&assembled.engine, "browse.open", request(1))?;
+    for seq in 2..6 {
+        let Some(job) = answer.get("jobRef").filter(|job| !job.is_null()) else {
+            break;
+        };
+        let job: Id = serde_json::from_value(job.clone())?;
+        finished(assembled, &job, Duration::from_secs(60))?;
+        answer = ok(&assembled.engine, "browse.open", request(seq))?;
+    }
+    Ok(answer)
+}
+
 #[test]
 #[ignore = "needs a real Mac and DU_PROBE_SCOPE"]
 fn probe_a_real_macos_scan() -> Result<(), Failure> {
@@ -155,5 +177,8 @@ fn probe_a_real_macos_scan() -> Result<(), Failure> {
         "viz.render.unique_physical",
         &unique_physical_render(&assembled, &revision)?,
     );
+    if std::env::var_os("DU_PROBE_BROWSE").is_some() {
+        report("browse.open", &browse_root(&assembled, &revision)?);
+    }
     Ok(())
 }
