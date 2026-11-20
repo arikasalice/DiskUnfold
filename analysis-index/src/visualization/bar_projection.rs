@@ -14,7 +14,7 @@ use du_core_contracts::{
 use super::{
     bar, descendant,
     geometry::{NoArea, Rect, Scale, Weight},
-    root_ref, value,
+    root_ref, treemap, value,
 };
 use crate::ResultVersion;
 
@@ -112,6 +112,7 @@ pub fn prepare_children<'a>(
     }
     Ok(Prepared {
         version: request.version,
+        scope: request.scope.clone(),
         basis: request.basis,
         bounds: request.bounds,
         scale: request.scale,
@@ -171,8 +172,10 @@ pub enum Error {
 
 /// Lays out a ranked bar view without changing the pinned values or aggregates.
 ///
-/// Other is accepted only if F03 independently confirms an exact group total
-/// equal to the layout sum. Unverifiable overlapping or incomplete groups fail
+/// Other is accepted only if its exact total equal to the layout sum is
+/// independently established: by the F03 set total of its members, or, for
+/// members that are children of the scope, by the same disjoint partition the
+/// treemap admits (#242). Unverifiable overlapping or incomplete groups fail
 /// closed. `max_bars` limits returned bars, including Other, without truncation.
 /// The denominator must be the aggregation scope or the whole analysis; this
 /// request cannot establish a separate focused item's parent denominator.
@@ -186,6 +189,7 @@ pub fn project(
 /// Pinned source facts validated before a ranked bar strategy is invoked.
 pub struct Prepared<'a> {
     version: &'a ResultVersion,
+    scope: ItemRef,
     basis: SizeBasis,
     bounds: Rect,
     scale: Scale,
@@ -241,6 +245,7 @@ pub fn prepare<'a>(
     }
     Ok(Prepared {
         version: request.version,
+        scope: request.scope.clone(),
         basis: request.basis,
         bounds: request.bounds,
         scale: request.scale,
@@ -314,6 +319,7 @@ impl Prepared<'_> {
                 ),
                 bar::BarRef::Other(items) => verified_other(
                     self.version,
+                    &self.scope,
                     &self.basis,
                     items,
                     &self.sources,
@@ -381,6 +387,7 @@ fn validate_aggregate(
 
 fn verified_other(
     version: &ResultVersion,
+    scope: &ItemRef,
     basis: &SizeBasis,
     items: &[u32],
     sources: &HashMap<u32, ItemRef>,
@@ -391,6 +398,9 @@ fn verified_other(
     for item in items {
         check(cancelled)?;
         members.push(sources.get(item).cloned().ok_or(Error::InvalidEvidence)?);
+    }
+    if !matches!(sum, Weight::Exact(_)) {
+        return Err(Error::GroupAttributionUnavailable);
     }
     let aggregate = version
         .selection_total(&members, true, &mut *cancelled)
@@ -403,10 +413,74 @@ fn verified_other(
         SizeBasis::Allocated => aggregate.allocated,
         SizeBasis::UniquePhysical => aggregate.unique_physical,
     };
-    if !matches!(sum, Weight::Exact(_)) || weight(&size)? != sum {
+    if weight(&size)? == sum {
+        return Ok(BarIdentity::Other { members, size });
+    }
+    // A selection with folder rows has no independent file membership in the set
+    // total; children of one admitted disjoint partition are attributed instead.
+    let size = partition_total(version, scope, basis, items, sum, cancelled)?;
+    Ok(BarIdentity::Other { members, size })
+}
+
+/// The exact total of `items` when they are children of `scope` in a partition the
+/// treemap admits as disjoint, and that total equals `sum`.
+fn partition_total(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    basis: &SizeBasis,
+    items: &[u32],
+    sum: Weight,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<SizeValue, Error> {
+    let admitted =
+        treemap::admit_cancellable(version, scope, basis.clone(), cancelled).map_err(|error| {
+            match error {
+                treemap::AdmissionError::Cancelled => Error::Cancelled,
+                _ => Error::GroupAttributionUnavailable,
+            }
+        })?;
+    let wanted: HashSet<u32> = items.iter().copied().collect();
+    let mut bytes = 0_u64;
+    let mut evidence = SizeEvidence::Measured;
+    let mut found = 0;
+    for row in &admitted.rows {
+        check(cancelled)?;
+        if !wanted.contains(&row.child.item.item_no) {
+            continue;
+        }
+        if !matches!(row.child.value.amount, SizeAmount::Exact { .. }) {
+            return Err(Error::GroupAttributionUnavailable);
+        }
+        found += 1;
+        bytes = bytes
+            .checked_add(row.bytes)
+            .ok_or(Error::GroupAttributionUnavailable)?;
+        evidence = weaker(evidence, row.child.value.evidence.clone());
+    }
+    if found != wanted.len() || Weight::Exact(bytes) != sum {
         return Err(Error::GroupAttributionUnavailable);
     }
-    Ok(BarIdentity::Other { members, size })
+    Ok(SizeValue {
+        basis: basis.clone(),
+        evidence,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    })
+}
+
+fn weaker(left: SizeEvidence, right: SizeEvidence) -> SizeEvidence {
+    let rank = |evidence: &SizeEvidence| match evidence {
+        SizeEvidence::Measured => 0,
+        SizeEvidence::OsReported => 1,
+        SizeEvidence::Estimated => 2,
+        SizeEvidence::Unknown => 3,
+    };
+    if rank(&right) > rank(&left) {
+        right
+    } else {
+        left
+    }
 }
 
 fn weight(size: &SizeValue) -> Result<Weight, Error> {

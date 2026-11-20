@@ -297,7 +297,7 @@ fn partial_values_and_cancellation_never_become_exact_or_zero() -> Result<(), St
 }
 
 #[test]
-fn other_with_unverifiable_folder_members_fails_closed() -> Result<(), String> {
+fn folder_members_of_one_disjoint_partition_form_an_exact_other_group() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
     build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
@@ -332,13 +332,90 @@ fn other_with_unverifiable_folder_members_fails_closed() -> Result<(), String> {
     }];
     let scope = reference(&version, 0);
     let aggregate = aggregate(&version)?;
-    assert_eq!(
-        bar_projection::project(
-            request(&version, &selected, &scope, &aggregate, 0, 1),
-            &mut || false
+    // The F03 set total cannot take a folder row, but the scope's children form
+    // the disjoint partition the treemap admits, so Other is its exact sum (#242).
+    let result = bar_projection::project(
+        request(&version, &selected, &scope, &aggregate, 0, 1),
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.bars.len(), 1);
+    assert!(matches!(
+        &result.bars[0].identity,
+        BarIdentity::Other { members, size }
+            if members.len() == 1 && size.amount == SizeAmount::Exact { bytes: 10.into() }
+    ));
+    Ok(())
+}
+
+/// The ui-smoke treemap fixture (#242): two large folders, a small folder and a
+/// file. With two bars the small folder and the file form Other.
+#[test]
+fn other_with_a_small_folder_and_a_file_is_drawn_from_the_partition() -> Result<(), String> {
+    let sink = IngestSink::default();
+    let mut build = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
+    build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    let file = |path: Vec<Vec<u8>>, bytes: u64| Observation {
+        path,
+        size: Some(SizeValue {
+            basis: SizeBasis::Logical,
+            evidence: SizeEvidence::Measured,
+            amount: SizeAmount::Exact {
+                bytes: bytes.into(),
+            },
+        }),
+    };
+    for (folder, files) in [
+        (b"Videos".to_vec(), vec![(b"clip.bin".to_vec(), 128_u64)]),
+        (
+            b"Photos".to_vec(),
+            vec![(b"album-a.bin".to_vec(), 64), (b"album-b.bin".to_vec(), 48)],
         ),
-        Err(Error::GroupAttributionUnavailable)
-    );
+        (b"Tiny".to_vec(), vec![(b"tiny.bin".to_vec(), 1)]),
+    ] {
+        build
+            .add_directory(vec![folder.clone()])
+            .map_err(|e| format!("{e:?}"))?;
+        for (name, bytes) in files {
+            build
+                .add_file(file(vec![folder.clone(), name], bytes))
+                .map_err(|e| format!("{e:?}"))?;
+        }
+    }
+    build
+        .add_file(file(vec![b"notes.bin".to_vec()], 16))
+        .map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id(2), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let selected: Vec<Row> = version
+        .items()
+        .iter()
+        .filter(|item| item.parent == Some(0))
+        .map(|item| {
+            Ok(Row {
+                item: reference(&version, item.item_no),
+                size: version
+                    .space(item.item_no)
+                    .ok_or("missing row")?
+                    .logical
+                    .clone(),
+            })
+        })
+        .collect::<Result<_, &str>>()?;
+    let scope = reference(&version, 0);
+    let aggregate = aggregate(&version)?;
+    let result = bar_projection::project(
+        request(&version, &selected, &scope, &aggregate, 2, 3),
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.bars.len(), 3);
+    assert!(matches!(
+        &result.bars[2].identity,
+        BarIdentity::Other { members, size }
+            if members.len() == 2 && size.amount == SizeAmount::Exact { bytes: 17.into() }
+    ));
     Ok(())
 }
 
