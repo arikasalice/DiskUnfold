@@ -16,7 +16,7 @@ fn space_size(basis: SizeBasis, bytes: u64) -> SizeValue {
 }
 
 /// Publishes a scope of identified files with unknown sharing, each with an
-/// allocated size or, as on Linux, without one.
+/// allocated size or without one.
 fn publish_spaced(allocated: bool) -> Result<CurrentAnalysis, String> {
     let sink = IngestSink::default();
     let lineage = sink
