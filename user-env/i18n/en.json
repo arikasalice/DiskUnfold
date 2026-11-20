@@ -537,6 +537,7 @@
     ["ui.history.item_results","Item results",[]],
     ["ui.history.items_changed_restart_page","History changed. Item results were restarted from the first page.",[]],
     ["ui.history.items_load_failed","Item results could not be loaded.",[]],
+    ["ui.history.items_none_processed","No items were processed in this task.",[]],
     ["ui.history.items_not_recorded","This task didn't record results for each item.",[]],
     ["ui.history.job_type","Job type",[]],
     ["ui.history.kind_disk_analysis","Disk analysis",[]],

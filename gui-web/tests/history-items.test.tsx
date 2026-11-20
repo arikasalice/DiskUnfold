@@ -42,6 +42,7 @@ const page = (
     },
   ],
   counts: { summary: null, recorded: "1", unavailable: null },
+  itemRecording: "recorded",
   completeness: "complete",
   missingReasons: [],
   nextCursor: cursor,
@@ -202,16 +203,30 @@ test.each([
   },
 );
 
-test("an empty list says that no item results were recorded, apart from an empty filter", async () => {
-  const empty = { ...page("unused"), rows: [] };
-  const call = vi.fn().mockResolvedValue(empty);
-  render(<HistoryItems client={client(call)} jobRef="job" />);
-  await screen.findByText("This task didn't record results for each item.");
-  fireEvent.change(screen.getByLabelText("Outcome"), {
-    target: { value: "failed" },
-  });
-  await screen.findByText("No recorded items match this outcome.");
-});
+test.each([
+  ["not_recorded", null, "This task didn't record results for each item."],
+  ["recorded", null, "No items were processed in this task."],
+  [undefined, null, "This task didn't record results for each item."],
+  [undefined, "0", "No items were processed in this task."],
+  ["later_value", null, "This task didn't record results for each item."],
+] as const)(
+  "explains an empty %s item history",
+  async (recording, summary, message) => {
+    const empty = {
+      ...page("unused"),
+      rows: [],
+      counts: { summary, recorded: "0", unavailable: null },
+      itemRecording: recording as HistoryItemsResponse["itemRecording"],
+    };
+    const call = vi.fn().mockResolvedValue(empty);
+    render(<HistoryItems client={client(call)} jobRef="job" />);
+    await screen.findByText(message);
+    fireEvent.change(screen.getByLabelText("Outcome"), {
+      target: { value: "failed" },
+    });
+    await screen.findByText("No recorded items match this outcome.");
+  },
+);
 
 test("opens a full recorded item with a long location, lower-bound size and every flag", async () => {
   const full = page("long");

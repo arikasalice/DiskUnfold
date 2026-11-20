@@ -537,6 +537,7 @@
     ["ui.history.item_results","항목 결과",[]],
     ["ui.history.items_changed_restart_page","이력이 변경되어 항목 결과를 첫 페이지부터 다시 불러왔습니다.",[]],
     ["ui.history.items_load_failed","항목 결과를 불러오지 못했습니다.",[]],
+    ["ui.history.items_none_processed","이 작업에서 처리한 항목이 없습니다.",[]],
     ["ui.history.items_not_recorded","이 작업은 항목별 결과를 남기지 않았습니다.",[]],
     ["ui.history.job_type","작업 유형",[]],
     ["ui.history.kind_disk_analysis","디스크 분석",[]],

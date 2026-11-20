@@ -15,6 +15,7 @@ import {
 import type {
   AnalysisClient,
   HistoryItemOutcome,
+  HistoryItemRecording,
   HistoryItemRow,
   HistoryItemsResponse,
 } from "../../ipc";
@@ -197,7 +198,13 @@ function ItemPages({
               />
             </div>
           )}
-          {page.rows.length === 0 && <EmptyItems outcome={outcome} />}
+          {page.rows.length === 0 && (
+            <EmptyItems
+              outcome={outcome}
+              recording={page.itemRecording}
+              summary={page.counts.summary}
+            />
+          )}
           {page.nextCursor && (
             <Action onPress={more} isDisabled={pending}>
               {text("ui.history.load_more_items", "Load more items")}
@@ -222,7 +229,15 @@ function ItemPages({
     </div>
   );
 }
-function EmptyItems({ outcome }: { outcome: HistoryItemOutcome | null }) {
+function EmptyItems({
+  outcome,
+  recording,
+  summary,
+}: {
+  outcome: HistoryItemOutcome | null;
+  recording: HistoryItemRecording | undefined;
+  summary: string | null;
+}) {
   const text = useLocaleText();
   if (outcome !== null)
     return (
@@ -233,14 +248,21 @@ function EmptyItems({ outcome }: { outcome: HistoryItemOutcome | null }) {
         )}
       </Text>
     );
-  // F02 README #170: the app does not record item results yet, so an empty
-  // list says so instead of reading as an operation without items (#204).
+  // An older engine omits the value; only item-level history has a summary count.
+  const recorded =
+    recording === "recorded" ||
+    (recording !== "not_recorded" && summary !== null);
   return (
     <Text>
-      {text(
-        "ui.history.items_not_recorded",
-        "This task didn't record results for each item.",
-      )}
+      {recorded
+        ? text(
+            "ui.history.items_none_processed",
+            "No items were processed in this task.",
+          )
+        : text(
+            "ui.history.items_not_recorded",
+            "This task didn't record results for each item.",
+          )}
     </Text>
   );
 }

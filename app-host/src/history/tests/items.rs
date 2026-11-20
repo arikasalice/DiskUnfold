@@ -1,5 +1,7 @@
 use super::*;
-use du_core_contracts::history_ipc::{HistoryItemOutcome, HistoryItemsResponse};
+use du_core_contracts::history_ipc::{
+    HistoryItemOutcome, HistoryItemRecording, HistoryItemsResponse,
+};
 use rusqlite::{Connection, params};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -17,6 +19,10 @@ fn item_ipc_pins_counts_and_rows_and_distinguishes_unreadable_results() -> TestR
     assert_eq!(summary_only.counts.summary, None);
     assert_eq!(summary_only.counts.recorded, "0");
     assert_eq!(
+        summary_only.item_recording,
+        Some(HistoryItemRecording::NotRecorded)
+    );
+    assert_eq!(
         summary_only.completeness,
         HistoryDetailCompleteness::Complete
     );
@@ -26,6 +32,7 @@ fn item_ipc_pins_counts_and_rows_and_distinguishes_unreadable_results() -> TestR
     let cursor = first.next_cursor.ok_or("missing cursor")?;
     assert_eq!(first.counts.summary.as_deref(), Some("5"));
     assert_eq!(first.counts.recorded, "4");
+    assert_eq!(first.item_recording, Some(HistoryItemRecording::Recorded));
     assert_eq!(first.counts.unavailable.as_deref(), Some("1"));
     assert_eq!(first.rows[0].item_seq, "0");
 

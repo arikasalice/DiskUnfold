@@ -211,9 +211,8 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
         .transpose()
         .map_err(|()| rusqlite::Error::InvalidQuery)?;
     Ok(Summary {
-        scope_summary: scope.filter(|scope| {
-            kind_id == "scan.metadata" && kind_version == 1 && super::valid_scope(scope)
-        }),
+        scope_summary: scope
+            .filter(|scope| super::valid_record_scope(&kind_id, kind_version, scope)),
         kind_id,
         kind_version,
         state,

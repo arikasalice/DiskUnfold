@@ -1,4 +1,4 @@
-//! Persist a metadata scan's terminal summary and history link in one transaction.
+//! Persist a summary-history job's terminal summary and history link in one transaction.
 
 use du_core_contracts::{
     Id,
@@ -15,7 +15,7 @@ pub mod read;
 
 impl AppDb {
     /// Atomically appends the path-free terminal summary, its local history link,
-    /// and the next history sequence for a metadata scan.
+    /// and the next history sequence for a metadata scan or a duplicate check.
     ///
     /// Call through the shared write connection after applying both history
     /// schema definitions. This method does not create or upgrade the database.
@@ -136,17 +136,18 @@ struct Prepared {
 
 impl Prepared {
     fn new(summary: &JobSummary) -> Option<Self> {
-        if summary.kind_id != "scan.metadata"
-            || summary.kind_version != 1
-            || !valid_scope(&summary.scope_summary)
-            || !summary
-                .failure_reason_key
-                .as_deref()
-                .is_none_or(|reason| reason == "support.internal_error")
+        if !valid_record_scope(
+            &summary.kind_id,
+            summary.kind_version,
+            &summary.scope_summary,
+        ) || !summary
+            .failure_reason_key
+            .as_deref()
+            .is_none_or(|reason| reason == "support.internal_error")
             || !summary
                 .unprocessed_summary
                 .as_deref()
-                .is_none_or(valid_unprocessed)
+                .is_none_or(|value| valid_unprocessed(&summary.kind_id, value))
         {
             return None;
         }
@@ -180,6 +181,15 @@ fn id_bytes(id: &Id) -> Option<[u8; 16]> {
     Some(*uuid::Uuid::parse_str(id.as_str()).ok()?.as_bytes())
 }
 
+/// Accepts only the published path-free scope of a kind with summary history.
+fn valid_record_scope(kind_id: &str, kind_version: u32, scope: &str) -> bool {
+    match (kind_id, kind_version) {
+        ("scan.metadata", 1) => valid_scope(scope),
+        ("duplicate.check", 1) => scope == "duplicate.check",
+        _ => false,
+    }
+}
+
 fn valid_scope(value: &str) -> bool {
     if value == "metadata: 1 root" {
         return true;
@@ -193,10 +203,13 @@ fn valid_scope(value: &str) -> bool {
         })
 }
 
-fn valid_unprocessed(value: &str) -> bool {
-    value
-        .strip_prefix("unprocessed_roots=")
-        .is_some_and(|n| n.parse::<u64>().is_ok_and(|value| value.to_string() == n))
+fn valid_unprocessed(kind_id: &str, value: &str) -> bool {
+    let count = match kind_id {
+        "scan.metadata" => value.strip_prefix("unprocessed_roots="),
+        "duplicate.check" => value.strip_suffix(" selected items lack final disposition"),
+        _ => None,
+    };
+    count.is_some_and(|n| n.parse::<u64>().is_ok_and(|value| value.to_string() == n))
 }
 
 fn map_error(error: Error) -> String {

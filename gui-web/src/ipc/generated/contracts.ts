@@ -808,7 +808,15 @@ summary: string | null, recorded: string,
  * Difference between summary and recorded counts, if both are known.
  */
 unavailable: string | null, };
-export type HistoryItemsResponse = { revision: HistoryListRevision, rows: Array<HistoryItemRow>, counts: HistoryItemCounts, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, nextCursor: string | null, };
+export type HistoryItemRecording = "recorded" | "not_recorded";
+export type HistoryItemsResponse = { revision: HistoryListRevision, rows: Array<HistoryItemRow>, counts: HistoryItemCounts,
+/**
+ * Separates an operation that never records items from one that recorded none.
+ *
+ * The engine always sets it. Consumers read an omitted or unknown value as
+ * unknown and fall back to `counts.summary`: null means not recorded.
+ */
+itemRecording?: HistoryItemRecording, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, nextCursor: string | null, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;

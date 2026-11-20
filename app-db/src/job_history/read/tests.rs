@@ -182,3 +182,46 @@ fn interrupted_and_missing_summaries_preserve_sequence_without_leaking_paths() -
     assert_eq!(only_interrupted.rows, next.rows);
     Ok(())
 }
+
+#[test]
+fn records_and_reads_duplicate_check_summary_but_rejects_other_scopes() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("history.db");
+    let mut writer = writer(&path)?;
+    let id = Id::from_v7_bytes([7; 16]);
+    let mut summary = JobSummary {
+        job_id: id.clone(),
+        kind_id: "duplicate.check".into(),
+        kind_version: 1,
+        scope_summary: "duplicate.check".into(),
+        state: JobState::Partial,
+        counts: Default::default(),
+        failure_reason_key: None,
+        unprocessed_summary: Some("3 selected items lack final disposition".into()),
+        result_version_id: None,
+        started_at_ms: Some(9),
+        finished_at_ms: 10,
+        correlation_id: id,
+    };
+    assert_eq!(
+        writer.append_scan_history(&summary, 10)?,
+        HistoryAppend::Added
+    );
+    summary.job_id = Id::from_v7_bytes([8; 16]);
+    for (scope, unprocessed) in [
+        ("metadata: 1 root", None),
+        ("duplicate.check", Some("unprocessed_roots=3")),
+    ] {
+        summary.scope_summary = scope.into();
+        summary.unprocessed_summary = unprocessed.map(Into::into);
+        assert!(writer.append_scan_history(&summary, 11).is_err());
+    }
+    let page = read(&mut reader(&path)?, Filter::default(), None, 10)?;
+    let [entry] = page.rows.as_slice() else {
+        return Err("expected one history row".into());
+    };
+    let stored = entry.summary.as_ref().ok_or("summary is unreadable")?;
+    assert_eq!(stored.kind_id, "duplicate.check");
+    assert_eq!(stored.scope_summary.as_deref(), Some("duplicate.check"));
+    Ok(())
+}

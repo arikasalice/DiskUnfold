@@ -520,6 +520,7 @@ ui.history.item_result_unavailable
 ui.history.item_results
 ui.history.items_changed_restart_page
 ui.history.items_load_failed
+ui.history.items_none_processed
 ui.history.items_not_recorded
 ui.history.job_type
 ui.history.kind_disk_analysis

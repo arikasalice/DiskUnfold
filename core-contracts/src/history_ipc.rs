@@ -358,7 +358,25 @@ pub struct HistoryItemsResponse {
     pub revision: HistoryListRevision,
     pub rows: Vec<HistoryItemRow>,
     pub counts: HistoryItemCounts,
+    /// Separates an operation that never records items from one that recorded none.
+    ///
+    /// The engine always sets it. Consumers read an omitted or unknown value as
+    /// unknown and fall back to `counts.summary`: null means not recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub item_recording: Option<HistoryItemRecording>,
     pub completeness: HistoryDetailCompleteness,
     pub missing_reasons: Vec<String>,
     pub next_cursor: Option<String>,
+}
+
+/// Whether the operation keeps per-item results in its history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryItemRecording {
+    /// A start record or an item row exists; zero rows means no item was recorded.
+    Recorded,
+    /// The operation kind keeps only its terminal summary.
+    NotRecorded,
 }
