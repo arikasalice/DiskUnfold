@@ -1,12 +1,12 @@
-//! The opened folder carries the excluded entries directly below it.
+//! The opened folder carries the excluded entries directly below it once the result
+//! can tell them; until #217 it cannot, so the count is omitted everywhere.
 use super::support::{Check, browse, err, id, item, parts, root, session};
 use du_analysis_index::IngestSink;
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use du_engine_api::browse::folder::cursor::CursorError;
-use serde_json::json;
 
 #[test]
-fn a_finished_scan_answers_exact_and_lower_bound_counts() -> Check {
+fn a_finished_scan_omits_the_count_it_cannot_prove() -> Check {
     let sink = IngestSink::default();
     let mut build = sink.open_forest(id(1), vec![root(b"/r")]).map_err(err)?;
     build.add_directory_at(0, vec![]).map_err(err)?;
@@ -32,22 +32,17 @@ fn a_finished_scan_answers_exact_and_lower_bound_counts() -> Check {
     let top = browse(&browser, None, None, 1)?;
     top.check()?;
     assert_eq!(top.open["rootKind"], "scope_root");
-    assert_eq!(top.excluded(), Some(&json!({"state": "exact", "count": 2})));
-    for (name, expected) in [
-        ("plain", json!({"state": "exact", "count": 0})),
-        ("part", json!({"state": "lower_bound", "count": 3})),
-        ("denied", json!({"state": "lower_bound", "count": 0})),
-        ("marked", json!({"state": "lower_bound", "count": 4})),
-    ] {
+    assert_eq!(top.excluded(), None);
+    for name in ["plain", "part", "denied", "marked"] {
         let opened = browse(&browser, None, Some(item(&version, &[name])?), 1)?;
         opened.check()?;
-        assert_eq!(opened.excluded(), Some(&expected), "{name}");
+        assert_eq!(opened.excluded(), None, "{name}");
     }
     Ok(())
 }
 
 #[test]
-fn an_unfinished_scan_omits_the_count_and_a_new_open_reads_the_sealed_one() -> Check {
+fn an_unfinished_scan_omits_the_count_and_its_pinned_query_never_reads_the_sealed_one() -> Check {
     let sink = IngestSink::default();
     let mut build = sink.open_forest(id(1), vec![root(b"/r")]).map_err(err)?;
     build.add_directory_at(0, vec![]).map_err(err)?;
@@ -71,10 +66,7 @@ fn an_unfinished_scan_omits_the_count_and_a_new_open_reads_the_sealed_one() -> C
     ));
     let sealed = browse(&browser, None, None, 1)?;
     sealed.check()?;
-    assert_eq!(
-        sealed.excluded(),
-        Some(&json!({"state": "exact", "count": 0}))
-    );
+    assert_eq!(sealed.excluded(), None);
     Ok(())
 }
 
@@ -109,9 +101,6 @@ fn the_virtual_top_of_several_roots_has_no_count() -> Check {
     )?;
     opened.check()?;
     assert_eq!(opened.open["rootKind"], "scope_root");
-    assert_eq!(
-        opened.excluded(),
-        Some(&json!({"state": "exact", "count": 1}))
-    );
+    assert_eq!(opened.excluded(), None);
     Ok(())
 }

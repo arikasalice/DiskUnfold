@@ -1,9 +1,13 @@
-// Captures the operation history item results of the preview gallery (F02 README #170)
-// in a headless Chromium browser (Edge or Chrome), not in the app's WebView2:
-// Light and Dark at 1280 px, Light at 700 px, and the full location shown to a
-// pointer resting 0.4 s on the cell cut in the middle.
+// Captures a surface of the preview gallery in a headless Chromium browser (Edge
+// or Chrome), not in the app's WebView2: Light and Dark at 1280 px and Light at
+// 700 px.
+//
+// - history: the operation history item results (F02 README #170), and the full
+//   location shown to a pointer resting 0.4 s on the cell cut in the middle.
+// - browse: the browse table with every mark of the "Scan status" column (#133).
 //
 //   npm run capture:history-gallery -- [output folder]
+//   npm run capture:browse-gallery -- [output folder]
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -19,8 +23,17 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
 const gui = fileURLToPath(new URL("..", import.meta.url));
+/** What each surface draws once it is ready, and whether a pointer capture follows. */
+const surfaces = {
+  history: { ready: ".du-history-item-location", count: 4, pointer: true },
+  browse: { ready: ".du-browse-grid__row", count: 6, pointer: false },
+};
+const surface = process.argv[2];
+if (!Object.hasOwn(surfaces, surface))
+  throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
+const { ready, count, pointer } = surfaces[surface];
 const output = resolve(
-  process.argv[2] ?? join(gui, "..", "quality-output", "gallery-history"),
+  process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
 const shots = [
@@ -112,10 +125,15 @@ async function page(port) {
     });
   const once = (method) =>
     new Promise((done) => waiting.set(method, () => done()));
-  /** Runs `fn` in the page and returns its value. */
-  const run = async (fn) => {
+  /** Runs `fn` in the page with JSON arguments and returns its value. */
+  const run = async (fn, ...args) => {
     const { result, exceptionDetails } = await send("Runtime.evaluate", {
-      expression: "(" + fn.toString() + ")()",
+      expression:
+        "(" +
+        fn.toString() +
+        ")(" +
+        args.map((arg) => JSON.stringify(arg)) +
+        ")",
       awaitPromise: true,
       returnByValue: true,
     });
@@ -125,11 +143,10 @@ async function page(port) {
   return { send, once, run, close: () => socket.close() };
 }
 
-/* In the page: waits for the four location cells, the fonts and two frames. */
-async function drawn() {
-  const cells = () =>
-    document.querySelectorAll(".du-history-item-location").length;
-  for (let tries = 0; tries < 200 && cells() < 4; tries++)
+/* In the page: waits for `count` elements matching `selector`, the fonts and two frames. */
+async function drawn(selector, count) {
+  const cells = () => document.querySelectorAll(selector).length;
+  for (let tries = 0; tries < 200 && cells() < count; tries++)
     await new Promise((done) => setTimeout(done, 50));
   await document.fonts.ready;
   await new Promise((done) =>
@@ -152,7 +169,7 @@ function cutCell() {
   };
 }
 
-/** Opens the gallery's history in a theme and waits until it is drawn. */
+/** Opens the gallery's surface in a theme and waits until it is drawn. */
 async function open(session, base, theme, width) {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
@@ -165,11 +182,11 @@ async function open(session, base, theme, width) {
   });
   const loaded = session.once("Page.loadEventFired");
   await session.send("Page.navigate", {
-    url: base + "?surface=history&theme=" + theme,
+    url: base + "?surface=" + surface + "&theme=" + theme,
   });
   await loaded;
-  if ((await session.run(drawn)) !== 4)
-    throw new Error("The history item results were not drawn");
+  if ((await session.run(drawn, ready, count)) !== count)
+    throw new Error("The " + surface + " surface was not drawn");
 }
 
 /** Saves the whole page, or with `viewport` only what the window shows. */
@@ -187,7 +204,10 @@ async function save(session, name, viewport = false) {
     };
   }
   const { data } = await session.send("Page.captureScreenshot", options);
-  const file = join(output, "gallery-history-browser-ko-" + name + ".png");
+  const file = join(
+    output,
+    "gallery-" + surface + "-browser-ko-" + name + ".png",
+  );
   await writeFile(file, Buffer.from(data, "base64"));
   console.log(file);
 }
@@ -208,15 +228,17 @@ try {
     await open(session, base, shot.theme, shot.width);
     await save(session, shot.name);
   }
-  await open(session, base, "light", 1280);
-  const point = await session.run(cutCell);
-  if (!point) throw new Error("The long location was not cut at 1280 px");
-  await session.send("Input.dispatchMouseEvent", {
-    type: "mouseMoved",
-    ...point,
-  });
-  await sleep(400);
-  await save(session, "light-1280-tooltip", true);
+  if (pointer) {
+    await open(session, base, "light", 1280);
+    const point = await session.run(cutCell);
+    if (!point) throw new Error("The long location was not cut at 1280 px");
+    await session.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      ...point,
+    });
+    await sleep(400);
+    await save(session, "light-1280-tooltip", true);
+  }
   session.close();
 } finally {
   browser.kill();

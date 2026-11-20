@@ -36,6 +36,7 @@ export class BrowsePages {
   private readonly resultVersion: string;
   private readonly totalState: FolderQueryPage["total"]["state"];
   private readonly pages = new Map<number, CachedPage>();
+  private boundaryRows = false;
 
   constructor(first: FolderQueryPage) {
     this.count = first.total.count;
@@ -54,6 +55,22 @@ export class BrowsePages {
       throw new Error("The initial folder page does not match its query.");
     }
     this.pages.set(0, { rows: first.rows, nextCursor: first.nextCursor });
+    this.noteBoundaries(first.rows);
+  }
+
+  /**
+   * Whether a row of this list has carried the boundary fact. A producer
+   * that supplies it sends it on every folder row, never on a file row; a
+   * response without it gets no "Scan status" column. Once true it stays
+   * true, so the column does not come and go while the list scrolls.
+   */
+  get boundaries(): boolean {
+    return this.boundaryRows;
+  }
+
+  private noteBoundaries(rows: readonly FolderQueryRow[]): void {
+    if (rows.some((row) => row.flags.boundary !== undefined))
+      this.boundaryRows = true;
   }
 
   request(start: number): QueryPageRequest {
@@ -144,6 +161,7 @@ export class BrowsePages {
       return false;
     this.pages.delete(start);
     this.pages.set(start, { rows: page.rows, nextCursor: page.nextCursor });
+    this.noteBoundaries(page.rows);
     for (const offset of this.pages.keys()) {
       if (this.pages.size <= MAX_PAGES) break;
       if (!protectedStarts.has(offset)) this.pages.delete(offset);

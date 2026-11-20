@@ -169,7 +169,7 @@ fn folder(unenumerated: Value, boundary: Value) -> Value {
 }
 
 #[test]
-fn a_finished_collection_reports_each_folder_and_the_excluded_entries() -> Check {
+fn a_finished_collection_reports_the_marks_it_recorded() -> Check {
     let (sink, version) = scan(&tree(None))?;
     assert_eq!(version.completeness(), ResultCompleteness::Missing);
     let browser = super::support::session(sink);
@@ -178,9 +178,19 @@ fn a_finished_collection_reports_each_folder_and_the_excluded_entries() -> Check
     let flags = |name| -> Result<Value, String> {
         Ok(top.item_row(&item(&version, &[name])?)?["flags"].clone())
     };
-    assert_eq!(flags("denied")?, folder(present(true), absent()));
-    assert_eq!(flags("done")?, folder(present(false), absent()));
-    assert_eq!(flags("keep")?, folder(present(false), absent()));
+    let insufficient = unknown(FolderFlags::REASON_DATA_INSUFFICIENT);
+    assert_eq!(
+        flags("denied")?,
+        folder(present(true), insufficient.clone())
+    );
+    // A folder read normally is not proven to be read or to be no boundary.
+    for name in ["done", "keep"] {
+        assert_eq!(
+            flags(name)?,
+            folder(insufficient.clone(), insufficient.clone()),
+            "{name}"
+        );
+    }
     assert_eq!(
         flags("loop")?,
         folder(present(false), present("already_counted"))
@@ -193,15 +203,12 @@ fn a_finished_collection_reports_each_folder_and_the_excluded_entries() -> Check
         flags("f")?,
         json!({"unenumerated": absent(), "excluded": present(false)})
     );
-    assert_eq!(top.excluded(), Some(&json!({"state": "exact", "count": 1})));
-    for (name, expected) in [
-        ("keep", json!({"state": "exact", "count": 1})),
-        ("done", json!({"state": "exact", "count": 0})),
-        ("denied", json!({"state": "lower_bound", "count": 0})),
-    ] {
+    // The result cannot tell the excluded entries of a folder yet (#217).
+    assert_eq!(top.excluded(), None);
+    for name in ["keep", "done", "denied"] {
         let below = super::support::browse(&browser, None, Some(item(&version, &[name])?), 2)?;
         below.check()?;
-        assert_eq!(below.excluded(), Some(&expected), "{name}");
+        assert_eq!(below.excluded(), None, "{name}");
     }
     Ok(())
 }
@@ -217,18 +224,17 @@ fn a_cancelled_collection_marks_what_it_left_and_undecides_the_rest() -> Check {
         Ok(top.item_row(&item(&version, &[name])?)?["flags"].clone())
     };
     let insufficient = unknown(FolderFlags::REASON_DATA_INSUFFICIENT);
-    assert_eq!(flags("done")?, folder(insufficient.clone(), insufficient));
-    assert_eq!(flags("keep")?, folder(present(true), absent()));
-    assert_eq!(flags("denied")?, folder(present(true), absent()));
+    assert_eq!(
+        flags("done")?,
+        folder(insufficient.clone(), insufficient.clone())
+    );
+    assert_eq!(flags("keep")?, folder(present(true), insufficient.clone()));
+    assert_eq!(flags("denied")?, folder(present(true), insufficient));
     assert_eq!(
         flags("mnt")?,
         folder(present(false), present("other_volume"))
     );
-    // The root's listing stopped early, so its count is a lower bound.
-    assert_eq!(
-        top.excluded(),
-        Some(&json!({"state": "lower_bound", "count": 1}))
-    );
+    assert_eq!(top.excluded(), None);
     let keep = super::support::browse(&browser, None, Some(item(&version, &["keep"])?), 2)?;
     assert_eq!(keep.excluded(), None);
     Ok(())

@@ -34,6 +34,8 @@ param(
   [switch]$CaptureUniquePhysical,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
+  # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
+  [switch]$CaptureScanStatus,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1754,6 +1756,35 @@ function Test-CaptureUniquePhysical {
   Save-SmokeCapture '01-unique-physical-treemap'
   "Unique physical treemap: left and right drawn; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# F05 #133: the "Scan status" column of the browse table. A child folder the scan may not list reads
+# "Contents not read" with a lower-bound size; a folder read normally and a file stay blank. The
+# Other volume and Counted at another path marks cannot be made on a runner; the preview gallery
+# captures them.
+function Test-CaptureScanStatus {
+  $scope = Join-Path $root 'scan-status-scope'
+  $denied = Join-Path $scope 'denied-child'
+  $plain = Join-Path $scope 'plain-child'
+  New-Item -ItemType Directory -Path $denied, $plain -Force | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'observed.bin'), [byte[]]::new(13))
+  [IO.File]::WriteAllBytes((Join-Path $plain 'inside.bin'), [byte[]]::new(29))
+  [IO.File]::WriteAllBytes((Join-Path $denied 'unobserved.bin'), [byte[]]::new(37))
+  $original = Get-Acl -LiteralPath $denied
+  $acl = Get-Acl -LiteralPath $denied
+  $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    [Security.Principal.WindowsIdentity]::GetCurrent().User, 'ListDirectory', 'Deny'))
+  try {
+    Set-Acl -LiteralPath $denied -AclObject $acl
+    Set-Scope $scope
+    Invoke-UI (Wait-Enabled 'Review scope' $true)
+    Invoke-UI (Wait-Enabled 'Start analysis' $true)
+    $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+    Invoke-UI (Wait-Enabled 'Browse folders' $true)
+    $null = Wait-UI 'Contents not read' { Find-UI 'Contents not read' $null } 60
+    $null = Wait-UI 'plain-child' { Find-UI 'plain-child' $null }
+    Save-SmokeCapture '01-scan-status'
+  } finally { Set-Acl -LiteralPath $denied -AclObject $original }
+  "Scan status capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 function Test-CaptureTour {
   # #178: a name with a zero-width space and a direction mark. The table draws it as it is; the
   # expanded Full name in its details draws each one as its code point.
@@ -2051,7 +2082,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2063,6 +2094,7 @@ function Test-VirtualGroups {
   if ($CaptureProgress) { Test-CaptureProgress }
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
   if ($CaptureHistory) { Test-CaptureHistory }
+  if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }

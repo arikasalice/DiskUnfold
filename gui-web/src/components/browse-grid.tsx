@@ -219,6 +219,7 @@ export function BrowseGrid<Item>({
       ref={root}
       tabIndex={-1}
       className="du-browse-grid-frame"
+      data-columns={columns.length}
       onFocusCapture={(event) => trackFocus(rowIndex(event.target))}
       onBlurCapture={(event) => {
         if (

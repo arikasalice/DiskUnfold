@@ -36,6 +36,7 @@ import { FixtureChart, FixtureDetails, FixtureRecords } from "./GalleryContent";
 import type { SelectedRecord } from "./GalleryContent";
 import { ResultSummaryPreview } from "./ResultSummaryPreview";
 import { HistoryItemsPreview } from "./HistoryItemsPreview";
+import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -192,7 +193,9 @@ export function Gallery() {
   );
   const props = { context, primary, secondary, actions: tools };
   const Presenter =
-    surface === "history" || surface === "summary" ? null : presenters[surface];
+    surface === "history" || surface === "summary" || surface === "browse"
+      ? null
+      : presenters[surface];
   return (
     <main className="du-gallery">
       <header className="du-gallery-notice">
@@ -245,6 +248,8 @@ export function Gallery() {
         >
           {surface === "summary" ? (
             <ResultSummaryPreview />
+          ) : surface === "browse" ? (
+            <BrowseScanStatusPreview />
           ) : surface === "history" ? (
             <HistoryItemsPreview />
           ) : (

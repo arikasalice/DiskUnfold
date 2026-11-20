@@ -81,8 +81,15 @@ fn a_finished_scan_reports_read_unread_and_bounded_folders() -> Check {
     wire.check()?;
     assert_eq!(wire.continued.len(), 2);
     let flags = |name| wire.row(name).map(|row| row["flags"].clone());
-    assert_eq!(flags("denied")?, folder(present(true), absent()));
-    assert_eq!(flags("keep")?, folder(present(false), absent()));
+    // A boundary is proven only by a mark; a folder read normally stays unproven.
+    assert_eq!(
+        flags("denied")?,
+        folder(present(true), unknown(INSUFFICIENT))
+    );
+    assert_eq!(
+        flags("keep")?,
+        folder(unknown(INSUFFICIENT), unknown(INSUFFICIENT))
+    );
     assert_eq!(
         flags("loop")?,
         folder(present(false), present("already_counted"))
@@ -122,7 +129,7 @@ fn an_unfinished_scan_is_undecided_and_a_cancelled_one_reports_its_marks() -> Ch
     );
     assert_eq!(
         cancelled.row("c")?["flags"],
-        folder(present(true), absent())
+        folder(present(true), unknown(INSUFFICIENT))
     );
     assert_eq!(cancelled.row("f")?["flags"], file());
     Ok(())
@@ -140,6 +147,9 @@ fn a_disconnected_folder_is_unenumerated_without_its_reason() -> Check {
         .map_err(err)?;
     let wire = browse(&session(sink), None, None, 5)?;
     wire.check()?;
-    assert_eq!(wire.row("gone")?["flags"], folder(present(true), absent()));
+    assert_eq!(
+        wire.row("gone")?["flags"],
+        folder(present(true), unknown(INSUFFICIENT))
+    );
     Ok(())
 }
