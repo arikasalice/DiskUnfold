@@ -86,6 +86,8 @@ impl ErrorEnvelope {
             | "scope.target_unavailable"
             | "scope.exclude_invalid"
             | "scan.priority_out_of_scope"
+            | "scan.resource_limit_invalid"
+            | "job.control_unsupported"
             | "path.unresolvable"
             | "sample.mixed_source"
             | "snapshot.sample_source"
@@ -200,6 +202,19 @@ mod tests {
         assert_eq!(envelope.reason_key, "space.rule_unknown");
         assert_eq!(envelope.code, ErrorCode::InvalidArgument);
         assert!(!envelope.retryable);
+        Ok(())
+    }
+
+    #[test]
+    fn scan_resource_validation_and_unsupported_control_are_invalid_arguments()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for reason in ["scan.resource_limit_invalid", "job.control_unsupported"] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("scan resource reason was not registered")?;
+            assert_eq!(envelope.reason_key, reason);
+            assert_eq!(envelope.code, ErrorCode::InvalidArgument);
+        }
         Ok(())
     }
 

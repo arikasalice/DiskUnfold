@@ -6,6 +6,7 @@ mod f03_request;
 mod job_progress;
 mod lane_status;
 mod recent_scope;
+mod scan_resource;
 mod scope_draft;
 mod space_query;
 
@@ -20,6 +21,10 @@ pub use lane_status::{
 pub use recent_scope::{
     RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,
+};
+pub use scan_resource::{
+    ScanCollection, ScanCollectionCondition, ScanLaneStrategy, ScanResourceMode,
+    ScanSetResourceLane, ScanSetResourceOutcome, ScanSetResourceRequest, ScanSetResourceResponse,
 };
 pub use scope_draft::{ScopeDraft, ScopeExclusion};
 pub use space_query::{
@@ -171,6 +176,10 @@ pub struct ScopeReview {
 pub struct ScanStartRequest {
     pub draft: ScopeDraft,
     pub review_fingerprint: String,
+    /// Resource controls are not part of the reviewed scope fingerprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub collection: Option<ScanCollectionCondition>,
 }
 
 /// Admission receipt; collection proceeds independently of the request.
@@ -182,6 +191,10 @@ pub struct ScanStart {
     pub existing: bool,
     pub scope_version: Id,
     pub scope_fingerprint: String,
+    /// The current resource condition of this job, including on duplicate starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub collection: Option<ScanCollection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub lineage_id: Option<Id>,
