@@ -108,10 +108,7 @@ export function productCopy(text: LocaleText) {
       "ui.product.digest_failed",
       "The digest could not be requested. Try again.",
     ),
-    installUnknown: text(
-      "ui.product.install_unknown",
-      "Could not be determined",
-    ),
+    installUnknown: text("ui.product.install_unknown", "Unavailable"),
     installUnknownReason: text(
       "ui.product.install_unknown_reason",
       "DiskUnfold could not tell how it was installed. This does not change how it works.",
@@ -130,7 +127,7 @@ export function productCopy(text: LocaleText) {
     ),
     buildOfficial: text("ui.product.build_official", "Official build"),
     buildDeveloper: text("ui.product.build_developer", "Developer build"),
-    buildUnknown: text("ui.product.build_unknown", "Could not be determined"),
+    buildUnknown: text("ui.product.build_unknown", "Unavailable"),
     installForms: {
       msi: text("ui.product.install_msi", "Windows installer (MSI)"),
       portable: text("ui.product.install_portable", "Portable, no installer"),

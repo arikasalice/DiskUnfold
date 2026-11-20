@@ -139,7 +139,7 @@ export function supportCopy(text: LocaleText) {
         "Unsupported found",
       ),
       not_verified: text("ui.support.status_not_verified", "Not tested"),
-      unknown: text("ui.support.status_unknown", "Could not be determined"),
+      unknown: text("ui.support.status_unknown", "Unavailable"),
     } as Record<SupportStatus, string>,
     statusNotes: {
       officially_verified: text(
@@ -168,7 +168,7 @@ export function supportCopy(text: LocaleText) {
       limited: text("ui.support.capability_limited_label", "Limited"),
       unsupported: text("ui.support.capability_unsupported", "Not working"),
       not_applicable: text("ui.support.capability_na", "Not applicable"),
-      unknown: text("ui.support.capability_unknown", "Could not be determined"),
+      unknown: text("ui.support.capability_unknown", "Unavailable"),
     } as Record<SupportCapabilityState, string>,
     areas: {
       full_disk_access: text(

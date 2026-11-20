@@ -402,7 +402,7 @@ export const visualizationMessages = {
     rawBytesAtLeast: "최소 {count}바이트",
     sizeAtLeast: "최소 {value}",
     itemCount: "{count}개",
-    observedAtUnknown: "관측 시각을 확인할 수 없음",
+    observedAtUnknown: "관측 시각 확인 불가",
     unrecognizedValue: "알 수 없음",
     completenessComplete: "최종",
     completenessPartial: "중간 결과",

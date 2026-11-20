@@ -95,7 +95,7 @@ test("a feature area whose state could not be determined says so in plain words"
   const areas = within(
     await screen.findByRole("region", { name: "Feature areas" }),
   );
-  expect(areas.getByText("Right now: Could not be determined")).toBeTruthy();
+  expect(areas.getByText("Right now: Unavailable")).toBeTruthy();
   expect(areas.getByText(copy.reasonCapabilityUnknown)).toBeTruthy();
 });
 

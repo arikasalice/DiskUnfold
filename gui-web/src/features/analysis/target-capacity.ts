@@ -56,7 +56,7 @@ function capacityValue(
   regional?: RegionalFormat,
 ): string {
   return bytes === null
-    ? text("ui.analysis.capacity_could_not_verify", "Could not verify")
+    ? text("ui.analysis.capacity_could_not_verify", "Unavailable")
     : formatBytes(bytes, regional, text);
 }
 
