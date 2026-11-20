@@ -192,6 +192,12 @@ impl ResultVersion {
         self.folder_marks.unread_counts()
     }
 
+    /// Whether every pinned attempt for this folder ended, so its direct children were
+    /// listed to the end. A sample or a replacement build has no such evidence.
+    pub(crate) fn listing_complete(&self, item_no: u32) -> bool {
+        self.data_source.is_real() && self.folder_marks.ended(item_no)
+    }
+
     fn collection_of(&self, item: &ResultItem) -> FolderCollection<'_> {
         if item.kind != ResultItemKind::Directory {
             return FolderCollection::NotAFolder;

@@ -1,4 +1,6 @@
 //! Recursive folder promotion from attempt evidence pinned in the same version.
+mod listing;
+
 use crate::{
     BuildHandle, FolderAttemptFinal, FolderAttemptInput, FolderAttemptToken, IngestSink,
     Observation, ResultVersion,
