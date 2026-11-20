@@ -190,7 +190,7 @@ export function rowRatioText(
 }
 
 /** "6 items" for an interval's exact item count; any other count as its quantity. */
-function binItems(count: VizQuantity, text: VizText) {
+export function binItems(count: VizQuantity, text: VizText) {
   return count.unit === "items" &&
     count.state === "exact" &&
     /^[0-9]+$/.test(count.value)

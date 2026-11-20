@@ -38,6 +38,9 @@ function targetKey(target: Pick<VizRow, "itemRef" | "groupRef">) {
     : JSON.stringify(["group", target.groupRef]);
 }
 
+/** The reference a renderer shape carries for the row or shape "target". */
+export const rowTargetKey = targetKey;
+
 export function selectionKey(selection: VizSelection, frame: ModelResponse) {
   if (selection.resultRevision !== frame.resultRevision) return null;
   if (selection.kind === "group" && selection.modelRef !== frame.model.modelRef)

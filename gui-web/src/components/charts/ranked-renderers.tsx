@@ -1,5 +1,9 @@
 import { GeometryRenderer } from "./geometry-renderer";
-import type { GeometryRendererProps } from "./geometry-renderer";
+import type {
+  GeometryRendererProps,
+  HistogramRange,
+  InertOption,
+} from "./geometry-renderer";
 import { graphemes } from "../graphemes";
 
 /** The engine's unit coordinate range (geometry v1). */
@@ -182,14 +186,13 @@ export function BarRenderer(props: GeometryRendererProps) {
  * A histogram drawn by the rules of F06 README 12: one column per bin in bin
  * order, its height the share of the value axis the engine gave it from a zero
  * baseline, the bin's name ("1–10 MiB") below it and its value above it.
+ * An empty interval between drawn ones keeps its place, name and zero value;
+ * empty intervals before the first and after the last drawn one are left out.
  */
 export function HistogramRenderer(props: GeometryRendererProps) {
   const width = Math.round(props.width);
   const height = Math.min(Math.round(props.height), MAX_HISTOGRAM);
-  const bins = props.shapes.flatMap((shape) => {
-    const part = share(shape, props.viewport);
-    return part === null ? [] : [{ shape, part }];
-  });
+  const bins = histogramColumns(props);
   const plotTop = VALUE_BAND;
   const plotBottom = Math.max(plotTop + 1, height - NAME_BAND);
   const plotHeight = plotBottom - plotTop;
@@ -207,10 +210,24 @@ export function HistogramRenderer(props: GeometryRendererProps) {
     const top = plotBottom - Math.max(2, Math.round(part * plotHeight));
     return { left, right, top };
   };
-  const shapes = bins.map(({ shape, part }, index) => {
+  const shapes = bins.flatMap(({ shape, part }, index) => {
+    if (!shape) return [];
     const { left, right, top } = place(index, part);
-    return bare(shape, rect(left, top, right, plotBottom, width, height));
+    return [bare(shape, rect(left, top, right, plotBottom, width, height))];
   });
+  const inertOptions: InertOption[] = bins.flatMap(
+    ({ shape, range }, index) => {
+      if (shape || !range) return [];
+      const { left, right } = place(index, 0);
+      return [
+        {
+          key: range.rowRef,
+          label: range.accessibleLabel,
+          box: { left, right, top: plotTop, bottom: plotBottom },
+        },
+      ];
+    },
+  );
   const decorations = (
     <>
       <line
@@ -220,12 +237,16 @@ export function HistogramRenderer(props: GeometryRendererProps) {
         y1={plotBottom}
         y2={plotBottom}
       />
-      {bins.map(({ shape, part }, index) => {
-        const { left, right, top } = place(index, part);
+      {bins.map(({ shape, range, part }, index) => {
+        const { left, right } = place(index, part);
+        // An empty interval has no column; its zero value sits on the baseline.
+        const top = shape ? place(index, part).top : plotBottom;
         const centre = (left + right) / 2;
-        const { name, value } = words(shape);
+        const { name, value } = shape
+          ? words(shape)
+          : { name: range?.name ?? "", value: range?.value ?? "" };
         return (
-          <g key={shape.shapeRef}>
+          <g key={shape?.shapeRef ?? range?.rowRef ?? index}>
             <text className="du-geometry-bin-value" x={centre} y={top - 6}>
               {shorten(value, right - left + gap)}
             </text>
@@ -248,7 +269,38 @@ export function HistogramRenderer(props: GeometryRendererProps) {
       viewport={fullView}
       shapes={shapes}
       decorations={decorations}
+      inertOptions={inertOptions}
       variant="ranked"
     />
   );
+}
+
+type Column = { shape?: Shape; range?: HistogramRange; part: number };
+
+/**
+ * The histogram's columns in interval order. With the intervals of the table,
+ * each drawn shape takes its interval's place and an empty interval between
+ * two drawn ones keeps a column of its own; without them, or when a shape has
+ * no interval, the drawn shapes stand side by side.
+ */
+function histogramColumns(props: GeometryRendererProps): Column[] {
+  const drawn = props.shapes.flatMap((shape) => {
+    const part = share(shape, props.viewport);
+    return part === null ? [] : [{ shape, part }];
+  });
+  const ranges = props.ranges ?? [];
+  const byRow = new Map(drawn.map((column) => [column.shape.rowRef, column]));
+  if (
+    ranges.length === 0 ||
+    drawn.some(
+      ({ shape }) => !ranges.some((range) => range.rowRef === shape.rowRef),
+    )
+  )
+    return drawn;
+  const all: Column[] = ranges.map(
+    (range) => byRow.get(range.rowRef) ?? { range, part: 0 },
+  );
+  const first = all.findIndex((column) => column.shape);
+  const last = all.findLastIndex((column) => column.shape);
+  return first < 0 ? [] : all.slice(first, last + 1);
 }

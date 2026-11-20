@@ -68,6 +68,8 @@ export type {
   DisplayGeometry,
   DisplayPoint,
   GeometryRendererProps,
+  HistogramRange,
+  InertOption,
 } from "./charts/geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";

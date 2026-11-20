@@ -15,7 +15,7 @@ import type {
   VizRowsRequest,
   VizShape,
 } from "../../ipc";
-import { adaptVizModel, selectionKey } from "../../viz";
+import { adaptVizModel, histogramRanges, selectionKey } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels } from "../../viz";
 import type { VizText } from "../../viz";
@@ -101,6 +101,11 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       ),
     [frame, page, text, folderRows],
   );
+  // The histogram keeps the place of an empty interval, named by its row (README 43).
+  const ranges = useMemo(
+    () => histogramRanges(frame.model, adapted.rows, text),
+    [frame.model, adapted.rows, text],
+  );
   const rowsContent =
     adapted.rowsMatch && page ? (
       <ModelRows
@@ -168,6 +173,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           viewport={view.visibleWindow}
           shapes={adapted.shapes}
           relations={adapted.relations}
+          ranges={ranges}
           selectedRowRef={selected ? selectionKey(selected, frame) : null}
           focusedRowRef={
             props.focus && props.focus.resultVersion === frame.resultRevision
