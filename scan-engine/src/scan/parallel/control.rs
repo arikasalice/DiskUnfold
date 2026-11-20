@@ -77,7 +77,7 @@ impl ScanControlSession {
     pub(crate) fn new(root_count: usize) -> Self {
         Self {
             root_count,
-            priority_enabled: AtomicBool::new(false),
+            priority_enabled: AtomicBool::new(true),
             attachment: Mutex::new(Attachment {
                 queue: None,
                 wake: None,
@@ -93,6 +93,7 @@ impl ScanControlSession {
         user_limit: Option<u32>,
     ) -> Self {
         let session = Self::new(root_count);
+        session.priority_enabled.store(false, Ordering::Release);
         session.initialize_resource_condition(mode, user_limit);
         session
     }
