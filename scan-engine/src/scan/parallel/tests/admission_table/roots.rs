@@ -184,3 +184,42 @@ fn an_aliased_directory_is_entered_once_and_one_worker_is_deterministic() -> Res
     }
     Ok(())
 }
+
+/// The parent of the scope root (inode 600), reached from the root through a
+/// child directory, lists the root again.
+fn parent_cycle() -> Listings {
+    use ObservedKind::{Directory as D, File as F};
+    BTreeMap::from([
+        (
+            ROOT,
+            vec![node("up", D, 1, 600), node("top.txt", F, 1, 601)],
+        ),
+        (
+            600,
+            vec![node("scope", D, 1, ROOT), node("beside.txt", F, 1, 602)],
+        ),
+    ])
+}
+
+// #43: a root without ancestor evidence (as macOS reports an unreadable chain)
+// is reserved before enumeration, so a child that leads to an ancestor and back
+// to the root stops at the root. The ancestor itself is entered once.
+#[test]
+fn a_root_without_ancestors_stops_a_path_back_through_its_parent() -> Result<(), String> {
+    let _guard = worker_test_lock();
+    for (workers, seed) in RUNS {
+        let tree = tree_of(parent_cycle(), seed);
+        let root = Dir::at(&tree, ROOT, Some(Vec::new()));
+        let run = filtered_forest(vec![root], workers)?;
+        let context = format!("workers={workers} seed={seed}");
+        assert_eq!(tree.enumerated(ROOT), 1, "{context}");
+        assert_eq!(tree.enumerated(600), 1, "{context}");
+        let (items, issues, gaps) = &run.summary;
+        assert_eq!(issues, &vec![revisit(0, &["up", "scope"])], "{context}");
+        assert!(gaps.is_empty(), "{context}");
+        let file = |parts: &[&str]| (0, path(parts), ResultItemKind::File, true);
+        assert!(items.contains(&file(&["up", "beside.txt"])), "{context}");
+        assert!(!items.iter().any(|item| item.1.len() > 2), "{context}");
+    }
+    Ok(())
+}
