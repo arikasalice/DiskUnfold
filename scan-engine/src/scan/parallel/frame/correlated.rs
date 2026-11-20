@@ -290,5 +290,19 @@ const MAX_EVENT_RESERVATION: Option<usize> =
         None => None,
     };
 
+// One attempt holds its frame slot, callback storage and at most one event reservation at
+// a time, which stays within the per-attempt bound of the F02 DLD (1 MiB).
+const _: () = {
+    let base = size_of::<Attempt>()
+        + MAX_PENDING_ADMITS * size_of::<PendingAdmit>()
+        + MAX_PENDING_NAME_BYTES;
+    match MAX_EVENT_RESERVATION {
+        Some(event) => {
+            assert!(base + event <= crate::scan::parallel::correlated_budget::MAX_ATTEMPT_BYTES)
+        }
+        None => panic!("the event reservation overflows"),
+    }
+};
+
 #[cfg(test)]
 mod tests;

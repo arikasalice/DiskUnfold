@@ -183,7 +183,18 @@ struct ScanOptions<'a> {
 #[derive(Clone, Copy)]
 enum Policy<'a> {
     Legacy(&'a (dyn Fn(&[Vec<u8>]) -> bool + Sync)),
+    /// Every entry is collected, as with a legacy policy that includes all, and a folder
+    /// is enumerated with correlated evidence first where the adapter supports it, so a
+    /// scope without exclusion rules still records its folder attempts (F02 DLD IF-19,
+    /// #218). An adapter without correlated support keeps its legacy enumeration.
+    Evidence,
     BeforeMetadata(&'a PreMetadataFilter<'a>),
+}
+impl Policy<'_> {
+    /// Whether a folder is enumerated with correlated evidence where the adapter supports it.
+    fn correlated(self) -> bool {
+        !matches!(self, Policy::Legacy(_))
+    }
 }
 struct Progress {
     failed_roots: Vec<bool>,
@@ -330,8 +341,7 @@ pub(crate) fn collect_open_forest_diagnostic(
         Option<&ScanControlSession>,
     ),
 ) -> JobOutcome {
-    let include = |_: &[Vec<u8>]| true;
-    let policy = filter.map_or(Policy::Legacy(&include), Policy::BeforeMetadata);
+    let policy = filter.map_or(Policy::Evidence, Policy::BeforeMetadata);
     let (devices, diagnostics, scan_control) = options;
     collect_with_policy(
         build,

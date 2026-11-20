@@ -49,6 +49,7 @@ pub fn descriptor() -> JobDescriptor {
 #[derive(Default)]
 pub struct ScanDiagnostics {
     ready_peak: Mutex<Option<usize>>,
+    ended_folder_attempts: std::sync::atomic::AtomicU64,
 }
 
 impl ScanDiagnostics {
@@ -57,10 +58,22 @@ impl ScanDiagnostics {
         self.ready_peak.lock().ok().and_then(|peak| *peak)
     }
 
+    /// The folder attempts whose correlated evidence reached the result build and ended
+    /// there, once the workers stopped (F02 DLD IF-19, #218).
+    pub fn ended_folder_attempts(&self) -> u64 {
+        self.ended_folder_attempts
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     pub(crate) fn record_ready_peak(&self, value: usize) {
         if let Ok(mut peak) = self.ready_peak.lock() {
             *peak = Some(value);
         }
+    }
+
+    pub(crate) fn record_ended_folder_attempts(&self, value: u64) {
+        self.ended_folder_attempts
+            .store(value, std::sync::atomic::Ordering::Release);
     }
 }
 

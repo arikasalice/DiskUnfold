@@ -12,7 +12,12 @@ use std::sync::{
 };
 
 pub(super) const MAX_ATTEMPTS: usize = 256;
-pub(super) const MAX_MANAGED_BYTES: usize = 96 * 1024 * 1024;
+/// The memory all active attempts may hold together: name tracking and classification
+/// buffers, events and paths. The F02 DLD gives 32 MiB, and 1 MiB for one attempt, as
+/// initial review figures, not a measured contract.
+pub(super) const MAX_MANAGED_BYTES: usize = 32 * 1024 * 1024;
+/// The most one attempt holds at a time; checked where the attempt reserves it.
+pub(super) const MAX_ATTEMPT_BYTES: usize = 1024 * 1024;
 pub(super) const MAX_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -28,11 +33,24 @@ pub(super) struct CorrelatedBudget {
     disabled: AtomicBool,
     max_attempts: usize,
     max_bytes: usize,
+    /// Attempts whose end the receiving build accepted, for scan diagnostics.
+    ended: AtomicU64,
 }
 
 impl CorrelatedBudget {
+    #[cfg(test)]
     pub(super) fn new() -> Arc<Self> {
         Self::with_limits(MAX_ATTEMPTS, MAX_MANAGED_BYTES)
+    }
+
+    /// The budget of a scan whose result channel holds `channel_bytes` of inline events.
+    /// The channel is accounted apart from the attempts (F02 DLD): its allowance is added
+    /// on top, so reserving it never takes from the attempts' share.
+    pub(super) fn with_channel(channel_bytes: usize) -> Arc<Self> {
+        Self::with_limits(
+            MAX_ATTEMPTS,
+            MAX_MANAGED_BYTES.saturating_add(channel_bytes),
+        )
     }
 
     pub(super) fn with_limits(max_attempts: usize, max_bytes: usize) -> Arc<Self> {
@@ -42,7 +60,18 @@ impl CorrelatedBudget {
             disabled: AtomicBool::new(false),
             max_attempts,
             max_bytes,
+            ended: AtomicU64::new(0),
         })
+    }
+
+    /// Counts one attempt whose end the receiving build accepted.
+    pub(super) fn note_ended_attempt(&self) {
+        self.ended.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The attempts whose end the receiving build accepted so far.
+    pub(super) fn ended_attempts(&self) -> u64 {
+        self.ended.load(Ordering::Relaxed)
     }
 
     pub(super) fn reserve_attempt(self: &Arc<Self>, bytes: usize) -> Option<Permit> {
@@ -305,6 +334,19 @@ impl Drop for Permit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_channel_allowance_leaves_the_attempts_their_whole_share() {
+        let channel = 4096;
+        let budget = CorrelatedBudget::with_channel(channel);
+        let channel_permit = budget.reserve_channel(channel);
+        assert!(channel_permit.is_some());
+        assert!(!budget.is_disabled());
+        // Every attempt together may still hold the full attempt share.
+        let attempts = budget.reserve_attempt(MAX_MANAGED_BYTES);
+        assert!(attempts.is_some());
+        assert!(budget.reserve(1).is_none());
+    }
 
     #[test]
     fn attempts_and_bytes_are_bounded_and_released() {

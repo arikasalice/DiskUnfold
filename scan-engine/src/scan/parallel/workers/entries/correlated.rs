@@ -164,11 +164,7 @@ pub(super) fn register_child_attempt(
     path: &[Vec<u8>],
     services: &EntryServices<'_>,
 ) {
-    if !(enter
-        && can_descend
-        && matches!(services.policy, Policy::BeforeMetadata(_))
-        && child_attempt.token().is_none())
-    {
+    if !(enter && can_descend && services.policy.correlated() && child_attempt.token().is_none()) {
         return;
     }
     if !child_attempt.prepare(&services.shared.correlated_budget) {
