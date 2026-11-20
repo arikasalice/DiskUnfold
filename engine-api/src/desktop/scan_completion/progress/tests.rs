@@ -4,6 +4,7 @@ use du_core_contracts::{
     Id, ItemRef,
     analysis_ipc::{ScanLaneStrategy, ScanResourceMode},
     job::{LaneReport, LaneStatusReport, LaneWait, ProgressUnit},
+    scan_observation::{DeviceKind, DeviceKindSource},
 };
 use du_job_runtime::{JobEvent, JobLaneStatusEvent, JobWaitReason};
 use serde_json::json;
@@ -32,6 +33,15 @@ fn assert_priority_fields(active: &serde_json::Value, inactive: &serde_json::Val
     assert_eq!(active["remainingPrioritizedDirectories"], json!("12"));
     assert!(inactive.get("priorityArea").is_none());
     assert!(inactive.get("remainingPrioritizedDirectories").is_none());
+}
+
+fn assert_device_fields(lane: &serde_json::Value, kind: &str, source: &str, share: Option<u32>) {
+    assert_eq!(lane["deviceKind"], json!(kind));
+    assert_eq!(lane["deviceKindSource"], json!(source));
+    match share {
+        Some(share) => assert_eq!(lane["share"], json!(share)),
+        None => assert!(lane.get("share").is_none()),
+    }
 }
 
 fn next_event(desktop: &DesktopEvents) -> Result<EventEnvelope, Box<dyn std::error::Error>> {
@@ -72,8 +82,21 @@ fn lane_status(job: &Id) -> JobLaneStatusEvent {
             },
             in_flight: 1,
             limit: 2,
+            device_kind: if lane_index == 0 {
+                DeviceKind::Ssd
+            } else {
+                DeviceKind::Unknown
+            },
+            device_kind_source: if lane_index == 0 {
+                DeviceKindSource::Detected
+            } else {
+                DeviceKindSource::Unknown
+            },
             mode: (lane_index == 0).then_some(ScanResourceMode::Quiet),
             permit: (lane_index == 0).then_some(16),
+            share: (lane_index == 0)
+                .then(|| std::num::NonZeroU32::new(2))
+                .flatten(),
             strategy: (lane_index == 0).then(|| ScanLaneStrategy {
                 id: "resource.static".into(),
                 version: 1,
@@ -152,6 +175,8 @@ fn the_desktop_relay_sorts_and_caps_lane_status_with_decimal_counts() -> TestRes
     assert_resource_fields(&lanes[0]);
     assert_priority_fields(&lanes[0], &lanes[1]);
     assert_eq!(lanes[0]["rootCount"], json!("65"));
+    assert_device_fields(&lanes[0], "ssd", "detected", Some(2));
+    assert_device_fields(&lanes[1], "unknown", "unknown", None);
     let roots = lanes[0]["rootIndexes"].as_array().ok_or("root indexes")?;
     assert_eq!(roots.len(), 64);
     assert_eq!(roots[0], json!(0));

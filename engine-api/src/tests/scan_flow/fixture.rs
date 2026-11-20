@@ -112,6 +112,7 @@ fn scan_harness_with_admissions(
     let roots = Arc::new(Roots {
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
+        device_probes: Arc::new(AtomicUsize::new(0)),
         reads: Arc::new(AtomicUsize::new(0)),
         recent_observations: Arc::new(AtomicUsize::new(0)),
         recent_opens: Arc::new(AtomicUsize::new(0)),
@@ -121,6 +122,7 @@ fn scan_harness_with_admissions(
         release: Arc::new(Mutex::new(blocked)),
         finish_gate,
         priority,
+        device_overrides: Mutex::new(std::collections::HashMap::new()),
     });
     let clock = Arc::new(Clock);
     let events = Arc::new(crate::desktop::scan_completion::ScanEvents::new(Arc::new(

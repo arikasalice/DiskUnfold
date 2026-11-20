@@ -49,6 +49,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
     let roots = Arc::new(AncestorRoots(Arc::new(Roots {
         file_id: AtomicUsize::new(1),
         opens: AtomicUsize::new(0),
+        device_probes: Arc::new(AtomicUsize::new(0)),
         reads: Arc::new(AtomicUsize::new(0)),
         recent_observations: Arc::new(AtomicUsize::new(0)),
         recent_opens: Arc::new(AtomicUsize::new(0)),
@@ -58,6 +59,7 @@ fn exclusion_inside_absorbed_root_stays_bound_to_retained_root()
         release: Arc::new(Mutex::new(receiver)),
         finish_gate: None,
         priority: None,
+        device_overrides: Mutex::new(std::collections::HashMap::new()),
     })));
     let _release = release;
     let comparison: Arc<dyn PathComparison> = Arc::new(ProvenComparison);
