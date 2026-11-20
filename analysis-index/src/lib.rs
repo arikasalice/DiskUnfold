@@ -398,6 +398,7 @@ impl BuildHandle {
             folder_evidence
                 .as_ref()
                 .filter(|_| self.expected_base.is_none()),
+            self.folder_attempts.evidence_dropped(),
             finish,
         );
         // Linear in items and gaps, so it runs here and never under the state lock below.

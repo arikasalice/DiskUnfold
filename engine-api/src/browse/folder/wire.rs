@@ -78,6 +78,7 @@ fn folder_page(
     Ok(FolderQueryPage {
         row_kind: FolderRowKind::Folder,
         browse_context: None,
+        unexplained_lower_bound: page.unexplained_lower_bound.map(str::to_owned),
         page: QueryPage {
             query_ref: page.query_ref,
             result_version: page.result_version,

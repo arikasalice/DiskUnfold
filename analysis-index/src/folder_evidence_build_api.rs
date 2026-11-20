@@ -32,7 +32,7 @@ impl BuildHandle {
             Ok(evidence) => Ok(evidence),
             Err(BuildError::CapacityExceeded) => {
                 // Preserve the ordinary observations and publish without optional evidence.
-                self.folder_attempts.discard();
+                self.folder_attempts.discard_over_budget();
                 Ok(None)
             }
             Err(error) => {

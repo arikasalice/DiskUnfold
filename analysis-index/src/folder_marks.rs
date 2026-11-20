@@ -53,7 +53,27 @@ pub(crate) struct FolderMarks {
     unread: Box<[(u32, UnreadReason)]>,
     /// Folders whose own pinned attempts all ended, ascending by item number.
     ended: Box<[u32]>,
+    /// Strict ancestors of the folders left unread by a mark, ascending by item number.
+    unread_below: Box<[u32]>,
+    /// Folders with at least one pinned attempt, ascending by item number.
+    attempted: Box<[u32]>,
+    /// What folder attempt evidence this publication holds.
+    evidence: EvidenceState,
+    /// Why this version's lower bounds may have no row reason, decided once (#226).
+    pub(crate) cause: std::sync::OnceLock<&'static str>,
     unread_counts: UnreadFolderCounts,
+}
+
+/// The folder attempt evidence a publication holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum EvidenceState {
+    /// No evidence was recorded, as for a replacement build or an older result.
+    #[default]
+    Absent,
+    /// The evidence was recorded but dropped because it did not fit the budget.
+    Dropped,
+    /// The evidence is pinned in the publication.
+    Pinned,
 }
 
 impl BuildHandle {
@@ -134,6 +154,7 @@ impl FolderMarks {
         issues: &[ScanIssue],
         unread: &BTreeMap<u32, UnreadReason>,
         evidence: Option<&FolderEvidenceSnapshot>,
+        evidence_dropped: bool,
         sealed: bool,
     ) -> Self {
         let mut boundaries: Vec<(u32, BoundaryKind)> = issues
@@ -159,11 +180,45 @@ impl FolderMarks {
             cancelled: count(UnreadReason::Cancelled),
             disconnected: count(UnreadReason::Disconnected),
         };
+        // Each mark walks up its ancestors once: O(marks x depth).
+        let mut unread_below = Vec::new();
+        for (item, _) in &unread {
+            let mut parent = built.items.get(*item as usize).and_then(|item| item.parent);
+            while let Some(folder) = parent {
+                unread_below.push(folder);
+                parent = built
+                    .items
+                    .get(folder as usize)
+                    .and_then(|item| item.parent);
+            }
+        }
+        unread_below.sort_unstable();
+        unread_below.dedup();
+        let mut attempted: Vec<u32> = evidence
+            .map(|evidence| {
+                evidence
+                    .summaries()
+                    .iter()
+                    .map(|summary| summary.folder_item)
+                    .collect()
+            })
+            .unwrap_or_default();
+        attempted.sort_unstable();
+        attempted.dedup();
+        let state = match (evidence.is_some(), evidence_dropped) {
+            (true, _) => EvidenceState::Pinned,
+            (false, true) => EvidenceState::Dropped,
+            (false, false) => EvidenceState::Absent,
+        };
         Self {
             sealed,
             boundaries: boundaries.into_boxed_slice(),
             unread: unread.into_boxed_slice(),
             ended: ended_folders(evidence),
+            unread_below: unread_below.into_boxed_slice(),
+            attempted: attempted.into_boxed_slice(),
+            evidence: state,
+            cause: std::sync::OnceLock::new(),
             unread_counts,
         }
     }
@@ -195,6 +250,20 @@ impl FolderMarks {
     /// Whether every pinned attempt for this folder ended, so it was entered and read.
     pub(crate) fn ended(&self, item_no: u32) -> bool {
         self.ended.binary_search(&item_no).is_ok()
+    }
+
+    /// Whether a folder below this one carries an unread mark.
+    pub(crate) fn unread_below(&self, item_no: u32) -> bool {
+        self.unread_below.binary_search(&item_no).is_ok()
+    }
+
+    /// Whether this folder has any pinned attempt.
+    pub(crate) fn attempted(&self, item_no: u32) -> bool {
+        self.attempted.binary_search(&item_no).is_ok()
+    }
+
+    pub(crate) fn evidence(&self) -> EvidenceState {
+        self.evidence
     }
 }
 

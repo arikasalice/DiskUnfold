@@ -1287,7 +1287,23 @@ excluded: BrowseValue<boolean>,
  * Omitted: the source does not supply this fact, as for a source that is not
  * scan lineage and for file rows.
  */
-boundary?: BrowseValue<FolderBoundary>, };
+boundary?: BrowseValue<FolderBoundary>,
+/**
+ * Unread ranges inside a folder that was itself read (#226).
+ *
+ * Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
+ * nothing below was recorded as unread. Unknown: the scan has not ended. Omitted: the
+ * fact does not apply, as for a folder that was not read itself (its row shows
+ * `unenumerated`), a file row or a source that is not scan lineage.
+ */
+unreadInside?: BrowseValue<UnreadInside>, };
+export type UnreadInside = {
+/**
+ * Number of unread ranges (gaps, not folders) below the folder, as a decimal string.
+ * Omitted when a folder below was left unread by a cancellation or disconnection,
+ * which is not counted as a range, so the number is not known.
+ */
+count?: string, };
 export type FolderQueryRow = { item: ItemRef,
 /**
  * Human-readable display text; never reopen or compare a path from it.
@@ -1310,7 +1326,16 @@ export type FolderQueryPage = { rowKind: FolderRowKind,
 /**
  * Location context for a directly requested first page, when available.
  */
-browseContext?: BrowseContext, queryRef: Id, resultVersion: Id, rows: Array<FolderQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
+browseContext?: BrowseContext,
+/**
+ * Why lower bounds on this page have no row reason (#226), as a reason key:
+ * `scan.evidence_not_recorded` (analyzing again gives exact values),
+ * `scan.evidence_budget_exceeded` or `scan.lower_bound_unexplained`. Present only
+ * when a size or the item count on this page is a lower bound that no row mark,
+ * unread range, boundary or measurement limit explains, and never while the scan
+ * runs. An unknown key reads as `scan.lower_bound_unexplained`.
+ */
+unexplainedLowerBound?: string, queryRef: Id, resultVersion: Id, rows: Array<FolderQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type SearchQueryPage = { rowKind: SearchRowKind, queryRef: Id, resultVersion: Id, rows: Array<SearchQueryRow>, total: QueryTotal, unknownCount: number, observedAt: Timestamp | null, completeness: ResultCompleteness, nextCursor: string | null, };
 export type QueryPageResponse = FolderQueryPage | SearchQueryPage;
 export type BrowseBreadcrumb = { item: ItemRef,

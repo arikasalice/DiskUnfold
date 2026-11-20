@@ -22,6 +22,8 @@ pub(crate) struct FolderAttemptLedger {
     pub(crate) attempts: Vec<AttemptState>,
     registry_lease: Option<FolderEvidenceLease>,
     admission_disabled: bool,
+    /// The build's evidence was dropped because it did not fit the evidence budget.
+    evidence_dropped: bool,
 }
 
 impl FolderAttemptLedger {
@@ -32,6 +34,7 @@ impl FolderAttemptLedger {
             attempts: Vec::new(),
             registry_lease: None,
             admission_disabled: false,
+            evidence_dropped: false,
         }
     }
 
@@ -51,6 +54,16 @@ impl FolderAttemptLedger {
         self.attempts = Vec::new();
         self.registry_lease = None;
         self.admission_disabled = true;
+    }
+
+    /// Drops the evidence that did not fit the budget; later publications say so (#226).
+    pub(crate) fn discard_over_budget(&mut self) {
+        self.discard();
+        self.evidence_dropped = true;
+    }
+
+    pub(crate) fn evidence_dropped(&self) -> bool {
+        self.evidence_dropped
     }
 
     pub(crate) fn begin(

@@ -62,6 +62,8 @@ pub(super) fn project(page: Page) -> Result<FolderPage, Error> {
         .collect::<Result<Vec<_>, Error>>()?;
     let metadata = page.metadata();
     let next = u64::try_from(page.next_position()).map_err(|_| Error::Internal)?;
+    let unexplained_lower_bound =
+        super::lower_bound::unexplained(version, &rows, metadata.total, metadata.folder)?;
     Ok(FolderPage {
         query_ref: page.query_ref().clone(),
         result_version: metadata.version.clone(),
@@ -71,5 +73,6 @@ pub(super) fn project(page: Page) -> Result<FolderPage, Error> {
         completeness: metadata.completeness,
         observed_at: metadata.observed_at.cloned(),
         next_position: page.has_next().then_some(next),
+        unexplained_lower_bound,
     })
 }

@@ -54,6 +54,12 @@
 //! Each lookup is O(log n) and performs no allocation; reason keys are borrowed from the version.
 pub use crate::folder_marks::{UnreadFolderCounts, UnreadReason};
 use crate::{QueryError, ResultVersion, result_read::ensure_directory};
+pub use lower_bound::{
+    REASON_EVIDENCE_BUDGET_EXCEEDED, REASON_EVIDENCE_NOT_RECORDED, REASON_LOWER_BOUND_UNEXPLAINED,
+    UnreadInside,
+};
+
+mod lower_bound;
 use du_core_contracts::{
     ItemRef,
     result::{ResultCompleteness, ResultItem, ResultItemKind},

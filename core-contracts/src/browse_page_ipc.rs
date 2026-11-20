@@ -118,6 +118,28 @@ pub struct FolderFlags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub boundary: Option<BrowseValue<FolderBoundary>>,
+    /// Unread ranges inside a folder that was itself read (#226).
+    ///
+    /// Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
+    /// nothing below was recorded as unread. Unknown: the scan has not ended. Omitted: the
+    /// fact does not apply, as for a folder that was not read itself (its row shows
+    /// `unenumerated`), a file row or a source that is not scan lineage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unread_inside: Option<BrowseValue<UnreadInside>>,
+}
+
+/// Unread ranges recorded below a folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct UnreadInside {
+    /// Number of unread ranges (gaps, not folders) below the folder, as a decimal string.
+    /// Omitted when a folder below was left unread by a cancellation or disconnection,
+    /// which is not counted as a range, so the number is not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub count: Option<String>,
 }
 
 impl FolderFlags {
@@ -220,6 +242,15 @@ pub struct FolderQueryPage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub browse_context: Option<BrowseContext>,
+    /// Why lower bounds on this page have no row reason (#226), as a reason key:
+    /// `scan.evidence_not_recorded` (analyzing again gives exact values),
+    /// `scan.evidence_budget_exceeded` or `scan.lower_bound_unexplained`. Present only
+    /// when a size or the item count on this page is a lower bound that no row mark,
+    /// unread range, boundary or measurement limit explains, and never while the scan
+    /// runs. An unknown key reads as `scan.lower_bound_unexplained`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unexplained_lower_bound: Option<String>,
 }
 /// A search-only page.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

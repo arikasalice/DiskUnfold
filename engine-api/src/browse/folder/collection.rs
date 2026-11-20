@@ -5,12 +5,14 @@
 //! lineage keeps the values it sent before folder scan state was wired.
 use du_analysis_index::{
     ResultVersion,
-    folder_collection::{FolderBoundary as Boundary, FolderCollection, Unenumerated},
+    folder_collection::{
+        FolderBoundary as Boundary, FolderCollection, Unenumerated, UnreadInside as Inside,
+    },
 };
 use du_core_contracts::{
     ItemRef,
     browse_ipc::BrowseValue,
-    browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal},
+    browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal, UnreadInside},
     result::ResultVersionRead,
 };
 
@@ -28,12 +30,16 @@ pub(super) fn page_flags(
     if !version.data_source().is_real() {
         return Ok(items.iter().map(|_| not_provided()).collect());
     }
-    Ok(version
+    version
         .folder_collections(items)
         .map_err(folder_error)?
         .into_iter()
-        .map(flags)
-        .collect())
+        .zip(items)
+        .map(|(collection, item)| {
+            let inside = version.unread_inside(item).map_err(folder_error)?;
+            Ok(flags(collection, inside))
+        })
+        .collect()
 }
 
 /// Entries an exclusion rule left out directly under the opened folder.
@@ -67,7 +73,7 @@ pub(super) fn excluded_children(
         }))
 }
 
-fn flags(collection: FolderCollection<'_>) -> FolderFlags {
+fn flags(collection: FolderCollection<'_>, inside: Option<Inside>) -> FolderFlags {
     // The collector keeps no excluded entry, so no row of a scan-lineage result is one.
     let excluded = BrowseValue::Present { value: false };
     match collection {
@@ -75,6 +81,7 @@ fn flags(collection: FolderCollection<'_>) -> FolderFlags {
             unenumerated: BrowseValue::Absent,
             excluded,
             boundary: None,
+            unread_inside: None,
         },
         FolderCollection::Folder {
             unenumerated,
@@ -83,6 +90,19 @@ fn flags(collection: FolderCollection<'_>) -> FolderFlags {
             unenumerated: unenumerated_value(unenumerated),
             excluded,
             boundary: boundary_value(boundary),
+            unread_inside: inside.map(unread_inside_value),
+        },
+    }
+}
+
+fn unread_inside_value(value: Inside) -> BrowseValue<UnreadInside> {
+    match value {
+        Inside::Unknown { reason_key } => super::super::unknown(reason_key),
+        Inside::NoneRecorded => BrowseValue::Absent,
+        Inside::Recorded { count } => BrowseValue::Present {
+            value: UnreadInside {
+                count: count.map(|count| count.to_string()),
+            },
         },
     }
 }
@@ -117,5 +137,6 @@ fn not_provided() -> FolderFlags {
         unenumerated: super::super::unknown("ref.unavailable"),
         excluded: super::super::unknown("ref.unavailable"),
         boundary: None,
+        unread_inside: None,
     }
 }
