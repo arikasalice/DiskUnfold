@@ -158,13 +158,6 @@
   block-size: 13px;
 }
 
-.du-job-center__target {
-  display: grid;
-  gap: 2px;
-  min-inline-size: 0;
-  font-size: 12px;
-}
-
 .du-job-center__progress,
 .du-job-center__progress-value {
   display: grid;
@@ -188,8 +181,8 @@
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: var(--du-info-surface);
-  color: var(--du-info-text);
+  background: var(--du-subtle);
+  color: var(--du-text);
   font-size: 12px;
 }
 

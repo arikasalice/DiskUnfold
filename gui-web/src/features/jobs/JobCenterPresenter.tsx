@@ -5,9 +5,9 @@ import {
   ConfirmDialog,
   Heading,
   LiveStatus,
-  MiddleEllipsisText,
   Notice,
   Progress,
+  ScopeTarget,
   StatusBadge,
   Text,
   isImeProcessingKey,
@@ -201,6 +201,8 @@ export function JobCenterPresenter({
           })}
           confirmLabel={text("ui.job_center.cancel_confirm", "Cancel task")}
           cancelLabel={text("ui.job_center.continue", "Continue")}
+          confirmVariant="secondary"
+          cancelVariant="primary"
           onConfirm={() => {
             onControl(selected.row.jobRef, "cancel");
             setCancelJob(undefined);
@@ -253,7 +255,10 @@ function ActiveCard({
           <Text inline className="du-job-center__kind">
             {kindLabel(card.row.kind, text)}
           </Text>
-          <StatusBadge tone={activeTone(card.row.state)}>
+          <StatusBadge
+            tone={activeTone(card.row.state)}
+            {...(waiting ? { shape: "clock" as const } : {})}
+          >
             {statusLabel(card.row.state, text)}
           </StatusBadge>
         </div>
@@ -342,20 +347,12 @@ function FinishedCard({
 }
 
 function Target({ row }: { row: AnalysisJobListRow }) {
-  const text = useLocaleText();
-  const root = row.scopeFirstRoot;
-  const more = Math.max(0, (row.scopeRootCount ?? 1) - 1);
   return (
-    <div className="du-job-center__target">
-      <MiddleEllipsisText text={root || row.scopeSummary} />
-      {root && more > 0 && (
-        <Text kind="muted">
-          {text("ui.history.roots_more", "and {count} more", {
-            count: BigInt(more),
-          })}
-        </Text>
-      )}
-    </div>
+    <ScopeTarget
+      firstRoot={row.scopeFirstRoot}
+      rootCount={row.scopeRootCount}
+      fallback={row.scopeSummary}
+    />
   );
 }
 
@@ -489,7 +486,7 @@ function pendingText(
 }
 
 function activeTone(state: AnalysisJobListRow["state"]): "neutral" | "info" {
-  return state === "paused" ? "neutral" : "info";
+  return state === "paused" || state === "queued" ? "neutral" : "info";
 }
 
 function finishedLabel(

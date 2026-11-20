@@ -53,6 +53,36 @@ test("the safe choice takes the initial focus", async () => {
   );
 });
 
+test("an absent body is omitted and existing button variants remain the defaults", () => {
+  render(
+    <ConfirmDialog
+      title="Approve cleanup"
+      confirmLabel="Approve"
+      cancelLabel="Cancel"
+      onConfirm={() => {}}
+      onCancel={() => {}}
+    >
+      {null}
+    </ConfirmDialog>,
+  );
+
+  expect(
+    screen
+      .getByRole("alertdialog")
+      .querySelector(".du-inspection-dialog__body"),
+  ).toBeNull();
+  expect(
+    screen
+      .getByRole("button", { name: "Cancel" })
+      .classList.contains("du-action--secondary"),
+  ).toBe(true);
+  expect(
+    screen
+      .getByRole("button", { name: "Approve" })
+      .classList.contains("du-action--primary"),
+  ).toBe(true);
+});
+
 test("Enter in any entry inside the dialog does not confirm or submit", () => {
   const { onConfirm } = renderDialog();
   const [note, dateSegment] = getDialogEntries();

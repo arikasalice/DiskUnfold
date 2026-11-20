@@ -28,6 +28,7 @@ export { Breadcrumbs } from "./breadcrumbs";
 export type { BreadcrumbEntry } from "./breadcrumbs";
 export { BrowseGrid } from "./browse-grid";
 export { ConfirmDialog } from "./confirm-dialog";
+export { ScopeTarget } from "./scope-target";
 export type { BrowseGridFocus } from "./browse-grid";
 export { canHandleBrowseKey } from "./browse-keys";
 export { BROWSE_SCREEN, browseKeyTable } from "./browse-keys";

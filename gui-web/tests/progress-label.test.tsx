@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Progress } from "../src/components";
@@ -30,4 +31,25 @@ test("F06 design README 31: a screen that already shows the words, and a determi
     <Progress label="Scanning" value={3} maxValue={10} />,
   );
   expect(determinate.container.querySelector(".du-progress__label")).toBeNull();
+});
+
+test("F06 design README 31: indeterminate progress moves only when motion is allowed", () => {
+  const css = readFileSync("src/theme/workspace.css", "utf8");
+  const moving = render(<Progress label="Checking items" showLabel={false} />);
+  const indicator = moving.container.querySelector(".du-progress__indicator");
+
+  expect(indicator?.getAttribute("style")).toBeNull();
+  expect(css).toContain(
+    "animation: du-indeterminate 1.4s ease-in-out infinite;",
+  );
+  expect(css).toContain("transform: translateX(-110%);");
+  expect(css).toMatch(
+    /@media \(prefers-reduced-motion: reduce\) \{\s*\.du-progress__indicator \{\s*animation: none;/,
+  );
+  expect(css).toMatch(
+    /@media \(prefers-reduced-motion: reduce\) \{\s*\.du-progress:not\(\.du-progress--determinate\) \.du-progress__indicator \{\s*display: none;/,
+  );
+  expect(css).toMatch(
+    /:root\[data-du-motion="reduce"\][\s\S]*?\.du-progress__indicator \{\s*display: none;/,
+  );
 });

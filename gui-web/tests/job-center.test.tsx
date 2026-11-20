@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -114,7 +115,7 @@ test("renders scope roots through the shared path text handling", () => {
   const scopeFirstRoot = "C:\\Data\\\u202Esecret\\file\u200B.txt";
   const scopedCard = {
     ...snapshot.cards[0]!,
-    row: { ...row, scopeFirstRoot },
+    row: { ...row, scopeFirstRoot, scopeRootCount: 2 },
   };
   const scopedSnapshot = {
     ...snapshot,
@@ -122,24 +123,90 @@ test("renders scope roots through the shared path text handling", () => {
     inProgress: [scopedCard],
   };
   const { container } = renderPanel(undefined, scopedSnapshot);
-  const target = container.querySelector(".du-job-center__target")!;
+  const target = container.querySelector(".du-scope-target")!;
   const path = target.querySelector(".du-middle")!;
+  const pathFrame = path.closest(".du-fit--cell")!;
 
   expect(path.getAttribute("dir")).toBe("auto");
   expect(path.textContent).toBe(scopeFirstRoot);
-  expect(target.querySelector(".du-visually-hidden")?.textContent).toBe(
+  expect(pathFrame.querySelector(".du-visually-hidden")?.textContent).toBe(
     scopeFirstRoot,
   );
+  expect(pathFrame.classList.contains("du-fit--cell")).toBe(true);
+  expect(target.querySelector(".du-text")?.textContent).toBe("and 1 more");
+  expect(pathFrame.hasAttribute("tabindex")).toBe(false);
   expect(target.hasAttribute("title")).toBe(false);
+});
+
+test("every in-progress card keeps View on its bottom line and is not a button", () => {
+  const active = (["running", "queued", "paused"] as const).map(
+    (state, index) => {
+      const supportedControls: AnalysisJobListRow["supportedControls"] =
+        state === "running"
+          ? ["pause", "cancel"]
+          : state === "queued"
+            ? ["cancel"]
+            : ["resume", "cancel"];
+      const waitReason: AnalysisJobListRow["waitReason"] =
+        state === "queued" ? "queue_full" : "none";
+      return {
+        ...snapshot.cards[0]!,
+        row: {
+          ...row,
+          jobRef: `${row.jobRef}-${state}`,
+          state,
+          waitReason,
+          supportedControls,
+        },
+        sequence: index,
+        order: index,
+      };
+    },
+  );
+  const pending = new Map(snapshot.pending);
+  pending.set(active[0]!.row.jobRef, "pause");
+  const activeSnapshot: JobCenterSnapshot = {
+    ...snapshot,
+    cards: active,
+    inProgress: active,
+    pending,
+  };
+  const { container } = renderPanel(undefined, activeSnapshot);
+  const cards = container.querySelectorAll<HTMLElement>(
+    ".du-job-center__cards .du-job-center__card",
+  );
+
+  expect(cards).toHaveLength(active.length);
+  for (const card of cards) {
+    expect(card.tagName).toBe("ARTICLE");
+    expect(card.matches("button, [role='button']")).toBe(false);
+    const view = within(card).getByRole("button", { name: "View" });
+    const line = view.parentElement;
+    expect(line?.classList.contains("du-job-center__state-line")).toBe(true);
+  }
+
+  const queuedBadge = cards[1]!.querySelector(".du-badge")!;
+  expect(queuedBadge.classList.contains("du-badge--neutral")).toBe(true);
+  expect(queuedBadge.getAttribute("data-status-shape")).toBe("clock");
+  expect(
+    queuedBadge.querySelector("svg")?.classList.contains("lucide-clock"),
+  ).toBe(true);
+  expect(
+    cards[0]!.querySelector(".du-job-center__state-line")?.textContent,
+  ).toContain("Pausing…");
 });
 
 test("cancel confirmation starts on the safe Continue action", async () => {
   const { onControl } = renderPanel(row.jobRef);
   const dialog = await screen.findByRole("alertdialog");
   const safeAction = screen.getByRole("button", { name: "Continue" });
+  const cancelAction = screen.getByRole("button", { name: "Cancel task" });
   await waitFor(() => expect(document.activeElement).toBe(safeAction));
+  expect(safeAction.classList.contains("du-action--primary")).toBe(true);
+  expect(cancelAction.classList.contains("du-action--secondary")).toBe(true);
+  expect(dialog.querySelector(".du-inspection-dialog__body")).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "Cancel task" }));
+  fireEvent.click(cancelAction);
   expect(onControl).toHaveBeenCalledWith(row.jobRef, "cancel");
   expect(dialog.isConnected).toBe(false);
 });
