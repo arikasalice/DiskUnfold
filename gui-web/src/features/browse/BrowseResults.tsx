@@ -22,7 +22,13 @@ import type {
 import type { BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
-import { copyDisabled, notCounted, scanStatus, size } from "./browse-cells";
+import {
+  browseNotice,
+  copyDisabled,
+  notCounted,
+  scanStatus,
+  size,
+} from "./browse-cells";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampParts } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
@@ -35,6 +41,10 @@ import {
   priorityBadge,
   PrioritySlot,
 } from "./PrioritySlot";
+
+function ResultsNotice({ message }: { message: string | undefined }) {
+  return message ? <Notice>{message}</Notice> : null;
+}
 
 /**
  * Focuses the list's entry after a new folder replaced it: its first row, or
@@ -52,6 +62,8 @@ export type ListRowFocus = (index: number) => void;
 
 export function BrowseResults({
   pages,
+  incomplete,
+  dedupCapacityLowerBound,
   display,
   initialCursor,
   readPage,
@@ -75,6 +87,8 @@ export function BrowseResults({
   priority,
 }: {
   pages: BrowsePages;
+  incomplete: boolean;
+  dedupCapacityLowerBound: boolean;
   display: SizeDisplay;
   initialCursor: string | null;
   readPage: (request: QueryPageRequest) => Promise<QueryPageResponse>;
@@ -172,6 +186,12 @@ export function BrowseResults({
       paging.retryButton.current?.focus({ preventScroll: true });
     }
   }, [paging.failure, paging.retryButton]);
+  const notice = browseNotice(
+    incomplete,
+    pages.unexplainedLowerBounds,
+    dedupCapacityLowerBound,
+    text,
+  );
   /**
    * Focuses a row once it is drawn, unless `eligible` says focus has moved
    * on by then.
@@ -249,6 +269,7 @@ export function BrowseResults({
   });
   return (
     <div className="du-browse-results">
+      <ResultsNotice message={notice} />
       <div className="du-browse-controls">
         <SelectionAnalyzeFirst
           pages={pages}

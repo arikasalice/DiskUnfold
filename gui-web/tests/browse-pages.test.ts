@@ -71,6 +71,22 @@ describe("fixed query pages", () => {
     expect(pages.row(200)?.item.itemNo).toBe(200);
   });
 
+  it("keeps the lower-bound reason on each cached query page", () => {
+    const first = page(201);
+    first.unexplainedLowerBound = "scan.evidence_not_recorded";
+    const pages = new BrowsePages(first);
+    expect(pages.unexplainedLowerBounds).toEqual([
+      "scan.evidence_not_recorded",
+    ]);
+    const last = page(201, 200);
+    last.unexplainedLowerBound = "scan.evidence_budget_exceeded";
+    expect(pages.accept(200, last, new Set())).toBe(true);
+    expect(pages.unexplainedLowerBounds).toEqual([
+      "scan.evidence_not_recorded",
+      "scan.evidence_budget_exceeded",
+    ]);
+  });
+
   it("rejects cross-query, cross-version, short, and duplicate pages", () => {
     const pages = new BrowsePages(page(201));
     const last = page(201, 200);

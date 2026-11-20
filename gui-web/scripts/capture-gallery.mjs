@@ -27,7 +27,7 @@ const gui = fileURLToPath(new URL("..", import.meta.url));
 const surfaces = {
   // 4 + 1 + 2 location cells: the main record and the two count sentence records.
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
-  browse: { ready: ".du-browse-grid__row", count: 6, pointer: false },
+  browse: { ready: ".du-browse-grid__row", count: 3, pointer: false },
   "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
 };
 const surface = process.argv[2];
@@ -180,7 +180,7 @@ function cutCell() {
 }
 
 /** Opens the gallery's surface in a theme and waits until it is drawn. */
-async function open(session, base, theme, width, scene) {
+async function open(session, base, theme, width, scene, query = "") {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
     height,
@@ -198,7 +198,8 @@ async function open(session, base, theme, width, scene) {
       surface +
       "&theme=" +
       theme +
-      (scene ? "&scene=" + scene : ""),
+      (scene ? "&scene=" + scene : "") +
+      query,
   });
   await loaded;
   if (surface === "scan-lanes") {
@@ -304,6 +305,10 @@ try {
     await saveLanes(session, "light-1280-expanded");
     await open(session, base, "light", 1280, "one-lane");
     await saveLanes(session, "light-1280-one-lane");
+  }
+  if (surface === "browse") {
+    await open(session, base, "light", 1280, undefined, "&notice=1");
+    await save(session, "notice-light-1280");
   }
   if (pointer) {
     await open(session, base, "light", 1280);

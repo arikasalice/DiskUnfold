@@ -23,12 +23,13 @@ export const regional: RegionalFormat = {
  * Korean, with every mark of the "Scan status" column and blank rows.
  */
 export function BrowseScanStatusPreview() {
+  const notice = new URLSearchParams(window.location.search).has("notice");
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
         <div className="du-gallery-browse">
           <BrowsePanel
-            port={browsePort}
+            port={browsePort(notice)}
             resultVersion={browseVersion}
             display={{ system: "iec", unit: "auto", regional }}
           />

@@ -8,7 +8,9 @@ import type {
 export const BROWSE_PAGE_SIZE = 200;
 const MAX_PAGES = 10;
 const MAX_QUERY_POSITION = 0xffff_ffff;
-type CachedPage = Pick<FolderQueryPage, "rows" | "nextCursor">;
+type CachedPage = Pick<FolderQueryPage, "rows" | "nextCursor"> & {
+  unexplainedLowerBound?: string | undefined;
+};
 
 export function browsePageStart(index: number): number {
   return Math.floor(index / BROWSE_PAGE_SIZE) * BROWSE_PAGE_SIZE;
@@ -54,7 +56,11 @@ export class BrowsePages {
     ) {
       throw new Error("The initial folder page does not match its query.");
     }
-    this.pages.set(0, { rows: first.rows, nextCursor: first.nextCursor });
+    this.pages.set(0, {
+      rows: first.rows,
+      nextCursor: first.nextCursor,
+      unexplainedLowerBound: first.unexplainedLowerBound,
+    });
     this.noteBoundaries(first.rows);
   }
 
@@ -66,6 +72,17 @@ export class BrowsePages {
    */
   get boundaries(): boolean {
     return this.boundaryRows;
+  }
+
+  /** Reasons for lower bounds on the currently cached query pages. */
+  get unexplainedLowerBounds(): string[] {
+    return [
+      ...new Set(
+        [...this.pages.values()]
+          .map((page) => page.unexplainedLowerBound)
+          .filter((key): key is string => key !== undefined),
+      ),
+    ];
   }
 
   private noteBoundaries(rows: readonly FolderQueryRow[]): void {
@@ -160,7 +177,11 @@ export class BrowsePages {
     )
       return false;
     this.pages.delete(start);
-    this.pages.set(start, { rows: page.rows, nextCursor: page.nextCursor });
+    this.pages.set(start, {
+      rows: page.rows,
+      nextCursor: page.nextCursor,
+      unexplainedLowerBound: page.unexplainedLowerBound,
+    });
     this.noteBoundaries(page.rows);
     for (const offset of this.pages.keys()) {
       if (this.pages.size <= MAX_PAGES) break;

@@ -20,12 +20,14 @@ import type {
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
+  SpaceTotal,
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
+import { useBrowseDedupLimit } from "./use-browse-dedup-limit";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -44,6 +46,7 @@ export interface BrowsePort {
     signal?: AbortSignal,
   ): Promise<BrowseOpenResponse>;
   page(request: QueryPageRequest): Promise<QueryPageResponse>;
+  spaceTotal?(resultVersion: string): Promise<SpaceTotal>;
   copyPath?(item: ItemRef): Promise<BrowseCopyPathOutcome>;
 }
 
@@ -259,6 +262,10 @@ export function BrowsePanel({
   }, [view]);
 
   const page = view?.opened.page;
+  const dedupCapacityLowerBound = useBrowseDedupLimit(
+    port.spaceTotal,
+    page?.resultVersion,
+  );
   const previousResult = isPreviousResult(page?.resultVersion, resultVersion);
   const hasVirtualRoot =
     page !== undefined && virtualRootVersion.current === page.resultVersion;
@@ -367,18 +374,12 @@ export function BrowsePanel({
               hasVirtualRoot={hasVirtualRoot}
               rootLabel={rootLabel}
             />
-            {page.completeness !== "complete" && (
-              <Notice>
-                {text(
-                  "ui.browse.results_incomplete",
-                  "Results are incomplete.",
-                )}
-              </Notice>
-            )}
           </div>
           <BrowseResults
             key={view.opened.requestSeq}
             pages={view.pages}
+            incomplete={page.completeness !== "complete"}
+            dedupCapacityLowerBound={dedupCapacityLowerBound}
             display={display}
             initialCursor={page.nextCursor}
             readPage={(request) => port.page(request)}
