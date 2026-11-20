@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 /// Item count, summed bytes and whether the sum is only a lower bound, per class key.
 pub(super) type Classes = BTreeMap<String, (u64, u64, bool)>;
 
-/// The legend of a model: the rows it shows, or with a filter the scope's direct
+/// The legend of a model. With the type criterion a row counts its type's files at
+/// any depth below the scope, filtered or not, so it matches what narrowing to it
+/// draws. Without it, the rows the model shows, or with a filter the scope's direct
 /// children, so the legend keeps the values of the whole scope to compare against.
 pub(super) fn classes(
     admitted: &Admitted,
@@ -15,11 +17,35 @@ pub(super) fn classes(
     evidence: &HashMap<u32, ItemEvidence>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Classes, EngineError> {
-    if admitted.filter.is_some() {
+    if admitted.request.color_criterion == crate::viz_production::policy::COLOR_CRITERION_TYPE {
+        subtree_classes(admitted, cancelled)
+    } else if admitted.filter.is_some() {
         scope_classes(admitted, evidence, cancelled)
     } else {
         row_classes(&projection.rows, evidence, cancelled)
     }
+}
+
+fn subtree_classes(
+    admitted: &Admitted,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Classes, EngineError> {
+    let totals = du_analysis_index::visualization::type_legend::scope_totals(
+        admitted.source.version(),
+        &admitted.request.aggregate_scope_ref,
+        &admitted.request.size_basis,
+        cancelled,
+    )
+    .map_err(|_| internal())?;
+    Ok(totals
+        .into_iter()
+        .map(|(key, total)| {
+            (
+                key.to_owned(),
+                (total.count, total.bytes, total.lower_bound),
+            )
+        })
+        .collect())
 }
 
 fn row_classes(

@@ -87,6 +87,9 @@ fn a_legend_row_narrows_the_treemap_to_its_type_and_keeps_the_scope_legend() -> 
     assert_eq!(bytes(&totals["remainder"]), "0");
     // The legend keeps the whole scope's values to compare against.
     assert_eq!(legend_entry(model, "type.video")?["total"], video["total"]);
+    // Its video row counts the videos in folders too, so it says what narrowing draws.
+    assert_eq!(bytes(&video["total"]), "100");
+    assert_eq!(video["itemCount"]["value"], "2");
     assert_ne!(
         model["conditionFingerprint"],
         whole["model"]["conditionFingerprint"]

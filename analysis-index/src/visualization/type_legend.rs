@@ -9,7 +9,10 @@ use crate::{
     file_type::{self, FileType, TABLE_REVISION},
     query::NameEncoding,
 };
-use du_core_contracts::{PathEncoding, result::ResultItemKind};
+use du_core_contracts::{
+    ItemRef, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, result::ResultItemKind,
+};
+use std::collections::BTreeMap;
 
 /// The color criterion this table serves.
 pub const CRITERION: &str = "type";
@@ -106,4 +109,93 @@ pub fn key_of(kind: FileType) -> &'static str {
         FileType::NoExtension => "type.no_extension",
         FileType::Unclassified => "type.unclassified",
     }
+}
+
+/// Item count, summed bytes and whether the sum is only a lower bound, of one class.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClassTotal {
+    pub count: u64,
+    pub bytes: u64,
+    pub lower_bound: bool,
+}
+
+/// Why the classes of a scope could not be counted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TotalsError {
+    InvalidScope,
+    Cancelled,
+}
+
+/// The legend classes of every item below a scope folder, its whole subtree
+/// (F06 FR6, #301): a type's row counts the files of that type at any depth.
+///
+/// Folders are walked and never counted. A file outside the scan boundary was
+/// not read and is left out. A size that is unknown or not in the basis adds
+/// nothing and leaves the class total a lower bound, as does a lower bound. Each
+/// file adds its own value, so a file linked twice under the scope is added twice.
+pub fn scope_totals(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    basis: &SizeBasis,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<BTreeMap<&'static str, ClassTotal>, TotalsError> {
+    let scope_no = version
+        .detail(scope)
+        .map_err(|_| TotalsError::InvalidScope)?
+        .item
+        .item_no;
+    // One slot per type, in FileType::ALL order, then the class of no type.
+    let mut slots = [ClassTotal::default(); FileType::ALL.len() + 1];
+    let mut work: Vec<u32> = version
+        .children(scope_no)
+        .iter()
+        .map(|c| c.item_no)
+        .collect();
+    while let Some(no) = work.pop() {
+        if cancelled() {
+            return Err(TotalsError::Cancelled);
+        }
+        let item = version
+            .items
+            .get(no as usize)
+            .ok_or(TotalsError::InvalidScope)?;
+        if item.kind == ResultItemKind::Directory {
+            work.extend(version.children(no).iter().map(|child| child.item_no));
+            continue;
+        }
+        if version.is_boundary_item(no) {
+            continue;
+        }
+        let slot = file_type_of(version, no).map_or(FileType::ALL.len(), |kind| {
+            FileType::ALL
+                .iter()
+                .position(|listed| *listed == kind)
+                .unwrap_or(FileType::ALL.len())
+        });
+        let total = &mut slots[slot];
+        total.count = total.count.saturating_add(1);
+        match version.item_size(no, basis.clone()) {
+            Some(size) if size.evidence != SizeEvidence::Unknown && size.basis == *basis => {
+                match &size.amount {
+                    SizeAmount::Exact { bytes } => {
+                        total.bytes = total.bytes.saturating_add(bytes.get());
+                    }
+                    SizeAmount::LowerBound { bytes } => {
+                        total.bytes = total.bytes.saturating_add(bytes.get());
+                        total.lower_bound = true;
+                    }
+                    SizeAmount::Unknown => total.lower_bound = true,
+                }
+            }
+            _ => total.lower_bound = true,
+        }
+    }
+    let keys = FileType::ALL
+        .iter()
+        .map(|kind| key_of(*kind))
+        .chain([NO_CLASS]);
+    Ok(keys
+        .zip(slots)
+        .filter(|(_, total)| total.count > 0)
+        .collect())
 }

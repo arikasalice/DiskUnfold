@@ -275,6 +275,25 @@ fn measure_filtered_projection() -> Result<(), String> {
         };
         let (_, _, dispatcher) = fixture()?;
         let fixture = (version, parent, dispatcher);
+        let mut legend = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            du_analysis_index::visualization::type_legend::scope_totals(
+                &fixture.0,
+                &fixture.1,
+                &SizeBasis::Logical,
+                &mut || false,
+            )
+            .map_err(|e| format!("{e:?}"))?;
+            legend.push(started.elapsed());
+        }
+        legend.sort();
+        println!(
+            "files {:>9} legend       median {:?} max {:?}",
+            folders * 1_000,
+            legend[legend.len() / 2],
+            legend[legend.len() - 1]
+        );
         for filter in [None, Some(ItemFilter::FileType(FileType::Video))] {
             let mut times = Vec::new();
             for _ in 0..5 {
@@ -316,5 +335,28 @@ fn measure_filtered_projection() -> Result<(), String> {
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+fn the_type_legend_counts_the_files_of_the_whole_subtree() -> Result<(), String> {
+    use du_analysis_index::visualization::type_legend::{ClassTotal, scope_totals};
+    let (version, parent, _) = fixture()?;
+    let totals = scope_totals(&version, &parent, &SizeBasis::Logical, &mut || false)
+        .map_err(|e| format!("{e:?}"))?;
+    let total = |count, bytes| ClassTotal {
+        count,
+        bytes,
+        lower_bound: false,
+    };
+    // b.txt, clips/d.txt and notes/e.txt are documents; a.mp4 and clips/c.mp4 videos.
+    // Folders are not counted.
+    assert_eq!(
+        totals.into_iter().collect::<Vec<_>>(),
+        [
+            ("type.document", total(3, 12)),
+            ("type.video", total(2, 17))
+        ]
+    );
     Ok(())
 }
