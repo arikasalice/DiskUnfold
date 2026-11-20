@@ -1,5 +1,7 @@
 //! Select the native webview adapter for the operating system.
 mod contract;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod events_common;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -17,7 +19,7 @@ pub use contract::{Asset, WebApp};
 pub use contract::{
     DispatchLane, ResponseDelivery, ResponseDeliveryCallback, ResponseDeliveryObserver,
 };
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub use contract::{EventCallbacks, EventPostFailure, Events};
 
 /// Runs the Linux webview and delivers events to its trusted top-level page.
@@ -36,7 +38,7 @@ pub fn run(app: WebApp) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     return linux::run(app, None);
     #[cfg(target_os = "macos")]
-    return macos::run(app, None);
+    return macos::run(app, None, None);
     #[cfg(target_os = "windows")]
     return windows::run(app, None);
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -55,5 +57,13 @@ pub fn run_with_shutdown(
     app: WebApp,
     shutdown: ShutdownCallbacks,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    macos::run(app, Some(shutdown))
+    macos::run(app, Some(shutdown), None)
+}
+
+/// Runs the macOS webview, delivers events to its trusted top-level page and drives the
+/// host shutdown hooks carried by `events`.
+#[cfg(target_os = "macos")]
+pub fn run_with_events(app: WebApp, events: Events) -> Result<(), Box<dyn std::error::Error>> {
+    let shutdown = events.shutdown_callbacks().cloned();
+    macos::run(app, shutdown, Some(events))
 }

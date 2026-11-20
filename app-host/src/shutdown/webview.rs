@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use du_platform_os::webview::ShutdownCallbacks;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use du_platform_os::webview::{EventCallbacks, Events};
 
 use super::host::{HostShutdownPorts, QuitHandler, ShutdownController, current_time_ms};
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 struct DesktopEventCallbacks {
     next: Box<dyn Fn() -> Option<String> + Send + Sync>,
     post_failed: Box<dyn Fn(du_platform_os::webview::EventPostFailure) + Send + Sync>,
@@ -17,7 +17,7 @@ struct DesktopEventCallbacks {
     document_closed: Box<dyn Fn() + Send + Sync>,
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 impl DesktopEventCallbacks {
     fn new(events: Arc<du_engine_api::desktop::DesktopEvents>) -> Self {
         let next_events = events.clone();
@@ -72,7 +72,7 @@ pub(crate) fn shutdown_callbacks(
 }
 
 /// Builds the event source and installs the shutdown hooks used by native close requests.
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) fn event_source(
     events: Arc<du_engine_api::desktop::DesktopEvents>,
     shutdown: Arc<ShutdownController<HostShutdownPorts>>,

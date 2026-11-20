@@ -17,7 +17,7 @@ pub struct Asset {
 pub type Dispatch = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Non-blocking source of serialized application event envelopes.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[derive(Clone)]
 pub struct Events {
     next: Arc<dyn Fn() -> Option<String> + Send + Sync>,
@@ -89,7 +89,7 @@ impl ShutdownCallbacks {
 }
 
 /// Callbacks for delivery loss and top-level document lifecycle changes.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[derive(Clone)]
 pub struct EventCallbacks {
     post_failed: Arc<dyn Fn(EventPostFailure) + Send + Sync>,
@@ -99,7 +99,7 @@ pub struct EventCallbacks {
 }
 
 /// Describes one failed native post and the later events discarded from its batch.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct EventPostFailure {
     /// Serialized envelope rejected by the native WebView post call.
@@ -108,7 +108,7 @@ pub struct EventPostFailure {
     pub discarded: Vec<String>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl Events {
     /// Creates the application event source with native delivery callbacks.
     pub fn new(
@@ -159,30 +159,40 @@ impl Events {
         (self.callbacks.document_closed)();
     }
 
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     pub(super) fn request_window_close(&self) {
         if let Some(shutdown) = &self.shutdown {
             shutdown.request_window_close();
         }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     pub(super) fn pump_shutdown(&self) {
         if let Some(shutdown) = &self.shutdown {
             shutdown.pump();
         }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     pub(super) fn shutdown_is_complete(&self) -> bool {
         self.shutdown
             .as_ref()
             .is_some_and(ShutdownCallbacks::is_complete)
     }
 
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     pub(super) fn has_shutdown_callbacks(&self) -> bool {
         self.shutdown.is_some()
     }
+
+    /// The shutdown hooks the macOS adapter drives from its own timer.
+    #[cfg(target_os = "macos")]
+    pub(super) fn shutdown_callbacks(&self) -> Option<&ShutdownCallbacks> {
+        self.shutdown.as_ref()
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl EventCallbacks {
     /// Creates failure reporting and document lifecycle callbacks.
     pub fn new(
