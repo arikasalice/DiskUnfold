@@ -6,6 +6,7 @@
 //! content, never triggers an automount and never requests more privilege.
 mod enumeration;
 mod errors;
+mod extent_sharing;
 mod metadata;
 mod scope;
 #[cfg(test)]
@@ -154,6 +155,10 @@ impl AnchoredDirectory for LinuxDirectory {
 
     fn volume_space_reader(&self) -> Result<Box<dyn VolumeSpaceReader>, PortError> {
         Ok(Box::new(volume_space::Reader::new(&self.anchor)))
+    }
+
+    fn creates_no_shared_extents(&self) -> bool {
+        extent_sharing::creates_no_shared_extents(&*self.anchor.fd)
     }
 
     fn observed_modified_at(&self) -> Option<Timestamp> {

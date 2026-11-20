@@ -136,5 +136,7 @@ fn btrfs_subvolumes_are_other_volumes_that_are_never_entered() -> TestResult {
     }
     check_subvolume(&*inner.directory, &nested, &second, "nested")?;
     assert_ne!(top.volume_id, inner.volume_id);
+    // #202: btrfs can share extents through reflinks, so sharing stays unknown.
+    assert!(!top.directory.creates_no_shared_extents());
     Ok(())
 }

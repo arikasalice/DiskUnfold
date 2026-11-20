@@ -137,13 +137,13 @@ fn remainder(model: &Value) -> Result<u64, Failure> {
     bytes(&quantity["value"])
 }
 
-/// The F03 total of the scanned folder on `basis`.
-fn space_total(
+/// The F03 size of the scanned folder on `basis`, as the wire reports it.
+fn space_size(
     assembled: &Assembled,
     revision: &Id,
     basis: &str,
     seq: u32,
-) -> Result<u64, Failure> {
+) -> Result<Value, Failure> {
     let space = ok(
         &assembled.engine,
         "space.total",
@@ -156,7 +156,17 @@ fn space_total(
         .as_array()
         .and_then(|sizes| sizes.iter().find(|entry| entry["size"]["basis"] == basis))
         .ok_or("no total on this basis")?;
-    bytes(&entry["size"]["bytes"])
+    Ok(entry["size"].clone())
+}
+
+/// The F03 total of the scanned folder on `basis`.
+fn space_total(
+    assembled: &Assembled,
+    revision: &Id,
+    basis: &str,
+    seq: u32,
+) -> Result<u64, Failure> {
+    bytes(&space_size(assembled, revision, basis, seq)?["bytes"])
 }
 
 /// Three files of different sizes and a folder, so that no ordering tie is involved.
@@ -231,6 +241,36 @@ fn a_real_ntfs_scan_confirms_the_unique_physical_size() -> Result<(), Failure> {
         space_total(&assembled, &revision, "unique_physical", 2)?,
         allocated
     );
+    Ok(())
+}
+
+// #202, F03 FR11.HD1: on Linux the scope root's volume decides. A read-write ext2, ext3 or
+// ext4 volume cannot share blocks, so the unique physical size of these files, none of
+// which is hard-linked, is their allocated size; on any other volume it stays unknown.
+// Whether the adapter's answer is right for the volume is checked in platform-os against
+// the mount table; this checks that a scan carries that answer into the F03 totals.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_real_linux_scan_confirms_the_unique_physical_size_only_where_nothing_is_shared()
+-> Result<(), Failure> {
+    use du_core_contracts::scan_observation::ScopeRootPort;
+    use std::os::unix::ffi::OsStrExt;
+    let assembled = assemble()?;
+    let folder = four_children()?;
+    let unshared = du_platform_os::linux_observation::LinuxScopeRoots
+        .open_root(folder.path().as_os_str().as_bytes())
+        .map_err(|error| format!("{error:?}"))?
+        .directory
+        .creates_no_shared_extents();
+    let revision = scan(&assembled, folder.path())?;
+    let allocated = space_total(&assembled, &revision, "allocated", 1)?;
+    assert!(allocated > 0);
+    let unique = space_size(&assembled, &revision, "unique_physical", 2)?;
+    if unshared {
+        assert_eq!(bytes(&unique["bytes"])?, allocated, "{unique}");
+    } else {
+        assert_eq!(unique["state"], "unknown", "{unique}");
+    }
     Ok(())
 }
 
