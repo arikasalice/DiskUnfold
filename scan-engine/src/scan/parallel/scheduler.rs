@@ -53,6 +53,7 @@ pub(super) fn create_with_budget(
         track_paths: control.is_some(),
     };
     let queue = queue_for(roots, &boundaries, &devices, options)?;
+    let meters = lane_meter::LaneMeters::new(queue.lanes.lanes.len());
     let shared = Shared {
         queue: Arc::new(Mutex::new(queue)),
         wake: Arc::new(Condvar::new()),
@@ -61,6 +62,7 @@ pub(super) fn create_with_budget(
         track_priority_paths: control.is_some(),
         visited,
         correlated_budget,
+        meters,
     };
     if let Some(control) = control {
         control.attach(&shared.queue, &shared.wake);
@@ -176,6 +178,7 @@ impl Shared {
     /// Wraps a test queue with default disconnection keys for its roots.
     pub(super) fn for_test(queue: Queue, track_priority_paths: bool) -> Self {
         let roots = queue.root_remaining.len();
+        let meters = lane_meter::LaneMeters::new(queue.lanes.lanes.len());
         Self {
             queue: Arc::new(Mutex::new(queue)),
             wake: Arc::new(Condvar::new()),
@@ -184,6 +187,7 @@ impl Shared {
             track_priority_paths,
             visited: Visited::default(),
             correlated_budget: correlated_budget::CorrelatedBudget::new(),
+            meters,
         }
     }
 }

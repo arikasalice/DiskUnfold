@@ -87,6 +87,8 @@ pub(super) fn run(
             drop(receiver);
             return;
         }
+        // Dropped when this closure returns, after the observations are consumed.
+        let _lane_reports = lane_report::spawn_reporter(scope, &shared, context);
         let services = Services {
             context,
             ids,

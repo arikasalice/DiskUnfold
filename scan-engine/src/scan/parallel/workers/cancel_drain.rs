@@ -30,7 +30,7 @@ pub(super) fn frame(
         }
         let entered = (admission == Admission::Enter).then(|| path.clone());
         if sender
-            .send(Event::Item(
+            .send_metered(Event::Item(
                 frame.root_index,
                 path,
                 Box::new(entry),
@@ -72,7 +72,7 @@ pub(super) fn frame(
 
 /// Marks one registered directory as left unread by cancellation.
 pub(super) fn unread(root_index: u32, path: Vec<Vec<u8>>, sender: &SyncSender<Event>) -> bool {
-    sender.send(Event::Unread(root_index, path)).is_ok()
+    sender.send_metered(Event::Unread(root_index, path)).is_ok()
 }
 
 /// Owns frames outside the queue lock before sending to the bounded publisher.

@@ -188,7 +188,7 @@ fn stopped_child(
     } else if force_no_descend {
         services
             .sender
-            .send(Event::Failure {
+            .send_metered(Event::Failure {
                 root_index: frame.root_index,
                 path,
                 root: false,
@@ -274,7 +274,7 @@ pub(super) fn open_pending(
     let reason = reason(&error);
     shared.disconnects.observe_reason(frame.root_index, reason);
     let sent = sender
-        .send(Event::Failure {
+        .send_metered(Event::Failure {
             root_index: frame.root_index,
             path: frame.path.clone(),
             root: false,

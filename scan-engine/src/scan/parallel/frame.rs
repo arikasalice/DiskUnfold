@@ -108,7 +108,7 @@ impl Anchor {
     ) -> Result<R, Unrun> {
         let mut lease = self.lease(stop)?;
         let directory = lease.directory.as_deref_mut().ok_or(Unrun::Unavailable)?;
-        Ok(call(directory))
+        Ok(super::lane_meter::os_call(|| call(directory)))
     }
 
     fn lease(&self, stop: &dyn Fn() -> bool) -> Result<Lease<'_>, Unrun> {

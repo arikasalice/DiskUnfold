@@ -420,6 +420,7 @@ fn shared_over(
     };
     let queue = scheduler::queue_for(roots, &boundaries, &DevicePlan { groups, limit }, options)
         .map_err(|error| format!("{error:?}"))?;
+    let meters = super::super::lane_meter::LaneMeters::new(queue.lanes.lanes.len());
     Ok(Shared {
         queue: Arc::new(Mutex::new(queue)),
         wake: Arc::new(Condvar::new()),
@@ -428,6 +429,7 @@ fn shared_over(
         track_priority_paths: false,
         visited,
         correlated_budget: super::super::correlated_budget::CorrelatedBudget::new(),
+        meters,
     })
 }
 

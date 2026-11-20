@@ -31,6 +31,22 @@ use entries::{EntryServices, open_pending, process_entry};
 use handoff::{complete, register_path, release_path, requeue, schedule};
 use read_batch::{ReadFailure, next_entries};
 
+/// Sends observation events through the lane wait meter.
+trait SendMetered {
+    fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>>;
+}
+
+impl SendMetered for SyncSender<Event> {
+    /// Counts a failure on the bound lane and sends; a full channel counts as
+    /// the lane's backpressure while it blocks.
+    fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
+        if matches!(event, Event::Failure { .. }) {
+            lane_meter::failed();
+        }
+        lane_meter::send(self, event)
+    }
+}
+
 pub(super) fn worker(
     shared: &Shared,
     sender: SyncSender<Event>,
@@ -142,6 +158,7 @@ fn process(
     if shared.abort.load(Ordering::Acquire) {
         return true;
     }
+    let _lane = lane_meter::bind(&shared.meters, turn.lane);
     // The case observation precedes the first read in the same turn, so it
     // marks a directory whose enumeration started in an earlier turn.
     let started = frame.case_observed;
@@ -280,7 +297,7 @@ fn observe_once(
         return Observed::Ready;
     };
     let event = Event::DirectoryCase(frame.root_index, frame.path.clone(), evidence);
-    if sender.send(event).is_err() {
+    if sender.send_metered(event).is_err() {
         Observed::Failed
     } else if context.checkpoint() == Checkpoint::Cancel {
         Observed::Cancelled
@@ -297,7 +314,7 @@ fn send_undecided(frame: &Frame, names: Vec<Vec<u8>>, sender: &SyncSender<Event>
         let mut path = frame.path.clone();
         path.push(name);
         sender
-            .send(Event::Undecided(frame.root_index, path))
+            .send_metered(Event::Undecided(frame.root_index, path))
             .is_ok()
     })
 }
@@ -353,7 +370,7 @@ fn process_batch(
             shared
                 .disconnects
                 .observe_reason(frame.root_index, failure_reason);
-            let _ = sender.send(Event::Failure {
+            let _ = sender.send_metered(Event::Failure {
                 root_index: frame.root_index,
                 path: frame.path.clone(),
                 root: frame.root,
@@ -391,7 +408,7 @@ fn send_excluded(frame: &Frame, complete: bool, sender: &SyncSender<Event>) -> b
         return true;
     };
     sender
-        .send(Event::Excluded {
+        .send_metered(Event::Excluded {
             root_index: frame.root_index,
             path: frame.path.clone(),
             count,
@@ -426,7 +443,7 @@ fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobC
         .with(|directory| directory.observed_modified_at_timed(&|| context.utc_now()))
         .unwrap_or((None, None));
     sender
-        .send(Event::RootBatch(frame.root_index, modified_at, observed_at))
+        .send_metered(Event::RootBatch(frame.root_index, modified_at, observed_at))
         .is_ok()
 }
 
