@@ -1140,7 +1140,7 @@ function Test-ReplacedScopeRoot {
 }
 # Read the real committed scan history and return to the same pinned analysis.
 function Test-OperationHistory {
-  Invoke-UI (Wait-TasksEntry)
+  Expand-UI (Wait-TasksEntry)
   Invoke-UI (Wait-VisibleAction 'View all task history')
   $item = Wait-UI 'recorded disk analysis' {
     $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
@@ -2116,7 +2116,7 @@ function Test-CaptureHistory {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
-  Invoke-UI (Wait-TasksEntry)
+  Expand-UI (Wait-TasksEntry)
   $null = Wait-UI 'recently finished job section' {
     Find-UI 'Recently finished' $textType
   }
@@ -2132,7 +2132,7 @@ function Test-CaptureHistory {
     ) { $focused }
   }
   "F24 #289 job center focus: $($focusedTaskEntry.Current.Name)"
-  Invoke-UI (Wait-TasksEntry)
+  Expand-UI (Wait-TasksEntry)
   Invoke-UI (Wait-VisibleAction 'View all task history')
   # The row's "View details: <operation>, <time>" button. Its translated template cannot be looked
   # up by its English text (a shorter "{label}: {value}" template matches first), so the button is
