@@ -57,6 +57,7 @@ impl EvidenceProducer for FixtureEvidence {
             required_data_revision: 1,
             legend_revision: 1,
             view_policy_revision: 1,
+            file_type_revision: None,
             classes: HashMap::from([(
                 "fixture.class".into(),
                 LegendClass {
@@ -64,6 +65,7 @@ impl EvidenceProducer for FixtureEvidence {
                     condition: None,
                 },
             )]),
+            legend_order: vec![],
             available_formats: vec![],
         }))
     }
@@ -250,6 +252,7 @@ fn windows_scan_store_and_jobs_feed_the_selected_visualization() -> TestResult<(
         interpretation_table_revision: 1,
         required_data_table_revision: 1,
         legend_rule_revision: 1,
+        file_type_table_revision: None,
     };
     assert_eq!(
         desktop.visualization.register_preview_with_catalog(
