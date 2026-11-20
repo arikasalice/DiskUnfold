@@ -904,7 +904,7 @@ ui.visualization.colorNone
 ui.visualization.colorType
 ui.visualization.legendPatterns
 ui.visualization.legendPatternsForced
-ui.visualization.legendChip criterion:criterion name:name
+ui.visualization.legendChip criterion:name name:name
 ui.visualization.legendChipClear name:name
 ui.visualization.legendLess
 ui.visualization.legendFolderNote

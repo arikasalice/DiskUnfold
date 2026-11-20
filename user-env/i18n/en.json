@@ -921,7 +921,7 @@
     ["ui.visualization.colorType","Type",[]],
     ["ui.visualization.legendPatterns","Use patterns",[]],
     ["ui.visualization.legendPatternsForced","Patterns are always on in high contrast",[]],
-    ["ui.visualization.legendChip","{criterion}: {name}",[["criterion","criterion"],["name","name"]]],
+    ["ui.visualization.legendChip","{criterion}: {name}",[["criterion","name"],["name","name"]]],
     ["ui.visualization.legendChipClear","Clear {name}",[["name","name"]]],
     ["ui.visualization.legendLess","Show fewer",[]],
     ["ui.visualization.legendFolderNote","Items inside folders show by type when expanded",[]],
