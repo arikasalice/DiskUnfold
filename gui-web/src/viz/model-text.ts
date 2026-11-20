@@ -114,9 +114,11 @@ export function shapeLabels(
   );
   // Every shape is named alike: name, value, share of the scope, its flags
   // (F06 README 10, 35); no internal marks such as class or origin.
-  const accessibleLabel = [placed, ...shape.displayFlags.map(text.key)].join(
-    ", ",
-  );
+  // Without its row the share is unknown and is left out (README 35).
+  const accessibleLabel = [
+    row ? placed : `${name}, ${value}`,
+    ...shape.displayFlags.map(text.key),
+  ].join(", ");
   return {
     accessibleLabel,
     ...(place.childCount ? { container: true } : {}),

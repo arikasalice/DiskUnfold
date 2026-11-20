@@ -164,8 +164,9 @@ test("F06 README 35: a folder stands where its header band is; the arrow goes to
   expect(document.activeElement).toBe(option("album-a"));
   fireEvent.keyDown(option("album-a"), { key: "ArrowUp" });
   expect(document.activeElement).toBe(option("Photos"));
+  // Down from the header: a shape of the first row inside, the one nearest its centre.
   fireEvent.keyDown(option("Photos"), { key: "ArrowDown" });
-  expect(document.activeElement).toBe(option("album-a"));
+  expect(document.activeElement).toBe(option("album-b"));
 });
 
 test("F06 README 10: a wide shape's right neighbour is the shape level with it, not one nearer below", () => {

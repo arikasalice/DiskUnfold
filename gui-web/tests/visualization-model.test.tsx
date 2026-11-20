@@ -428,8 +428,8 @@ test("a loaded page does not imply that names of shapes outside the page are loa
   const adapted = adapt(input);
   expect(adapted.rowsMatch).toBe(true);
   expect(adapted.shapes[2]!.displayLabel).toBe("");
-  expect(adapted.shapes[2]!.accessibleLabel).toContain(
-    "Item name not yet retrieved · 17179869184 bytes · measured",
+  expect(adapted.shapes[2]!.accessibleLabel).toBe(
+    "Item name not yet retrieved, 17179869184 bytes · measured",
   );
   expect(adapted.shapes[2]!.geometry).toBe(
     input.frame.model.shapes[2]!.geometry,

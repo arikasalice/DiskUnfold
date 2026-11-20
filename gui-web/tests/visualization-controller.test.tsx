@@ -163,7 +163,9 @@ test("F06 README 22, 34: Enter on an item does nothing else and says why; Esc un
   shape.focus();
   fireEvent.keyDown(shape, { key: "Enter", code: "Enter" });
   expect(
-    screen.getByText(fixtureText.message("itemOpenUnavailable")),
+    screen.getByText(fixtureText.message("itemOpenUnavailable"), {
+      selector: "p",
+    }),
   ).toBeTruthy();
   expect(controller.getSnapshot().selection).toBeNull();
   fireEvent.keyDown(shape, { key: " ", code: "Space" });
@@ -1746,7 +1748,9 @@ test.each(["en", "ko"] as const)(
     ).getAllByRole("option")[0]!;
     expect(target).not.toBe(old);
     expect(document.activeElement).toBe(target);
-    expect(screen.getByText(text.message("focusMovedNearby"))).toBeTruthy();
+    expect(
+      screen.getByText(text.message("focusMovedNearby"), { selector: "p" }),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Choose another item|다른 항목/ }),
     ).toBeNull();
