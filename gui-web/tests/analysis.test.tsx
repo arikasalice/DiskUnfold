@@ -1644,8 +1644,8 @@ test("F21 F24: history and a pinned result recover separately after a shared del
           summary: {
             kindId: "scan.metadata",
             kindVersion: 1,
-            scopeSummary: changed ? "New history" : "Previous history",
-            state: "done",
+            scopeSummary: "metadata: 1 root",
+            state: changed ? "failed" : "cancelled",
             counts: null,
             startedAtMs: null,
             finishedAtMs: null,
@@ -1660,12 +1660,21 @@ test("F21 F24: history and a pinned result recover separately after a shared del
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
   fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
-  await screen.findByText("Previous history");
+  const history = await screen.findByRole("table", {
+    name: "Operation history",
+  });
+  await within(history).findByText("Cancelled");
   changed = true;
   passReflectInterval();
   notifyResult(listeners, "job.resync_required", {});
-  await screen.findByText("New history");
-  expect(screen.queryByText("Previous history")).toBeNull();
+  await within(
+    screen.getByRole("table", { name: "Operation history" }),
+  ).findByText("Failed");
+  expect(
+    within(
+      screen.getByRole("table", { name: "Operation history" }),
+    ).queryByText("Cancelled"),
+  ).toBeNull();
   expect(lists).toBe(2);
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   expect(await screen.findByText("Result version: Final")).toBeDefined();

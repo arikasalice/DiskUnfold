@@ -145,17 +145,9 @@
   padding-inline: 8px;
 }
 
-.du-history-operation,
-.du-history-operation > div {
+.du-history-operation {
   min-inline-size: 0;
   max-inline-size: 100%;
-}
-
-.du-history-operation .du-text,
-.du-history-item-location .du-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .du-history-operation .du-text--body {
@@ -258,7 +250,8 @@
   scroll-padding-block-start: 36px;
 }
 
-.du-history-item-location .du-text {
+.du-history-item-location {
+  min-inline-size: 0;
   font-size: 13px;
 }
 

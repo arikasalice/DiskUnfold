@@ -303,8 +303,10 @@ test.each(["history.changed", "job.resync_required"])(
     );
     expect(refreshFrame).toBeDefined();
     await act(async () => finishPage?.(response([deleted])));
-    expect(screen.queryByText("Deleted folder")).toBeNull();
-    expect(screen.queryByText("1 folder")).toBeNull();
+    // Neither the dropped page nor the earlier rows are shown.
+    expect(
+      screen.queryAllByRole("button", { name: /^View details:/ }),
+    ).toHaveLength(0);
     expect(call).toHaveBeenCalledTimes(2);
     act(() => refreshFrame?.(0));
     await screen.findByText("No operations recorded yet.");
@@ -464,7 +466,8 @@ test("virtualizes a long history and keeps the loaded count outside the scrollin
   );
   const table = await screen.findByRole("table", { name: "Operation history" });
   expect(within(table).getAllByRole("row").length).toBeLessThan(40);
-  expect(screen.queryByText("Recorded target 80")).toBeNull();
+  const last = () => table.querySelector('[aria-rowindex="81"]');
+  expect(last()).toBeNull();
   const region = screen.getByRole("region", {
     name: "Operation history scroll area",
   });
@@ -473,7 +476,7 @@ test("virtualizes a long history and keeps the loaded count outside the scrollin
     configurable: true,
   });
   fireEvent.scroll(region);
-  expect(screen.getByText("Recorded target 80")).toBeDefined();
+  expect(last()).not.toBeNull();
   expect(screen.getByText("80 records shown")).toBeDefined();
   expect(table.getAttribute("aria-rowcount")).toBe("81");
 });

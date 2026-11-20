@@ -541,11 +541,11 @@ ui.history.no_restore_information
 ui.history.notes
 ui.history.observed_size
 ui.history.observed_size_notes
+ui.history.operation
 ui.history.operation_details
 ui.history.operation_details_load_failed
 ui.history.operation_history
 ui.history.operation_information_unavailable
-ui.history.operation_recorded_target
 ui.history.operation_summary
 ui.history.operation_summary_unavailable
 ui.history.operation_type_code
@@ -600,7 +600,7 @@ ui.history.time_unavailable
 ui.history.unavailable
 ui.history.unavailable_count
 ui.history.view
-ui.history.view_details_aria name:name time:name target:path
+ui.history.view_details_aria name:name time:name
 ui.history.view_item
 ui.history.view_previous_record
 ui.history.view_record

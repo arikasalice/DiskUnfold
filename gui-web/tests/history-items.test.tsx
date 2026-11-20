@@ -49,7 +49,8 @@ const client = (call: ReturnType<typeof vi.fn>) =>
 test("shows separate counts, recorded locations, and display-only displaced details", async () => {
   const call = vi.fn().mockResolvedValue(page("one"));
   render(<HistoryItems client={client(call)} jobRef="job" />);
-  expect(await screen.findByText("Historical one")).toBeDefined();
+  // The cell draws the location and reads it from a hidden copy.
+  expect(await screen.findAllByText("Historical one")).not.toHaveLength(0);
   expect(
     screen.getByRole("columnheader", { name: "Recorded location" }),
   ).toBeDefined();
@@ -153,7 +154,7 @@ test("retains missing information across pages and focuses displaced details", a
   fireEvent.click(
     await screen.findByRole("button", { name: "Load more items" }),
   );
-  await screen.findByText("Historical second");
+  await screen.findAllByText("Historical second");
   expect(screen.getByText(/Some records could not be read/)).toBeDefined();
   expect(
     within(screen.getByRole("table", { name: "Item results" })).getByText(
@@ -242,4 +243,54 @@ test("opens a full recorded item with a long location, lower-bound size and ever
   expect(screen.queryByText("private.reason-key")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Close details" }));
   expect(document.activeElement).toBe(open);
+});
+
+// #170, F02 README: the location keeps the end of the path, takes no tab stop
+// even when cut, has no browser title, and marks the edge spaces of its name.
+test("the recorded location keeps its end, takes no tab stop and marks edge spaces", async () => {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => 40,
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get: () => 400,
+  });
+  try {
+    const spaced = page("spaced");
+    const location =
+      "C:\\Users\\someone\\Documents\\Projects\\2026\\quarterly report.xlsx ";
+    spaced.rows[0]!.result!.locationDisplay = location;
+    const { container } = render(
+      <HistoryItems
+        client={client(vi.fn().mockResolvedValue(spaced))}
+        jobRef="job"
+      />,
+    );
+    await screen.findByRole("button", {
+      name: "View displaced item details, item 0",
+    });
+    const cell = container.querySelector(".du-history-item-location")!;
+    expect(cell.querySelector("[title]")).toBeNull();
+    expect(cell.hasAttribute("title")).toBe(false);
+    const frame = cell.querySelector(".du-fit")!;
+    expect(frame.hasAttribute("tabindex")).toBe(false);
+    expect(frame.hasAttribute("role")).toBe(false);
+    // The end of the path stays whole, with the extension and the mark.
+    const end = cell.querySelector(".du-middle__end")!;
+    expect(end.textContent).toContain(".xlsx");
+    expect(cell.querySelectorAll(".du-middle .du-name__mark")).toHaveLength(1);
+    // Screen readers hear the full path and that the name ends with a space.
+    const heard = cell.querySelector(":scope .du-fit > .du-visually-hidden")!;
+    const copy = heard.cloneNode(true) as Element;
+    copy
+      .querySelectorAll('[aria-hidden="true"]')
+      .forEach((node) => node.remove());
+    expect(copy.textContent).toBe(location + ", The name ends with 1 space");
+    // The pointer's full text draws the mark too.
+    expect(cell.querySelector(".du-fit__full .du-name__mark")).not.toBeNull();
+  } finally {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
+  }
 });

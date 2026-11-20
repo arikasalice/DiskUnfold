@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { graphemes } from "./graphemes";
 import { isImeProcessingKey } from "./ime-composition";
+import { NAME_SPACE_MARK, pathNameEdges } from "./name-edges";
+import { NameText, hasPathSeparator } from "./name-text";
 import "../theme/text-fit.css";
+import "../theme/name-text.css";
 
 /** Longest tail, in characters, kept when a text has no path structure to follow. */
 const MIDDLE_TAIL_LIMIT = 16;
@@ -84,18 +87,27 @@ function useOverflow(
  *
  * With `wholeCopy`, copying a selection that lies inside the frame puts the
  * full text on the clipboard once, whatever part of it is visible.
+ *
+ * With `focusable` false, as in a table cell, a cut frame takes no tab stop
+ * and no role; the full text shows after the pointer rests on it for a moment,
+ * and the content still carries the whole text for assistive technology.
  */
 function CutTextFrame({
   text,
+  full = text,
   cut,
   className,
   wholeCopy = false,
+  focusable = true,
   children,
 }: {
   text: string;
+  /** The full text as shown in the aid; `text` by default. */
+  full?: ReactNode;
   cut: boolean;
   className: string;
   wholeCopy?: boolean;
+  focusable?: boolean;
   children: ReactNode;
 }) {
   const [dismissed, setDismissed] = useState(false);
@@ -118,9 +130,9 @@ function CutTextFrame({
 
   return (
     <span
-      className={`du-fit ${className}`}
-      tabIndex={cut ? 0 : undefined}
-      role={cut ? "note" : undefined}
+      className={`du-fit ${className}${focusable ? "" : " du-fit--cell"}`}
+      tabIndex={cut && focusable ? 0 : undefined}
+      role={cut && focusable ? "note" : undefined}
       data-dismissed={dismissed || undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
@@ -161,7 +173,7 @@ function CutTextFrame({
       {children}
       {cut && (
         <span className="du-fit__full" dir="auto" aria-hidden>
-          {text}
+          {full}
         </span>
       )}
     </span>
@@ -223,6 +235,70 @@ export function splitForMiddleEllipsis(text: string): {
 }
 
 /**
+ * Splits the tail of a middle ellipsis into the part that may shrink and the
+ * end that stays, so a last component wider than the line keeps its extension
+ * (or its last characters) and loses characters in its middle instead.
+ */
+function splitTailEnd(tail: string): { name: string; end: string } {
+  const units = graphemes(tail);
+  let component = units.length;
+  while (component > 0 && !isSeparator(units[component - 1])) component -= 1;
+  const dot = units.lastIndexOf(".");
+  const extension =
+    dot > component && units.length - dot <= 12 ? dot : undefined;
+  const start =
+    extension ??
+    units.length - Math.min(6, Math.floor((units.length - component) / 3));
+  return {
+    name: units.slice(0, start).join(""),
+    end: units.slice(start).join(""),
+  };
+}
+
+/** UTF-16 ranges of the edge white space of a path's last component. */
+function edgeRanges(text: string): [number, number][] {
+  const { head, name } = pathNameEdges(text);
+  const start = head.length;
+  const trailing = start + name.leading.length + name.middle.length;
+  return [
+    [start, start + name.leading.length],
+    [trailing, trailing + name.trailing.length],
+  ];
+}
+
+/**
+ * `part`, which starts at `offset` in its text, with the characters inside
+ * `ranges` kept for copying and drawn as "\u2423" marks.
+ */
+function marked(
+  part: string,
+  offset: number,
+  ranges: readonly [number, number][],
+): ReactNode {
+  const nodes: ReactNode[] = [];
+  let at = 0;
+  for (const [from, to] of ranges) {
+    const start = Math.max(from - offset, at);
+    const end = Math.min(to - offset, part.length);
+    if (start >= end) continue;
+    if (start > at) nodes.push(part.slice(at, start));
+    const spaces = part.slice(start, end);
+    nodes.push(
+      <span key={start}>
+        <span className="du-name__space">{spaces}</span>
+        <span className="du-name__mark">
+          {NAME_SPACE_MARK.repeat(Array.from(spaces).length)}
+        </span>
+      </span>,
+    );
+    at = end;
+  }
+  if (nodes.length === 0) return part;
+  if (at < part.length) nodes.push(part.slice(at));
+  return nodes;
+}
+
+/**
  * A path or file name on one line with the ellipsis in the middle.
  *
  * The visible parts are hidden from assistive technology and a visually
@@ -230,28 +306,63 @@ export function splitForMiddleEllipsis(text: string): {
  * text is cut, the element takes focus and shows the full text, and a copy of
  * the selection gives the full path once.
  *
+ * The last component keeps its extension: when it is wider than the line by
+ * itself, its middle is cut too. The edge white space of the last component
+ * is drawn as "\u2423" on screen and in the full text, and screen readers hear
+ * the explanation after the path, as `NameText` reads it.
+ *
+ * With `cell`, for a table cell, a cut text takes no tab stop: the row's own
+ * details give keyboard users the full value (F02 README #170).
+ *
  * The container takes its direction from the whole text (`dir="auto"`) and
  * both parts are bidi isolates that inherit it, so the two flex items stand in
  * the order of the unsplit text and a right-to-left name does not swap sides.
  */
-export function MiddleEllipsisText({ text }: { text: string }) {
+export function MiddleEllipsisText({
+  text,
+  cell = false,
+}: {
+  text: string;
+  /** Inside a table cell: no tab stop when cut (F02 README #170). */
+  cell?: boolean;
+}) {
   const head = useRef<HTMLSpanElement>(null);
   const tail = useRef<HTMLSpanElement>(null);
-  const refs = useRef([head, tail]).current;
+  const tailName = useRef<HTMLSpanElement>(null);
+  const refs = useRef([head, tail, tailName]).current;
   const cut = useOverflow(refs, text);
   const parts = splitForMiddleEllipsis(text);
+  const tailParts = splitTailEnd(parts.tail);
+  const ranges = edgeRanges(text);
+  const path = hasPathSeparator(text);
   return (
-    <CutTextFrame text={text} cut={cut} className="du-fit--line" wholeCopy>
+    <CutTextFrame
+      text={text}
+      full={<NameText name={text} path={path} />}
+      cut={cut}
+      className="du-fit--line"
+      wholeCopy
+      focusable={!cell}
+    >
       <span className="du-middle" dir="auto">
         <span ref={head} className="du-middle__head" aria-hidden>
-          {parts.head}
+          {marked(parts.head, 0, ranges)}
         </span>
         <span ref={tail} className="du-middle__tail" aria-hidden>
-          {parts.tail}
+          <span ref={tailName} className="du-middle__name">
+            {marked(tailParts.name, parts.head.length, ranges)}
+          </span>
+          <span className="du-middle__end">
+            {marked(
+              tailParts.end,
+              parts.head.length + tailParts.name.length,
+              ranges,
+            )}
+          </span>
         </span>
       </span>
       <span className="du-visually-hidden" dir="auto">
-        {text}
+        <NameText name={text} path={path} />
       </span>
     </CutTextFrame>
   );

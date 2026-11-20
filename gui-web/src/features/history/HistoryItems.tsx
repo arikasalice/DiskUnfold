@@ -4,6 +4,7 @@ import {
   DataTable,
   DetailDisclosure,
   Heading,
+  MiddleEllipsisText,
   NameText,
   Notice,
   Progress,
@@ -411,12 +412,10 @@ function cells(
   const flags = itemFlags(result, text);
   const size = observedSize(result, text);
   return [
-    <div
-      className="du-history-item-location"
-      key="location"
-      title={result.locationDisplay}
-    >
-      <Text>{result.locationDisplay}</Text>
+    // F02 README #170: the end of the path stays; the full path is read by
+    // screen readers, shown to a resting pointer and given by "View".
+    <div className="du-history-item-location" key="location">
+      <MiddleEllipsisText text={result.locationDisplay} cell />
     </div>,
     filters.find((filter) => filter.value === result.outcome)?.label ??
       text("ui.history.outcome_unavailable", "Outcome unavailable"),
