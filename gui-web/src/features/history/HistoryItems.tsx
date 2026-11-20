@@ -408,7 +408,7 @@ function RecordedItemDetails({
               {
                 label: text(
                   "ui.history.time_moved_to_trash",
-                  "Time moved to trash",
+                  "Time moved to Recycle Bin",
                 ),
                 value: displayTime(
                   displaced.trashedAtMs,
@@ -428,7 +428,7 @@ function RecordedItemDetails({
           <Notice>
             {text(
               "ui.history.check_os_trash",
-              "Check the operating system trash directly using the recorded information.",
+              "Use the recorded details to check the Recycle Bin yourself.",
             )}
           </Notice>
         </>

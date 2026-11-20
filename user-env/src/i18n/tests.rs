@@ -32,6 +32,12 @@ fn parse(bytes: &[u8]) -> Result<Bundle, RegistrationError> {
 
 const EN: &[u8] = br#"{"language":"en","messages":[["hello","count"]]}"#;
 const KO: &[u8] = br#"{"language":"ko","messages":[["hello","count"]]}"#;
+const EN_VARIANT: &[u8] =
+    br#"{"language":"en","messages":[["ui.hello","count"],["ui.hello.unix","count"]]}"#;
+const EN_VARIANT_PARAMETER_MISMATCH: &[u8] =
+    br#"{"language":"en","messages":[["ui.hello","count"],["ui.hello.unix","number"]]}"#;
+const EN_VARIANT_WITHOUT_BASE: &[u8] =
+    br#"{"language":"en","messages":[["ui.hello.unix","count"]]}"#;
 
 fn resource<'a>(language: &'a str, bytes: &'a [u8]) -> BundleResource<'a> {
     BundleResource {
@@ -76,6 +82,30 @@ fn registers_and_checks_parameters() -> Result<(), RegistrationError> {
     );
     assert_eq!(parameter_mismatches(&registry, &declarations).len(), 2);
     Ok(())
+}
+
+#[test]
+fn rejects_variants_without_a_base_or_with_different_parameters() {
+    assert!(register(&[resource("en", EN_VARIANT)], &["ui.hello.unix"], &[]).is_err());
+    assert!(
+        register(
+            &[resource("en", EN_VARIANT_PARAMETER_MISMATCH)],
+            &["ui.hello", "ui.hello.unix"],
+            &[],
+        )
+        .is_err()
+    );
+    assert!(
+        register(
+            &[resource("en", EN_VARIANT)],
+            &["ui.hello", "ui.hello.unix"],
+            &[]
+        )
+        .is_ok()
+    );
+    // Declarations stay optional: a bundle checks its variants against its own base keys.
+    assert!(register(&[resource("en", EN_VARIANT)], &[], &[]).is_ok());
+    assert!(register(&[resource("en", EN_VARIANT_WITHOUT_BASE)], &[], &[]).is_err());
 }
 
 #[test]

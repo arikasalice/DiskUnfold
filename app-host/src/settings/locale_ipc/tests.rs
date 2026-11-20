@@ -156,6 +156,12 @@ fn profile_get_uses_os_source_and_explicit_same_language_persists_source_once()
     let initial = call(&engine, "i18n.get_profile", json!({}))?;
     assert!(initial.error.is_none());
     assert_eq!(initial.body["displayLanguage"], "en");
+    let target_os_family = if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    assert_eq!(initial.body["osFamily"], target_os_family);
     assert_eq!(initial.body["languageSource"], "os");
     assert_eq!(initial.body["profileRevision"], "0");
     assert_eq!(initial.body["supportedLanguages"][0]["language"], "en");

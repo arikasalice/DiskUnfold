@@ -521,6 +521,10 @@ export type LocaleProfile = {
  */
 displayLanguage: string,
 /**
+ * Operating-system family of the host returning this profile; older hosts omit it.
+ */
+osFamily?: SupportOsFamily,
+/**
  * Source that selected the startup display language.
  */
 languageSource: LocaleLanguageSource,

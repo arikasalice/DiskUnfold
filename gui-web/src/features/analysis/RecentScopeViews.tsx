@@ -399,7 +399,7 @@ function SavedConditions({ draft }: { draft: ScopeDraft }) {
             {draft.boundary === "current_volume"
               ? text(
                   "ui.analysis.stay_within_current_volume",
-                  "Stay within each current volume",
+                  "Stay within each current drive",
                 )
               : text(
                   "ui.analysis.include_mounted_volumes",
@@ -506,7 +506,7 @@ function CurrentPathRow({ target }: { target: RecentScopeOpenTarget }) {
       {target.state === "moved" && target.proposedEntry && (
         <div className="du-recent-scopes__proposed">
           <Text kind="muted">
-            {text("ui.analysis.current_volume_entry", "Current volume entry:")}
+            {text("ui.analysis.current_volume_entry", "Current drive entry:")}
           </Text>
           <PathValue
             value={target.proposedEntry.display}

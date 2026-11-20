@@ -102,7 +102,7 @@ test("explicit scan uses the restored native paths, conditions and review", asyn
   expect(
     (
       screen.getByRole("textbox", {
-        name: "Windows folder path",
+        name: "Folder path",
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
@@ -128,7 +128,7 @@ test("reopening a saved scope protects a partially filled draft", async () => {
   const { calls, client } = fixture();
   render(<App analysis={client} />);
   const primary = screen.getByRole<HTMLInputElement>("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   fireEvent.change(primary, { target: { value: "C:\\unfinished" } });
   fireEvent.click(screen.getByRole("button", { name: "Add path" }));

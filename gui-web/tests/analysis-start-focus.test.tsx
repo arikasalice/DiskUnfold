@@ -69,9 +69,7 @@ test("starting from the target editor of a result leaves the focus on the screen
   scan.job.sequence += 1;
   fireEvent.click(start);
   await waitFor(() =>
-    expect(
-      screen.queryByRole("textbox", { name: "Windows folder path" }),
-    ).toBeNull(),
+    expect(screen.queryByRole("textbox", { name: "Folder path" })).toBeNull(),
   );
   expect(document.activeElement).toBe(title());
 });

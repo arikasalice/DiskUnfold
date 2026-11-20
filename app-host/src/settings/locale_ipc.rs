@@ -298,6 +298,15 @@ fn current_profile_from_inventory(
     let revision = service.snapshot().revision;
     Ok(LocaleProfile {
         display_language: language,
+        os_family: Some(if cfg!(target_os = "windows") {
+            du_core_contracts::product_support::SupportOsFamily::Windows
+        } else if cfg!(target_os = "macos") {
+            du_core_contracts::product_support::SupportOsFamily::Macos
+        } else if cfg!(target_os = "linux") {
+            du_core_contracts::product_support::SupportOsFamily::Linux
+        } else {
+            du_core_contracts::product_support::SupportOsFamily::Unknown
+        }),
         language_source,
         date_format: date_format(service)?,
         number_format: number_format(service)?,

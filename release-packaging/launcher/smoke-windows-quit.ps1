@@ -71,8 +71,8 @@ $button = [Windows.Automation.ControlType]::Button
 $edit = [Windows.Automation.ControlType]::Edit
 # UI Automation names from user-env/i18n for the two shipped locales.
 $names = @{
-  en = @{ path = 'Windows folder path'; review = 'Review scope'; start = 'Start analysis'; cancel = 'Cancel scan'; finished = 'Scan finished' }
-  ko = @{ path = 'Windows 폴더 경로'; review = '분석 범위 검토'; start = '분석 시작'; cancel = '스캔 취소'; finished = '스캔 완료' }
+  en = @{ path = 'Folder path'; review = 'Review scope'; start = 'Start analysis'; cancel = 'Cancel scan'; finished = 'Scan finished' }
+  ko = @{ path = '폴더 경로'; review = '분석 범위 검토'; start = '분석 시작'; cancel = '스캔 취소'; finished = '스캔 완료' }
 }
 $environment = @{ LOCALAPPDATA = $profileDir; DISKUNFOLD_DATA_DIR = $dataDir }
 if ($ProbeIpc) { $environment.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort" }

@@ -773,17 +773,17 @@ function Test-PhysicalAccounting {
 # Reopen target selection when the analysis workspace shows a pinned result.
 function Open-TargetEditor {
   $entry = Wait-UI 'target input or reanalysis action' {
-    $field = Find-UI 'Windows folder path' $edit
+    $field = Find-UI 'Folder path' $edit
     if ($field) { return $field }
     $opener = Find-UI 'Analyze again' $button
     if ($opener -and $opener.Current.IsEnabled) { return $opener }
   }
   if ($entry.Current.ControlType -eq $button) {
     Expand-UI $entry
-    $null = Wait-UI 'reopened target input' { Find-UI 'Windows folder path' $edit }
+    $null = Wait-UI 'reopened target input' { Find-UI 'Folder path' $edit }
   }
 }
-function Set-Scope($path, $fieldName = 'Windows folder path') {
+function Set-Scope($path, $fieldName = 'Folder path') {
   Open-TargetEditor
   $item = Wait-UI $fieldName { Find-UI $fieldName $edit }
   $pattern = $item.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
@@ -850,13 +850,13 @@ function Test-NativeFolderDrop {
   Set-Scope $scanRoot
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   $null = Wait-Enabled 'Start analysis' $true
-  Write-Host "Within 120 seconds, drag this isolated folder from Explorer onto the Windows folder path field: $child"
+  Write-Host "Within 120 seconds, drag this isolated folder from Explorer onto the Folder path field: $child"
   $deadline = [DateTime]::UtcNow.AddSeconds(120)
   $received = $false
   do {
     if ($process.HasExited) { throw 'Application exited while waiting for native folder drop' }
     try {
-      $field = Find-UI 'Windows folder path' $edit
+      $field = Find-UI 'Folder path' $edit
       $notice = Find-UI 'Folder selected. Review scope.' $textType
       if ($field -and $notice) {
         $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
@@ -1014,13 +1014,13 @@ function Test-InitialDrive {
       if ($radio -and $radio.Current.IsEnabled -and -not $radio.Current.IsOffscreen) { $radio }
     }
     $null = Wait-UI 'initial path visible' {
-      $field = Find-UI 'Windows folder path' $edit
+      $field = Find-UI 'Folder path' $edit
       if ($field -and -not $field.Current.IsOffscreen) { $field }
     }
     Wait-ScopeActionsVisible
     $option.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $null = Wait-UI 'drive path selected' {
-      $field = Find-UI 'Windows folder path' $edit
+      $field = Find-UI 'Folder path' $edit
       $field -and $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq $drive
     }
     $null = Wait-Enabled 'Start analysis' $false
@@ -1196,27 +1196,27 @@ function Test-KoreanIme($field, $directory) {
 }
 function Test-LocaleSwitch {
   $field = Wait-UI 'localized path field' {
-    $inputField = Find-UI 'Windows folder path' $edit
-    if (-not $inputField) { $inputField = Find-UI 'Windows 폴더 경로' $edit }
+    $inputField = Find-UI 'Folder path' $edit
+    if (-not $inputField) { $inputField = Find-UI '폴더 경로' $edit }
     $inputField
   }
   $value = $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
   $draftPath = Join-Path $root 'locale-scope'
   New-Item -ItemType Directory -Path $draftPath | Out-Null
   $value.SetValue($draftPath)
-  if ($field.Current.Name -eq 'Windows folder path') {
+  if ($field.Current.Name -eq 'Folder path') {
     Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
   } else {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
     Select-SmokeLanguage 'Language and display' 'Display language' '한국어' '표시 언어' '닫기'
   }
-  $localized = Wait-UI 'Korean path field' { Find-UI 'Windows 폴더 경로' $edit }
+  $localized = Wait-UI 'Korean path field' { Find-UI '폴더 경로' $edit }
   if ($localized.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $draftPath) {
     throw 'Locale switch discarded the current scope draft'
   }
   if ($VerifyKoreanIme) { Test-KoreanIme $localized $draftPath }
   Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
-  $english = Wait-UI 'English path field' { Find-UI 'Windows folder path' $edit }
+  $english = Wait-UI 'English path field' { Find-UI 'Folder path' $edit }
   $english.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue('')
   'F13 native locale: switched between Korean and English without discarding the scope draft'
 }
@@ -1372,7 +1372,7 @@ function Restart-SmokeApplication {
     if ($process.MainWindowHandle -ne 0) { $ae::FromHandle($process.MainWindowHandle) }
   }
   if ($WindowSize) { Set-SmokeWindowSize $WindowSize }
-  $null = Wait-UI 'path field after restart' { Find-UI 'Windows folder path' $edit }
+  $null = Wait-UI 'path field after restart' { Find-UI 'Folder path' $edit }
 }
 # Scan the fixture, open the browse screen and return its virtual-group entry button.
 # Without $total the scan is only waited for until it has finished (large fixtures).
@@ -2354,7 +2354,7 @@ function Test-VirtualGroups {
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
-  $null = Wait-UI 'path field' { Find-UI 'Windows folder path' $edit }
+  $null = Wait-UI 'path field' { Find-UI 'Folder path' $edit }
   if ($CaptureTour) { Test-CaptureTour }
   if ($CaptureTreemap) { Test-CaptureTreemap }
   if ($CaptureFallbackTable) { Test-CaptureFallbackTable }
@@ -2453,13 +2453,13 @@ function Test-VirtualGroups {
     if ($VerifyRecentScope) { Test-RecentScopeReopen }
     if ($VerifyOperationHistory) { Test-OperationHistory }
     $null = Wait-VisibleAction 'Analyze again'
-    $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Windows folder path' $edit) }
+    $null = Wait-UI 'target editor collapsed after accepted scan' { -not (Find-UI 'Folder path' $edit) }
     Set-Scope $child
     Invoke-UI (Wait-VisibleAction 'Review scope')
     $null = Wait-Enabled 'Start analysis' $true
     Invoke-UI (Wait-VisibleAction 'Cancel selection')
     $null = Wait-UI 'discarded scope and retained final total' {
-      $field = Find-UI 'Windows folder path' $edit
+      $field = Find-UI 'Folder path' $edit
       if ($field -and (Find-ResultVersionLabel 'Final') -and
           $field.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -eq '') {
         Find-LogicalSize '18 bytes'
@@ -2469,7 +2469,7 @@ function Test-VirtualGroups {
     'F01 native selection cancellation: discarded reviewed scope and retained the final 18-byte result'
     Invoke-UI (Wait-VisibleAction 'Close target editor')
     $null = Wait-UI 'target editor closed with the result still visible' {
-      if (-not (Find-UI 'Windows folder path' $edit)) {
+      if (-not (Find-UI 'Folder path' $edit)) {
         Find-LogicalSize '18 bytes'
       }
     }
