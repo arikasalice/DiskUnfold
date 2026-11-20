@@ -1,7 +1,7 @@
 #![cfg(windows)]
-use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{
-    AnchoredDirectory, DirectoryObservations, ObservedKind, ScopeRootPort,
+    AnchoredDirectory, DeviceKind, DirectoryObservations, ObservedKind, ObservedValue,
+    ScopeRootPort,
 };
 use du_core_contracts::volume::CapabilityState;
 use du_platform_os::windows_observation::{WindowsScopeRoots, open_verified};
@@ -47,15 +47,19 @@ fn windows_scope_root_reports_device_probe() -> Result<(), Box<dyn std::error::E
         .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
     let device = root.directory.device();
     eprintln!("Windows scope-root device: {device:?}");
-    if device.kind_capability.state != CapabilityState::Supported {
-        return Err(std::io::Error::other("scope-root device kind was not detected").into());
-    }
-    if !device
-        .disk_key
-        .as_deref()
-        .is_some_and(|key| key.starts_with(b"win:disk:"))
-    {
-        return Err(std::io::Error::other("scope-root disk key was missing or malformed").into());
+    // Virtual disks (CI runners, the DU-Test VM) may not report a seek penalty.
+    let detected = device.kind != DeviceKind::Unknown;
+    let kind_ok = detected == (device.kind_capability.state == CapabilityState::Supported)
+        && (detected || device.kind_capability.reason_key.is_some());
+    let key_ok = match device.disk_key.as_deref() {
+        Some(key) => {
+            key.starts_with(b"win:disk:")
+                && device.disk_capability.state == CapabilityState::Supported
+        }
+        None => device.disk_capability.reason_key.is_some(),
+    };
+    if !kind_ok || !key_ok {
+        return Err(std::io::Error::other("device values and capabilities disagree").into());
     }
     Ok(())
 }
