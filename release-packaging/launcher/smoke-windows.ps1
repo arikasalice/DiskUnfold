@@ -1361,7 +1361,7 @@ function Test-CaptureTreemap {
     ($names | Where-Object { $_ -like 'Photos, *' }) -and
     ($names | Where-Object { $_ -like 'album-a.bin, *Photos*' }) -and
     ($names | Where-Object { $_ -like "$group, *Photos*" }) -and
-    ($names | Where-Object { $_ -like 'Tiny · *' })
+    ($names | Where-Object { $_ -like 'Tiny, *' })
   } 60
   if (Get-UINames | Where-Object { $_ -like 'tiny-*' }) { throw 'Tiny was expanded below its header band minimum' }
   Save-SmokeCapture '01-treemap-depth2'
