@@ -80,6 +80,24 @@ const issueReasons = new Map<string, Message>([
     ["ui.analysis.issue_reason_unverified", "The item could not be verified"],
   ],
   [
+    "scan.item_replaced",
+    [
+      "ui.analysis.issue_reason_replaced",
+      "Replaced by another item during the scan",
+    ],
+  ],
+  [
+    "scan.item_kind_changed",
+    [
+      "ui.analysis.issue_reason_kind_changed",
+      "Its type changed during the scan",
+    ],
+  ],
+  [
+    "scan.item_unverifiable",
+    ["ui.analysis.issue_reason_unverified", "The item could not be verified"],
+  ],
+  [
     "scan.link_untraversed",
     ["ui.analysis.issue_reason_link_skipped", "The link target was skipped"],
   ],

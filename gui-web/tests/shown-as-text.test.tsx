@@ -114,13 +114,13 @@ test.each([
       kind: { state: "present", value: kind as never },
     };
     inspect(detail, korean);
-    await screen.findByText("종류");
-    expect(rowOf("종류").getByText(koreanName)).toBeDefined();
+    await screen.findByText("유형");
+    expect(rowOf("유형").getByText(koreanName)).toBeDefined();
     expect(screen.queryByText(kind)).toBeNull();
     cleanup();
     inspect(detail, english);
-    await screen.findByText("Kind");
-    expect(rowOf("Kind").getByText(englishName)).toBeDefined();
+    await screen.findByText("Type");
+    expect(rowOf("Type").getByText(englishName)).toBeDefined();
     expect(screen.queryByText(kind)).toBeNull();
   },
 );
@@ -142,7 +142,7 @@ test("diagnostic reasons read as one line per field: its label, then why", async
   fireEvent.click(toggle);
   for (const line of [
     "폴더 이름: 이 결과에 값이 없습니다.",
-    "종류: 알 수 없는 사유 (future.reason)",
+    "유형: 알 수 없는 사유 (future.reason)",
     "할당 크기: 일부 공간 데이터를 확인할 수 없습니다.",
     ko("ui.inspection.created") + ": 이 결과에 값이 없습니다.",
   ])
@@ -161,7 +161,7 @@ test("diagnostic reasons name the file name of a file, and read in English witho
   );
   for (const line of [
     "File name: Not included in this result",
-    "Kind: Unknown reason (future.reason)",
+    "Type: Unknown reason (future.reason)",
     "Allocated size: Some space data could not be verified",
     "Created: Not included in this result",
   ])

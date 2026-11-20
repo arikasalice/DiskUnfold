@@ -1021,6 +1021,8 @@ ui.analysis.issue_stage_traverse
 ui.analysis.issue_reason_access_denied
 ui.analysis.issue_reason_path_missing
 ui.analysis.issue_reason_unverified
+ui.analysis.issue_reason_replaced
+ui.analysis.issue_reason_kind_changed
 ui.analysis.issue_reason_link_skipped
 ui.analysis.issue_reason_other_volume
 ui.analysis.issue_reason_already_covered

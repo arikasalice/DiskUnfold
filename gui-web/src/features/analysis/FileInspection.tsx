@@ -93,7 +93,7 @@ function diagnostics(
       detail.displayName,
     ],
     [text("ui.inspection.path", "Path"), detail.displayPath],
-    [text("ui.inspection.kind", "Kind"), detail.kind],
+    [text("ui.inspection.kind", "Type"), detail.kind],
     [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
     [
       text("ui.analysis.allocated_size", "Allocated size"),
@@ -224,7 +224,7 @@ function attributes(
       ),
     },
     {
-      label: text("ui.inspection.kind", "Kind"),
+      label: text("ui.inspection.kind", "Type"),
       value: attribute(detail.kind, (kind) => kindText(kind, text), text),
     },
   ];
