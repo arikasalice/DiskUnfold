@@ -53,7 +53,13 @@ fn a_scan_of_a_real_folder_reports_its_end_and_warns_that_history_is_not_recorde
     fs::write(folder.path().join("two.bin"), [2_u8; 5])?;
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
-    let root = folder.path().to_string_lossy().into_owned();
+    // Scope review does not follow links in a selected path, and the macOS
+    // temporary folder sits under /var, a link to /private/var.
+    #[cfg(not(windows))]
+    let base = fs::canonicalize(folder.path())?;
+    #[cfg(windows)]
+    let base = folder.path().to_path_buf();
+    let root = base.to_string_lossy().into_owned();
     let scan = scan(&["--format", "json", &root])?;
     let engine = engine()?;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
