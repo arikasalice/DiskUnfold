@@ -22,7 +22,7 @@ import type {
 import type { BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
-import { copyDisabled, scanStatus, size } from "./browse-cells";
+import { copyDisabled, notCounted, scanStatus, size } from "./browse-cells";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampParts } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
@@ -432,12 +432,11 @@ export function BrowseResults({
                     : // A kind this screen has no name for; the kind was decided.
                       text("ui.common.unknown", "Unknown")}
           </Text>,
-          <Text>
-            <Unbroken>{size(row.logicalSize, display, text)}</Unbroken>
-          </Text>,
-          <Text>
-            <Unbroken>{size(row.allocatedSize, display, text)}</Unbroken>
-          </Text>,
+          ...[row.logicalSize, row.allocatedSize].map((value) => (
+            <Text kind={notCounted(row, value) ? "muted" : "body"}>
+              <Unbroken>{size(row, value, display, text)}</Unbroken>
+            </Text>
+          )),
           <Text>
             {row.modifiedAt.state === "present"
               ? (() => {

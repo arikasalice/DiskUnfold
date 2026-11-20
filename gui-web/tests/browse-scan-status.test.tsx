@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
-import { scanStatus } from "../src/features/browse/browse-cells";
+import { scanStatus, size } from "../src/features/browse/browse-cells";
 import type { LocaleText } from "../src/i18n/presentation";
 import type {
   BrowseOpenResponse,
@@ -108,6 +108,26 @@ test.each([
 
 test("a file row, which carries no boundary, has a blank scan status", () => {
   expect(scanStatus(row(1, {}, "file"), text)).toBe("");
+});
+
+test("a zero size of a folder the scan did not enter reads as not counted", () => {
+  const display = { system: "iec", unit: "auto" } as const;
+  const sized = (flags: Partial<Flags>, bytes: string) => {
+    const value = {
+      state: "present",
+      value: { basis: "logical", evidence: "measured", state: "exact", bytes },
+    } as const;
+    return size({ ...row(1, flags), logicalSize: value }, value, display, text);
+  };
+  expect(sized({ boundary: boundary("other_volume") }, "0")).toBe(
+    "Not counted",
+  );
+  expect(sized({ boundary: boundary("already_counted") }, "0")).toBe(
+    "Not counted",
+  );
+  // A value other than zero is shown as it is, and an empty folder stays empty.
+  expect(sized({ boundary: boundary("other_volume") }, "7")).toBe("7 bytes");
+  expect(sized({ boundary: unproven }, "0")).toBe("0 bytes");
 });
 
 test("a list keeps the scan status column once a row carried the boundary", () => {

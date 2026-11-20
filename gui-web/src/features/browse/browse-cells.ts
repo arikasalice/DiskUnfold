@@ -4,12 +4,38 @@ import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { LocaleText } from "../../i18n/presentation";
 
-/** A size cell: the readable size, "At least …" for a lower bound. */
+/**
+ * Whether a size of a folder the scan did not enter, on another volume or
+ * counted at another path, is a zero that stands for nothing counted in
+ * this scope rather than an empty folder (F02 README "#133 갤러리 캡처 검수").
+ */
+export function notCounted(
+  row: FolderQueryRow,
+  value: FolderQueryRow["logicalSize"],
+): boolean {
+  const boundary = row.flags.boundary;
+  return (
+    boundary?.state === "present" &&
+    (boundary.value === "other_volume" ||
+      boundary.value === "already_counted") &&
+    value.state === "present" &&
+    value.value.state === "exact" &&
+    BigInt(value.value.bytes) === 0n
+  );
+}
+
+/**
+ * A size cell: the readable size, "At least …" for a lower bound, and "Not
+ * counted" for a zero that stands for nothing counted (see {@link notCounted}).
+ */
 export function size(
+  row: FolderQueryRow,
   value: FolderQueryRow["logicalSize"],
   display: SizeDisplay,
   text: LocaleText,
 ): string {
+  if (notCounted(row, value))
+    return text("ui.browse.not_counted", "Not counted");
   if (value.state === "absent")
     return text("ui.browse.not_recorded", "Not recorded");
   if (value.state !== "present" || value.value.state === "unknown")

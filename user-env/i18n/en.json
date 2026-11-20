@@ -747,6 +747,7 @@
     ["ui.browse.no_items","No observed items in this folder.",[]],
     ["ui.browse.no_more_items","No more items",[]],
     ["ui.browse.not_recorded","Not recorded",[]],
+    ["ui.browse.not_counted","Not counted",[]],
     ["ui.browse.observation_details","Observation details",[]],
     ["ui.browse.observed","Observed",[]],
     ["ui.browse.open_folder_failed","Could not open this folder.",[]],

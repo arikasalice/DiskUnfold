@@ -5,7 +5,7 @@ import type { RegionalFormat } from "../src/i18n/regional-format";
 import { browsePort, browseVersion } from "./browse-scan-status-fixture";
 import { koreanText } from "./result-summary-fixture";
 
-/** The Korean defaults of the regional format, with times shown in UTC. */
+/** The Korean defaults of the regional format, as the app builds them, with times in UTC. */
 const regional: RegionalFormat = {
   decimalSeparator: ".",
   groupingSeparator: ",",
@@ -15,6 +15,7 @@ const regional: RegionalFormat = {
   groupNumbers: true,
   timeZonePolicy: "utc",
   localTimeZoneStatus: "identified",
+  byteUnitText: koreanText("ui.unit.byte", "bytes"),
 };
 
 /**
@@ -26,7 +27,11 @@ export function BrowseScanStatusPreview() {
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
         <div className="du-gallery-browse">
-          <BrowsePanel port={browsePort} resultVersion={browseVersion} />
+          <BrowsePanel
+            port={browsePort}
+            resultVersion={browseVersion}
+            display={{ system: "iec", unit: "auto", regional }}
+          />
         </div>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
