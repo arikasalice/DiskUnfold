@@ -115,8 +115,10 @@
   overscroll-behavior: contain;
   scroll-padding-block-start: 36px;
   scrollbar-gutter: stable;
-  /* #216: the head band also covers the gutter kept for the scroll bar. */
+  /* #216: the head band also covers the gutter kept for the scroll bar; a
+     padding-box origin would size the band to the client width only. */
   background-image: linear-gradient(var(--du-subtle), var(--du-subtle));
+  background-origin: border-box;
   background-repeat: no-repeat;
   background-size: 100% 36px;
 }
