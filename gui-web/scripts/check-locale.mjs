@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import ts from "typescript";
+import { variantDeclarationErrors } from "./locale-variant-rules.mjs";
 
 const root = new URL("../", import.meta.url);
 const resources = new URL("../user-env/i18n/", root);
@@ -112,6 +113,7 @@ const declared = declaredKeys(
 );
 const used = await usedKeys();
 const errors = [];
+errors.push(...variantDeclarationErrors(declared));
 for (const key of used) {
   if (!declared.has(key))
     errors.push(`GUI message key is not declared: ${key}`);

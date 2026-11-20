@@ -212,19 +212,31 @@ ui.app.back_to_analysis
 ui.app.screen_analysis
 ui.app.screen_browse
 ui.analysis.folder_path
+ui.analysis.path_example_first
+ui.analysis.path_example_first.macos
+ui.analysis.path_example_first.linux
+ui.analysis.path_example_more
+ui.analysis.path_example_more.macos
+ui.analysis.path_example_more.linux
 ui.analysis.folder_paths
 ui.analysis.add_path
 ui.analysis.additional_paths
 ui.analysis.remove_primary
 ui.analysis.additional_path number:count
 ui.analysis.path_hint
+ui.analysis.path_hint.unix
 ui.analysis.remove_path number:count
 ui.analysis.available_drives
+ui.analysis.available_drives.unix
 ui.analysis.drives
+ui.analysis.drives.unix
 ui.analysis.hide_drive_details
+ui.analysis.hide_drive_details.unix
 ui.analysis.drive_details
+ui.analysis.drive_details.unix
 ui.analysis.refresh_targets
 ui.analysis.finding_drives
+ui.analysis.finding_drives.unix
 ui.analysis.loading_targets
 ui.analysis.drop_hint
 ui.analysis.review_hint
@@ -233,9 +245,11 @@ ui.analysis.target_scope
 ui.analysis.results
 ui.analysis.platform_unavailable
 ui.analysis.scan_target
+ui.analysis.scan_target.unix
 ui.analysis.choose_target
 ui.analysis.again
 ui.analysis.choose_hint
+ui.analysis.choose_hint.unix
 ui.analysis.checking_drop
 ui.analysis.reviewing
 ui.analysis.starting
@@ -356,6 +370,7 @@ ui.analysis.scope_exclusion_outside
 ui.analysis.scope_missing
 ui.analysis.scope_denied
 ui.analysis.scope_disconnected
+ui.analysis.scope_disconnected.unix
 ui.analysis.scope_unresolvable
 ui.analysis.scope_needs_review
 ui.analysis.scope_changed
@@ -494,6 +509,7 @@ ui.inspection.unavailable_in_scan
 ui.inspection.not_provided_for_item
 ui.inspection.query_failed_note
 ui.inspection.other_drive_note
+ui.inspection.other_drive_note.unix
 ui.inspection.name
 ui.inspection.path
 ui.inspection.kind
@@ -528,6 +544,7 @@ ui.history.back_to_analysis
 ui.history.back_to_history
 ui.history.changed_restart_page
 ui.history.check_os_trash
+ui.history.check_os_trash.unix
 ui.history.clear_filters
 ui.history.close_details
 ui.history.confirmed
@@ -635,6 +652,7 @@ ui.history.status
 ui.history.status_time status:name time:name
 ui.history.through_date
 ui.history.time_moved_to_trash
+ui.history.time_moved_to_trash.unix
 ui.history.time_unavailable
 ui.history.unavailable
 ui.history.view
@@ -1015,8 +1033,11 @@ ui.analysis.scan_targets
 ui.analysis.close_target_editor
 ui.analysis.scan_and_results
 ui.analysis.drives_unsupported
+ui.analysis.drives_unsupported.unix
 ui.analysis.drives_slow
+ui.analysis.drives_slow.unix
 ui.analysis.drives_unavailable
+ui.analysis.drives_unavailable.unix
 ui.analysis.choose_target_label
 ui.analysis.target_internal
 ui.analysis.target_external
@@ -1031,6 +1052,7 @@ ui.analysis.target_access_missing
 ui.analysis.target_access_unresponsive
 ui.analysis.target_access_unknown
 ui.analysis.drives_empty
+ui.analysis.drives_empty.unix
 ui.analysis.capacity_unsupported
 ui.analysis.capacity_failed
 ui.analysis.capacity_timed_out
@@ -1042,6 +1064,7 @@ ui.analysis.capacity_cancelled
 ui.analysis.capacity_could_not_verify
 ui.analysis.capacity_no_explanation
 ui.analysis.capacity_checking_drive
+ui.analysis.capacity_checking_drive.unix
 ui.analysis.capacity_checking
 ui.analysis.capacity_unavailable
 ui.analysis.capacity_available_unverified
@@ -1069,6 +1092,7 @@ ui.analysis.issue_reason_replaced
 ui.analysis.issue_reason_kind_changed
 ui.analysis.issue_reason_link_skipped
 ui.analysis.issue_reason_other_volume
+ui.analysis.issue_reason_other_volume.unix
 ui.analysis.issue_reason_already_covered
 ui.analysis.issue_reason_range_unconfirmed
 ui.analysis.issues_region

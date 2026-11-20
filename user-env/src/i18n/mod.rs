@@ -181,6 +181,7 @@ impl Registry {
             return Err(RegistrationError);
         }
         let declared: BTreeSet<_> = declared_keys.iter().map(String::as_str).collect();
+        validate_variant_keys(&bundles, &declared)?;
         if wire_contract {
             if !declared.contains(UNKNOWN_REASON_MESSAGE_KEY) {
                 return Err(RegistrationError);
@@ -310,6 +311,45 @@ fn unique<'a>(values: impl IntoIterator<Item = &'a str>) -> Result<(), Registrat
         }
     }
     Ok(())
+}
+
+fn validate_variant_keys(
+    bundles: &BTreeMap<String, Bundle>,
+    declared: &BTreeSet<&str>,
+) -> Result<(), RegistrationError> {
+    for key in declared {
+        if variant_base(key).is_some_and(|base| !declared.contains(base)) {
+            return Err(RegistrationError);
+        }
+    }
+    for bundle in bundles.values() {
+        let messages: BTreeMap<_, _> = bundle
+            .messages
+            .iter()
+            .map(|(key, message)| (key.as_str(), message))
+            .collect();
+        for (key, message) in &bundle.messages {
+            let Some(base) = variant_base(key) else {
+                continue;
+            };
+            if !declared.contains(base)
+                || messages
+                    .get(base)
+                    .is_none_or(|base_message| base_message.parameters != message.parameters)
+            {
+                return Err(RegistrationError);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn variant_base(key: &str) -> Option<&str> {
+    if !key.starts_with("ui.") {
+        return None;
+    }
+    let (base, suffix) = key.rsplit_once('.')?;
+    matches!(suffix, "unix" | "macos" | "linux").then_some(base)
 }
 
 /// Check declared parameter names and types against each registered message.

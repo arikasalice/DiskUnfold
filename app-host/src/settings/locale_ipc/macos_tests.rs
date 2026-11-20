@@ -104,6 +104,7 @@ fn mac_startup_serves_saved_locale_read_only_through_gui_ipc()
 
     let profile = call(&engine, "i18n.get_profile", json!({}))?;
     assert_eq!(profile["body"]["displayLanguage"], "ko");
+    assert_eq!(profile["body"]["osFamily"], "macos");
     assert_eq!(profile["body"]["languageSource"], "stored");
     assert_eq!(profile["body"]["profileRevision"], "1");
     assert_eq!(

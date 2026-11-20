@@ -12,10 +12,34 @@ import type { LocaleBundleBody } from "../ipc";
 import type { LocaleView } from "./use-locale";
 import type { makeLocaleReporter } from "./locale-missing";
 
-function plainMessage(bundle: LocaleBundleBody, key: string) {
-  const message = Object.hasOwn(bundle.messages, key)
-    ? bundle.messages[key]
-    : undefined;
+type OsFamily = NonNullable<LocaleView["profile"]["osFamily"]>;
+
+function localizedKey(
+  bundle: LocaleBundleBody,
+  key: string,
+  osFamily: OsFamily,
+) {
+  const specific =
+    osFamily === "macos" || osFamily === "linux"
+      ? `${key}.${osFamily}`
+      : undefined;
+  return [
+    specific,
+    osFamily !== "windows" ? `${key}.unix` : undefined,
+    key,
+  ].find(
+    (candidate) =>
+      candidate !== undefined && Object.hasOwn(bundle.messages, candidate),
+  );
+}
+
+function plainMessage(
+  bundle: LocaleBundleBody,
+  key: string,
+  osFamily: OsFamily,
+) {
+  const resolvedKey = localizedKey(bundle, key, osFamily);
+  const message = resolvedKey ? bundle.messages[resolvedKey] : undefined;
   return message?.kind === "text" &&
     Object.keys(message.parameters).length === 0
     ? interpolate(message.template, () => "")
@@ -23,8 +47,11 @@ function plainMessage(bundle: LocaleBundleBody, key: string) {
 }
 
 /** Renders parameterless text only from a bundle supplied by the native host. */
-export function createVerifiedBundleText(bundle: LocaleBundleBody): LocaleText {
-  return (key) => plainMessage(bundle, key) ?? key;
+export function createVerifiedBundleText(
+  bundle: LocaleBundleBody,
+  osFamily: OsFamily = "windows",
+): LocaleText {
+  return (key) => plainMessage(bundle, key, osFamily) ?? key;
 }
 
 function integer(value: string | bigint | undefined) {
@@ -47,11 +74,14 @@ function renderParameter(
   kind: string | undefined,
   value: string | bigint | undefined,
   format: RegionalFormat,
+  osFamily: OsFamily,
 ) {
   if (kind === "path" || kind === "name")
     return typeof value === "string" ? value : undefined;
   if (kind === "message_key")
-    return typeof value === "string" ? plainMessage(bundle, value) : undefined;
+    return typeof value === "string"
+      ? plainMessage(bundle, value, osFamily)
+      : undefined;
   if (kind === "timestamp")
     return typeof value === "string"
       ? displayTimestamp(Date.parse(value), format)?.text
@@ -77,10 +107,10 @@ function render(
   key: string,
   values: TextValues | undefined,
   format: RegionalFormat,
+  osFamily: OsFamily,
 ) {
-  const message = Object.hasOwn(bundle.messages, key)
-    ? bundle.messages[key]
-    : undefined;
+  const resolvedKey = localizedKey(bundle, key, osFamily);
+  const message = resolvedKey ? bundle.messages[resolvedKey] : undefined;
   if (!message) return undefined;
   let incomplete = false;
   let template;
@@ -99,10 +129,11 @@ function render(
       message.parameters[name],
       values?.[name],
       format,
+      osFamily,
     );
     if (parameter !== undefined) return parameter;
     incomplete = true;
-    return plainMessage(bundle, "value.unknown") ?? "value.unknown";
+    return plainMessage(bundle, "value.unknown", osFamily) ?? "value.unknown";
   });
   return { text, incomplete };
 }
@@ -113,16 +144,17 @@ export function createLocaleText(
   report: ReturnType<typeof makeLocaleReporter>["note"],
 ): LocaleText {
   const { selected, baseline, language } = view;
+  const osFamily = view.profile.osFamily ?? "windows";
   return (key, _fallback, values) => {
-    const selectedText = render(selected, key, values, format);
+    const selectedText = render(selected, key, values, format, osFamily);
     const marker =
-      plainMessage(selected, "ui.common.translation_unverified") ??
+      plainMessage(selected, "ui.common.translation_unverified", osFamily) ??
       "Translation unverified";
     if (selectedText !== undefined)
       return selectedText.incomplete
         ? `${selectedText.text} (${marker})`
         : selectedText.text;
-    const english = render(baseline, key, values, format);
+    const english = render(baseline, key, values, format, osFamily);
     report(language, key, english === undefined ? "key" : "fallback");
     return `${english?.text ?? key} (${marker})`;
   };

@@ -78,9 +78,12 @@ export function TargetPicker({
         if (primaryPathRef) primaryPathRef.current = input;
       }}
       autoFocus={isInitial}
-      label={text("ui.analysis.folder_path", "Windows folder path")}
+      label={text("ui.analysis.folder_path", "Folder path")}
       description={pathDescription}
-      placeholder={"C:\\Folder"}
+      placeholder={text(
+        "ui.analysis.path_example_first",
+        "e.g. C:\\Users\\Minseo\\Documents",
+      )}
       isDisabled={disabled}
       onCompositionChange={onPathCompositionChange}
       value={selected[0]?.display ?? ""}
@@ -139,7 +142,10 @@ export function TargetPicker({
                   "ui.analysis.path_hint",
                   "Enter a local folder or drive path.",
                 )}
-                placeholder={"D:\\Folder"}
+                placeholder={text(
+                  "ui.analysis.path_example_more",
+                  "e.g. D:\\Photos",
+                )}
                 isDisabled={disabled}
                 onCompositionChange={onPathCompositionChange}
                 value={path?.display ?? ""}

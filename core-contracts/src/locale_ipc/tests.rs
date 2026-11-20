@@ -23,6 +23,32 @@ fn profile_revision_requires_canonical_u64_decimal_string() -> Result<(), Box<dy
 }
 
 #[test]
+fn locale_profile_accepts_omitted_os_family_and_serializes_it_only_when_present()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut profile: LocaleProfile = serde_json::from_value(json!({
+        "displayLanguage": "en",
+        "languageSource": "baseline",
+        "dateFormat": "lang_default",
+        "numberFormat": "lang_default",
+        "timeZonePolicy": "local",
+        "localTimeZoneStatus": "unavailable",
+        "motion": "follow_os",
+        "appScale": 100,
+        "profileRevision": "0",
+        "supportedLanguages": []
+    }))?;
+    assert_eq!(profile.os_family, None);
+    assert!(serde_json::to_value(&profile)?.get("osFamily").is_none());
+
+    profile.os_family = Some(SupportOsFamily::Macos);
+    assert_eq!(
+        serde_json::to_value(profile)?.get("osFamily"),
+        Some(&json!("macos"))
+    );
+    Ok(())
+}
+
+#[test]
 fn get_profile_request_is_an_empty_object() {
     assert!(serde_json::from_value::<LocaleGetProfileRequest>(json!({})).is_ok());
     for value in [json!({"future": true}), json!([]), Value::Null, json!(1)] {

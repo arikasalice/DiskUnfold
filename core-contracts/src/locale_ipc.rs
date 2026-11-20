@@ -1,4 +1,5 @@
 //! F13 locale profile request, response, and event bodies.
+use crate::product_support::SupportOsFamily;
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 /// Canonical decimal string identifying a locale profile snapshot revision.
@@ -167,6 +168,10 @@ pub struct LocaleSupportedLanguage {
 pub struct LocaleProfile {
     /// Selected registered language identifier.
     pub display_language: String,
+    /// Operating-system family of the host returning this profile; older hosts omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub os_family: Option<SupportOsFamily>,
     /// Source that selected the startup display language.
     pub language_source: LocaleLanguageSource,
     /// Selected date format.
@@ -193,6 +198,8 @@ impl<'de> Deserialize<'de> for LocaleProfile {
         #[serde(rename_all = "camelCase")]
         struct Wire {
             display_language: String,
+            #[serde(default)]
+            os_family: Option<SupportOsFamily>,
             language_source: LocaleLanguageSource,
             date_format: LocaleDateFormat,
             number_format: LocaleNumberFormat,
@@ -220,6 +227,7 @@ impl<'de> Deserialize<'de> for LocaleProfile {
         }
         Ok(Self {
             display_language: wire.display_language,
+            os_family: wire.os_family,
             language_source: wire.language_source,
             date_format: wire.date_format,
             number_format: wire.number_format,
