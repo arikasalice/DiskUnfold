@@ -65,9 +65,7 @@ test("shows separate counts, recorded locations, and display-only displaced deta
   fireEvent.click(open);
   expect(screen.getByText("Old location")).toBeDefined();
   expect(screen.getByText(/information is ambiguous/)).toBeDefined();
-  expect(
-    screen.getByText(/Check the operating system trash directly/),
-  ).toBeDefined();
+  expect(screen.getByText(/check the Recycle Bin yourself/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Close details" }));
   expect(document.activeElement).toBe(open);
 });

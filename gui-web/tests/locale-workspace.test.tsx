@@ -41,7 +41,7 @@ function bundle(language: string): LocaleBundleBody {
       "ui.locale.motion": "Motion",
       "ui.locale.scale": "App scale",
       "ui.analysis.folder_path":
-        language === "ko" ? "Windows 폴더 경로" : "Windows folder path",
+        language === "ko" ? "폴더 경로" : "Folder path",
     }).map(([key, template]) => [
       key,
       { kind: "text", template, parameters: {} } as const,
@@ -141,7 +141,7 @@ test("switches the mounted desktop language without discarding the scope draft",
   const { client, requests, targetCalls } = desktopFixture();
   render(<DesktopLocale client={client} />);
   const input = await screen.findByRole("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   fireEvent.change(input, { target: { value: "C:\\Fixture" } });
   fireEvent.click(screen.getByRole("button", { name: "Language and display" }));
@@ -172,7 +172,7 @@ test("updates app scale and respects both sources of reduced motion without remo
   const { client, targetCalls } = desktopFixture();
   render(<DesktopLocale client={client} />);
   const input = await screen.findByRole("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   const root = document.documentElement;
   expect(root.dataset.duMotion).toBe("standard");

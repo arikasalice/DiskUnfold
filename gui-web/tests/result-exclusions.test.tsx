@@ -417,10 +417,9 @@ test("the summary keeps the started scope's rules until another analysis starts"
 
   scan.changeState("done");
   fireEvent.click(await screen.findByRole("button", { name: "Analyze again" }));
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-    { target: { value: "C:\\elsewhere" } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Folder path" }), {
+    target: { value: "C:\\elsewhere" },
+  });
   expect(ruleLines(rowValue("Exclusions"))).toEqual([
     "C:\\fixture\\Cache",
     "C:\\fixture\\Logs",

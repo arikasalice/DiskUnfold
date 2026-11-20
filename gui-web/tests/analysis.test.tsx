@@ -668,12 +668,9 @@ test("F01: slow drive listing leaves direct folder review available", async () =
   render(<App analysis={client} />);
   await screen.findByText(/Drive listing is taking longer/);
   expect(screen.queryByText(/No drives were found/)).toBeNull();
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-    {
-      target: { value: path.display },
-    },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Folder path" }), {
+    target: { value: path.display },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   await waitFor(() =>
     expect(
@@ -795,7 +792,7 @@ test("F01 FR4.HD1.gui-web.DD1: settled path edits auto-review without moving foc
   try {
     render(<App analysis={client} />);
     const input = await screen.findByRole<HTMLInputElement>("textbox", {
-      name: "Windows folder path",
+      name: "Folder path",
     });
     input.focus();
     fireEvent.compositionStart(input);
@@ -857,7 +854,7 @@ test.each(["manual review", "path edit"])(
     });
     render(<App analysis={client} />);
     const input = await screen.findByRole("textbox", {
-      name: "Windows folder path",
+      name: "Folder path",
     });
     fireEvent.change(input, { target: { value: path.display } });
     // Transport messages are not shown; the review falls back to general copy.
@@ -966,7 +963,7 @@ test("F01 FR4.HD1.gui-web.DD1: denied current edits retain but cannot start a pr
   );
 
   const input = screen.getByRole<HTMLInputElement>("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   fireEvent.change(input, { target: { value: "D:\\Denied" } });
   expect(
@@ -3757,9 +3754,7 @@ test("ANFR5: the analysis workspace exposes labelled controls and valid ARIA rol
   const { client } = fixture();
   const { container } = render(<App analysis={client} />);
   await screen.findByRole("radio", { name: path.display });
-  expect(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-  ).toBeDefined();
+  expect(screen.getByRole("textbox", { name: "Folder path" })).toBeDefined();
   const result = await axe.run(container, {
     runOnly: {
       type: "rule",
@@ -3815,7 +3810,7 @@ test("F01: cancelling selection discards late review and drop while cancelling o
   expect(
     (
       screen.getByRole("textbox", {
-        name: "Windows folder path",
+        name: "Folder path",
       }) as HTMLInputElement
     ).value,
   ).toBe("");
@@ -3859,10 +3854,9 @@ test("F01: cancelling a new selection preserves the prior scan and its result", 
   await startFixtureScan(client);
   const total = await screen.findByText("At least 42 bytes");
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-    { target: { value: "D:\\new" } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Folder path" }), {
+    target: { value: "D:\\new" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
   expect(screen.getByText("At least 42 bytes")).toBe(total);
   expect(calls.filter(({ name }) => name === "scan.start")).toHaveLength(1);
@@ -3926,7 +3920,7 @@ test.each([
     expect(
       (
         screen.getByRole("textbox", {
-          name: "Windows folder path",
+          name: "Folder path",
         }) as HTMLInputElement
       ).value,
     ).toBe(display);
@@ -3984,7 +3978,7 @@ test("F01: an invalid drop gives guidance without replacing the chosen folder", 
   expect(
     (
       screen.getByRole("textbox", {
-        name: "Windows folder path",
+        name: "Folder path",
       }) as HTMLInputElement
     ).value,
   ).toBe(path.display);
@@ -4043,7 +4037,7 @@ test.each([
     folderDrop({ seq: 2, path: "D:\\Retry" });
     expect(
       screen.getByRole<HTMLInputElement>("textbox", {
-        name: "Windows folder path",
+        name: "Folder path",
       }).value,
     ).toBe("D:\\Retry");
     expect(start.disabled).toBe(true);
@@ -4058,7 +4052,7 @@ test("F01 FR3: a delayed folder verification cannot undo a newer edit or drop", 
   render(<App analysis={{ ...client, subscribeFolderDrop: nativeDrop }} />);
   fireEvent.click(await screen.findByRole("radio", { name: path.display }));
   const input = screen.getByRole<HTMLInputElement>("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   folderDrop({ seq: 1, pending: true });
   expect(screen.getByText("Checking dropped folder…")).toBeDefined();
@@ -4137,7 +4131,7 @@ test.each(["finished", "rejected"] as const)(
     expect(nextStart.disabled).toBe(false);
     expect(nextStart.hasAttribute("aria-disabled")).toBe(false);
     const input = screen.getByRole<HTMLInputElement>("textbox", {
-      name: "Windows folder path",
+      name: "Folder path",
     });
     expect(input.value).toBe(path.display);
     folderDrop({ seq: 3, pending: true });
@@ -4304,10 +4298,9 @@ test("F01 FR3: canonical Windows review paths do not replace the original reques
     }),
   });
   render(<App analysis={client} />);
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-    { target: { value: requested.display } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Folder path" }), {
+    target: { value: requested.display },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
   const start = screen.getByRole<HTMLButtonElement>("button", {
     name: "Start analysis",
@@ -4487,7 +4480,7 @@ test("F01 FR3: multi-path controls have accessible labels and preserve the drop 
   folderDrop({ seq: 1, path: "C:\\Dropped" });
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
-      name: "Windows folder path",
+      name: "Folder path",
     }).value,
   ).toBe("C:\\Dropped");
   expect(
@@ -4523,7 +4516,7 @@ test("F01: pending review retains focus and ignores repeated activation", async 
   });
   render(<App analysis={client} />);
   const input = await screen.findByRole<HTMLInputElement>("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   expect(document.activeElement).toBe(input);
   fireEvent.change(input, { target: { value: "C:\\fixture" } });
@@ -4552,7 +4545,7 @@ test("F01: pending scan keeps focus and suppresses duplicate starts", async () =
   });
   render(<App analysis={client} />);
   const input = await screen.findByRole("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   fireEvent.change(input, { target: { value: "C:\\fixture" } });
   fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
@@ -4585,7 +4578,7 @@ test("F01: adding and removing a path restores focus to the appropriate field", 
   const { client } = fixture();
   render(<App analysis={client} />);
   const primary = await screen.findByRole("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   fireEvent.click(screen.getByRole("button", { name: "Add path" }));
   const extra = screen.getByRole("textbox", {
@@ -4601,9 +4594,7 @@ test("F01: result editor opens and closes with focus while keeping the result sc
   await startFixtureScan(client);
   await screen.findByText("At least 42 bytes");
   const opener = screen.getByRole("button", { name: "Analyze again" });
-  expect(
-    screen.queryByRole("textbox", { name: "Windows folder path" }),
-  ).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Folder path" })).toBeNull();
   expect(opener.hasAttribute("aria-controls")).toBe(false);
   fireEvent.click(opener);
   const editorId = opener.getAttribute("aria-controls");
@@ -4615,7 +4606,7 @@ test("F01: result editor opens and closes with focus while keeping the result sc
     screen.getByRole("region", { name: "Target selection and scope review" }),
   );
   const input = screen.getByRole<HTMLInputElement>("textbox", {
-    name: "Windows folder path",
+    name: "Folder path",
   });
   const reviews = () => calls.filter(({ name }) => name === "scope.review");
   const beforeEdit = reviews().length;
@@ -4637,7 +4628,7 @@ test("F01: result editor opens and closes with focus while keeping the result sc
   fireEvent.click(opener);
   expect(
     screen.getByRole<HTMLInputElement>("textbox", {
-      name: "Windows folder path",
+      name: "Folder path",
     }).value,
   ).toBe("D:\\new");
   await waitFor(() => expect(reviews()).toHaveLength(beforeEdit + 1));
@@ -4651,7 +4642,7 @@ test("F01: failed start keeps the editor and returns focus to scope review", asy
   const { client } = fixture({ stale: true });
   render(<App analysis={client} />);
   fireEvent.change(
-    await screen.findByRole("textbox", { name: "Windows folder path" }),
+    await screen.findByRole("textbox", { name: "Folder path" }),
     {
       target: { value: "C:\\fixture" },
     },
@@ -4665,9 +4656,7 @@ test("F01: failed start keeps the editor and returns focus to scope review", asy
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Review scope" }),
   );
-  expect(
-    screen.getByRole("textbox", { name: "Windows folder path" }),
-  ).toBeDefined();
+  expect(screen.getByRole("textbox", { name: "Folder path" })).toBeDefined();
 });
 
 test("F01: pending reanalysis keeps its editor open until start settles", async () => {
@@ -4707,9 +4696,7 @@ test("F02: scan shows its fixed paths before the first result", async () => {
   expect(
     within(screen.getByLabelText("Scanning paths")).getByText(path.display),
   ).toBeDefined();
-  expect(
-    screen.queryByRole("textbox", { name: "Windows folder path" }),
-  ).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Folder path" })).toBeNull();
   expect(screen.getByRole("button", { name: "Pause scan" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Cancel scan" })).toBeDefined();
 });
@@ -4734,7 +4721,7 @@ test("F01: empty target discovery preserves the typed path and focus", async () 
   });
   const { client } = fixture({ targetList });
   render(<App analysis={client} />);
-  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  const input = screen.getByRole("textbox", { name: "Folder path" });
   fireEvent.change(input, { target: { value: path.display } });
   input.focus();
   expect(screen.queryByText(/No drives were found/)).toBeNull();
@@ -4753,7 +4740,7 @@ test("F01: a listing failure is not reported as an empty successful list", async
   });
   const { client } = fixture({ targetList });
   render(<App analysis={client} />);
-  const input = screen.getByRole("textbox", { name: "Windows folder path" });
+  const input = screen.getByRole("textbox", { name: "Folder path" });
   fireEvent.change(input, { target: { value: path.display } });
   input.focus();
   await act(async () => rejectList(new Error("Drive listing failed")));
@@ -4823,7 +4810,7 @@ test.each(["success", "failure"])(
     refresh.focus();
     fireEvent.click(refresh);
     await screen.findByText("Finding drives…");
-    const input = screen.getByRole("textbox", { name: "Windows folder path" });
+    const input = screen.getByRole("textbox", { name: "Folder path" });
     input.focus();
     await act(async () =>
       outcome === "success"
