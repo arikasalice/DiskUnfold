@@ -185,10 +185,9 @@ fn start(tx: &Transaction<'_>, id: &[u8; 16]) -> Part<Start> {
                 let kind_id: String = row.get(0)?;
                 let kind_version: u32 = row.get(1)?;
                 let scope: String = row.get(2)?;
-                let scope_summary = (kind_id == "scan.metadata"
-                    && kind_version == 1
-                    && super::super::valid_scope(&scope))
-                .then_some(scope);
+                let scope_summary =
+                    super::super::valid_record_scope(&kind_id, kind_version, &scope)
+                        .then_some(scope);
                 Ok(Start {
                     kind_id,
                     kind_version,

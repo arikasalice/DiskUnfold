@@ -6,7 +6,7 @@ import { browsePort, browseVersion } from "./browse-scan-status-fixture";
 import { koreanText } from "./result-summary-fixture";
 
 /** The Korean defaults of the regional format, as the app builds them, with times in UTC. */
-const regional: RegionalFormat = {
+export const regional: RegionalFormat = {
   decimalSeparator: ".",
   groupingSeparator: ",",
   groupingSize: 3,

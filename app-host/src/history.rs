@@ -127,7 +127,12 @@ fn project_entry(entry: db::Entry) -> Result<Entry<HistoryListRow>, ReadError> {
 
 fn project_summary(row: db::Summary, predecessor_job_ref: Option<Id>) -> HistoryListSummary {
     HistoryListSummary {
-        session_restore_available: (row.kind_id == "scan.metadata").then_some(false),
+        // Neither summary-history kind changes files, so no session restore can exist.
+        session_restore_available: matches!(
+            row.kind_id.as_str(),
+            "scan.metadata" | "duplicate.check"
+        )
+        .then_some(false),
         kind_id: row.kind_id,
         kind_version: row.kind_version,
         scope_summary: row.scope_summary,

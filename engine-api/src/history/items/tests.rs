@@ -46,4 +46,38 @@ fn missing_summary_is_unknown_and_reconciliation_does_not_count_partial_pages() 
         ["read_failed", "items_incomplete"]
     );
     assert_eq!(response.completeness, HistoryDetailCompleteness::Partial);
+    assert_eq!(
+        response.item_recording,
+        Some(HistoryItemRecording::Recorded)
+    );
+}
+
+#[test]
+fn summary_only_page_is_not_recorded_and_rejects_item_evidence() {
+    let page = |recorded, rows, summary| Page {
+        revision: Revision {
+            delete_generation: 0,
+            max_record_seq: 1,
+        },
+        rows,
+        next: None,
+        summary,
+        recorded,
+        item_history_expected: false,
+    };
+    assert!(validate(&page(0, Vec::new(), None), None, 10).is_ok());
+    let response = project(page(0, Vec::new(), None), None);
+    assert_eq!(
+        response.item_recording,
+        Some(HistoryItemRecording::NotRecorded)
+    );
+    assert!(response.missing_reasons.is_empty());
+    assert_eq!(response.completeness, HistoryDetailCompleteness::Complete);
+    for invalid in [
+        page(1, Vec::new(), None),
+        page(1, vec![(0, None)], None),
+        page(0, Vec::new(), Some(0)),
+    ] {
+        assert!(validate(&invalid, None, 10).is_err());
+    }
 }

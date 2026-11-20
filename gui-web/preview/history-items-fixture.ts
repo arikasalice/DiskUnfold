@@ -7,8 +7,9 @@ import type {
 
 /*
  * Synthetic item results of one recorded operation for the operation history
- * (F02 README #170). The app records no item results yet, so the gallery is
- * where the location cell can be seen. Never imported by the product entry.
+ * (F02 README #170), plus the count sentences and empty states of #204. The
+ * app records no item results yet, so the gallery is where they can be seen.
+ * Never imported by the product entry.
  */
 
 /**
@@ -31,7 +32,8 @@ const row = (
   itemSeq: string,
   locationDisplay: string,
   outcome: HistoryItemOutcome,
-  observedSize: string,
+  observedSize: string | null,
+  observedSizeState: "exact" | "lower_bound" | "unknown" = "exact",
 ): HistoryItemRow => ({
   itemSeq,
   result: {
@@ -42,35 +44,83 @@ const row = (
     held: false,
     outcomeUnknown: false,
     observedSize,
-    observedSizeState: "exact",
+    observedSizeState,
     displaced: null,
   },
 });
 
+// #204: an exact size, an exact 1 MiB, a lower bound and a missing size.
 const rows = [
   row("1", historyLocations.short, "completed", "48213"),
   row("2", historyLocations.long, "completed", "1048576"),
-  row("3", historyLocations.edge, "skipped", "912"),
-  row("4", historyLocations.longName, "completed", "2097152"),
+  row("3", historyLocations.edge, "skipped", "5242880", "lower_bound"),
+  row("4", historyLocations.longName, "completed", null, "unknown"),
 ];
 
-/** Answers the item results read; nothing reaches an engine. */
+type ItemRecord = Pick<
+  HistoryItemsResponse,
+  "rows" | "counts" | "itemRecording" | "completeness" | "missingReasons"
+>;
+
+/** The records of the gallery by job reference, with the case each one shows. */
+export const historyRecords: Record<string, ItemRecord> = {
+  "preview-job": {
+    rows,
+    counts: { summary: "4", recorded: "4", unavailable: "0" },
+    itemRecording: "recorded",
+    completeness: "complete",
+    missingReasons: [],
+  },
+  "preview-partial": {
+    rows: [row("2", historyLocations.short, "completed", "48213")],
+    counts: { summary: "5", recorded: "1", unavailable: "4" },
+    itemRecording: "recorded",
+    completeness: "partial",
+    missingReasons: ["items_incomplete"],
+  },
+  "preview-total-unknown": {
+    rows: [
+      row("0", historyLocations.short, "completed", "48213"),
+      row("1", historyLocations.edge, "failed", null, "unknown"),
+    ],
+    counts: { summary: null, recorded: "2", unavailable: null },
+    itemRecording: "recorded",
+    completeness: "partial",
+    missingReasons: ["items_incomplete"],
+  },
+  "preview-not-recorded": {
+    rows: [],
+    counts: { summary: null, recorded: "0", unavailable: null },
+    itemRecording: "not_recorded",
+    completeness: "complete",
+    missingReasons: [],
+  },
+  "preview-none-processed": {
+    rows: [],
+    counts: { summary: "0", recorded: "0", unavailable: "0" },
+    itemRecording: "recorded",
+    completeness: "complete",
+    missingReasons: [],
+  },
+};
+
+/** Answers the item results read by job reference; nothing reaches an engine. */
 export const historyClient: AnalysisClient = {
   call: (async (
     name: string,
-    body: { outcome?: HistoryItemOutcome | null },
+    body: { jobRef: string; outcome?: HistoryItemOutcome | null },
   ) => {
     if (name !== "history.items")
       throw new Error("The preview has no answer for " + name);
-    const shown = rows.filter(
+    const record = historyRecords[body.jobRef];
+    if (!record) throw new Error("The preview has no record " + body.jobRef);
+    const shown = record.rows.filter(
       (item) => !body.outcome || item.result?.outcome === body.outcome,
     );
     const page: HistoryItemsResponse = {
+      ...record,
       revision: { deleteGeneration: "0", maxRecordSeq: "4" },
       rows: shown,
-      counts: { summary: "4", recorded: "4", unavailable: "0" },
-      completeness: "complete",
-      missingReasons: [],
       nextCursor: null,
     };
     return page;

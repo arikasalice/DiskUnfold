@@ -42,6 +42,7 @@ const page = (
     },
   ],
   counts: { summary: null, recorded: "1", unavailable: null },
+  itemRecording: "recorded",
   completeness: "complete",
   missingReasons: [],
   nextCursor: cursor,
@@ -56,9 +57,8 @@ test("shows separate counts, recorded locations, and display-only displaced deta
   expect(
     screen.getByRole("columnheader", { name: "Recorded location" }),
   ).toBeDefined();
-  const counts = screen.getByLabelText("Item counts");
-  expect(within(counts).getAllByText("Unavailable")).toHaveLength(2);
-  expect(within(counts).getByText("1")).toBeDefined();
+  expect(screen.getByText("1 item with results · Total unknown")).toBeDefined();
+  expect(screen.getByText("Cannot be confirmed")).toBeDefined();
   const open = screen.getByRole("button", {
     name: "View displaced item details, item 0",
   });
@@ -202,15 +202,52 @@ test.each([
   },
 );
 
-test("an empty list says that no item results were recorded, apart from an empty filter", async () => {
-  const empty = { ...page("unused"), rows: [] };
-  const call = vi.fn().mockResolvedValue(empty);
-  render(<HistoryItems client={client(call)} jobRef="job" />);
-  await screen.findByText("This task didn't record results for each item.");
-  fireEvent.change(screen.getByLabelText("Outcome"), {
-    target: { value: "failed" },
-  });
-  await screen.findByText("No recorded items match this outcome.");
+test.each([
+  [
+    "not_recorded",
+    null,
+    null,
+    "This task didn't record results for each item.",
+  ],
+  ["recorded", "0", "0", "No items were processed in this task."],
+  [undefined, null, null, "This task didn't record results for each item."],
+  [undefined, "0", "0", "No items were processed in this task."],
+  ["later_value", null, null, "This task didn't record results for each item."],
+] as const)(
+  "explains an empty %s item history",
+  async (recording, summary, unavailable, message) => {
+    const empty = {
+      ...page("unused"),
+      rows: [],
+      counts: { summary, recorded: "0", unavailable },
+      itemRecording: recording as HistoryItemsResponse["itemRecording"],
+    };
+    const call = vi.fn().mockResolvedValue(empty);
+    render(<HistoryItems client={client(call)} jobRef="job" />);
+    await screen.findByText(message);
+    // Design #232: with no recorded item there is nothing to filter.
+    await waitFor(() => expect(screen.queryByLabelText("Outcome")).toBeNull());
+  },
+);
+
+test("recorded item history with every result missing states the count, not an empty task", async () => {
+  const missing = {
+    ...page("unused"),
+    rows: [],
+    counts: { summary: "5", recorded: "0", unavailable: "5" },
+    completeness: "partial" as const,
+    missingReasons: ["items_incomplete"],
+  };
+  render(
+    <HistoryItems
+      client={client(vi.fn().mockResolvedValue(missing))}
+      jobRef="job"
+    />,
+  );
+  await screen.findByText("Results are kept for 0 of 5 items.");
+  expect(
+    screen.queryByText("No items were processed in this task."),
+  ).toBeNull();
 });
 
 test("opens a full recorded item with a long location, lower-bound size and every flag", async () => {
@@ -235,10 +272,14 @@ test("opens a full recorded item with a long location, lower-bound size and ever
   fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
   const details = screen.getByRole("region", { name: "Recorded item details" });
   expect(document.activeElement).toBe(details);
-  expect(within(details).getByText(result.locationDisplay)).toBeDefined();
-  expect(
-    within(details).getByText("9223372036854775807 bytes or more"),
-  ).toBeDefined();
+  // The full path breaks after its separators; its text is unchanged.
+  const location = within(details)
+    .getByText("Recorded location")
+    .closest("div")!
+    .querySelector("dd")!;
+  expect(location.textContent).toBe(result.locationDisplay);
+  // The largest unit is PiB, so 2^63 - 1 bytes reads in thousands of PiB.
+  expect(within(details).getByText(/^At least \S+ PiB$/)).toBeDefined();
   expect(
     within(details).getByText(
       "Review needed · Held · Outcome unknown · A reason was recorded",
@@ -298,3 +339,33 @@ test("the recorded location keeps its end, takes no tab stop and marks edge spac
     delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
   }
 });
+
+test.each([
+  ["1", "0", null, "1 item"],
+  ["5", "4", "items_incomplete", "Results are kept for 1 of 5 items."],
+] as const)(
+  "states kept results for summary %s in one sentence",
+  async (summary, unavailable, reason, sentence) => {
+    const kept = {
+      ...page("kept"),
+      counts: { summary, recorded: "1", unavailable },
+      completeness: reason ? ("partial" as const) : ("complete" as const),
+      missingReasons: reason ? [reason] : [],
+    };
+    const result = kept.rows[0]?.result;
+    if (!result) throw new Error("Missing item fixture");
+    result.observedSize = "1048576";
+    result.observedSizeState = "exact";
+    render(
+      <HistoryItems
+        client={client(vi.fn().mockResolvedValue(kept))}
+        jobRef="job"
+      />,
+    );
+    expect(await screen.findByText(sentence)).toBeDefined();
+    expect(screen.getByText(/^1(\.0)? MiB$/)).toBeDefined();
+    expect(
+      screen.queryByText(/Some item information is unavailable/),
+    ).toBeNull();
+  },
+);

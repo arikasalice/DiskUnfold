@@ -285,7 +285,7 @@ test("returns focus to the list control when refreshed history is empty", async 
   await screen.findByText("No operations recorded yet.");
   await waitFor(() =>
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Back to analysis" }),
+      screen.getByRole("heading", { name: "Operation history" }),
     ),
   );
 });

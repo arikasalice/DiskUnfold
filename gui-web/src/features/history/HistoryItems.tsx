@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import {
   Action,
   DataTable,
@@ -15,12 +15,15 @@ import {
 import type {
   AnalysisClient,
   HistoryItemOutcome,
+  HistoryItemRecording,
   HistoryItemRow,
   HistoryItemsResponse,
 } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import { useHistoryItems } from "../../state/history-items";
 import { missingLabel, useHistoryTime } from "./history-labels";
+import { HistorySizeDisplay, observedSizeText } from "./history-size";
+import type { SizeDisplay } from "../../i18n/bytes";
 type Filter = HistoryItemOutcome | "all";
 export function HistoryItemSection({
   client,
@@ -62,22 +65,29 @@ export function HistoryItems({
     },
   ];
   const [filter, setFilter] = useState<Filter>("all");
+  // Design #232: an operation without recorded items has nothing to filter.
+  // The recorded count does not depend on the filter, so the control stays
+  // mounted (and keeps focus) while a filtered page loads.
+  const [noItems, setNoItems] = useState(false);
   return (
     <>
-      <div className="du-history-item-filter">
-        <SelectField
-          label={text("ui.history.outcome", "Outcome")}
-          value={filter}
-          options={filters}
-          onChange={setFilter}
-        />
-      </div>
+      {!noItems && (
+        <div className="du-history-item-filter">
+          <SelectField
+            label={text("ui.history.outcome", "Outcome")}
+            value={filter}
+            options={filters}
+            onChange={setFilter}
+          />
+        </div>
+      )}
       <ItemPages
         key={`${jobRef}:${filter}`}
         client={client}
         jobRef={jobRef}
         outcome={filter === "all" ? null : filter}
         filters={filters.filter((option) => option.value !== "all")}
+        onRecorded={(recorded) => setNoItems(recorded === "0")}
       />
     </>
   );
@@ -87,13 +97,17 @@ function ItemPages({
   jobRef,
   outcome,
   filters,
+  onRecorded,
 }: {
   client: AnalysisClient;
   jobRef: string;
   outcome: HistoryItemOutcome | null;
   filters: { value: Filter; label: string }[];
+  /** Reports the whole operation's recorded item count once a page is read. */
+  onRecorded: (recorded: string) => void;
 }) {
   const text = useLocaleText();
+  const display = useContext(HistorySizeDisplay);
   const { page, pending, error, refreshed, more, retry } = useHistoryItems(
     client,
     jobRef,
@@ -104,6 +118,10 @@ function ItemPages({
   const table = useRef<HTMLDivElement>(null);
   const selectedResult =
     selected && page?.rows.includes(selected) ? selected.result : undefined;
+  const recorded = page?.counts.recorded;
+  useEffect(() => {
+    if (recorded !== undefined) onRecorded(recorded);
+  }, [recorded, onRecorded]);
   return (
     <div className="du-history-item-results">
       {refreshed && (
@@ -141,30 +159,7 @@ function ItemPages({
       {page && (
         <>
           <ItemCompleteness page={page} />
-          <Readout
-            label={text("ui.history.item_counts", "Item counts")}
-            rows={[
-              {
-                label: text("ui.history.summary_count", "Summary count"),
-                value:
-                  page.counts.summary ??
-                  text("ui.history.unavailable", "Unavailable"),
-              },
-              {
-                label: text("ui.history.recorded_count", "Recorded count"),
-                value: page.counts.recorded,
-              },
-              {
-                label: text(
-                  "ui.history.unavailable_count",
-                  "Unavailable count",
-                ),
-                value:
-                  page.counts.unavailable ??
-                  text("ui.history.unavailable", "Unavailable"),
-              },
-            ]}
-          />
+          <ItemCounts page={page} />
           {page.rows.length > 0 && (
             <div ref={table}>
               <DataTable
@@ -191,13 +186,16 @@ function ItemPages({
                       setSelected(row);
                     },
                     filters,
+                    display,
                     text,
                   )
                 }
               />
             </div>
           )}
-          {page.rows.length === 0 && <EmptyItems outcome={outcome} />}
+          {page.rows.length === 0 && (
+            <EmptyItems outcome={outcome} page={page} />
+          )}
           {page.nextCursor && (
             <Action onPress={more} isDisabled={pending}>
               {text("ui.history.load_more_items", "Load more items")}
@@ -222,7 +220,13 @@ function ItemPages({
     </div>
   );
 }
-function EmptyItems({ outcome }: { outcome: HistoryItemOutcome | null }) {
+function EmptyItems({
+  outcome,
+  page,
+}: {
+  outcome: HistoryItemOutcome | null;
+  page: HistoryItemsResponse;
+}) {
   const text = useLocaleText();
   if (outcome !== null)
     return (
@@ -233,25 +237,31 @@ function EmptyItems({ outcome }: { outcome: HistoryItemOutcome | null }) {
         )}
       </Text>
     );
-  // F02 README #170: the app does not record item results yet, so an empty
-  // list says so instead of reading as an operation without items (#204).
+  const recorded = itemsRecorded(page);
+  // The count sentence already says that results are missing.
+  if (recorded && page.counts.unavailable !== "0") return null;
   return (
     <Text>
-      {text(
-        "ui.history.items_not_recorded",
-        "This task didn't record results for each item.",
-      )}
+      {recorded
+        ? text(
+            "ui.history.items_none_processed",
+            "No items were processed in this task.",
+          )
+        : text(
+            "ui.history.items_not_recorded",
+            "This task didn't record results for each item.",
+          )}
     </Text>
   );
 }
 
 function ItemCompleteness({ page }: { page: HistoryItemsResponse }) {
   const text = useLocaleText();
-  if (
-    page.completeness === "complete" &&
-    page.missingReasons.length === 0 &&
-    page.rows.every((row) => row.result !== null)
-  )
+  // The count sentence states missing results, so the notice does not repeat it.
+  const reasons = page.missingReasons.filter(
+    (reason) => reason !== "items_incomplete",
+  );
+  if (reasons.length === 0 && page.rows.every((row) => row.result !== null))
     return null;
   return (
     <Notice>
@@ -259,10 +269,52 @@ function ItemCompleteness({ page }: { page: HistoryItemsResponse }) {
         "ui.history.item_information_unavailable",
         "Some item information is unavailable.",
       )}{" "}
-      {page.missingReasons
-        .map((reason) => missingLabel(reason, text))
-        .join(" ")}
+      {reasons.map((reason) => missingLabel(reason, text)).join(" ")}
     </Notice>
+  );
+}
+
+/** An older engine omits the value; only item-level history has a summary count. */
+function itemsRecorded(page: HistoryItemsResponse): boolean {
+  const recording: HistoryItemRecording | undefined = page.itemRecording;
+  return (
+    recording === "recorded" ||
+    (recording !== "not_recorded" && page.counts.summary !== null)
+  );
+}
+
+/**
+ * One sentence on how many item results remain. Nothing is shown when no item
+ * was recorded and none is missing; the empty state explains that case.
+ */
+function ItemCounts({ page }: { page: HistoryItemsResponse }) {
+  const text = useLocaleText();
+  const { summary, recorded, unavailable } = page.counts;
+  if (!itemsRecorded(page) || (recorded === "0" && unavailable === "0"))
+    return null;
+  const count = BigInt(recorded);
+  return (
+    <Text>
+      {summary === null
+        ? text(
+            "ui.history.item_count_total_unknown",
+            count === 1n
+              ? "{recorded} item with results · Total unknown"
+              : "{recorded} items with results · Total unknown",
+            { recorded: count },
+          )
+        : unavailable === "0"
+          ? text(
+              "ui.history.item_count_all",
+              count === 1n ? "{recorded} item" : "{recorded} items",
+              { recorded: count },
+            )
+          : text(
+              "ui.history.item_count_partial",
+              "Results are kept for {recorded} of {summary} items.",
+              { recorded: count, summary: BigInt(summary) },
+            )}
+    </Text>
   );
 }
 
@@ -277,6 +329,8 @@ function RecordedItemDetails({
 }) {
   const text = useLocaleText();
   const displaced = result.displaced;
+  const notes = itemFlags(result, text);
+  const display = useContext(HistorySizeDisplay);
   const displayTime = useHistoryTime();
   const title = displaced
     ? text("ui.history.displaced_item_details", "Displaced item details")
@@ -305,7 +359,8 @@ function RecordedItemDetails({
         rows={[
           {
             label: text("ui.history.recorded_location", "Recorded location"),
-            value: result.locationDisplay,
+            // Design #232: the full path marks edge spaces as the table does.
+            value: <NameText name={result.locationDisplay} path />,
           },
           {
             label: text("ui.history.outcome", "Outcome"),
@@ -316,14 +371,12 @@ function RecordedItemDetails({
           },
           {
             label: text("ui.history.observed_size", "Observed size"),
-            value: observedSize(result, text),
+            value: observedSizeText(result, display, text),
           },
-          {
-            label: text("ui.history.notes", "Notes"),
-            value:
-              itemFlags(result, text) ||
-              text("ui.history.no_additional_notes", "No additional notes"),
-          },
+          // Design #232: an item without notes has no notes row.
+          ...(notes
+            ? [{ label: text("ui.history.notes", "Notes"), value: notes }]
+            : []),
         ]}
       />
       {displaced && (
@@ -388,6 +441,7 @@ function cells(
   row: HistoryItemRow,
   select: (target: HTMLElement) => void,
   filters: { value: Filter; label: string }[],
+  display: SizeDisplay,
   text: ReturnType<typeof useLocaleText>,
 ) {
   const result = row.result;
@@ -399,7 +453,7 @@ function cells(
       null,
     ];
   const flags = itemFlags(result, text);
-  const size = observedSize(result, text);
+  const size = observedSizeText(result, display, text);
   return [
     // F02 README #170: the end of the path stays; the full path is read by
     // screen readers, shown to a resting pointer and given by "View".
@@ -447,21 +501,4 @@ function itemFlags(
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-function observedSize(
-  result: NonNullable<HistoryItemRow["result"]>,
-  text: ReturnType<typeof useLocaleText>,
-) {
-  if (result.observedSize === null)
-    return text("ui.history.size_unavailable", "Size unavailable");
-  if (result.observedSizeState === "exact")
-    return result.observedSize + " " + text("ui.history.bytes", "bytes");
-  if (result.observedSizeState === "lower_bound")
-    return (
-      result.observedSize +
-      " " +
-      text("ui.history.bytes_or_more", "bytes or more")
-    );
-  return text("ui.history.size_unavailable", "Size unavailable");
 }

@@ -154,6 +154,7 @@ export type {
   HistoryDetail,
   HistoryDetailRequest,
   HistoryItemOutcome,
+  HistoryItemRecording,
   HistoryItemRow,
   HistoryItemsRequest,
   HistoryItemsResponse,

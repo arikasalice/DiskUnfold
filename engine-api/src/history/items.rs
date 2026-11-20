@@ -3,8 +3,9 @@
 use du_core_contracts::{
     Id, PathBytes,
     history_ipc::{
-        HistoryDetailCompleteness, HistoryItemCounts, HistoryItemOutcome, HistoryItemResult,
-        HistoryItemRow, HistoryItemsRequest, HistoryItemsResponse, HistoryListRevision,
+        HistoryDetailCompleteness, HistoryItemCounts, HistoryItemOutcome, HistoryItemRecording,
+        HistoryItemResult, HistoryItemRow, HistoryItemsRequest, HistoryItemsResponse,
+        HistoryListRevision,
     },
     ports::{PortError, Random},
 };
@@ -123,6 +124,15 @@ fn validate(page: &Page, prior: Option<Cursor>, count: usize) -> Result<(), Engi
         return Err(EngineError::reason("history.version_changed"));
     }
     let invalid = || EngineError::reason("history.storage_unavailable");
+    // A summary-only operation has no item rows, counts or continuation to show.
+    if !page.item_history_expected
+        && (page.recorded != 0
+            || !page.rows.is_empty()
+            || page.summary.is_some()
+            || page.next.is_some())
+    {
+        return Err(invalid());
+    }
     if prior.is_some_and(|cursor| cursor.revision != page.revision)
         || page.rows.len() > count
         || page.rows.len() as u64 > page.recorded
@@ -179,6 +189,11 @@ fn project(page: Page, next_cursor: Option<String>) -> HistoryItemsResponse {
             recorded: page.recorded.to_string(),
             unavailable: difference.map(|value| value.to_string()),
         },
+        item_recording: Some(if page.item_history_expected {
+            HistoryItemRecording::Recorded
+        } else {
+            HistoryItemRecording::NotRecorded
+        }),
         completeness: if missing_reasons.is_empty() {
             HistoryDetailCompleteness::Complete
         } else {

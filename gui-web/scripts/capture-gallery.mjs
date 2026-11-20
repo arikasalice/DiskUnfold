@@ -3,7 +3,8 @@
 // 700 px.
 //
 // - history: the operation history item results (F02 README #170), and the full
-//   location shown to a pointer resting 0.4 s on the cell cut in the middle.
+//   location shown to a pointer resting 0.4 s on the cell cut in the middle;
+//   then the details of the lower-bound item (#204).
 // - browse: the browse table with every mark of the "Scan status" column (#133).
 //
 //   npm run capture:history-gallery -- [output folder]
@@ -25,7 +26,8 @@ import { createServer } from "vite";
 const gui = fileURLToPath(new URL("..", import.meta.url));
 /** What each surface draws once it is ready, and whether a pointer capture follows. */
 const surfaces = {
-  history: { ready: ".du-history-item-location", count: 4, pointer: true },
+  // 4 + 1 + 2 location cells: the main record and the two count sentence records.
+  history: { ready: ".du-history-item-location", count: 7, pointer: true },
   browse: { ready: ".du-browse-grid__row", count: 6, pointer: false },
 };
 const surface = process.argv[2];
@@ -238,6 +240,17 @@ try {
     });
     await sleep(400);
     await save(session, "light-1280-tooltip", true);
+    // #204: the details of the lower-bound item show its size with the size rule.
+    await open(session, base, "light", 1280);
+    await session.run(() => {
+      const view = document.querySelectorAll(
+        ".du-history-item-results .du-table-cell .du-action",
+      );
+      view[2]?.scrollIntoView({ block: "center" });
+      view[2]?.click();
+    });
+    await sleep(400);
+    await save(session, "light-1280-item-details", true);
   }
   session.close();
 } finally {

@@ -177,6 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         HistoryItemResult::decl(&config),
         HistoryItemRow::decl(&config),
         HistoryItemCounts::decl(&config),
+        HistoryItemRecording::decl(&config),
         HistoryItemsResponse::decl(&config),
         Id::decl(&config),
         ByteSize::decl(&config),
