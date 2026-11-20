@@ -162,19 +162,29 @@ test("pointer selection returns the generated identity and does not open details
 
 test("#185: a scope total in bytes names its size basis", () => {
   const input = modelFixture();
+  // The fixture text leaves placeholders; this one fills them.
+  const text: typeof fixtureText = {
+    ...fixtureText,
+    message: (key, values) =>
+      Object.entries(values ?? {}).reduce(
+        (message, [name, value]) =>
+          message.split("{" + name + "}").join(String(value)),
+        fixtureText.message(key),
+      ),
+  };
   const { container } = render(
     <VisualizationModelPresenter
       {...input}
       view={view}
       selected={null}
       onSelect={vi.fn()}
-      text={fixtureText}
+      text={text}
     />,
   );
   const line = Array.from(container.querySelectorAll("p"), (p) =>
     (p.textContent ?? "").trim(),
   ).find((content) => content.startsWith("Scope total"));
-  expect(line?.endsWith(` · ${fixtureText.key("logical")}`)).toBe(true);
+  expect(line?.endsWith(" · " + fixtureText.key("logical"))).toBe(true);
 });
 
 test("unsupported geometry shows same-model rows without drawing a partial graph", () => {
