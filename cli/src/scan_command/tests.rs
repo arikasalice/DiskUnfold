@@ -141,7 +141,13 @@ fn run_real_scan(
 fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
 -> Result<(), Box<dyn std::error::Error>> {
     let folder = tempfile::tempdir()?;
-    let missing = folder.path().join("missing").to_string_lossy().into_owned();
+    // The macOS temporary folder lies under the /var link; resolve it so the
+    // refusal is about the missing folder, not about the link (#243).
+    #[cfg(unix)]
+    let base = fs::canonicalize(folder.path())?;
+    #[cfg(not(unix))]
+    let base = folder.path().to_path_buf();
+    let missing = base.join("missing").to_string_lossy().into_owned();
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     let scan = scan(&[&missing])?;
