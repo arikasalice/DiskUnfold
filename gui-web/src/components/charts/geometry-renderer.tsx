@@ -76,6 +76,11 @@ export type GeometryRendererProps = {
   fallback: Fallback;
   /** Text drawn over the shapes in chart pixels, such as the names and values of a bar chart. */
   decorations?: ReactNode;
+  /**
+   * "ranked" fills shapes with the first chart colour and leaves their inner labels
+   * out; the caller draws names and values beside them (bar chart, histogram).
+   */
+  variant?: "ranked";
 };
 
 function isPoint(value: DisplayPoint): boolean {
@@ -683,6 +688,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         <svg
           ref={svg}
           className="du-geometry"
+          data-variant={props.variant}
           aria-hidden="true"
           focusable="false"
           width={width}
@@ -727,7 +733,8 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
-                  {rectangleLabel(shape, viewport, width, height, grid)}
+                  {props.variant !== "ranked" &&
+                    rectangleLabel(shape, viewport, width, height, grid)}
                   {selected &&
                     selectionCheck(shape, viewport, width, height, grid)}
                 </g>

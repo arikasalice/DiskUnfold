@@ -131,6 +131,11 @@ test("F06 README 12: a histogram draws one column per bin from a zero baseline w
     ),
   ).toEqual(["0–1 MiB", "1–10 MiB"]);
   expect(container.querySelector(".du-geometry-baseline")).toBeTruthy();
+  // A tall column carries no inner label; its name is below it (#240).
+  expect(container.querySelector(".du-geometry-label")).toBeNull();
+  expect(container.querySelector("svg")!.getAttribute("data-variant")).toBe(
+    "ranked",
+  );
   const options = screen.getAllByRole("option");
   const heights = options.map((option) =>
     Number.parseFloat((option as HTMLElement).style.height),

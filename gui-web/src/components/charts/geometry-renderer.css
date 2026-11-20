@@ -120,6 +120,10 @@
   stroke-width: 2;
 }
 /* Bar chart and histogram text (F06 README 12). */
+.du-geometry[data-variant="ranked"] .du-geometry-shape {
+  fill: var(--du-chart-1);
+}
+
 .du-geometry-bar-name,
 .du-geometry-bar-value,
 .du-geometry-bin-name,

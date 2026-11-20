@@ -27,6 +27,8 @@
   --du-disabled-text: #7f858e;
   --du-disabled-border: var(--du-border);
   --du-info-surface: #ecedef;
+  /* Chart palette place 1 (F06 README 4): one-series bars and histogram columns. */
+  --du-chart-1: #3b68b0;
   --du-info-text: #315aa8;
   --du-success-surface: #e2f5ed;
   --du-success-text: #115c46;
@@ -90,6 +92,7 @@
     --du-selected-text: #d5e1ff;
     --du-disabled-text: #838890;
     --du-info-surface: #292c31;
+    --du-chart-1: #9dbcf2;
     --du-info-text: #b5c9ef;
     --du-success-surface: #173d36;
     --du-success-text: #a4e9d3;
@@ -122,6 +125,7 @@
   --du-selected-text: #d5e1ff;
   --du-disabled-text: #838890;
   --du-info-surface: #292c31;
+  --du-chart-1: #9dbcf2;
   --du-info-text: #b5c9ef;
   --du-success-surface: #173d36;
   --du-success-text: #a4e9d3;
@@ -157,6 +161,7 @@
     --du-disabled-text: GrayText;
     --du-disabled-border: GrayText;
     --du-info-surface: Canvas;
+    --du-chart-1: CanvasText;
     --du-info-text: CanvasText;
     --du-success-surface: Canvas;
     --du-success-text: CanvasText;

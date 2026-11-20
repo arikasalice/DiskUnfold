@@ -17,6 +17,8 @@ const VALUE_BAND = 20;
 const NAME_BAND = 24;
 /** An approximate character width of the 12 px chart text, for shortening names. */
 const CHAR = 7;
+/** The widest histogram column; a few bins do not stretch across the chart. */
+const MAX_COLUMN = 96;
 
 type Shape = GeometryRendererProps["shapes"][number];
 
@@ -136,6 +138,7 @@ export function BarRenderer(props: GeometryRendererProps) {
       viewport={fullView}
       shapes={shapes}
       decorations={decorations}
+      variant="ranked"
     />
   );
 }
@@ -155,7 +158,10 @@ export function HistogramRenderer(props: GeometryRendererProps) {
   const plotTop = VALUE_BAND;
   const plotBottom = Math.max(plotTop + 1, height - NAME_BAND);
   const plotHeight = plotBottom - plotTop;
-  const column = bins.length > 0 ? (width - 2 * PAD) / bins.length : 0;
+  const column =
+    bins.length > 0
+      ? Math.min((width - 2 * PAD) / bins.length, MAX_COLUMN + GAP)
+      : 0;
   const gap = Math.min(GAP, Math.floor(column * 0.2));
   const place = (index: number, part: number) => {
     const left = Math.round(PAD + index * column + gap / 2);
@@ -206,6 +212,7 @@ export function HistogramRenderer(props: GeometryRendererProps) {
       viewport={fullView}
       shapes={shapes}
       decorations={decorations}
+      variant="ranked"
     />
   );
 }
