@@ -1,6 +1,8 @@
 //! Application menu for the macOS adapter (F15 FR9.HD1: dmg row).
 //!
-//! The menu carries the command line tool link action and an orderly Quit item.
+//! The menu carries the command line tool link action, an orderly Quit item and the
+//! standard Edit menu. macOS delivers the editing shortcuts (Cmd+Z, X, C, V, A) to a text
+//! field only through Edit menu items, so without them a WebView field ignores them (#265).
 use super::Handler;
 use crate::cli_link::{self, Language};
 use objc2::{
@@ -9,7 +11,7 @@ use objc2::{
     runtime::{AnyObject, Sel},
     sel,
 };
-use objc2_app_kit::{NSAlert, NSApplication, NSMenu, NSMenuItem};
+use objc2_app_kit::{NSAlert, NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
 use objc2_foundation::NSString;
 use std::path::PathBuf;
 
@@ -44,7 +46,26 @@ pub(super) fn install_main_menu(
     }
     app_item.setSubmenu(Some(&app_menu));
     main_menu.addItem(&app_item);
+    main_menu.addItem(&edit_menu(mtm));
     application.setMainMenu(Some(&main_menu));
+}
+
+/// The standard Edit menu. Its items have no target, so each action goes through the
+/// responder chain to the focused WebView, which edits the focused field.
+fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
+    let edit_item = NSMenuItem::new(mtm);
+    let edit_menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit"));
+    edit_menu.addItem(&item(mtm, "Undo", sel!(undo:), "z"));
+    let redo = item(mtm, "Redo", sel!(redo:), "z");
+    redo.setKeyEquivalentModifierMask(NSEventModifierFlags::Command | NSEventModifierFlags::Shift);
+    edit_menu.addItem(&redo);
+    edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    edit_menu.addItem(&item(mtm, "Cut", sel!(cut:), "x"));
+    edit_menu.addItem(&item(mtm, "Copy", sel!(copy:), "c"));
+    edit_menu.addItem(&item(mtm, "Paste", sel!(paste:), "v"));
+    edit_menu.addItem(&item(mtm, "Select All", sel!(selectAll:), "a"));
+    edit_item.setSubmenu(Some(&edit_menu));
+    edit_item
 }
 
 fn item(mtm: MainThreadMarker, title: &str, action: Sel, key: &str) -> Retained<NSMenuItem> {
