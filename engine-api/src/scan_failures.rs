@@ -82,7 +82,8 @@ impl UseCase for Failures {
 
 fn query_error(error: QueryError) -> EngineError {
     EngineError::reason(match error {
-        QueryError::NotFound | QueryError::StaleVersion => "ref.unavailable",
+        QueryError::NotFound => "ref.unavailable",
+        QueryError::StaleVersion => "result.requery_required",
         _ => "support.internal_error",
     })
 }

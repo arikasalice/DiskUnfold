@@ -1,7 +1,7 @@
 use super::*;
 use du_analysis_index::IngestSink;
 use du_core_contracts::{
-    PathBytes, PathEncoding,
+    ErrorCode, PathBytes, PathEncoding,
     ports::{PortError, PortErrorKind, Random},
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
     scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
@@ -96,6 +96,24 @@ fn page(engine: &Engine, body: Value) -> Result<ResultEnvelope, String> {
     )
 }
 
+fn assert_error(response: ResultEnvelope, code: ErrorCode, reason: &str) -> Result<(), String> {
+    let error = response.error.ok_or("request accepted")?;
+    assert_eq!(error.code, code);
+    assert_eq!(error.reason_key, reason);
+    Ok(())
+}
+
+fn replace(store: &IngestSink, version: Id) -> Result<(), String> {
+    let mut replacement = store.open(id(4)?).map_err(|e| format!("{e:?}"))?;
+    replacement
+        .add_directory(Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    replacement
+        .seal(version, ResultCompleteness::Complete)
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
+}
+
 #[test]
 fn pages_pinned_sorted_rows_and_filters_through_the_gui_entry() -> Result<(), String> {
     let (store, version) = fixture()?;
@@ -120,53 +138,80 @@ fn pages_pinned_sorted_rows_and_filters_through_the_gui_entry() -> Result<(), St
 }
 
 #[test]
-fn rejects_bad_tokens_wrong_versions_and_released_sources() -> Result<(), String> {
+fn replaced_result_returns_stale_version_and_requery_reason() -> Result<(), String> {
+    let (store, version) = fixture()?;
+    let other = id(3)?;
+    replace(&store, other)?;
+    let engine = engine(store, true)?;
+    assert_error(
+        page(&engine, json!({"resultVersion":version}))?,
+        ErrorCode::StaleVersion,
+        "result.requery_required",
+    )
+}
+
+#[test]
+fn continuation_cursor_from_another_result_returns_cursor_stale() -> Result<(), String> {
     let (store, version) = fixture()?;
     let engine = engine(store.clone(), true)?;
     let first = page(&engine, json!({"resultVersion":version,"count":1}))?;
-    let next = first.body.get("nextCursor").ok_or("missing cursor")?;
+    let cursor = first.body["nextCursor"].as_str().ok_or("missing cursor")?;
     let other = id(3)?;
-    for (body, reason) in [
-        (
-            json!({"resultVersion":version,"count":1001}),
-            "cursor.limit_exceeded",
-        ),
-        (
-            json!({"resultVersion":version,"cursor":"bad"}),
-            "cursor.invalid",
-        ),
-        (
-            json!({"resultVersion":version,"cursor":next,"kind":"unread_range"}),
-            "cursor.invalid",
-        ),
-        (
-            json!({"resultVersion":other,"cursor":next}),
-            "result.requery_required",
-        ),
-    ] {
-        assert_eq!(
-            page(&engine, body)?
-                .error
-                .ok_or("request accepted")?
-                .reason_key,
-            reason
-        );
-    }
-    let mut replacement = store.open(id(4)?).map_err(|e| format!("{e:?}"))?;
-    replacement
-        .add_directory(Vec::new())
-        .map_err(|e| format!("{e:?}"))?;
-    replacement
-        .seal(other, ResultCompleteness::Complete)
-        .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(
-        page(&engine, json!({"resultVersion":version,"cursor":next}))?
-            .error
-            .ok_or("released source accepted")?
-            .reason_key,
-        "ref.unavailable"
-    );
-    Ok(())
+    replace(&store, other.clone())?;
+    assert_error(
+        page(&engine, json!({"resultVersion":other,"cursor":cursor}))?,
+        ErrorCode::StaleVersion,
+        "cursor.stale",
+    )
+}
+
+#[test]
+fn released_result_returns_not_found_and_unavailable_reason() -> Result<(), String> {
+    let engine = engine(IngestSink::default(), true)?;
+    assert_error(
+        page(&engine, json!({"resultVersion":id(2)?}))?,
+        ErrorCode::NotFound,
+        "ref.unavailable",
+    )
+}
+
+#[test]
+fn malformed_forged_and_misbound_cursors_remain_invalid_arguments() -> Result<(), String> {
+    let (store, version) = fixture()?;
+    let engine = engine(store, true)?;
+    assert_error(
+        page(&engine, json!({"resultVersion":version,"cursor":"bad"}))?,
+        ErrorCode::InvalidArgument,
+        "cursor.invalid",
+    )?;
+    let first = page(&engine, json!({"resultVersion":version,"count":1}))?;
+    let cursor = first.body["nextCursor"].as_str().ok_or("missing cursor")?;
+    assert_error(
+        page(
+            &engine,
+            json!({"resultVersion":version,"cursor":cursor,"kind":"unread_range"}),
+        )?,
+        ErrorCode::InvalidArgument,
+        "cursor.invalid",
+    )?;
+    let mut forged = cursor.to_owned();
+    let signature = forged.rfind('.').ok_or("missing signature")? + 1;
+    let replacement = if forged.as_bytes()[signature] == b'A' {
+        'B'
+    } else {
+        'A'
+    };
+    forged.replace_range(signature..signature + 1, &replacement.to_string());
+    assert_error(
+        page(&engine, json!({"resultVersion":version,"cursor":forged}))?,
+        ErrorCode::InvalidArgument,
+        "cursor.invalid",
+    )?;
+    assert_error(
+        page(&engine, json!({"resultVersion":version,"count":1001}))?,
+        ErrorCode::InvalidArgument,
+        "cursor.limit_exceeded",
+    )
 }
 
 #[test]
