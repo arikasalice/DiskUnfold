@@ -12,8 +12,9 @@ param(
   # Display language of the isolated profile. ko is written into the profile's settings database
   # before the app starts, so the app reads it the way it reads a saved choice.
   [ValidateSet('en', 'ko')][string]$Locale = 'en',
-  # dark makes the WebView report prefers-color-scheme: dark; the app follows it.
-  [ValidateSet('light', 'dark')][string]$Theme = 'light',
+  # dark makes the WebView report prefers-color-scheme: dark; the app follows it. contrast turns on
+  # Windows high contrast for the run, so the WebView draws with forced-colors: active (#201).
+  [ValidateSet('light', 'dark', 'contrast')][string]$Theme = 'light',
   # The app scale (a11y.app_scale), a CSS zoom of the whole page; 100 leaves the setting alone.
   [ValidateSet('100', '125', '150', '200')][string]$AppScale = '100',
   # Outer window size as WIDTHxHEIGHT, for example 1280x800. The screen must be at least this large.
@@ -273,6 +274,28 @@ $originalAppTheme = (Get-ItemProperty -LiteralPath $themeKey -Name AppsUseLightT
 if ($Theme -eq 'dark') {
   if (-not (Test-Path -LiteralPath $themeKey)) { $null = New-Item -Path $themeKey -Force }
   Set-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -Type DWord -Value 0
+}
+# High contrast is a session-wide setting; it is turned off again in the final block below.
+if ($Theme -eq 'contrast') {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SmokeContrast {
+  [StructLayout(LayoutKind.Sequential)]
+  struct HighContrast { public int Size; public int Flags; public IntPtr Scheme; }
+  [DllImport("user32.dll", SetLastError = true)]
+  static extern bool SystemParametersInfo(int action, int parameter, ref HighContrast value, int update);
+  static HighContrast Blank() { var value = new HighContrast(); value.Size = Marshal.SizeOf(typeof(HighContrast)); return value; }
+  // SPI_GETHIGHCONTRAST; HCF_HIGHCONTRASTON is bit 0.
+  public static bool IsOn() { var value = Blank(); SystemParametersInfo(0x42, value.Size, ref value, 0); return (value.Flags & 1) != 0; }
+  // SPI_SETHIGHCONTRAST with SPIF_UPDATEINIFILE | SPIF_SENDCHANGE, the last used scheme.
+  public static bool Set(bool on) { var value = Blank(); value.Flags = on ? 1 : 0; return SystemParametersInfo(0x43, value.Size, ref value, 3); }
+}
+'@
+  $originalContrast = [SmokeContrast]::IsOn()
+  if (-not [SmokeContrast]::Set($true) -or -not [SmokeContrast]::IsOn()) { throw 'Windows high contrast could not be turned on' }
+  Start-Sleep -Seconds 3
+  'Windows high contrast is on for this run'
 }
 $process = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
 $scopeTree = [Windows.Automation.TreeScope]::Descendants
@@ -1741,6 +1764,15 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
   Save-SmokeCapture '02-analysis-result'
+  # #199: the measurement rows carry descriptions; their values stay at the end of the row.
+  Expand-UI (Wait-Enabled 'Measurement details' $true)
+  $null = Wait-SmokeExpanded 'Measurement details' $true 'opening'
+  Save-SmokeCapture '02b-measurement-details'
+  $toggle = Wait-Enabled 'Measurement details' $true
+  $disclosure = $null
+  if ($toggle.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) { $disclosure.Collapse() }
+  else { Invoke-UI $toggle }
+  $null = Wait-SmokeExpanded 'Measurement details' $false 'closing'
   Invoke-UI (Wait-Enabled 'Explain volume usage' $true)
   $null = Wait-UI 'volume explanation' { Find-UI 'Selected scanned folder' $textType }
   Save-SmokeCapture '03-volume-explanation' -Prepare { Show-VolumeExplanation }
@@ -1782,6 +1814,12 @@ function Test-CaptureTour {
   Save-SmokeCapture '09-startup-checks'
   Invoke-UI (Wait-Enabled 'Close details' $true)
   $null = Wait-UI 'support entry without the dot' { Find-UI 'Support information' $button }
+  # #199: the product screen's build and install rows carry descriptions.
+  Invoke-UI (Wait-Enabled 'About DiskUnfold' $true)
+  $null = Wait-UI 'product information' { Find-UI 'Close details' $button }
+  Start-Sleep -Milliseconds 800
+  Save-SmokeCapture '10-product-info'
+  Invoke-UI (Wait-Enabled 'Close details' $true)
   "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # Best effort: a scope over the synchronous limit (200,000 files) classifies as a job, which
@@ -2163,6 +2201,7 @@ function Test-VirtualGroups {
     if ($null -ne $originalAppTheme) { Set-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -Type DWord -Value $originalAppTheme }
     else { Remove-ItemProperty -LiteralPath $themeKey -Name AppsUseLightTheme -ErrorAction SilentlyContinue }
   }
+  if ($Theme -eq 'contrast' -and -not $originalContrast) { $null = [SmokeContrast]::Set($false) }
   if (-not $process.HasExited) {
     $null = $process.CloseMainWindow()
     if (-not $process.WaitForExit(10000)) { Stop-Process -Id $process.Id; throw 'The test process did not exit' }

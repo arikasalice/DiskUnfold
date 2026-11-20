@@ -411,6 +411,14 @@ label.du-field > span {
   overflow-wrap: anywhere;
 }
 
+/* A row with a description keeps its value at the end like every other row,
+   and the description follows on the next line, also at the end (F15 README
+   1.6). :where() keeps the specificity of the base rule, so a screen that
+   lays its rows out differently keeps its own alignment. */
+.du-readout dd:where(:has(.du-readout__note)) {
+  text-align: end;
+}
+
 /* Text that stands in for a value still to come does not read as a value. */
 .du-readout__pending dd {
   color: var(--du-muted);
