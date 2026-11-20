@@ -805,7 +805,11 @@ test("a format switch keeps a group selection, and moving to another folder rele
     previousSelection: null,
   });
   // Another folder of the same result: released without a notice.
-  await controller.render(request(3));
+  await controller.render({
+    ...request(3),
+    aggregateScopeRef: otherFolder.model.aggregateScopeRef,
+    navigationScopeRef: otherFolder.model.aggregateScopeRef,
+  });
   expect(controller.getSnapshot()).toMatchObject({
     selection: null,
     previousSelection: null,

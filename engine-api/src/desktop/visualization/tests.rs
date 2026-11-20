@@ -267,16 +267,16 @@ fn availability_and_render_agree_for_each_catalog_format() -> TestResult {
 }
 
 #[test]
-fn an_unnamed_availability_request_for_a_revision_outside_the_scan_lineage_is_unavailable()
--> TestResult {
+fn an_unnamed_availability_request_for_a_revision_that_is_not_current_is_stale() -> TestResult {
     let harness = Harness::product(2000)?;
     harness.publish(&two_files(3))?;
-    // No published scan result has this revision; without a lineage nothing else is pinned.
+    // Without a lineage only the named revision is pinned; one that is not the
+    // current scan result is refused as stale, as viz.render does.
     let reason = harness.reason(
         "viz.availability",
         json!({"resultRevision": id(7), "aggregateScopeRef": scope(7)}),
     )?;
-    assert_eq!(reason, "ref.unavailable");
+    assert_eq!(reason, "result.version_stale");
     Ok(())
 }
 
