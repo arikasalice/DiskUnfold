@@ -57,9 +57,8 @@ test("shows separate counts, recorded locations, and display-only displaced deta
   expect(
     screen.getByRole("columnheader", { name: "Recorded location" }),
   ).toBeDefined();
-  const counts = screen.getByLabelText("Item counts");
-  expect(within(counts).getAllByText("Unavailable")).toHaveLength(2);
-  expect(within(counts).getByText("1")).toBeDefined();
+  expect(screen.getByText("1 item with results · Total unknown")).toBeDefined();
+  expect(screen.getByText("Cannot be confirmed")).toBeDefined();
   const open = screen.getByRole("button", {
     name: "View displaced item details, item 0",
   });
@@ -251,9 +250,7 @@ test("opens a full recorded item with a long location, lower-bound size and ever
   const details = screen.getByRole("region", { name: "Recorded item details" });
   expect(document.activeElement).toBe(details);
   expect(within(details).getByText(result.locationDisplay)).toBeDefined();
-  expect(
-    within(details).getByText("9223372036854775807 bytes or more"),
-  ).toBeDefined();
+  expect(within(details).getByText(/^At least \S+ EiB$/)).toBeDefined();
   expect(
     within(details).getByText(
       "Review needed · Held · Outcome unknown · A reason was recorded",
@@ -313,3 +310,33 @@ test("the recorded location keeps its end, takes no tab stop and marks edge spac
     delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
   }
 });
+
+test.each([
+  ["1", "0", null, "1 item"],
+  ["5", "4", "items_incomplete", "Results are kept for 1 of 5 items."],
+] as const)(
+  "states kept results for summary %s in one sentence",
+  async (summary, unavailable, reason, sentence) => {
+    const kept = {
+      ...page("kept"),
+      counts: { summary, recorded: "1", unavailable },
+      completeness: reason ? ("partial" as const) : ("complete" as const),
+      missingReasons: reason ? [reason] : [],
+    };
+    const result = kept.rows[0]?.result;
+    if (!result) throw new Error("Missing item fixture");
+    result.observedSize = "1048576";
+    result.observedSizeState = "exact";
+    render(
+      <HistoryItems
+        client={client(vi.fn().mockResolvedValue(kept))}
+        jobRef="job"
+      />,
+    );
+    expect(await screen.findByText(sentence)).toBeDefined();
+    expect(screen.getByText(/^1(\.0)? MiB$/)).toBeDefined();
+    expect(
+      screen.queryByText(/Some item information is unavailable/),
+    ).toBeNull();
+  },
+);

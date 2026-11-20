@@ -28,6 +28,7 @@ import { GroupsEntryAction } from "../features/groups/GroupsEntry";
 import { GroupsSurface } from "../features/groups/GroupsSurface";
 import { useGroupsEntry } from "../features/groups/use-groups-entry";
 import { HistoryPanel } from "../features/history/HistoryPanel";
+import { HistorySizeDisplay } from "../features/history/history-size";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -345,13 +346,15 @@ export function App({
         display={browseDisplay}
       />
       {client && history && (
-        <HistoryPanel
-          client={client}
-          onClose={() => {
-            restoreFocus.current = true;
-            setHistory(false);
-          }}
-        />
+        <HistorySizeDisplay.Provider value={browseDisplay}>
+          <HistoryPanel
+            client={client}
+            onClose={() => {
+              restoreFocus.current = true;
+              setHistory(false);
+            }}
+          />
+        </HistorySizeDisplay.Provider>
       )}
     </main>
   );

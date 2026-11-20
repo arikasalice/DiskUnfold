@@ -486,8 +486,6 @@ ui.history.ambiguous_information
 ui.history.approval_check
 ui.history.back_to_analysis
 ui.history.back_to_history
-ui.history.bytes
-ui.history.bytes_or_more
 ui.history.changed_restart_page
 ui.history.check_os_trash
 ui.history.clear_filters
@@ -513,7 +511,9 @@ ui.history.held
 ui.history.incomplete
 ui.history.information_available
 ui.history.invalid_date_range
-ui.history.item_counts
+ui.history.item_count_all recorded:count
+ui.history.item_count_partial recorded:count summary:count
+ui.history.item_count_total_unknown recorded:count
 ui.history.item_information_unavailable
 ui.history.item_number number:name
 ui.history.item_result_unavailable
@@ -563,7 +563,6 @@ ui.history.plan_lineage
 ui.history.plans_approval
 ui.history.previous_record_unavailable
 ui.history.reason_recorded
-ui.history.recorded_count
 ui.history.recorded_evidence
 ui.history.recorded_item
 ui.history.recorded_item_details
@@ -582,7 +581,8 @@ ui.history.result_counts_unavailable
 ui.history.retry
 ui.history.review_needed
 ui.history.session_information
-ui.history.size_unavailable
+ui.history.size_at_least size:name
+ui.history.size_unknown
 ui.history.started
 ui.history.state_cancelled
 ui.history.state_completed
@@ -594,12 +594,10 @@ ui.history.state_partial_compact
 ui.history.state_unavailable
 ui.history.status
 ui.history.status_time status:name time:name
-ui.history.summary_count
 ui.history.through_date
 ui.history.time_moved_to_trash
 ui.history.time_unavailable
 ui.history.unavailable
-ui.history.unavailable_count
 ui.history.view
 ui.history.view_details_aria name:name time:name
 ui.history.view_item
