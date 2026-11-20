@@ -335,6 +335,10 @@ export function BrowseVisualizationView({
     assembly,
     selection,
   );
+  // A new format starts at the top of its chart, not where the last one was scrolled.
+  useLayoutEffect(() => {
+    viewportElement.current?.scrollTo?.({ top: 0 });
+  }, [formats.format]);
   const area = useMemo(
     () => ({
       element: viewportElement,

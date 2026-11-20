@@ -1556,15 +1556,6 @@ function Test-CaptureTreemap {
     else { Invoke-UI $radio }
     Start-Sleep -Milliseconds 2000
     if (Find-UI 'The chart could not be loaded.' $null) { throw "The $($step[0]) request was refused" }
-    # #240 review: capture from the top of the chart. Every vertically scrollable area goes up.
-    $scrollable = [Windows.Automation.PropertyCondition]::new($ae::IsScrollPatternAvailableProperty, $true)
-    foreach ($area in $window.FindAll($scopeTree, $scrollable)) {
-      $scroll = $area.GetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern)
-      if ($scroll.Current.VerticallyScrollable) {
-        try { $scroll.SetScrollPercent([Windows.Automation.ScrollPattern]::NoScroll, 0) } catch { Write-Warning "Scroll to top: $($_.Exception.Message)" }
-      }
-    }
-    Start-Sleep -Milliseconds 300
     "Format $($step[0]): selected as '$($radio.Current.Name)'"
     Save-SmokeCapture $step[1]
   }

@@ -15,8 +15,11 @@ const VALUE_ROOM = 96;
 /** Histogram: room above a column for its value and below it for its bin name. */
 const VALUE_BAND = 20;
 const NAME_BAND = 24;
-/** An approximate character width of the 12 px chart text, for shortening names. */
+/** Approximate advance widths of the 12 px chart text: a narrow and a wide (CJK) character. */
 const CHAR = 7;
+const WIDE_CHAR = 12;
+/** Between the name column and the bars (F06 README 43). */
+const NAME_GAP = 12;
 /** The widest histogram column; a few bins do not stretch across the chart. */
 const MAX_COLUMN = 96;
 /** The tallest histogram, so the bin names stay in view below the columns. */
@@ -32,14 +35,37 @@ function share(shape: Shape, view: GeometryRendererProps["viewport"]) {
   return span > 0 ? Math.min(1, Math.max(0, (end.x - start.x) / span)) : null;
 }
 
-/** Keeps the start and the end of a name that is too long, as names are shortened elsewhere. */
+const WIDE =
+  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+function advance(part: string) {
+  return WIDE.test(part) ? WIDE_CHAR : CHAR;
+}
+
+/** The approximate drawn width of a text in the chart's 12 px font. */
+function textWidth(text: string) {
+  return graphemes(text).reduce((sum, part) => sum + advance(part), 0);
+}
+
+/** Keeps the start and the end of a name that is too wide, as names are shortened elsewhere. */
 function shorten(text: string, room: number) {
   const parts = graphemes(text);
-  const limit = Math.max(2, Math.floor(room / CHAR));
-  if (parts.length <= limit) return text;
-  const tail = Math.floor((limit - 1) / 2);
+  if (textWidth(text) <= room) return text;
+  const budget = Math.max(2 * CHAR, room - CHAR);
+  let head = 0;
+  let tail = 0;
+  let used = 0;
+  // Take from the start and the end in turn while they fit.
+  while (head + tail < parts.length) {
+    const fromStart = head <= tail;
+    const part = fromStart ? parts[head]! : parts[parts.length - 1 - tail]!;
+    if (used + advance(part) > budget) break;
+    used += advance(part);
+    if (fromStart) head += 1;
+    else tail += 1;
+  }
   return (
-    parts.slice(0, limit - 1 - tail).join("") +
+    parts.slice(0, head).join("") +
     "…" +
     parts.slice(parts.length - tail).join("")
   );
@@ -95,8 +121,15 @@ const fullView = { left: 0, top: 0, right: LIMIT, bottom: LIMIT };
  */
 export function BarRenderer(props: GeometryRendererProps) {
   const width = Math.round(props.width);
-  const nameWidth = Math.floor(width * NAME_SHARE);
-  const plotLeft = nameWidth + 8;
+  const rowsIn = props.shapes.flatMap((shape) =>
+    share(shape, props.viewport) === null ? [] : [shape],
+  );
+  // The column fits the longest name, up to 40% of the width (F06 README 43).
+  const nameWidth = Math.min(
+    Math.floor(width * NAME_SHARE),
+    PAD + Math.max(0, ...rowsIn.map((shape) => textWidth(words(shape).name))),
+  );
+  const plotLeft = nameWidth + NAME_GAP;
   const plotWidth = Math.max(0, width - plotLeft - VALUE_ROOM);
   const rows = props.shapes.flatMap((shape) => {
     const part = share(shape, props.viewport);
