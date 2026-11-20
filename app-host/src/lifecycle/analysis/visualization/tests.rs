@@ -140,7 +140,9 @@ fn the_desktop_assembly_registers_every_required_visualization_command() -> Resu
     let catalog = ok(&assembled.engine, "viz.catalog", json!({}))?;
     assert_eq!(catalog["formats"].as_array().map(Vec::len), Some(6));
     assert_eq!(catalog["strategies"].as_array().map(Vec::len), Some(6));
-    assert_eq!(catalog["colorCriteria"], json!(["none"]));
+    // FR6: the type criterion and its type classification table revision.
+    assert_eq!(catalog["colorCriteria"], json!(["none", "type"]));
+    assert_eq!(catalog["fileTypeTableRevision"], json!(1));
     Ok(())
 }
 

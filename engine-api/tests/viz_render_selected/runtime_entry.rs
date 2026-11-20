@@ -177,6 +177,7 @@ impl EvidenceProducer for Producer {
                 legend: 1,
                 view_policy: 1,
                 size_rule,
+                file_type: None,
             },
             available_formats: vec![],
             classes: HashMap::from([(
@@ -186,6 +187,7 @@ impl EvidenceProducer for Producer {
                     condition: None,
                 },
             )]),
+            legend_order: vec![],
         })
     }
     fn child(

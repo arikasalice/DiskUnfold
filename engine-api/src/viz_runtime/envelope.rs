@@ -224,7 +224,9 @@ pub(super) fn build_model(
         total.2 |= matches!(row.size.amount, SizeAmount::LowerBound { .. });
     }
     let mut legend = Vec::with_capacity(classes.len());
-    for (key, (count, total, lower)) in classes {
+    for (key, (count, total, lower)) in
+        super::legend_order::listed(classes, &admitted.facts.legend_order)
+    {
         if cancelled() {
             return Err(internal());
         }

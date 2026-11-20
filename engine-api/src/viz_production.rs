@@ -2,8 +2,10 @@
 //!
 //! [`ProductionEvidence`] answers the runtime's owner questions from the immutable
 //! result it is given: size values, their evidence and value state come from F03
-//! unchanged, and nothing is derived from display names, raw path bytes or the
-//! clock. Facts the pinned result cannot prove stay absent or unknown.
+//! unchanged, and nothing is derived from display names or the clock. The one fact
+//! read from a name is its type, which the type classification table in the
+//! analysis index decides from the native name bytes. Facts the pinned result
+//! cannot prove stay absent or unknown.
 mod facts;
 mod groups;
 pub mod policy;
@@ -88,9 +90,11 @@ impl EvidenceProducer for ProductionEvidence {
         source: &CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<Option<SourcePolicyFacts>, EngineError> {
-        // Both criteria name rule tables that do not exist yet, so only "none" is served.
+        // The classification criterion names a rule table that does not exist yet;
+        // the color criterion is none or the file type (FR6).
         if request.classification_criterion != policy::CLASSIFICATION_CRITERION_NONE
-            || request.color_criterion != policy::COLOR_CRITERION_NONE
+            || ![policy::COLOR_CRITERION_NONE, policy::COLOR_CRITERION_TYPE]
+                .contains(&request.color_criterion.as_str())
         {
             return Err(EngineError::reason("viz.measure_unknown"));
         }
@@ -102,6 +106,7 @@ impl EvidenceProducer for ProductionEvidence {
         Ok(Some(policy::source_policy(
             self.view_policy_revision,
             available,
+            &request.color_criterion,
         )))
     }
 
@@ -127,6 +132,11 @@ impl EvidenceProducer for ProductionEvidence {
         item: &ResultItem,
         request: &VizRenderRequest,
     ) -> Result<ItemEvidence, EngineError> {
-        Ok(presentation::child(source, item, &request.size_basis))
+        Ok(presentation::child(
+            source,
+            item,
+            &request.size_basis,
+            request.color_criterion == policy::COLOR_CRITERION_TYPE,
+        ))
     }
 }

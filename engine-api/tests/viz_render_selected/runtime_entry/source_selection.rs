@@ -451,6 +451,7 @@ pub(super) fn owner_policy(request: &VizRenderRequest) -> Option<SourcePolicyFac
         required_data_revision: 1,
         legend_revision: u32::from(request.classification_criterion == "fixture.owner_rule"),
         view_policy_revision: 1,
+        file_type_revision: None,
         classes: HashMap::from([(
             "fixture.class".into(),
             LegendClass {
@@ -458,6 +459,7 @@ pub(super) fn owner_policy(request: &VizRenderRequest) -> Option<SourcePolicyFac
                 condition: None,
             },
         )]),
+        legend_order: vec![],
         available_formats: vec![],
     })
 }

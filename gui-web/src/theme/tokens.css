@@ -29,6 +29,18 @@
   --du-info-surface: #ecedef;
   /* Chart palette place 1 (F06 README 4): one-series bars and histogram columns. */
   --du-chart-1: #3b68b0;
+  /* Category palette places 2-8 and the two neutrals (F06 README 4.1); fill text on them. */
+  --du-chart-2: #8a6a1f;
+  --du-chart-3: #1f6f63;
+  --du-chart-4: #a03a5c;
+  --du-chart-5: #5b3fa0;
+  --du-chart-6: #3f7f45;
+  --du-chart-7: #6e4326;
+  --du-chart-8: #2a7397;
+  --du-chart-neutral: #6b7280;
+  --du-chart-neutral-2: #8a909b;
+  --du-chart-on-fill: #ffffff;
+  --du-chart-on-neutral-2: #242528;
   --du-info-text: #315aa8;
   --du-success-surface: #e2f5ed;
   --du-success-text: #115c46;
@@ -93,6 +105,17 @@
     --du-disabled-text: #838890;
     --du-info-surface: #292c31;
     --du-chart-1: #9dbcf2;
+    --du-chart-2: #d6a24a;
+    --du-chart-3: #5fd0b5;
+    --du-chart-4: #e58aa0;
+    --du-chart-5: #a584e6;
+    --du-chart-6: #a8e49c;
+    --du-chart-7: #c98a5e;
+    --du-chart-8: #86d3ec;
+    --du-chart-neutral: #aab0ba;
+    --du-chart-neutral-2: #7d838d;
+    --du-chart-on-fill: #16181c;
+    --du-chart-on-neutral-2: #16181c;
     --du-info-text: #b5c9ef;
     --du-success-surface: #173d36;
     --du-success-text: #a4e9d3;
@@ -126,6 +149,17 @@
   --du-disabled-text: #838890;
   --du-info-surface: #292c31;
   --du-chart-1: #9dbcf2;
+  --du-chart-2: #d6a24a;
+  --du-chart-3: #5fd0b5;
+  --du-chart-4: #e58aa0;
+  --du-chart-5: #a584e6;
+  --du-chart-6: #a8e49c;
+  --du-chart-7: #c98a5e;
+  --du-chart-8: #86d3ec;
+  --du-chart-neutral: #aab0ba;
+  --du-chart-neutral-2: #7d838d;
+  --du-chart-on-fill: #16181c;
+  --du-chart-on-neutral-2: #16181c;
   --du-info-text: #b5c9ef;
   --du-success-surface: #173d36;
   --du-success-text: #a4e9d3;
@@ -162,6 +196,18 @@
     --du-disabled-border: GrayText;
     --du-info-surface: Canvas;
     --du-chart-1: CanvasText;
+    /* Category fills give way to patterns and outlines (F06 README 4.9). */
+    --du-chart-2: Canvas;
+    --du-chart-3: Canvas;
+    --du-chart-4: Canvas;
+    --du-chart-5: Canvas;
+    --du-chart-6: Canvas;
+    --du-chart-7: Canvas;
+    --du-chart-8: Canvas;
+    --du-chart-neutral: Canvas;
+    --du-chart-neutral-2: Canvas;
+    --du-chart-on-fill: CanvasText;
+    --du-chart-on-neutral-2: CanvasText;
     --du-info-text: CanvasText;
     --du-success-surface: Canvas;
     --du-success-text: CanvasText;

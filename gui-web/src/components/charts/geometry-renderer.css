@@ -124,6 +124,124 @@
   fill: var(--du-chart-1);
 }
 
+/* Legend classes (F06 README 4.1, 44): each class fills with its palette place;
+   the text on a fill takes the palette's fill text colour. The selectors outrank
+   the one-series fill of a ranked chart. */
+.du-geometry .du-geometry-shape[data-tone="1"] {
+  fill: var(--du-chart-1);
+}
+.du-geometry .du-geometry-shape[data-tone="2"] {
+  fill: var(--du-chart-2);
+}
+.du-geometry .du-geometry-shape[data-tone="3"] {
+  fill: var(--du-chart-3);
+}
+.du-geometry .du-geometry-shape[data-tone="4"] {
+  fill: var(--du-chart-4);
+}
+.du-geometry .du-geometry-shape[data-tone="5"] {
+  fill: var(--du-chart-5);
+}
+.du-geometry .du-geometry-shape[data-tone="6"] {
+  fill: var(--du-chart-6);
+}
+.du-geometry .du-geometry-shape[data-tone="7"] {
+  fill: var(--du-chart-7);
+}
+.du-geometry .du-geometry-shape[data-tone="8"] {
+  fill: var(--du-chart-8);
+}
+.du-geometry .du-geometry-shape[data-tone="neutral"] {
+  fill: var(--du-chart-neutral);
+}
+.du-geometry .du-geometry-shape[data-tone="neutral-2"] {
+  fill: var(--du-chart-neutral-2);
+}
+
+.du-geometry .du-geometry-shape[data-tone] .du-geometry-label {
+  fill: var(--du-chart-on-fill);
+}
+
+.du-geometry .du-geometry-shape[data-tone="neutral-2"] .du-geometry-label {
+  fill: var(--du-chart-on-neutral-2);
+}
+
+/* A folder under a type criterion has no type: surface fill with a 1 px edge and
+   no pattern (README 44.2). Its name keeps the page text colour. */
+.du-geometry .du-geometry-shape[data-tone="folder"] {
+  fill: var(--du-surface);
+}
+
+.du-geometry .du-geometry-shape[data-tone="folder"] > rect:first-child {
+  stroke: var(--du-control-border);
+  stroke-width: 1;
+}
+
+.du-geometry .du-geometry-shape[data-tone="folder"] .du-geometry-label {
+  fill: var(--du-text);
+}
+
+.du-geometry-pattern {
+  pointer-events: none;
+  stroke: none;
+}
+
+/* The plate under a label on a patterned shape: the shape's own fill, no edge. */
+.du-geometry-shape .du-geometry-label-plate {
+  pointer-events: none;
+  stroke: none;
+}
+
+/* Pattern marks: 1 px lines in the fill text colour at 35% opacity. */
+.du-chart-pattern {
+  stroke: var(--du-chart-on-fill);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.du-chart-pattern .du-pattern-mark--fill {
+  fill: var(--du-chart-on-fill);
+  stroke: none;
+}
+
+.du-chart-pattern--sparse-dots .du-pattern-mark--fill {
+  fill: var(--du-chart-on-neutral-2);
+}
+
+/* Another class is chosen in the legend: faded, still selectable (README 4.7). */
+.du-geometry-shape[data-dimmed] {
+  opacity: 0.35;
+}
+
+@media (forced-colors: active) {
+  .du-chart-pattern {
+    stroke: CanvasText;
+    opacity: 1;
+  }
+
+  /* Every class fills with Canvas and is told apart by its pattern and its edge
+     (README 4.9); place 1 has no pattern, so its edge and name carry it. */
+  .du-geometry .du-geometry-shape[data-tone] {
+    fill: Canvas;
+  }
+
+  .du-geometry .du-geometry-shape[data-tone] .du-geometry-label {
+    fill: CanvasText;
+  }
+
+  .du-chart-pattern .du-pattern-mark--fill {
+    fill: CanvasText;
+  }
+
+  .du-geometry-shape[data-dimmed] {
+    opacity: 1;
+  }
+
+  .du-geometry-shape[data-dimmed] > rect:first-child {
+    stroke: GrayText;
+  }
+}
+
 .du-geometry-bar-name,
 .du-geometry-bar-value,
 .du-geometry-bin-name,

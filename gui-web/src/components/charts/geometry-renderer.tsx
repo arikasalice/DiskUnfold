@@ -1,4 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { ChartPatternDefs, patternId } from "./chart-patterns";
+import type { ChartPattern } from "./chart-patterns";
 import type { KeyboardEvent, ReactNode } from "react";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
@@ -29,6 +31,18 @@ type Shape = {
   container?: boolean;
   /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
   lowerBound?: boolean;
+  /**
+   * The palette place ("1"-"8"), "neutral", "neutral-2" or "folder" of its
+   * legend class (F06 README 4.1); absent: the chart's own fill.
+   */
+  tone?: string;
+  /** The pattern of its class, drawn when patterns are on or always. */
+  pattern?: ChartPattern | null;
+  patternAlways?: boolean;
+  /** Another legend class is chosen: drawn faded, still selectable (README 4.7). */
+  dimmed?: boolean;
+  /** The key of its legend class, for choosing a class in the legend. */
+  legendClass?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -81,6 +95,8 @@ export type GeometryRendererProps = {
    * out; the caller draws names and values beside them (bar chart, histogram).
    */
   variant?: "ranked";
+  /** Draw the patterns of palette places 1-8 too ("Use patterns", README 4.1). */
+  patterns?: boolean | undefined;
   /**
    * Every interval of a histogram in model order, shape or not; the histogram
    * keeps the place and name of an empty one (F06 README 43).
@@ -411,11 +427,20 @@ const HEADER_PLACE = 18;
  * of a name (its extension) stays: "notes.bin" in 6 reads "no…bin" (F06 design
  * README section 7). A grapheme cluster is never split.
  */
+/** A shortened name that keeps fewer leading characters than this is not drawn. */
+const KEPT_HEAD = 3;
+
+/**
+ * The text shortened in the middle to `limit` characters, or "" when it would
+ * keep fewer than three of its first characters: "R…ME" cannot be recognised,
+ * so no label is better (F06 README 43, 44).
+ */
 function shorten(text: string, limit: number) {
   const characters = graphemes(text);
   if (characters.length <= limit) return text;
   const kept = Math.max(1, limit - 1);
   const tail = Math.ceil(kept / 2);
+  if (kept - tail < KEPT_HEAD) return "";
   return (
     characters.slice(0, kept - tail).join("") +
     "…" +
@@ -524,6 +549,8 @@ function rectangleLabel(
   width: number,
   height: number,
   grid: DeviceGrid,
+  /** The shape draws a pattern: the label stands on a plate of its own fill. */
+  plate = false,
 ) {
   if (shape.geometry.primitive !== "rect") return null;
   const start = project(shape.geometry.points[0]!, view, width, height, grid);
@@ -533,18 +560,87 @@ function rectangleLabel(
   const available = Math.min(end.x, width) - left;
   // The header band of a folder: 20 px high, 12 px text 4 px from the left, centred.
   if (shape.container)
-    return available < 70 || start.y < 0 ? null : (
-      <text className="du-geometry-header" x={left + 4} y={top + 10}>
-        {fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12)))}
-      </text>
-    );
+    return available < 70 || start.y < 0
+      ? null
+      : labelText(
+          "du-geometry-header",
+          left + 4,
+          top + 10,
+          fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12))),
+        );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const visible = fitLabel(shape, limit);
+  const label = fitLabel(shape, limit);
+  const text = labelText("du-geometry-label", left + 12, top + 24, label);
+  if (!plate || text === null) return text;
+  // No pattern runs through a name (README 44): the 14 px line and 2 px above and
+  // below, the text and 4 px each side, take the shape's own fill.
   return (
-    <text className="du-geometry-label" x={left + 12} y={top + 24}>
-      {visible}
+    <g>
+      <rect
+        className="du-geometry-label-plate"
+        x={left + 12 - 4}
+        y={top + 24 - 14 - 2}
+        width={labelWidth(label) + 8}
+        height={14 + 4 + 4}
+      />
+      {text}
+    </g>
+  );
+}
+
+const WIDE_GLYPH =
+  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+/** The approximate drawn width of a 14 px label: 14 px for a wide glyph, 8 for others. */
+function labelWidth(label: string) {
+  return graphemes(label).reduce(
+    (sum, part) => sum + (WIDE_GLYPH.test(part) ? 14 : 8),
+    0,
+  );
+}
+
+/** A drawn label, or nothing for a label that could not be kept. */
+function labelText(className: string, x: number, y: number, label: string) {
+  return label === "" ? null : (
+    <text className={className} x={x} y={y}>
+      {label}
     </text>
+  );
+}
+
+/** Below this size in CSS px a pattern is not drawn (F06 README 4.1). */
+const PATTERN_MIN = 24;
+
+/**
+ * The pattern of a shape's legend class over its fill, inside its gap: for every
+ * class while patterns are on, and always for the neutral classes and the ninth
+ * class onward. A folder frame and a small shape take none.
+ */
+function patternOverlay(
+  shape: Shape,
+  patterns: boolean | undefined,
+  prefix: string,
+  at: { viewport: Viewport; width: number; height: number; grid: DeviceGrid },
+) {
+  if (!shape.pattern || shape.container || !(patterns || shape.patternAlways))
+    return null;
+  const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
+  if (
+    !edges ||
+    edges.right - edges.left < PATTERN_MIN ||
+    edges.bottom - edges.top < PATTERN_MIN
+  )
+    return null;
+  return (
+    <rect
+      className="du-geometry-pattern"
+      x={edges.left}
+      y={edges.top}
+      width={edges.right - edges.left}
+      height={edges.bottom - edges.top}
+      fill={`url(#${patternId(prefix, shape.pattern)})`}
+    />
   );
 }
 
@@ -726,6 +822,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <clipPath id={clip}>
               <rect width={width} height={height} />
             </clipPath>
+            <ChartPatternDefs prefix={clip} />
           </defs>
           <g
             clipPath={`url(#${clip})`}
@@ -748,19 +845,35 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               ))}
             {visible.map(({ shape, drawing }) => {
               const selected = shape.rowRef === props.selectedRowRef;
+              const overlay = patternOverlay(shape, props.patterns, clip, {
+                viewport,
+                width,
+                height,
+                grid,
+              });
               return (
                 <g
                   className="du-geometry-shape"
                   key={shape.shapeRef}
                   data-container={shape.container ? "true" : undefined}
                   data-selected={selected ? "true" : undefined}
+                  data-tone={shape.tone}
+                  data-dimmed={shape.dimmed ? "true" : undefined}
                 >
                   {drawing}
+                  {overlay}
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
                   {props.variant !== "ranked" &&
-                    rectangleLabel(shape, viewport, width, height, grid)}
+                    rectangleLabel(
+                      shape,
+                      viewport,
+                      width,
+                      height,
+                      grid,
+                      overlay !== null,
+                    )}
                   {selected &&
                     selectionCheck(shape, viewport, width, height, grid)}
                 </g>

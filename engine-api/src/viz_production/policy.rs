@@ -6,6 +6,7 @@
 //! Strings that the GUI translates are keys declared in the F13 locale bundles.
 use std::collections::HashMap;
 
+use du_analysis_index::visualization::type_legend;
 use du_core_contracts::visualization::model::{VizStaleness, VizStalenessState};
 
 use crate::{
@@ -25,6 +26,8 @@ pub const DENOMINATOR_SCOPE: &str = "scope";
 ///
 /// It means that no classification is applied and every item shares one class.
 pub const COLOR_CRITERION_NONE: &str = "none";
+/// The type color criterion: each file takes the class of its type (F06 FR6).
+pub const COLOR_CRITERION_TYPE: &str = type_legend::CRITERION;
 /// The one classification criterion served until the F06 legend rule table (FR6) exists.
 ///
 /// It means that no classification rule applies, so every item has the same legend class.
@@ -72,11 +75,12 @@ pub const STALENESS_UNWATCHED_REASON: &str = "viz.staleness.unwatched";
 pub fn catalog_policy() -> viz_catalog::Policy {
     viz_catalog::Policy {
         measures: vec![MEASURE_SIZE.into(), MEASURE_COUNT.into()],
-        color_criteria: vec![COLOR_CRITERION_NONE.into()],
+        color_criteria: vec![COLOR_CRITERION_NONE.into(), COLOR_CRITERION_TYPE.into()],
         denominator_criteria: vec![DENOMINATOR_SCOPE.into()],
         interpretation_table_revision: INTERPRETATION_TABLE_REVISION,
         required_data_table_revision: required_data::TABLE_REVISION,
         legend_rule_revision: LEGEND_RULE_REVISION,
+        file_type_table_revision: Some(type_legend::FILE_TYPE_TABLE_REVISION),
     }
 }
 
@@ -88,7 +92,9 @@ pub fn catalog_policy() -> viz_catalog::Policy {
 pub(super) fn source_policy(
     view_policy_revision: u32,
     available_formats: Vec<String>,
+    color_criterion: &str,
 ) -> SourcePolicyFacts {
+    let by_type = color_criterion == COLOR_CRITERION_TYPE;
     SourcePolicyFacts {
         staleness: VizStaleness {
             state: VizStalenessState::Unknown,
@@ -98,13 +104,56 @@ pub(super) fn source_policy(
         required_data_revision: required_data::TABLE_REVISION,
         legend_revision: LEGEND_RULE_REVISION,
         view_policy_revision,
-        classes: HashMap::from([(
-            LEGEND_CLASS_UNCLASSIFIED.to_owned(),
-            LegendClass {
-                label_key: LEGEND_LABEL_UNCLASSIFIED.to_owned(),
-                condition: None,
-            },
-        )]),
+        file_type_revision: by_type.then_some(type_legend::FILE_TYPE_TABLE_REVISION),
+        classes: if by_type {
+            type_classes()
+        } else {
+            no_classes()
+        },
+        legend_order: if by_type {
+            type_legend::LISTED
+                .iter()
+                .map(|class| class.key.to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        },
         available_formats,
     }
 }
+
+/// The one class of every item when no criterion applies.
+fn no_classes() -> HashMap<String, LegendClass> {
+    HashMap::from([(
+        LEGEND_CLASS_UNCLASSIFIED.to_owned(),
+        LegendClass {
+            label_key: LEGEND_LABEL_UNCLASSIFIED.to_owned(),
+            condition: None,
+        },
+    )])
+}
+
+/// The listed type classes and the folder class, which a legend leaves out.
+fn type_classes() -> HashMap<String, LegendClass> {
+    let listed = type_legend::LISTED.iter().map(|class| {
+        (
+            class.key.to_owned(),
+            LegendClass {
+                label_key: class.label_key.to_owned(),
+                condition: None,
+            },
+        )
+    });
+    listed
+        .chain([(
+            type_legend::FOLDER.to_owned(),
+            LegendClass {
+                label_key: LEGEND_LABEL_FOLDER.to_owned(),
+                condition: None,
+            },
+        )])
+        .collect()
+}
+
+/// Message key of the folder class; a folder is never listed, so no screen shows it.
+const LEGEND_LABEL_FOLDER: &str = "ui.visualization.legend.type.folder";

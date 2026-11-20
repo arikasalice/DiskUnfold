@@ -36,6 +36,7 @@ import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
 import { shownHeight } from "./page-scroll";
 import { useHistogramAxis } from "./histogram-axis";
+import { useLegendChoice } from "./legend-choice";
 
 export type BrowseVisualizationSelection = {
   resultVersion: string;
@@ -337,6 +338,7 @@ export function BrowseVisualizationView({
     selection,
   );
   const axis = useHistogramAxis(formats.format, catalog, assembly, vizText);
+  const legend = useLegendChoice(formats.format, catalog, assembly, vizText);
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });
@@ -478,8 +480,10 @@ export function BrowseVisualizationView({
                 format: formats.format,
                 depthLimit: formats.depthLimit,
                 measure: axis.measure,
+                colorCriterion: legend.colorCriterion,
                 viewport: {
                   ...viewport,
+                  width: legend.chartWidth(viewport.width),
                   height: chartHeight(viewport.height, chartParts.offset),
                 },
               }}
@@ -491,6 +495,8 @@ export function BrowseVisualizationView({
               autoLoadRows={assembly.autoLoadRows}
               onAvailableFormats={formats.learn}
               statusAction={axis.control}
+              legend={legend.controls}
+              legendSide={legend.side(viewport.width)}
               {...(formats.available
                 ? {
                     formatAction: {

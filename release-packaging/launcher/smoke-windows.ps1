@@ -34,6 +34,10 @@ param(
   [switch]$CaptureUniquePhysical,
   # Capture a histogram with an empty interval between two drawn ones, on both axes (F06 README 43).
   [switch]$CaptureHistogramGaps,
+  # Capture the type legend: treemap and bar by type, a chosen class, patterns, None (F06 FR6).
+  [switch]$CaptureTypeLegend,
+  # Capture the type legend with a ninth class (a junction), folded and opened (F06 FR6).
+  [switch]$CaptureTypeLegendMore,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1830,6 +1834,112 @@ function Test-CaptureUniquePhysical {
 # F06 README 43: a histogram keeps the place, name and zero value of an empty interval between
 # drawn ones. Small files fill 1 KiB–1 MiB and one 1 GiB file fills 1 GiB–1 TiB, so 1 MiB–1 GiB is
 # empty on the item count and on the size axis. SetLength allocates the large file without writing it.
+# F06 FR6 (README 44): the type legend. One file of each type, an installer image, a name without
+# an extension, an unknown extension and a small folder that stays one shape. Captures the treemap
+# and the bar chart by type, a class chosen in the legend, patterns on, and the None criterion.
+function Select-SmokeRadio($radio) {
+  $pattern = $null
+  $radio.SetFocus()
+  if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $radio }
+  Start-Sleep -Milliseconds 1500
+}
+function Test-CaptureTypeLegend([switch]$More) {
+  $scope = Join-Path $root 'type-legend-scope'
+  [IO.Directory]::CreateDirectory((Join-Path $scope 'tiny')) | Out-Null
+  $files = [ordered]@{ 'report.pdf' = 6MB; 'photo.jpg' = 3MB; 'song.mp3' = 2MB; 'clip.mp4' = 8MB; 'backup.zip' = 4MB; 'ubuntu.iso' = 10MB; 'README' = 1MB; 'notes.xyz' = 2MB }
+  foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
+  # Drawn as one shape but too small for a header band, like the treemap capture's Tiny.
+  foreach ($name in 'a.txt', 'b.txt') { [IO.File]::WriteAllBytes((Join-Path (Join-Path $scope 'tiny') $name), [byte[]]::new(256KB)) }
+  # With -More, a junction is an item whose type cannot be decided: the legend's ninth class,
+  # past the eight items shown before "more" (README 44.3 implementation check). A link puts
+  # the folder's attribution in doubt, so these runs capture only the treemap legend.
+  $link = Join-Path $scope 'link'
+  if ($More) {
+    $outside = Join-Path $root 'type-legend-outside'
+    [IO.Directory]::CreateDirectory($outside) | Out-Null
+    & cmd.exe /D /C mklink /J $link $outside | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the type legend junction' }
+  }
+  try {
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'report.pdf' { Find-UI 'report.pdf' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $legendName = Get-UiName 'Legend'
+  $listType = [Windows.Automation.ControlType]::List
+  $legend = Wait-UI 'type legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  } 60
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  "Legend: $(@($legend.FindAll($scopeTree, $listItem) | ForEach-Object { $_.Current.Name }) -join ' | ')"
+  "Folder note shown: $($null -ne (Find-UI 'Items inside folders show by type when expanded' $null))"
+  Save-SmokeCapture '01-treemap-type'
+  if ($More) {
+    $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
+    $open = Wait-UI 'the legend "more" button' { @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -match '1.*(more|더 보기)' }) | Select-Object -First 1 }
+    Invoke-UI $open
+    Start-Sleep -Milliseconds 800
+    "Legend opened: $(@($legend.FindAll($scopeTree, $listItem)).Count) items"
+    Save-SmokeCapture '02-legend-more-open'
+    return
+  }
+  $radioType = [Windows.Automation.ControlType]::RadioButton
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)
+  $format = { param($english) $wanted = Get-UiName $english; @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$wanted*" }) | Select-Object -First 1 }
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { & $format 'Bar chart' })
+  $null = Wait-UI 'bar legend' { $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) }
+  Save-SmokeCapture '02-bar-type'
+  Select-SmokeRadio (Wait-UI 'Treemap format' { & $format 'Treemap' })
+  $legend = Wait-UI 'treemap legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  }
+  $videosName = Get-UiName 'Videos'
+  $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
+  Select-SmokeRadio $videos
+  "Legend class chosen: '$($videos.Current.Name)'"
+  Save-SmokeCapture '03-legend-videos'
+  # Choosing an item again does not let go of it; the chip on the status line does.
+  $buttonType = [Windows.Automation.ControlType]::Button
+  $chip = Wait-UI 'the class chip' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)) |
+      Where-Object { $_.Current.Name -like "*$videosName*" }) | Select-Object -First 1
+  }
+  "Class chip: '$($chip.Current.Name)'"
+  Invoke-UI $chip
+  Start-Sleep -Milliseconds 600
+  $patterns = Wait-UI 'Use patterns' { Find-UI 'Use patterns' $null }
+  # "Use patterns" is a toggle button: UI Automation offers it the Toggle pattern, not Invoke.
+  $toggle = $null
+  if (-not $patterns.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+    throw "'$($patterns.Current.Name)' does not expose TogglePattern"
+  }
+  # In high contrast the switch is on and cannot be changed: patterns are always drawn.
+  $forced = -not $patterns.Current.IsEnabled
+  if (-not $forced) { $toggle.Toggle(); Start-Sleep -Milliseconds 800 }
+  "Use patterns: $($toggle.Current.ToggleState), forced=$forced"
+  Save-SmokeCapture '04-patterns'
+  if (-not $forced) { $toggle.Toggle() }
+  # "None" names more than one English text, so it is taken as the criterion group's first option.
+  # The visible "Color by" label has the group's name too; the group is the one holding radios.
+  $colorByName = Get-UiName 'Color by'
+  $noneOption = Wait-UI 'Color by None' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $colorByName)) |
+      ForEach-Object { @($_.FindAll($scopeTree, $radioCondition)) } | Where-Object { $_ }) | Select-Object -First 1
+  }
+  Select-SmokeRadio $noneOption
+  Save-SmokeCapture '05-color-none'
+  "Type legend capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  } finally {
+    # Remove only the junction entry before the fixture is cleaned up.
+    if ($More) { [IO.Directory]::Delete($link) }
+  }
+}
 function Test-CaptureHistogramGaps {
   $scope = Join-Path $root 'histogram-gaps-scope'
   [IO.Directory]::CreateDirectory($scope) | Out-Null
@@ -2240,7 +2350,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2252,6 +2362,8 @@ function Test-VirtualGroups {
   if ($CaptureProgress) { Test-CaptureProgress }
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
   if ($CaptureHistogramGaps) { Test-CaptureHistogramGaps }
+  if ($CaptureTypeLegend) { Test-CaptureTypeLegend }
+  if ($CaptureTypeLegendMore) { Test-CaptureTypeLegend -More }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

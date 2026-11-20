@@ -463,7 +463,8 @@ test.each([
   [300, "Music", "5.7 MiB", "Music"],
   // The name is cut in the middle, so its end (an extension) stays.
   [300, "LongFolderName", "5.7 MiB", "Long…Name"],
-  [216, "notes.bin", "16 MiB", "no…bin"],
+  // Keeping only two of its first characters ("no…bin") is not recognisable: no label (README 44).
+  [216, "notes.bin", "16 MiB", undefined],
   [300, "Ab", "1 MiB", "Ab"],
   // Without a value the name is the label.
   [300, "Notes", undefined, "Notes"],
@@ -575,7 +576,9 @@ test("renders all common geometry and leaves same-model rows readable", async ()
   expect(
     container.querySelector("svg rect[x='0']")?.getAttribute("width"),
   ).toBe("99");
-  expect(container.querySelector("circle")?.getAttribute("cx")).toBe("200");
+  expect(
+    container.querySelector(".du-geometry-shape circle")?.getAttribute("cx"),
+  ).toBe("200");
   expect(container.querySelectorAll("polyline")).toHaveLength(2);
   expect(container.querySelectorAll("polygon")).toHaveLength(1);
   expect(
@@ -629,9 +632,8 @@ test("graph pointer and keyboard alternative select the same source row", () => 
   expect(onShapeFocus).toHaveBeenLastCalledWith("row-b", "two", second);
   fireEvent.click(second);
   expect(input.onSelect).toHaveBeenLastCalledWith("row-b", "two");
-  expect(container.querySelector(".du-geometry-label")?.textContent).toContain(
-    "…",
-  );
+  // At 100 px a shortened name would keep fewer than three first characters: no label.
+  expect(container.querySelector(".du-geometry-label")).toBeNull();
 });
 
 test("a dedicated display can be registered without changing common fallback", () => {

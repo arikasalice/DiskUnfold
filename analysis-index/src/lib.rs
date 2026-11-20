@@ -4,6 +4,7 @@ pub mod browse;
 mod cancelled_below;
 mod current_pin;
 mod directory_case;
+pub mod file_type;
 pub mod folder_collection;
 mod folder_completion;
 mod folder_evidence_api;

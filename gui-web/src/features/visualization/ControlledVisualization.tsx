@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
+import type { LegendControls } from "./ModelLegend";
 import { LiveStatus, Notice, Text, Toast } from "../../components";
 import { VisualizationModelPresenter } from "./VisualizationModelPresenter";
 import type {
@@ -42,6 +43,8 @@ export function ControlledVisualization({
   onAvailableFormats,
   sizeBasis,
   statusAction,
+  legend,
+  legendSide,
 }: {
   controller: VisualizationController;
   text: VizText;
@@ -58,6 +61,9 @@ export function ControlledVisualization({
   sizeBasis?: string;
   /** A control at the end of the chart's status line, such as the histogram axis. */
   statusAction?: ReactNode;
+  /** The legend's controls, where the format has a legend. */
+  legend?: LegendControls | undefined;
+  legendSide?: "right" | "below" | undefined;
 }) {
   const state = useSyncExternalStore(
     controller.subscribe,
@@ -225,6 +231,8 @@ export function ControlledVisualization({
           returnTargetRef={visualizationTargetRef}
           rowsReturnTargetRef={graphRowsTargetRef}
           statusAction={statusAction}
+          legend={legend}
+          legendSide={legendSide}
           text={text}
           folderRows={folderRows}
           {...(state.graphPage ? { page: state.graphPage } : {})}

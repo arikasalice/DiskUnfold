@@ -1,0 +1,111 @@
+.du-chart-legend {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-inline-size: 0;
+}
+
+.du-chart-legend__defs {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+}
+
+.du-chart-legend__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.du-chart-legend__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+}
+
+.du-chart-legend__item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--du-text);
+  outline: none;
+}
+
+.du-chart-legend__item[data-hovered] {
+  background: var(--du-hover-surface);
+}
+
+.du-chart-legend__item[data-selected] {
+  background: var(--du-selected-surface);
+  color: var(--du-selected-text);
+}
+
+.du-chart-legend__item[data-focus-visible] {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 1px;
+}
+
+.du-chart-legend__name {
+  /* A name is never cut: a long one wraps (README 44.3 implementation check). */
+  overflow-wrap: anywhere;
+}
+
+/* Counts and totals line up in figures of one width (README 5). */
+.du-chart-legend__number {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.du-chart-legend__swatch[data-tone="1"] {
+  fill: var(--du-chart-1);
+}
+.du-chart-legend__swatch[data-tone="2"] {
+  fill: var(--du-chart-2);
+}
+.du-chart-legend__swatch[data-tone="3"] {
+  fill: var(--du-chart-3);
+}
+.du-chart-legend__swatch[data-tone="4"] {
+  fill: var(--du-chart-4);
+}
+.du-chart-legend__swatch[data-tone="5"] {
+  fill: var(--du-chart-5);
+}
+.du-chart-legend__swatch[data-tone="6"] {
+  fill: var(--du-chart-6);
+}
+.du-chart-legend__swatch[data-tone="7"] {
+  fill: var(--du-chart-7);
+}
+.du-chart-legend__swatch[data-tone="8"] {
+  fill: var(--du-chart-8);
+}
+.du-chart-legend__swatch[data-tone="neutral"] {
+  fill: var(--du-chart-neutral);
+}
+.du-chart-legend__swatch[data-tone="neutral-2"] {
+  fill: var(--du-chart-neutral-2);
+}
+
+@media (forced-colors: active) {
+  .du-chart-legend__swatch[data-tone] {
+    fill: Canvas;
+  }
+
+  .du-chart-legend__swatch > rect:first-child {
+    stroke: CanvasText;
+  }
+
+  .du-chart-legend__item[data-selected] {
+    /* The system's text backplate would paint Canvas behind the text on Highlight. */
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

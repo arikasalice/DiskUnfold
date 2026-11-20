@@ -4,6 +4,7 @@ import { Action, DataTable, DetailDisclosure, Text } from "../../components";
 import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
 import {
   RowName,
+  classCell,
   plainRowName,
   rowName,
   rowRatioText,
@@ -147,11 +148,7 @@ export function ModelRows({
       ? [
           {
             header: text.message("classification"),
-            cell: (row: VizRow) =>
-              text.key(
-                model?.legend.find((entry) => entry.key === row.legendClassKey)
-                  ?.labelKey ?? row.legendClassKey,
-              ),
+            cell: (row: VizRow) => classCell(model, row.legendClassKey, text),
           },
         ]
       : []),

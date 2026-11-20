@@ -15,7 +15,12 @@ import type {
   VizRowsRequest,
   VizShape,
 } from "../../ipc";
-import { adaptVizModel, histogramRanges, selectionKey } from "../../viz";
+import {
+  adaptVizModel,
+  histogramRanges,
+  legendEntries,
+  selectionKey,
+} from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels } from "../../viz";
 import type { VizText } from "../../viz";
@@ -23,6 +28,13 @@ import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
 import { useChartOffset } from "./chart-area";
+import {
+  ClassChip,
+  ModelLegend,
+  useAutoPatterns,
+  useClassChoice,
+} from "./ModelLegend";
+import type { LegendControls } from "./ModelLegend";
 
 const defaultChartRenderer = createChartRenderers([
   ["bar", BarRenderer],
@@ -74,6 +86,10 @@ type ModelViewProps = {
   rowsReturnTargetRef?: { current: HTMLElement | null } | undefined;
   /** A control at the end of the status line (F06 README 43: the histogram axis). */
   statusAction?: ReactNode;
+  /** The legend's controls; absent where a format has no legend (histogram). */
+  legend?: LegendControls | undefined;
+  /** Beside the chart from 720 CSS px of chart area, else under it (README 2). */
+  legendSide?: "right" | "below" | undefined;
   text: VizText;
 };
 
@@ -106,6 +122,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     () => histogramRanges(frame.model, adapted.rows, text),
     [frame.model, adapted.rows, text],
   );
+  const entries = useMemo(
+    () => legendEntries(frame.model, text),
+    [frame.model, text],
+  );
+  const classes = useClassChoice(entries, adapted.shapes);
+  const autoPatterns = useAutoPatterns();
   const rowsContent =
     adapted.rowsMatch && page ? (
       <ModelRows
@@ -144,6 +166,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       <div ref={contextRef}>
         <div className="du-review-context">
           <ModelStatus frame={frame} text={text} />
+          <ClassChip
+            entries={entries}
+            selected={classes.selected}
+            onClear={() => classes.choose(null)}
+            text={text}
+          />
           {props.statusAction && (
             <div className="du-review-context__end">{props.statusAction}</div>
           )}
@@ -160,76 +188,95 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           </div>
         )}
       </div>
-      <div ref={chartBox}>
-        <ChartRenderer
-          modelRef={frame.model.modelRef}
-          resultRevision={frame.resultRevision}
-          label={text.message("spaceDistribution")}
-          selectedText={text.message("selected")}
-          fallbackNotice={text.message("graphFallback")}
-          missingFallbackNotice={text.message("graphRowsUnavailable")}
-          width={view.viewport.width}
-          height={view.viewport.height}
-          viewport={view.visibleWindow}
-          shapes={adapted.shapes}
-          relations={adapted.relations}
-          ranges={ranges}
-          selectedRowRef={selected ? selectionKey(selected, frame) : null}
-          focusedRowRef={
-            props.focus && props.focus.resultVersion === frame.resultRevision
-              ? JSON.stringify([
-                  "item",
-                  props.focus.resultVersion,
-                  props.focus.itemNo,
-                ])
-              : null
-          }
-          {...keyboardCallbacks(props, adapted)}
-          onShapeFocus={(rowRef, shapeRef, control) => {
-            const shape = eventShape(adapted, shapeRef, rowRef);
-            const target = shape
-              ? (adapted.targetsByShape.get(shapeRef) ?? null)
-              : null;
-            if (target)
-              props.onFocusItem?.(
-                target.kind === "item" ? target.itemRef : null,
+      <div className="du-chart-and-legend" data-legend-side={props.legendSide}>
+        <div ref={chartBox} className="du-chart-and-legend__chart">
+          <ChartRenderer
+            modelRef={frame.model.modelRef}
+            resultRevision={frame.resultRevision}
+            label={text.message("spaceDistribution")}
+            selectedText={text.message("selected")}
+            fallbackNotice={text.message("graphFallback")}
+            missingFallbackNotice={text.message("graphRowsUnavailable")}
+            width={view.viewport.width}
+            height={view.viewport.height}
+            viewport={view.visibleWindow}
+            shapes={classes.shapes}
+            relations={adapted.relations}
+            ranges={ranges}
+            patterns={patternsOn(props.legend, autoPatterns)}
+            selectedRowRef={selected ? selectionKey(selected, frame) : null}
+            focusedRowRef={
+              props.focus && props.focus.resultVersion === frame.resultRevision
+                ? JSON.stringify([
+                    "item",
+                    props.focus.resultVersion,
+                    props.focus.itemNo,
+                  ])
+                : null
+            }
+            {...keyboardCallbacks(props, adapted)}
+            onShapeFocus={(rowRef, shapeRef, control) => {
+              const shape = eventShape(adapted, shapeRef, rowRef);
+              const target = shape
+                ? (adapted.targetsByShape.get(shapeRef) ?? null)
+                : null;
+              if (target)
+                props.onFocusItem?.(
+                  target.kind === "item" ? target.itemRef : null,
+                );
+              props.onFocusedGroupShape?.(
+                target,
+                shapeRef,
+                control && visualizationRef.current?.contains(control)
+                  ? control
+                  : null,
+                shape?.accessibleLabel,
+                visualizationRef.current,
               );
-            props.onFocusedGroupShape?.(
-              target,
-              shapeRef,
-              control && visualizationRef.current?.contains(control)
-                ? control
-                : null,
-              shape?.accessibleLabel,
-              visualizationRef.current,
-            );
-          }}
-          onSelect={(rowRef, shapeRef) => {
-            if (!eventShape(adapted, shapeRef, rowRef)) return;
-            const selection = adapted.targetsByShape.get(shapeRef);
-            if (selection) props.onSelect(selection, shapeRef);
-          }}
-          fallback={{
-            modelRef: frame.model.modelRef,
-            resultRevision: frame.resultRevision,
-            content:
-              frame.model.shapes.length === 0 ? (
-                <EmptyResult
-                  frame={frame}
-                  text={text}
-                  rowsTotal={
-                    adapted.rowsMatch && page ? page.response.totalCount : null
-                  }
-                />
-              ) : (
-                rows
-              ),
-          }}
+            }}
+            onSelect={(rowRef, shapeRef) => {
+              if (!eventShape(adapted, shapeRef, rowRef)) return;
+              const selection = adapted.targetsByShape.get(shapeRef);
+              if (selection) props.onSelect(selection, shapeRef);
+            }}
+            fallback={{
+              modelRef: frame.model.modelRef,
+              resultRevision: frame.resultRevision,
+              content:
+                frame.model.shapes.length === 0 ? (
+                  <EmptyResult
+                    frame={frame}
+                    text={text}
+                    rowsTotal={
+                      adapted.rowsMatch && page
+                        ? page.response.totalCount
+                        : null
+                    }
+                  />
+                ) : (
+                  rows
+                ),
+            }}
+          />
+        </div>
+        <ModelLegend
+          frame={frame}
+          text={text}
+          controls={props.legend}
+          entries={entries}
+          selected={classes.selected}
+          onSelect={classes.choose}
+          forced={autoPatterns}
         />
       </div>
       <ModelEvidence frame={frame} text={text} />
     </section>
   );
+}
+
+/** Patterns are drawn when the reader turned them on or the system asks for them. */
+function patternsOn(legend: LegendControls | undefined, auto: boolean) {
+  return auto || (legend?.patterns ?? false);
 }
 
 /** The renderer's focus and key callbacks the caller supplied (README 34). */
