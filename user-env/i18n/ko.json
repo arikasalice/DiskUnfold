@@ -300,6 +300,7 @@
     ["ui.analysis.lanes_wait_unconfirmed", "대기 원인 · 확인 불가", []],
     ["ui.analysis.lanes_idle_announcement", "모든 저장소 읽기가 멈췄습니다.", []],
     ["ui.analysis.lanes_root_unavailable", "분석 경로 확인 불가", []],
+    ["ui.analysis.lanes_priority_area", "먼저 분석: {name}", [["name","name"]]],
     ["ui.analysis.result_heading", "분석 결과", []],
     ["ui.analysis.progress_heading", "스캔 진행 상황", []],
     ["ui.analysis.waiting_cancel", "스캔 취소를 기다리는 중", []],

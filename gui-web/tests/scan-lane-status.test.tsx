@@ -10,6 +10,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { RegionalFormatContext } from "../src/i18n/regional-format";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import type { OsPath, ScanLane, ScanLaneStatus } from "../src/ipc";
+import type { ScanPriorityArea } from "../src/state/scan-priority";
 import {
   ScanLaneProgress,
   createScanLaneThrottle,
@@ -30,6 +31,11 @@ const regional = {
 const roots = [0, 1, 2, 3].map((index) =>
   windowsPath(`C:\\fixture\\root-${index}`),
 );
+const requestedArea: ScanPriorityArea = {
+  jobRef: "scan",
+  item: { resultVersion: "priority-version", itemNo: 42 },
+  name: "영상",
+};
 
 function lane(laneIndex: number, patch: Partial<ScanLane> = {}): ScanLane {
   return {
@@ -61,11 +67,17 @@ function status(
 function renderProgress(
   value: ScanLaneStatus,
   laneRoots: readonly OsPath[] = roots,
+  priorityArea?: ScanPriorityArea | undefined,
 ) {
   return render(
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
-        <ScanLaneProgress jobRef="scan" status={value} roots={laneRoots} />
+        <ScanLaneProgress
+          jobRef="scan"
+          status={value}
+          roots={laneRoots}
+          priorityArea={priorityArea}
+        />
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>,
   );
@@ -133,6 +145,38 @@ test("shows one lane as a status line and multiple lanes as a table", () => {
   expect(within(table).getAllByRole("row")).toHaveLength(3);
   expect(within(table).getByText("남은 폴더")).toBeTruthy();
   expect(within(table).getByText("읽지 못한 위치")).toBeTruthy();
+});
+
+test("shows the request name only for the matching reported ItemRef", () => {
+  const active = lane(1, { priorityArea: requestedArea.item });
+  renderProgress(status(1, [lane(0), active]), roots, requestedArea);
+  expect(screen.getByText("먼저 분석: 영상")).toBeTruthy();
+  cleanup();
+
+  for (const request of [
+    undefined,
+    { ...requestedArea, jobRef: "another-scan" },
+    { ...requestedArea, item: { ...requestedArea.item, itemNo: 43 } },
+    {
+      ...requestedArea,
+      item: { ...requestedArea.item, resultVersion: "another-result" },
+    },
+  ]) {
+    renderProgress(status(2, [active]), roots, request);
+    expect(screen.queryByText("먼저 분석: 영상")).toBeNull();
+    cleanup();
+  }
+});
+
+test("shows the same request name below the single-lane status", () => {
+  renderProgress(
+    status(1, [lane(0, { priorityArea: requestedArea.item })]),
+    roots,
+    requestedArea,
+  );
+  const single = document.querySelector(".du-scan-lanes__single");
+  expect(single?.textContent).toContain("읽는 중…먼저 분석: 영상");
+  expect(screen.queryByRole("table")).toBeNull();
 });
 
 test("shows failures as plain text and uses rootCount when paths are cut", () => {

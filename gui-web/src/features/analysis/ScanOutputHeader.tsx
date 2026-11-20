@@ -17,6 +17,7 @@ import type {
   SpaceTotal,
 } from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
+import type { ScanPriorityArea } from "../../state/scan-priority";
 import { ScanLaneProgress } from "./ScanLaneProgress";
 
 /** How the shown values relate to a scan that is still in progress. */
@@ -107,9 +108,11 @@ function progressPaused(state: JobState | undefined, cancelling: boolean) {
 function LaneProgressLine({
   scan,
   roots,
+  priorityArea,
 }: {
   scan: ReturnType<typeof useScanResult>;
   roots: readonly OsPath[];
+  priorityArea?: ScanPriorityArea | undefined;
 }) {
   if (!scan.status?.jobRef || !scan.laneStatus) return null;
   return (
@@ -117,6 +120,7 @@ function LaneProgressLine({
       jobRef={scan.status.jobRef}
       status={scan.laneStatus}
       roots={roots}
+      priorityArea={priorityArea}
     />
   );
 }
@@ -132,6 +136,7 @@ export function ScanOutputHeader({
   awaitingTotals,
   actions,
   roots,
+  priorityArea,
 }: {
   scan: ReturnType<typeof useScanResult>;
   roots: readonly OsPath[];
@@ -144,6 +149,8 @@ export function ScanOutputHeader({
   holding: boolean;
   awaitingTotals: boolean;
   actions: ReactNode;
+  /** The folder name retained by this GUI for its priority request. */
+  priorityArea?: ScanPriorityArea | undefined;
 }) {
   const text = useLocaleText();
   const cancelling =
@@ -192,7 +199,11 @@ export function ScanOutputHeader({
           {scan.progress && (
             <Text kind="muted">{progressText(scan.progress, text)}</Text>
           )}
-          <LaneProgressLine scan={scan} roots={roots} />
+          <LaneProgressLine
+            scan={scan}
+            roots={roots}
+            priorityArea={priorityArea}
+          />
         </div>
       )}
       {awaitingTotals && (

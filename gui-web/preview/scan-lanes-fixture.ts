@@ -1,5 +1,17 @@
 import { windowsPath } from "../src/ipc";
-import type { ScanLaneStatus } from "../src/ipc";
+import type { ItemRef, ScanLaneStatus } from "../src/ipc";
+import type { ScanPriorityArea } from "../src/state/scan-priority";
+
+const priorityItem: ItemRef = {
+  resultVersion: "0193f000-0000-7000-8000-000000000258",
+  itemNo: 42,
+};
+
+export const scanLanePriorityArea: ScanPriorityArea = {
+  jobRef: "preview-scan",
+  item: priorityItem,
+  name: "영상",
+};
 
 export const scanLaneRoots = [
   windowsPath("C:\\Users\\민서\\문서"),
@@ -22,6 +34,8 @@ const lanes: ScanLaneStatus["lanes"] = [
   {
     laneIndex: 1,
     rootIndexes: [2],
+    priorityArea: priorityItem,
+    remainingPrioritizedDirectories: "8",
     inFlight: 1,
     limit: 2,
     waitReason: "io_wait",

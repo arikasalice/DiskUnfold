@@ -273,6 +273,7 @@ ui.analysis.lanes_folders_left count:count
 ui.analysis.lanes_heading
 ui.analysis.lanes_idle_announcement
 ui.analysis.lanes_not_read
+ui.analysis.lanes_priority_area name:name
 ui.analysis.lanes_reading
 ui.analysis.lanes_reads_detail inFlight:count limit:count
 ui.analysis.lanes_root_unavailable

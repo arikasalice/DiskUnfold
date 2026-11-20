@@ -2,6 +2,10 @@ import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { RegionalFormatContext } from "../src/i18n/regional-format";
 import type { RegionalFormat } from "../src/i18n/regional-format";
+import {
+  browsePort as scanStatusBrowsePort,
+  browseVersion as scanStatusBrowseVersion,
+} from "./browse-status-marks-fixture";
 import { browsePort, browseVersion } from "./browse-scan-status-fixture";
 import { koreanText } from "./result-summary-fixture";
 
@@ -23,14 +27,19 @@ export const regional: RegionalFormat = {
  * Korean, with every mark of the "Scan status" column and blank rows.
  */
 export function BrowseScanStatusPreview() {
-  const notice = new URLSearchParams(window.location.search).has("notice");
+  const scene = new URLSearchParams(window.location.search).get("scene");
+  const lowerBounds =
+    scene === "lower-bounds" || scene === "lower-bounds-notice";
+  const notice = scene === "lower-bounds-notice";
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
         <div className="du-gallery-browse">
           <BrowsePanel
-            port={browsePort(notice)}
-            resultVersion={browseVersion}
+            port={lowerBounds ? browsePort(notice) : scanStatusBrowsePort}
+            resultVersion={
+              lowerBounds ? browseVersion : scanStatusBrowseVersion
+            }
             display={{ system: "iec", unit: "auto", regional }}
           />
         </div>

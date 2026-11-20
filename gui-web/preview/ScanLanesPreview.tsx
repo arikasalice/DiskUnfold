@@ -13,6 +13,7 @@ import { koreanText } from "./result-summary-fixture";
 import "../src/theme/analysis-results.css";
 import {
   oneScanLaneStatus,
+  scanLanePriorityArea,
   scanLaneRoots,
   scanLaneStatus,
 } from "./scan-lanes-fixture";
@@ -72,6 +73,7 @@ export function ScanLanesPreview() {
             awaitingTotals={false}
             actions={<span />}
             roots={scanLaneRoots}
+            priorityArea={scanLanePriorityArea}
           />
         </div>
       </RegionalFormatContext.Provider>

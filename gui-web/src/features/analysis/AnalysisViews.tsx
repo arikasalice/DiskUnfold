@@ -11,6 +11,7 @@ import type {
   ScopeExclusion,
 } from "../../ipc";
 import type { useScanResult } from "../../state/analysis-scan";
+import type { ScanPriorityArea } from "../../state/scan-priority";
 import { PinnedResult, RootPaths } from "./ResultSummary";
 import { ScanOutputHeader } from "./ScanOutputHeader";
 import { useSelectionHold } from "./use-selection-hold";
@@ -45,6 +46,7 @@ export function ScanOutput({
   roots,
   exclusions,
   actions,
+  priorityArea,
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
@@ -61,6 +63,8 @@ export function ScanOutput({
   roots: readonly OsPath[];
   /** The exclusion rules of the scope the scan was started with, if known. */
   exclusions: readonly ScopeExclusion[] | undefined;
+  /** The folder name retained by this GUI for its priority request. */
+  priorityArea?: ScanPriorityArea | undefined;
   actions: ReactNode;
 }) {
   const text = useLocaleText();
@@ -89,6 +93,7 @@ export function ScanOutput({
         awaitingTotals={awaitingTotals}
         actions={actions}
         roots={roots}
+        priorityArea={priorityArea}
       />
       <section
         ref={body}

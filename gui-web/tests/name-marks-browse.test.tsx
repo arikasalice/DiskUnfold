@@ -122,6 +122,7 @@ function renderNotice(notice: Omit<ScanPriorityNotice, "id" | "jobRef">) {
     showLatest: undefined,
     requested: () => false,
     status: () => undefined,
+    requestedArea: undefined,
     request: vi.fn(),
     notice: { ...notice, id: 1, jobRef: "scan" },
   };
