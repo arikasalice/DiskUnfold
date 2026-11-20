@@ -1895,9 +1895,13 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   $treemapName = Get-UiName 'Treemap'
   Select-SmokeRadio (Wait-UI 'Treemap format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$treemapName*" }) | Select-Object -First 1 })
   $null = Wait-UI 'the narrowed total again' { @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1 }
-  # songs holds no video: the chart's place says so and offers to clear (46.1).
+  # songs holds no video: the chart's place says so and offers to clear (46.1). The choice is
+  # kept while the folders are shown, so open songs there and show its space distribution.
+  Invoke-UI (Wait-Enabled 'Back to folders' $true)
   $songs = Wait-UI 'the songs folder row' { Find-UI 'songs' $button }
   Invoke-UI $songs
+  $null = Wait-UI 'song.mp3' { Find-UI 'song.mp3' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
   $null = Wait-UI 'no videos in songs' {
     @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "*$videosName*" -and $_.Current.Name -notlike '*·*' -and $_.Current.Name -ne $videosName }) | Select-Object -First 1
   } 30
