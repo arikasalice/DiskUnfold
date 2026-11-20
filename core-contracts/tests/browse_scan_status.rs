@@ -197,6 +197,7 @@ fn a_row_boundary_round_trips_in_every_state() -> TestResult {
             unenumerated: BrowseValue::Present { value: false },
             excluded: BrowseValue::Present { value: false },
             boundary: Some(expected),
+            unread_inside: None,
         };
         let absent = json!({ "state": "present", "value": false });
         assert_eq!(
@@ -213,6 +214,7 @@ fn an_omitted_boundary_is_not_serialized() -> TestResult {
         unenumerated: BrowseValue::Present { value: true },
         excluded: BrowseValue::Absent,
         boundary: None,
+        unread_inside: None,
     };
     assert_eq!(
         to_value(flags)?,

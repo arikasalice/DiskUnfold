@@ -344,6 +344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CorrespondenceKey::decl(&config),
         FolderBoundary::decl(&config),
         FolderFlags::decl(&config),
+        UnreadInside::decl(&config),
         FolderQueryRow::decl(&config),
         SearchQueryRow::decl(&config),
         QueryTotal::decl(&config),

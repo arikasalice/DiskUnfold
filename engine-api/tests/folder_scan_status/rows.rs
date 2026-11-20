@@ -17,8 +17,14 @@ use serde_json::{Value, json};
 const IN_PROGRESS: &str = FolderFlags::REASON_SCAN_IN_PROGRESS;
 const INSUFFICIENT: &str = FolderFlags::REASON_DATA_INSUFFICIENT;
 
-fn folder(unenumerated: Value, boundary: Value) -> Value {
-    json!({"unenumerated": unenumerated, "excluded": present(false), "boundary": boundary})
+/// Folder flags; `inside` is the `unreadInside` fact, omitted for a folder not read itself.
+fn folder(unenumerated: Value, boundary: Value, inside: Option<Value>) -> Value {
+    let mut flags =
+        json!({"unenumerated": unenumerated, "excluded": present(false), "boundary": boundary});
+    if let Some(inside) = inside {
+        flags["unreadInside"] = inside;
+    }
+    flags
 }
 
 fn file() -> Value {
@@ -84,19 +90,19 @@ fn a_finished_scan_reports_read_unread_and_bounded_folders() -> Check {
     // A boundary is proven only by a mark; a folder read normally stays unproven.
     assert_eq!(
         flags("denied")?,
-        folder(present(true), unknown(INSUFFICIENT))
+        folder(present(true), unknown(INSUFFICIENT), None)
     );
     assert_eq!(
         flags("keep")?,
-        folder(unknown(INSUFFICIENT), unknown(INSUFFICIENT))
+        folder(unknown(INSUFFICIENT), unknown(INSUFFICIENT), Some(absent()))
     );
     assert_eq!(
         flags("loop")?,
-        folder(present(false), present("already_counted"))
+        folder(present(false), present("already_counted"), Some(absent()))
     );
     assert_eq!(
         flags("mnt")?,
-        folder(present(false), present("other_volume"))
+        folder(present(false), present("other_volume"), Some(absent()))
     );
     assert_eq!(flags("f")?, file());
     assert!(!wire.text().contains("scan.path_denied"));
@@ -111,7 +117,11 @@ fn an_unfinished_scan_is_undecided_and_a_cancelled_one_reports_its_marks() -> Ch
     let browser = session(sink);
     let running = browse(&browser, None, None, 1)?;
     running.check()?;
-    let undecided = folder(unknown(IN_PROGRESS), unknown(IN_PROGRESS));
+    let undecided = folder(
+        unknown(IN_PROGRESS),
+        unknown(IN_PROGRESS),
+        Some(unknown(IN_PROGRESS)),
+    );
     assert_eq!(running.row("a")?["flags"], undecided);
     assert_eq!(running.row("c")?["flags"], undecided);
     assert_eq!(running.row("f")?["flags"], file());
@@ -125,11 +135,11 @@ fn an_unfinished_scan_is_undecided_and_a_cancelled_one_reports_its_marks() -> Ch
     cancelled.check()?;
     assert_eq!(
         cancelled.row("a")?["flags"],
-        folder(unknown(INSUFFICIENT), unknown(INSUFFICIENT))
+        folder(unknown(INSUFFICIENT), unknown(INSUFFICIENT), Some(absent()))
     );
     assert_eq!(
         cancelled.row("c")?["flags"],
-        folder(present(true), unknown(INSUFFICIENT))
+        folder(present(true), unknown(INSUFFICIENT), None)
     );
     assert_eq!(cancelled.row("f")?["flags"], file());
     Ok(())
@@ -149,7 +159,7 @@ fn a_disconnected_folder_is_unenumerated_without_its_reason() -> Check {
     wire.check()?;
     assert_eq!(
         wire.row("gone")?["flags"],
-        folder(present(true), unknown(INSUFFICIENT))
+        folder(present(true), unknown(INSUFFICIENT), None)
     );
     Ok(())
 }
@@ -164,7 +174,10 @@ fn a_complete_scan_proves_a_folder_without_marks_has_no_boundary() -> Check {
     let wire = browse(&session(sink), None, None, 5)?;
     wire.check()?;
     // F03 #219: a Complete seal proves every folder without a mark was read.
-    assert_eq!(wire.row("keep")?["flags"], folder(present(false), absent()));
+    assert_eq!(
+        wire.row("keep")?["flags"],
+        folder(present(false), absent(), Some(absent()))
+    );
     assert_eq!(wire.row("f")?["flags"], file());
     Ok(())
 }

@@ -22,16 +22,17 @@ pub struct FolderAttemptSummary {
 #[derive(Debug)]
 pub(crate) struct FolderEvidenceSnapshot {
     summaries: Vec<FolderAttemptSummary>,
-    _events: Vec<PinnedFolderEvent>,
+    events: Vec<PinnedFolderEvent>,
     _attempt_leases: Vec<FolderEvidenceLease>,
     _overhead_lease: FolderEvidenceLease,
 }
 
 #[derive(Debug)]
 pub(crate) struct PinnedFolderEvent {
-    pub(crate) _attempt_id: u64,
+    pub(crate) attempt_id: u64,
     pub(crate) _event_seq: u64,
-    pub(crate) _input: Option<FolderAttemptInput>,
+    /// `None` when the receiver did not keep the event's input.
+    pub(crate) input: Option<FolderAttemptInput>,
 }
 
 impl FolderEvidenceSnapshot {
@@ -43,7 +44,7 @@ impl FolderEvidenceSnapshot {
     ) -> Self {
         Self {
             summaries,
-            _events: events,
+            events,
             _attempt_leases: attempt_leases,
             _overhead_lease: overhead_lease,
         }
@@ -51,5 +52,9 @@ impl FolderEvidenceSnapshot {
 
     pub(crate) fn summaries(&self) -> &[FolderAttemptSummary] {
         &self.summaries
+    }
+
+    pub(crate) fn events(&self) -> &[PinnedFolderEvent] {
+        &self.events
     }
 }

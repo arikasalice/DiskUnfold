@@ -6,6 +6,7 @@ mod collection;
 pub(crate) mod commands;
 pub mod cursor;
 pub mod job;
+mod lower_bound;
 mod rows;
 #[cfg(test)]
 mod test_gate;
@@ -103,6 +104,8 @@ pub struct FolderPage {
     pub observed_at: Option<Timestamp>,
     /// Next position within this query, absent when no observed rows remain.
     pub next_position: Option<u64>,
+    /// Cause key of a lower bound on this page that no row explains (#226).
+    pub unexplained_lower_bound: Option<&'static str>,
 }
 
 /// Opened location and first page of its immediate-child result set.

@@ -165,8 +165,14 @@ fn scan(tree: &Arc<Tree>) -> Result<(IngestSink, Arc<du_analysis_index::ResultVe
     Ok((sink, version))
 }
 
-fn folder(unenumerated: Value, boundary: Value) -> Value {
-    json!({"unenumerated": unenumerated, "excluded": present(false), "boundary": boundary})
+/// Folder flags; `inside` is the `unreadInside` fact, omitted for a folder not read itself.
+fn folder(unenumerated: Value, boundary: Value, inside: Option<Value>) -> Value {
+    let mut flags =
+        json!({"unenumerated": unenumerated, "excluded": present(false), "boundary": boundary});
+    if let Some(inside) = inside {
+        flags["unreadInside"] = inside;
+    }
+    flags
 }
 
 #[test]
@@ -182,23 +188,23 @@ fn a_finished_collection_reports_the_marks_it_recorded() -> Check {
     let insufficient = unknown(FolderFlags::REASON_DATA_INSUFFICIENT);
     assert_eq!(
         flags("denied")?,
-        folder(present(true), insufficient.clone())
+        folder(present(true), insufficient.clone(), None)
     );
     // A folder read normally is not proven to be read or to be no boundary.
     for name in ["done", "keep"] {
         assert_eq!(
             flags(name)?,
-            folder(insufficient.clone(), insufficient.clone()),
+            folder(insufficient.clone(), insufficient.clone(), Some(absent())),
             "{name}"
         );
     }
     assert_eq!(
         flags("loop")?,
-        folder(present(false), present("already_counted"))
+        folder(present(false), present("already_counted"), Some(absent()))
     );
     assert_eq!(
         flags("mnt")?,
-        folder(present(false), present("other_volume"))
+        folder(present(false), present("other_volume"), Some(absent()))
     );
     assert_eq!(
         flags("f")?,
@@ -227,13 +233,16 @@ fn a_cancelled_collection_marks_what_it_left_and_undecides_the_rest() -> Check {
     let insufficient = unknown(FolderFlags::REASON_DATA_INSUFFICIENT);
     assert_eq!(
         flags("done")?,
-        folder(insufficient.clone(), insufficient.clone())
+        folder(insufficient.clone(), insufficient.clone(), Some(absent()))
     );
-    assert_eq!(flags("keep")?, folder(present(true), insufficient.clone()));
-    assert_eq!(flags("denied")?, folder(present(true), insufficient));
+    assert_eq!(
+        flags("keep")?,
+        folder(present(true), insufficient.clone(), None)
+    );
+    assert_eq!(flags("denied")?, folder(present(true), insufficient, None));
     assert_eq!(
         flags("mnt")?,
-        folder(present(false), present("other_volume"))
+        folder(present(false), present("other_volume"), Some(absent()))
     );
     assert_eq!(top.excluded(), None);
     let keep = super::support::browse(&browser, None, Some(item(&version, &["keep"])?), 2)?;

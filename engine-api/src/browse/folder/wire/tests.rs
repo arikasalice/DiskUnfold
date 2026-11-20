@@ -18,6 +18,7 @@ fn out_of_range_counts_fail_without_a_partial_success_body() {
             observed_at: None,
             completeness: ResultCompleteness::Partial,
             next_position: None,
+            unexplained_lower_bound: None,
         };
         assert_eq!(folder_page(page, None), Err(internal()));
     }

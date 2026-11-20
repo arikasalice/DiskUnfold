@@ -1,5 +1,7 @@
 //! Recursive folder promotion from attempt evidence pinned in the same version.
+mod excluded;
 mod listing;
+mod lower_bound;
 
 use crate::{
     BuildHandle, FolderAttemptFinal, FolderAttemptInput, FolderAttemptToken, IngestSink,
