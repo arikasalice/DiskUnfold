@@ -36,6 +36,8 @@ param(
   [switch]$CaptureHistogramGaps,
   # Capture the type legend: treemap and bar by type, a chosen class, patterns, None (F06 FR6).
   [switch]$CaptureTypeLegend,
+  # Capture the type legend with a ninth class (a junction), folded and opened (F06 FR6).
+  [switch]$CaptureTypeLegendMore,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1842,18 +1844,23 @@ function Select-SmokeRadio($radio) {
   else { Invoke-UI $radio }
   Start-Sleep -Milliseconds 1500
 }
-function Test-CaptureTypeLegend {
+function Test-CaptureTypeLegend([switch]$More) {
   $scope = Join-Path $root 'type-legend-scope'
   [IO.Directory]::CreateDirectory((Join-Path $scope 'tiny')) | Out-Null
   $files = [ordered]@{ 'report.pdf' = 6MB; 'photo.jpg' = 3MB; 'song.mp3' = 2MB; 'clip.mp4' = 8MB; 'backup.zip' = 4MB; 'ubuntu.iso' = 10MB; 'README' = 1MB; 'notes.xyz' = 2MB }
   foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
-  [IO.File]::WriteAllBytes((Join-Path (Join-Path $scope 'tiny') 'a.txt'), [byte[]]::new(1KB))
-  # A junction is an item whose type cannot be decided: the legend's ninth class, past the
-  # eight items shown before "more" (README 44.3 implementation check).
-  $outside = Join-Path $root 'type-legend-outside'
-  [IO.Directory]::CreateDirectory($outside) | Out-Null
-  & cmd.exe /D /C mklink /J (Join-Path $scope 'link') $outside | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Could not create the type legend junction' }
+  # Drawn as one shape but too small for a header band, like the treemap capture's Tiny.
+  foreach ($name in 'a.txt', 'b.txt') { [IO.File]::WriteAllBytes((Join-Path (Join-Path $scope 'tiny') $name), [byte[]]::new(256KB)) }
+  # With -More, a junction is an item whose type cannot be decided: the legend's ninth class,
+  # past the eight items shown before "more" (README 44.3 implementation check). A link puts
+  # the folder's attribution in doubt, so these runs capture only the treemap legend.
+  $link = Join-Path $scope 'link'
+  if ($More) {
+    $outside = Join-Path $root 'type-legend-outside'
+    [IO.Directory]::CreateDirectory($outside) | Out-Null
+    & cmd.exe /D /C mklink /J $link $outside | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the type legend junction' }
+  }
   try {
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -1870,16 +1877,17 @@ function Test-CaptureTypeLegend {
   } 60
   $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
   "Legend: $(@($legend.FindAll($scopeTree, $listItem) | ForEach-Object { $_.Current.Name }) -join ' | ')"
+  "Folder note shown: $($null -ne (Find-UI 'Items inside folders show by type when expanded' $null))"
   Save-SmokeCapture '01-treemap-type'
-  $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
-  $more = @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -match '1.*(more|더 보기)' }) | Select-Object -First 1
-  if ($more) {
-    Invoke-UI $more
+  if ($More) {
+    $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
+    $open = Wait-UI 'the legend "more" button' { @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -match '1.*(more|더 보기)' }) | Select-Object -First 1 }
+    Invoke-UI $open
     Start-Sleep -Milliseconds 800
     "Legend opened: $(@($legend.FindAll($scopeTree, $listItem)).Count) items"
-    Save-SmokeCapture '01b-legend-more'
-    Invoke-UI (@($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -eq (Get-UiName 'Show fewer') }) | Select-Object -First 1)
-  } else { 'The legend has no "more" item' }
+    Save-SmokeCapture '02-legend-more-open'
+    return
+  }
   $radioType = [Windows.Automation.ControlType]::RadioButton
   $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)
   $format = { param($english) $wanted = Get-UiName $english; @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$wanted*" }) | Select-Object -First 1 }
@@ -1909,7 +1917,7 @@ function Test-CaptureTypeLegend {
   "Type legend capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
   } finally {
     # Remove only the junction entry before the fixture is cleaned up.
-    [IO.Directory]::Delete((Join-Path $scope 'link'))
+    if ($More) { [IO.Directory]::Delete($link) }
   }
 }
 function Test-CaptureHistogramGaps {
@@ -2322,7 +2330,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2335,6 +2343,7 @@ function Test-VirtualGroups {
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
   if ($CaptureHistogramGaps) { Test-CaptureHistogramGaps }
   if ($CaptureTypeLegend) { Test-CaptureTypeLegend }
+  if ($CaptureTypeLegendMore) { Test-CaptureTypeLegend -More }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

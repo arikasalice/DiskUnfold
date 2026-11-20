@@ -50,6 +50,15 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
   "ui.visualization.legend.type.unclassified": "legend.type.unclassified",
   "ui.visualization.legend.type.no_extension": "legend.type.no_extension",
   "ui.visualization.legend.type.unavailable": "legend.type.unavailable",
+  // The class keys themselves, for a table that has no model to look labels up in.
+  "type.document": "legend.type.document",
+  "type.audio": "legend.type.audio",
+  "type.image": "legend.type.image",
+  "type.installer_image": "legend.type.installer_image",
+  "type.video": "legend.type.video",
+  "type.archive": "legend.type.archive",
+  "type.unclassified": "legend.type.unclassified",
+  "type.no_extension": "legend.type.no_extension",
 };
 
 /**
