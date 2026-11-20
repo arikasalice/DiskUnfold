@@ -32,9 +32,6 @@ impl UseCase for SetScanResource {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        if !du_scan_engine::scan::valid_resource_limit(request.user_limit) {
-            return Err(EngineError::reason("scan.resource_limit_invalid"));
-        }
         let mut admitted = self.admitted.lock().map_err(|_| internal())?;
         let snapshot = self
             .workers
@@ -50,6 +47,9 @@ impl UseCase for SetScanResource {
         else {
             return Err(EngineError::reason("job.not_found"));
         };
+        if !du_scan_engine::scan::valid_resource_limit(request.user_limit, active.max_permit) {
+            return Err(EngineError::reason("scan.resource_limit_invalid"));
+        }
         let Some(control) = active.control.as_ref() else {
             return Err(EngineError::reason("job.control_unsupported"));
         };

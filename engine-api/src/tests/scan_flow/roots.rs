@@ -1,16 +1,20 @@
 //! Fake root and directory adapters used by the scan admission tests.
 use super::*;
-use du_core_contracts::scan_observation::ObservedValue;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
-    mpsc,
-};
+use du_core_contracts::scan_observation::{ObservedValue, VolumeDevice};
 use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+};
 
 pub(super) struct Roots {
     pub(super) file_id: AtomicUsize,
     pub(super) opens: AtomicUsize,
+    pub(super) device_probes: Arc<AtomicUsize>,
     pub(super) reads: Arc<AtomicUsize>,
     pub(super) recent_observations: Arc<AtomicUsize>,
     pub(super) recent_opens: Arc<AtomicUsize>,
@@ -20,6 +24,7 @@ pub(super) struct Roots {
     pub(super) release: Arc<Mutex<mpsc::Receiver<()>>>,
     pub(super) finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     pub(super) priority: Option<Arc<PriorityState>>,
+    pub(super) device_overrides: Mutex<HashMap<u8, (Vec<u8>, VolumeDevice)>>,
 }
 
 pub(super) struct PriorityState {
@@ -49,6 +54,13 @@ impl ScopeRootPort for Roots {
         let priority = (path.first() == Some(&b'P'))
             .then(|| self.priority.clone())
             .flatten();
+        let override_value = path
+            .first()
+            .and_then(|key| self.device_overrides.lock().ok()?.get(key).cloned());
+        let (volume_id, device) = override_value.map_or_else(
+            || (vec![1], None),
+            |(volume, device)| (volume, Some(device)),
+        );
         Ok(OpenedScopeRoot {
             canonical_path: OsPath {
                 encoding: PathEncoding::WindowsUtf16le,
@@ -56,10 +68,11 @@ impl ScopeRootPort for Roots {
                 display: "C:\\Fixture".into(),
                 lossy: false,
             },
-            volume_id: vec![1],
+            volume_id,
             file_id: identity.to_le_bytes().to_vec(),
             directory: Box::new(Directory {
                 handle,
+                device_probes: self.device_probes.clone(),
                 read_handles: self.read_handles.clone(),
                 reads: self.reads.clone(),
                 release: Some(self.release.clone()),
@@ -67,6 +80,7 @@ impl ScopeRootPort for Roots {
                 priority,
                 priority_label: None,
                 priority_sent: false,
+                device,
             }),
         })
     }
@@ -87,6 +101,7 @@ impl ScopeRootPort for Roots {
 
 struct Directory {
     handle: usize,
+    device_probes: Arc<AtomicUsize>,
     read_handles: Arc<Mutex<Vec<usize>>>,
     reads: Arc<AtomicUsize>,
     release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
@@ -94,6 +109,7 @@ struct Directory {
     priority: Option<Arc<PriorityState>>,
     priority_label: Option<&'static str>,
     priority_sent: bool,
+    device: Option<VolumeDevice>,
 }
 
 impl DirectoryObservations for Directory {
@@ -184,6 +200,13 @@ impl DirectoryObservations for Directory {
 }
 
 impl AnchoredDirectory for Directory {
+    fn device(&self) -> VolumeDevice {
+        self.device_probes.fetch_add(1, Ordering::Relaxed);
+        self.device
+            .clone()
+            .unwrap_or_else(VolumeDevice::unsupported)
+    }
+
     /// A same-volume identity distinct from every fixture entry.
     fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
         Some(du_core_contracts::scan_observation::HandleIdentity {
@@ -214,6 +237,7 @@ impl AnchoredDirectory for Directory {
             }
             return Ok(Box::new(Self {
                 handle: self.handle,
+                device_probes: self.device_probes.clone(),
                 read_handles: self.read_handles.clone(),
                 reads: self.reads.clone(),
                 release: self.release.clone(),
@@ -221,6 +245,7 @@ impl AnchoredDirectory for Directory {
                 priority: self.priority.clone(),
                 priority_label: Some(label),
                 priority_sent: false,
+                device: self.device.clone(),
             }));
         }
         Err(io_error())

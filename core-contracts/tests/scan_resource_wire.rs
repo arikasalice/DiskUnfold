@@ -1,8 +1,8 @@
 use du_core_contracts::{
     PathBytes,
     analysis_ipc::{
-        ScanCollectionCondition, ScanLaneStatus, ScanResourceMode, ScanSetResourceResponse,
-        ScanStart, ScanStartRequest,
+        DeviceKind, DeviceKindSource, ScanCollectionCondition, ScanLaneStatus, ScanResourceMode,
+        ScanSetResourceResponse, ScanStart, ScanStartRequest,
     },
 };
 use serde_json::{Value, from_value, json, to_value};
@@ -86,7 +86,7 @@ fn unknown_resource_mode_is_rejected() {
 fn applies_from_and_strategy_id_remain_open_strings() -> TestResult {
     let response = json!({
         "outcome": "accepted",
-        "lanes": [{ "laneIndex": 0, "effectiveLimit": 2, "permit": 16 }],
+        "lanes": [{ "laneIndex": 0, "effectiveLimit": 2, "permit": 16, "share": 2 }],
         "appliesFrom": "future_assignment_boundary"
     });
     let decoded: ScanSetResourceResponse = from_value(response.clone())?;
@@ -99,8 +99,11 @@ fn applies_from_and_strategy_id_remain_open_strings() -> TestResult {
             "rootIndexes": [0],
             "inFlight": 1,
             "limit": 2,
+            "deviceKind": "ssd",
+            "deviceKindSource": "detected",
             "mode": "quiet",
             "permit": 16,
+            "share": 2,
             "strategy": { "id": "future.dynamic", "version": 99 },
             "waitReason": "none",
             "waitConfirmed": true,
@@ -111,5 +114,84 @@ fn applies_from_and_strategy_id_remain_open_strings() -> TestResult {
     });
     let decoded: ScanLaneStatus = from_value(status.clone())?;
     assert_eq!(to_value(decoded)?, status);
+    Ok(())
+}
+
+#[test]
+fn lane_device_values_round_trip_and_omitted_values_stay_unknown() -> TestResult {
+    let response: ScanSetResourceResponse = from_value(json!({
+        "outcome": "accepted",
+        "lanes": [{"laneIndex": 0, "effectiveLimit": 1, "permit": 4}],
+        "appliesFrom": "next_assignment"
+    }))?;
+    let lane = response.lanes.first().ok_or("missing resource lane")?;
+    assert_eq!(lane.share, None);
+
+    let omitted: ScanLaneStatus = from_value(json!({
+        "sequence": 1,
+        "lanes": [{
+            "laneIndex": 0, "rootIndexes": [0], "inFlight": 0, "limit": 1,
+            "waitReason": "none", "waitConfirmed": false,
+            "remainingDirectories": "0", "failures": "0"
+        }],
+        "observedAt": "2026-11-20T00:00:00.000Z"
+    }))?;
+    let lane = omitted.lanes.first().ok_or("missing status lane")?;
+    assert_eq!(lane.device_kind, None);
+    assert_eq!(lane.device_kind_source, None);
+    assert_eq!(lane.share, None);
+    Ok(())
+}
+
+#[test]
+fn unknown_device_enum_values_are_preserved_as_unknown() -> TestResult {
+    let status: ScanLaneStatus = from_value(json!({
+        "sequence": 1,
+        "lanes": [{
+            "laneIndex": 0, "rootIndexes": [0], "inFlight": 0, "limit": 1,
+            "deviceKind": "hybrid", "deviceKindSource": "firmware",
+            "waitReason": "none", "waitConfirmed": false,
+            "remainingDirectories": "0", "failures": "0"
+        }],
+        "observedAt": "2026-11-20T00:00:00.000Z"
+    }))?;
+    let lane = status.lanes.first().ok_or("missing status lane")?;
+    assert_eq!(lane.device_kind, Some(DeviceKind::Unknown));
+    assert_eq!(lane.device_kind_source, Some(DeviceKindSource::Unknown));
+    assert!(
+        from_value::<ScanSetResourceResponse>(json!({
+            "outcome": "accepted", "lanes": [{
+                "laneIndex": 0, "effectiveLimit": 1, "share": 0
+            }], "appliesFrom": "next_assignment"
+        }))
+        .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn serialized_lane_and_resource_responses_never_forward_disk_keys() -> TestResult {
+    let secret = "opaque-physical-disk-key";
+    let status: ScanLaneStatus = from_value(json!({
+        "sequence": 1,
+        "lanes": [{
+            "laneIndex": 0, "rootIndexes": [0], "inFlight": 0, "limit": 2,
+            "deviceKind": "hdd", "deviceKindSource": "detected",
+            "permit": 4, "share": 2, "diskKey": secret,
+            "waitReason": "none", "waitConfirmed": false,
+            "remainingDirectories": "0", "failures": "0"
+        }],
+        "observedAt": "2026-11-20T00:00:00.000Z"
+    }))?;
+    let resource: ScanSetResourceResponse = from_value(json!({
+        "outcome": "accepted",
+        "lanes": [{
+            "laneIndex": 0, "effectiveLimit": 2,
+            "permit": 4, "share": 2, "diskKey": secret
+        }],
+        "appliesFrom": "next_assignment"
+    }))?;
+    let serialized = format!("{}{}", to_value(status)?, to_value(resource)?);
+    assert!(!serialized.contains(secret));
     Ok(())
 }

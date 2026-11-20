@@ -25,7 +25,7 @@ use du_core_contracts::{
     ports::PortError,
     scan_observation::{
         AnchoredDirectory, HandleIdentity, ObservedEntry, ObservedKind, TimedObservedEntry,
-        VolumeSpaceReader,
+        VolumeDevice, VolumeSpaceReader,
     },
 };
 use std::{
@@ -99,6 +99,10 @@ impl MacDirectory {
 }
 
 impl AnchoredDirectory for MacDirectory {
+    fn device(&self) -> VolumeDevice {
+        crate::device::map_probe(crate::device::macos::probe_fd(self.fd.as_fd()))
+    }
+
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let meta = entry.metadata.as_ref().map_err(Clone::clone)?;
         if meta.kind != ObservedKind::Directory

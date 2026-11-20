@@ -3,6 +3,7 @@
 pub mod application_data;
 #[cfg(unix)]
 pub mod cli_link;
+pub mod device;
 pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;

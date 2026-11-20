@@ -15,6 +15,7 @@ pub(super) fn claim<'a>(shared: &'a Shared, queue: &mut Queue, seat: usize) -> O
     } = queue.claim_for(seat)?;
     Some(Claim {
         frame,
+        disk_seat: queue.disk_seat(lane),
         turn: Turn {
             shared,
             seat,

@@ -28,7 +28,7 @@ use model::*;
 pub use model::{
     CancelResult, DeduplicationKey, FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity,
     JobPriority, JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
-    TerminalSnapshot,
+    TerminalSnapshot, device_permit,
 };
 pub use progress::{JobLaneStatusEvent, JobProgressEvent};
 pub use publication::DuplicateTerminal;

@@ -171,7 +171,7 @@ fn full(
         &context,
         config.workers,
         None,
-        (devices, Some(&diagnostics), None),
+        (devices, Some(&diagnostics), None, None),
     );
     scheduler::TEST_LANE_CAPACITY.store(0, Ordering::Release);
     let version = sink

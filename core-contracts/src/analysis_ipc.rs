@@ -10,6 +10,7 @@ mod scan_resource;
 mod scope_draft;
 mod space_query;
 
+pub use crate::scan_observation::{DeviceKind, DeviceKindSource};
 pub(crate) use f03_request::{
     deserialize_f03_request_item_ref, deserialize_f03_request_object,
     deserialize_optional_f03_request_item_ref,

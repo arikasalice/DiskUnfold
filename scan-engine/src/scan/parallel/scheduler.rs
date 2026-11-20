@@ -17,6 +17,7 @@ pub(super) fn create(
     create_with_budget(
         prepared,
         devices,
+        None,
         diagnostics,
         disconnects,
         control,
@@ -27,6 +28,7 @@ pub(super) fn create(
 pub(super) fn create_with_budget(
     prepared: Prepared,
     devices: DevicePlan,
+    lane_devices: Option<Vec<queue::LaneDevice>>,
     diagnostics: Option<&crate::scan_job::ScanDiagnostics>,
     disconnects: disconnect::Disconnects,
     control: Option<&ScanControlSession>,
@@ -52,7 +54,7 @@ pub(super) fn create_with_budget(
         track_peak: diagnostics.is_some(),
         track_paths: control.is_some_and(ScanControlSession::tracks_priority),
     };
-    let queue = queue_for(roots, &boundaries, &devices, options)?;
+    let queue = queue_for(roots, &boundaries, &devices, lane_devices, options)?;
     let meters = lane_meter::LaneMeters::new(queue.lanes.lanes.len());
     let shared = Shared {
         queue: Arc::new(Mutex::new(queue)),
@@ -105,22 +107,36 @@ pub(super) fn queue_for(
     roots: Vec<Box<dyn AnchoredDirectory>>,
     boundaries: &[Option<Boundary>],
     devices: &DevicePlan,
+    lane_devices: Option<Vec<queue::LaneDevice>>,
     options: LaneOptions,
 ) -> Result<Queue, BuildError> {
     let root_count = roots.len();
-    if !devices.valid(root_count) || boundaries.len() != root_count || options.capacity == 0 {
+    let lane_count = devices
+        .groups
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    if !devices.valid(root_count)
+        || boundaries.len() != root_count
+        || options.capacity == 0
+        || lane_devices
+            .as_ref()
+            .is_some_and(|lanes| lanes.len() != lane_count)
+    {
         return Err(BuildError::Unavailable);
     }
     let mut outstanding = options
         .track_paths
         .then(|| queue::OutstandingPaths::new(root_count));
     let mut queue = Queue {
-        lanes: lanes::Lanes::new(
-            &devices.groups,
-            devices.limit,
-            options.capacity,
-            options.track_peak,
-        ),
+        lanes: lanes::Lanes::new(lanes::LaneConfig {
+            groups: &devices.groups,
+            limit: devices.limit,
+            capacity: options.capacity,
+            track_peak: options.track_peak,
+            lane_devices,
+        }),
         priority: None,
         outstanding: None,
         remaining: boundaries.iter().flatten().count(),
@@ -163,7 +179,13 @@ impl Queue {
     ) -> Self {
         let root_count = groups.len();
         Self {
-            lanes: lanes::Lanes::new(&groups, limit, capacity, true),
+            lanes: lanes::Lanes::new(lanes::LaneConfig {
+                groups: &groups,
+                limit,
+                capacity,
+                track_peak: true,
+                lane_devices: None,
+            }),
             priority: None,
             outstanding: None,
             remaining: 0,

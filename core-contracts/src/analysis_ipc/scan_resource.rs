@@ -1,6 +1,7 @@
 //! Resource controls for metadata collection (F02 FR7).
 use crate::Id;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 /// Requested scan resource strategy. Unknown values are rejected at IPC ingress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,9 +79,14 @@ pub enum ScanSetResourceOutcome {
 pub struct ScanSetResourceLane {
     pub lane_index: u32,
     pub effective_limit: u32,
+    /// Device permit by kind; it keeps the full per-device permit when lanes share a disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub permit: Option<u32>,
+    /// This lane's share of a permit split with other lanes on the same disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional, type = "number"))]
+    pub share: Option<NonZeroU32>,
 }
 
 /// Acknowledgement of a live or queued resource update.

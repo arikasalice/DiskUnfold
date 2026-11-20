@@ -181,6 +181,7 @@ struct Control<'a> {
 
 struct ScanOptions<'a> {
     devices: DevicePlan,
+    lane_devices: Option<Vec<queue::LaneDevice>>,
     diagnostics: Option<&'a crate::scan_job::ScanDiagnostics>,
     scan_control: Option<&'a ScanControlSession>,
     correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
@@ -222,7 +223,7 @@ impl MonotonicClock for ContextClock<'_> {
         self.0.monotonic_now()
     }
 }
-pub(crate) use queue::DevicePlan;
+pub(crate) use queue::{DevicePlan, LaneDevice};
 
 /// Runs the same collector against a build prepared with source evidence.
 pub(crate) fn collect_open_build(
@@ -275,6 +276,7 @@ pub(crate) fn collect_open_forest_with_groups(
         Policy::Legacy(include),
         ScanOptions {
             devices,
+            lane_devices: None,
             diagnostics: None,
             scan_control: None,
             correlated_budget: None,
@@ -300,6 +302,7 @@ pub(crate) fn collect_open_forest_filtered(
         Policy::BeforeMetadata(include),
         ScanOptions {
             devices,
+            lane_devices: None,
             diagnostics: None,
             scan_control: None,
             correlated_budget: None,
@@ -327,6 +330,7 @@ fn collect_open_forest_filtered_with_budget(
         Policy::BeforeMetadata(include),
         ScanOptions {
             devices,
+            lane_devices: None,
             diagnostics: None,
             scan_control: None,
             correlated_budget: Some(budget),
@@ -345,10 +349,11 @@ pub(crate) fn collect_open_forest_diagnostic(
         DevicePlan,
         Option<&crate::scan_job::ScanDiagnostics>,
         Option<&ScanControlSession>,
+        Option<Vec<queue::LaneDevice>>,
     ),
 ) -> JobOutcome {
     let policy = filter.map_or(Policy::Evidence, Policy::BeforeMetadata);
-    let (devices, diagnostics, scan_control) = options;
+    let (devices, diagnostics, scan_control, lane_devices) = options;
     collect_with_policy(
         build,
         roots,
@@ -358,6 +363,7 @@ pub(crate) fn collect_open_forest_diagnostic(
         policy,
         ScanOptions {
             devices,
+            lane_devices,
             diagnostics,
             scan_control,
             correlated_budget: None,

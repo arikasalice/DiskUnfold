@@ -20,7 +20,7 @@ use du_core_contracts::{
     ports::PortError,
     scan_observation::{
         AnchoredDirectory, HandleIdentity, ObservedEntry, ObservedKind, TimedObservedEntry,
-        VolumeSpaceReader,
+        VolumeDevice, VolumeSpaceReader,
     },
 };
 use errors::{errno, invalid};
@@ -117,6 +117,20 @@ fn same_mount(left: Option<u64>, right: Option<u64>) -> bool {
 }
 
 impl AnchoredDirectory for LinuxDirectory {
+    fn device(&self) -> VolumeDevice {
+        match rustix::fs::fstat(&*self.anchor.fd) {
+            Ok(stat) => crate::device::map_probe(crate::device::linux::probe_dev(
+                rustix::fs::major(stat.st_dev),
+                rustix::fs::minor(stat.st_dev),
+            )),
+            Err(_) => crate::device::map_probe(crate::device::DeviceProbe {
+                kind: du_core_contracts::scan_observation::DeviceKind::Unknown,
+                disk_key: None,
+                reason_key: Some(crate::device::OS_QUERY_FAILED),
+            }),
+        }
+    }
+
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let meta = entry.metadata.as_ref().map_err(Clone::clone)?;
         if meta.kind != ObservedKind::Directory

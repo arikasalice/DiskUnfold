@@ -13,19 +13,41 @@ use du_core_contracts::{
         ResourceClass,
     },
     result::{ResultNativePath, ResultScopeRoot},
-    scan_observation::OpenedScopeRoot,
+    scan_observation::{DeviceKind, DeviceKindSource, OpenedScopeRoot},
 };
 
 use crate::scan::{
-    DevicePlan, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
+    DevicePlan, LaneDevice, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
     collect_open_forest_diagnostic, internal_failure,
 };
 
-type DeviceRoots = Vec<(OpenedScopeRoot, Option<Vec<u8>>)>;
+type DeviceRoots = Vec<(OpenedScopeRoot, RootDevice)>;
 
 const KIND: &str = "scan.metadata";
 // Conservative starting concurrency until device-specific policy is composed.
 const DEFAULT_SCAN_WORKERS: usize = 4;
+
+/// Device evidence captured from one already-opened scope root.
+#[derive(Clone)]
+pub struct RootDevice {
+    /// Reported storage class, or unknown when detection was unavailable.
+    pub kind: DeviceKind,
+    /// Source of the storage class supplied to the lane.
+    pub source: DeviceKindSource,
+    /// Opaque physical disk identity used only for in-process permit sharing.
+    pub disk_key: Option<Vec<u8>>,
+}
+
+impl RootDevice {
+    /// Unknown device evidence for callers without an OS observation.
+    pub fn unknown() -> Self {
+        Self {
+            kind: DeviceKind::Unknown,
+            source: DeviceKindSource::Unknown,
+            disk_key: None,
+        }
+    }
+}
 
 /// Describes the base metadata collection job.
 pub fn descriptor() -> JobDescriptor {
@@ -112,21 +134,20 @@ impl MetadataScan {
         scope: Id,
         ids: Arc<dyn ResultIds>,
     ) -> Self {
-        Self::new_roots_with_physical_keys(
-            roots.into_iter().map(|root| (root, None)).collect(),
+        Self::new_roots_with_devices(
+            roots
+                .into_iter()
+                .map(|root| (root, RootDevice::unknown()))
+                .collect(),
             store,
             scope,
             ids,
         )
     }
 
-    /// Supply a confirmed physical-device key for each root when available.
-    ///
-    /// Empty or absent physical keys fall back to the observed volume ID; an
-    /// empty volume ID shares one conservative unknown-device bucket. A caller
-    /// must not provide an unverified or path-derived physical-device key.
-    pub fn new_roots_with_physical_keys(
-        roots: Vec<(OpenedScopeRoot, Option<Vec<u8>>)>,
+    /// Transfers roots and their already observed device evidence into one job.
+    pub fn new_roots_with_devices(
+        roots: Vec<(OpenedScopeRoot, RootDevice)>,
         store: IngestSink,
         scope: Id,
         ids: Arc<dyn ResultIds>,
@@ -146,6 +167,16 @@ impl MetadataScan {
             root_count,
             control: None,
         }
+    }
+
+    /// Greatest process-wide device permit after grouping these roots by volume.
+    pub fn max_device_permit(roots: &[(Vec<u8>, RootDevice)]) -> u32 {
+        lane_devices(roots)
+            .1
+            .iter()
+            .map(|lane| du_job_runtime::device_permit(lane.kind))
+            .max()
+            .unwrap_or_else(|| du_job_runtime::device_permit(DeviceKind::Unknown))
     }
     /// Binds this scan to the stable lineage of its verified scope and source.
     pub fn with_lineage(mut self, lineage: Id) -> Self {
@@ -243,7 +274,11 @@ impl JobBody for MetadataScan {
         let roots = self.roots.lock().ok().and_then(|mut roots| roots.take());
         match roots {
             Some(roots) if !roots.is_empty() => {
-                let groups = device_groups(&roots);
+                let volumes: Vec<_> = roots
+                    .iter()
+                    .map(|(root, device)| (root.volume_id.clone(), device.clone()))
+                    .collect();
+                let (groups, lane_devices) = lane_devices(&volumes);
                 let (observed, directories): (Vec<_>, Vec<_>) = roots
                     .into_iter()
                     .map(|(root, _)| {
@@ -297,6 +332,7 @@ impl JobBody for MetadataScan {
                         devices,
                         self.diagnostics.as_deref(),
                         self.control.as_deref(),
+                        Some(lane_devices),
                     ),
                 )
             }
@@ -310,108 +346,88 @@ impl JobBody for MetadataScan {
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
-enum DeviceKey {
-    Unknown,
-    Volume(Vec<u8>),
-    Physical(Vec<u8>),
-}
+fn lane_devices(roots: &[(Vec<u8>, RootDevice)]) -> (Vec<usize>, Vec<LaneDevice>) {
+    let mut lanes_by_volume: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut groups = Vec::with_capacity(roots.len());
+    let mut members: Vec<Vec<usize>> = Vec::new();
+    for (root_index, (volume_id, _)) in roots.iter().enumerate() {
+        let volume_key = if volume_id.is_empty() {
+            vec![0]
+        } else {
+            let mut key = vec![1];
+            key.extend_from_slice(volume_id);
+            key
+        };
+        let next = lanes_by_volume.len();
+        let lane = *lanes_by_volume.entry(volume_key).or_insert_with(|| {
+            members.push(Vec::new());
+            next
+        });
+        groups.push(lane);
+        members[lane].push(root_index);
+    }
 
-fn device_groups(roots: &[(OpenedScopeRoot, Option<Vec<u8>>)]) -> Vec<usize> {
-    let mut owners = HashMap::new();
-    let mut parents: Vec<usize> = (0..roots.len()).collect();
-    for (index, (root, physical)) in roots.iter().enumerate() {
-        let mut keys = Vec::with_capacity(2);
-        if !root.volume_id.is_empty() {
-            keys.push(DeviceKey::Volume(root.volume_id.clone()));
-        }
-        if let Some(key) = physical.as_ref().filter(|key| !key.is_empty()) {
-            keys.push(DeviceKey::Physical(key.clone()));
-        }
-        if keys.is_empty() {
-            keys.push(DeviceKey::Unknown);
-        }
-        for key in keys {
-            if let Some(&owner) = owners.get(&key) {
-                let left = find(&mut parents, index);
-                let right = find(&mut parents, owner);
-                parents[left] = right;
+    let lanes = members
+        .iter()
+        .map(|root_indexes| {
+            let first = roots.get(root_indexes[0]).map(|(_, device)| device);
+            let kind = first.map_or(DeviceKind::Unknown, |device| device.kind);
+            let source = first.map_or(DeviceKindSource::Unknown, |device| device.source);
+            let kind_agreed = root_indexes.iter().all(|&index| {
+                roots
+                    .get(index)
+                    .is_some_and(|(_, device)| device.kind == kind)
+            });
+            let source_agreed = root_indexes.iter().all(|&index| {
+                roots
+                    .get(index)
+                    .is_some_and(|(_, device)| device.source == source)
+            });
+            let kind = if kind_agreed {
+                kind
             } else {
-                owners.insert(key, index);
+                DeviceKind::Unknown
+            };
+            let source = if kind_agreed && source_agreed {
+                source
+            } else {
+                DeviceKindSource::Unknown
+            };
+            let mut physical_keys: Vec<&[u8]> = root_indexes
+                .iter()
+                .filter_map(|&index| roots.get(index)?.1.disk_key.as_deref())
+                .filter(|key| !key.is_empty())
+                .collect();
+            physical_keys.sort_unstable();
+            physical_keys.dedup();
+            let disk_key = match physical_keys.as_slice() {
+                [physical] => tagged_key(1, physical),
+                _ => {
+                    let volume_id = &roots[root_indexes[0]].0;
+                    if volume_id.is_empty() {
+                        vec![3]
+                    } else {
+                        tagged_key(2, volume_id)
+                    }
+                }
+            };
+            let disk_seat = du_core_contracts::job::DiskSeat::new(kind, disk_key);
+            LaneDevice {
+                kind,
+                source,
+                disk_seat,
             }
-        }
-    }
-    (0..roots.len())
-        .map(|index| find(&mut parents, index))
-        .collect()
+        })
+        .collect();
+    (groups, lanes)
 }
 
-fn find(parents: &mut [usize], mut index: usize) -> usize {
-    while parents[index] != index {
-        parents[index] = parents[parents[index]];
-        index = parents[index];
-    }
-    index
+fn tagged_key(tag: u8, value: &[u8]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(value.len() + 1);
+    key.push(tag);
+    key.extend_from_slice(value);
+    key
 }
 
 #[cfg(test)]
-mod device_tests {
-    use super::*;
-    use du_core_contracts::{
-        OsPath, PathBytes, PathEncoding,
-        ports::{PortError, PortErrorKind},
-        scan_observation::{AnchoredDirectory, DirectoryObservations, ObservedEntry},
-    };
-    struct Empty;
-    impl DirectoryObservations for Empty {
-        fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-            Ok(Vec::new())
-        }
-    }
-    impl AnchoredDirectory for Empty {
-        // Device grouping never collects, so identity is not supported here.
-        fn observed_identity(&self) -> Option<du_core_contracts::scan_observation::HandleIdentity> {
-            None
-        }
-        fn open_child(&self, _: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-            Err(PortError {
-                kind: PortErrorKind::Unsupported,
-                reason_key: "os.unsupported".into(),
-                os_code: None,
-            })
-        }
-    }
-    fn root(volume: &[u8], physical: Option<&[u8]>) -> (OpenedScopeRoot, Option<Vec<u8>>) {
-        (
-            OpenedScopeRoot {
-                canonical_path: OsPath {
-                    encoding: PathEncoding::WindowsUtf16le,
-                    raw: PathBytes::from_bytes(&[65, 0]),
-                    display: "A".into(),
-                    lossy: false,
-                },
-                volume_id: volume.to_vec(),
-                file_id: vec![1],
-                directory: Box::new(Empty),
-            },
-            physical.map(<[u8]>::to_vec),
-        )
-    }
-    #[test]
-    fn groups_confirmed_physical_and_volume_and_unknown_evidence() {
-        let roots = vec![
-            root(&[1], Some(&[9])),
-            root(&[1], None),
-            root(&[2], Some(&[9])),
-            root(&[3], None),
-            root(&[], None),
-            root(&[], None),
-        ];
-        let groups = device_groups(&roots);
-        assert_eq!(groups[0], groups[1]);
-        assert_eq!(groups[1], groups[2]);
-        assert_ne!(groups[2], groups[3]);
-        assert_eq!(groups[4], groups[5]);
-        assert_ne!(groups[3], groups[4]);
-    }
-}
+mod device_tests;

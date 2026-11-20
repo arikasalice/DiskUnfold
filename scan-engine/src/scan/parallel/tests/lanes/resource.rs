@@ -1,6 +1,11 @@
 //! Live lane resource changes are enforced at worker assignment boundaries.
 use super::*;
 use du_core_contracts::analysis_ipc::{ScanResourceMode, ScanSetResourceOutcome};
+use du_core_contracts::{
+    job::{DeviceSeat, DiskSeat},
+    scan_observation::{DeviceKind, DeviceKindSource},
+};
+use std::collections::HashMap;
 
 #[test]
 fn lane_limit_bounds_fake_os_calls_and_live_changes_take_effect_next_assignment()
@@ -92,5 +97,136 @@ fn lane_limit_bounds_fake_os_calls_and_live_changes_take_effect_next_assignment(
         observed
     })??;
     assert_eq!(probe.in_flight.load(Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[derive(Default)]
+struct DiskGate {
+    active: Mutex<HashMap<Vec<u8>, usize>>,
+    changed: Condvar,
+}
+
+impl DiskGate {
+    fn try_seat(self: &Arc<Self>, disk: &DiskSeat) -> Option<DeviceSeat> {
+        let key = disk.key().to_vec();
+        let mut active = self.active.lock().ok()?;
+        let count = active.entry(key.clone()).or_default();
+        if *count >= du_job_runtime::device_permit(disk.kind()) as usize {
+            return None;
+        }
+        *count += 1;
+        drop(active);
+        let gate = self.clone();
+        Some(DeviceSeat::new(move || {
+            if let Ok(mut active) = gate.active.lock()
+                && let Some(count) = active.get_mut(&key)
+            {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    active.remove(&key);
+                }
+            }
+            gate.changed.notify_all();
+        }))
+    }
+}
+
+struct SeatContext {
+    flows: Context,
+    disks: Arc<DiskGate>,
+}
+
+impl JobContext for SeatContext {
+    fn checkpoint(&self) -> Checkpoint {
+        self.flows.checkpoint()
+    }
+
+    fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
+        self.flows.try_start_flow()
+    }
+
+    fn try_device_seat(&self, disk: &DiskSeat) -> Result<Option<DeviceSeat>, JobFlowError> {
+        Ok(self.disks.try_seat(disk))
+    }
+
+    fn wait_device_seat(&self, disk: &DiskSeat) -> Result<DeviceSeat, JobFlowError> {
+        loop {
+            if let Some(seat) = self.disks.try_seat(disk) {
+                return Ok(seat);
+            }
+            let active = self.disks.active.lock().map_err(|_| JobFlowError::Closed)?;
+            let _ = self
+                .disks
+                .changed
+                .wait_timeout(active, Duration::from_millis(10))
+                .map_err(|_| JobFlowError::Closed)?;
+            if self.checkpoint() == Checkpoint::Cancel {
+                return Err(JobFlowError::Cancelled);
+            }
+        }
+    }
+}
+
+#[test]
+fn two_hdd_volumes_on_one_disk_never_exceed_four_blocked_calls() -> Result<(), TestError> {
+    let _serial = worker_test_lock();
+    let gate = Arc::new(Gate::default());
+    let _opened = Opened(gate.clone());
+    let hook_gate = gate.clone();
+    let probe = Probe::new(
+        Shape {
+            depth: 1,
+            dirs: 4,
+            files: 0,
+            batch: 4,
+        },
+        2,
+        Box::new(move |_, path, call| {
+            if call == Call::Read && !path.is_empty() {
+                hook_gate.wait()?;
+            }
+            Ok(())
+        }),
+    );
+    let seat = |kind| crate::scan::parallel::queue::LaneDevice {
+        kind,
+        source: DeviceKindSource::Detected,
+        disk_seat: DiskSeat::new(kind, vec![0x51, 0x52]),
+    };
+    let shared = shared_over_with_devices(
+        probe.roots(),
+        vec![0, 1],
+        4,
+        QUEUED_DIRECTORIES,
+        Some(vec![seat(DeviceKind::Hdd), seat(DeviceKind::Hdd)]),
+    )?;
+    let session = ScanControlSession::with_resource_condition(2, ScanResourceMode::Fast, None);
+    session.attach(&shared.queue, &shared.wake);
+    let reports = shared.lane_report().ok_or("lane report unavailable")?;
+    assert_eq!(reports.lanes.len(), 2);
+    for lane in reports.lanes {
+        assert_eq!(lane.limit, 2);
+        assert_eq!(lane.share.map(std::num::NonZeroU32::get), Some(2));
+    }
+    let context = SeatContext {
+        flows: Context {
+            completed: Arc::new(AtomicUsize::new(0)),
+            abandoned: Arc::new(AtomicUsize::new(0)),
+        },
+        disks: Arc::new(DiskGate::default()),
+    };
+    run_workers_in(&shared, 8, 32, &context, |receiver, sender| {
+        drop(sender);
+        let result = gate
+            .until(|state| state.waiting >= 3)
+            .map_err(|error| format!("three calls were not concurrently parked: {error}"));
+        if result.is_ok() {
+            assert!((3..=4).contains(&probe.in_flight.load(Ordering::SeqCst)));
+        }
+        gate.release();
+        receiver.iter().for_each(drop);
+        result
+    })??;
+    assert!((3..=4).contains(&probe.in_flight_peak.load(Ordering::SeqCst)));
     Ok(())
 }

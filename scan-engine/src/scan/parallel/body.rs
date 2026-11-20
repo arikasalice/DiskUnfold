@@ -23,6 +23,7 @@ pub(super) fn run(
     } = control;
     let ScanOptions {
         devices,
+        lane_devices,
         diagnostics,
         scan_control,
         correlated_budget,
@@ -65,6 +66,7 @@ pub(super) fn run(
     let shared = scheduler::create_with_budget(
         prepared,
         devices,
+        lane_devices,
         diagnostics,
         disconnects,
         scan_control,

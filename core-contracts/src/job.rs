@@ -1,6 +1,6 @@
 //! In-process job contracts shared by runtimes and job bodies.
-use crate::{Id, Timestamp};
-use std::sync::Arc;
+use crate::{Id, Timestamp, scan_observation::DeviceKind};
+use std::{fmt, sync::Arc};
 
 mod lane_status;
 pub use lane_status::{LaneReport, LaneStatusReport, LaneWait};
@@ -234,6 +234,65 @@ pub enum JobFlowError {
     PayloadTooLarge,
     DeliveryUnavailable,
 }
+
+/// Opaque key used to acquire one process-wide in-flight seat for a disk.
+/// The key is intentionally excluded from formatting and wire contracts.
+#[derive(Clone)]
+pub struct DiskSeat {
+    kind: DeviceKind,
+    key: Vec<u8>,
+}
+
+impl DiskSeat {
+    /// Creates a disk seat request; empty keys are not accepted.
+    pub fn new(kind: DeviceKind, key: Vec<u8>) -> Self {
+        Self { kind, key }
+    }
+
+    /// Device class used to select the process-wide permit.
+    pub fn kind(&self) -> DeviceKind {
+        self.kind
+    }
+
+    /// Opaque bytes used only as an in-process map key.
+    pub fn key(&self) -> &[u8] {
+        &self.key
+    }
+}
+
+impl fmt::Debug for DiskSeat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DiskSeat")
+            .field("kind", &self.kind)
+            .field("key", &"<redacted>")
+            .finish()
+    }
+}
+
+/// RAII token for one device seat; dropping it releases the runtime permit.
+pub struct DeviceSeat(Option<Box<dyn FnOnce() + Send + 'static>>);
+
+impl DeviceSeat {
+    /// Creates a runtime-owned release token.
+    pub fn new(release: impl FnOnce() + Send + 'static) -> Self {
+        Self(Some(Box::new(release)))
+    }
+
+    /// Creates an unrestricted token for contexts that do not implement gating.
+    pub fn unrestricted() -> Self {
+        Self(None)
+    }
+}
+
+impl Drop for DeviceSeat {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.take() {
+            release();
+        }
+    }
+}
+
 /// One registered metadata I/O flow. Dropping it releases its permit.
 pub trait JobFlow: Send {
     /// Waits at a completed unit boundary; returns `Cancel` when the flow must stop.
@@ -283,6 +342,16 @@ pub trait JobContext: Send + Sync {
     /// may return `Busy`; callers must not spin when that happens.
     fn wait_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError> {
         self.try_start_flow()
+    }
+    /// Tries to reserve a process-wide disk seat; `None` means that disk is full.
+    /// Existing contexts remain unrestricted by default.
+    fn try_device_seat(&self, _disk: &DiskSeat) -> Result<Option<DeviceSeat>, JobFlowError> {
+        Ok(Some(DeviceSeat::unrestricted()))
+    }
+    /// Cooperatively waits without holding queue locks for a disk seat.
+    /// The default does not wait and returns `Busy` if an implementation gates seats.
+    fn wait_device_seat(&self, disk: &DiskSeat) -> Result<DeviceSeat, JobFlowError> {
+        self.try_device_seat(disk)?.ok_or(JobFlowError::Busy)
     }
 }
 /// The body can return while registered flows finish; the runtime waits for them.

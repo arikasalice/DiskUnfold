@@ -9,12 +9,12 @@ license.workspace = true
 blake3.workspace = true
 du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
 du-analysis-index = { version = "0.0.1", path = "../analysis-index" }
+du-job-runtime = { version = "0.0.1", path = "../job-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 du-analysis-index = { version = "0.0.1", path = "../analysis-index", features = ["test-hooks"] }
-du-job-runtime = { version = "0.0.1", path = "../job-runtime" }
 
 [lints]
 workspace = true

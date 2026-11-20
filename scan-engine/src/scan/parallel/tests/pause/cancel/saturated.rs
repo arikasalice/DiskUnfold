@@ -354,6 +354,7 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
             &mut JobCounts::default(),
             &clock,
             crate::scan::parallel::ScanOptions {
+                lane_devices: None,
                 devices: DevicePlan {
                     groups: vec![0, 1],
                     limit: 1,

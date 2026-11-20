@@ -1,5 +1,11 @@
 use super::*;
 use du_core_contracts::analysis_ipc::{ScanCollection, ScanStart, ScopeReview};
+use du_core_contracts::{
+    scan_observation::{DeviceKind, DeviceKindSource, VolumeDevice},
+    volume::{Capability, CapabilityState},
+};
+
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn draft() -> serde_json::Value {
     let path: Vec<u8> = "P:\\PriorityFixture"
@@ -18,6 +24,86 @@ fn draft() -> serde_json::Value {
         "includedMounts": [],
         "source": "gui"
     })
+}
+
+fn draft_for(paths: &[&str]) -> serde_json::Value {
+    let includes: Vec<_> = paths
+        .iter()
+        .map(|path| {
+            let raw: Vec<u8> = path.encode_utf16().flat_map(u16::to_le_bytes).collect();
+            json!({
+                "encoding": "windows_utf16le",
+                "raw": PathBytes::from_bytes(&raw),
+                "display": path,
+                "lossy": false
+            })
+        })
+        .collect();
+    json!({
+        "includes": includes,
+        "exclusions": [],
+        "boundary": "current_volume",
+        "includedMounts": [],
+        "source": "gui"
+    })
+}
+
+fn device(kind: DeviceKind, disk_key: Option<&[u8]>) -> VolumeDevice {
+    VolumeDevice {
+        kind,
+        kind_capability: Capability {
+            state: CapabilityState::Supported,
+            reason_key: None,
+        },
+        disk_key: disk_key.map(<[u8]>::to_vec),
+        disk_capability: Capability {
+            state: if disk_key.is_some() {
+                CapabilityState::Supported
+            } else {
+                CapabilityState::Unsupported
+            },
+            reason_key: None,
+        },
+    }
+}
+
+fn set_device(
+    harness: &ScanHarness,
+    prefix: u8,
+    volume: &[u8],
+    device: VolumeDevice,
+) -> Result<(), Box<dyn std::error::Error>> {
+    harness
+        .roots
+        .device_overrides
+        .lock()
+        .map_err(|_| "device override lock poisoned")?
+        .insert(prefix, (volume.to_vec(), device));
+    Ok(())
+}
+
+fn assert_no_jobs(harness: &ScanHarness) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        call(
+            &harness.engine,
+            "job.list",
+            Channel::Gui,
+            ENVELOPE_VERSION,
+            json!({})
+        )?
+        .body,
+        json!([])
+    );
+    Ok(())
+}
+
+fn complete_start(harness: &ScanHarness, receipt: ScanStart, release_count: usize) -> TestResult {
+    for _ in 0..release_count {
+        harness.release.send(())?;
+    }
+    let (summary, _) = scan_finished(&harness.terminal)?;
+    assert_eq!(summary.job_id, receipt.job_ref);
+    Ok(())
 }
 
 fn review(
@@ -301,3 +387,5 @@ fn scan_set_resource_replaces_limits_reports_lanes_and_enforces_gui_ownership()
     finish_resource_scan(&harness, &started.job_ref)?;
     Ok(())
 }
+
+mod device_limits;

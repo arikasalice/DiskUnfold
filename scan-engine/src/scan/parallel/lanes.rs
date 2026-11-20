@@ -37,14 +37,16 @@
 //! one class head per other worker of the lane, and joining a lane reads each
 //! lane's counters once. No claim visits queued items, with or without a
 //! marked area.
+mod config;
 mod lending;
 mod ready;
 mod resource;
 use super::{
     Frame, Queue,
-    queue::{CLASSES, NORMAL, PriorityRegion, rank_in},
-    resource::Policy,
+    queue::{CLASSES, LaneDevice, NORMAL, PriorityRegion, rank_in},
+    resource::{Condition, Policy},
 };
+pub(super) use config::{LaneConfig, Taken};
 #[cfg(test)]
 pub(super) use lending::Moves;
 #[cfg(test)]
@@ -60,6 +62,7 @@ pub(super) struct Lane {
     pub(super) ready: ReadyQueue,
     limit: usize,
     resource: Option<Policy>,
+    device: Option<LaneDevice>,
     capacity: usize,
     pub(super) members: usize,
     reserved: usize,
@@ -68,11 +71,12 @@ pub(super) struct Lane {
 }
 
 impl Lane {
-    fn new(limit: usize, capacity: usize) -> Self {
+    fn new(limit: usize, capacity: usize, device: Option<LaneDevice>) -> Self {
         Self {
             ready: ReadyQueue::default(),
             limit,
             resource: None,
+            device,
             capacity,
             members: 0,
             reserved: 0,
@@ -122,13 +126,6 @@ pub(super) enum Origin {
     Stack,
 }
 
-/// An item claimed by one worker for one turn.
-pub(super) struct Taken {
-    pub(super) frame: Frame,
-    pub(super) lane: usize,
-    pub(super) origin: Origin,
-}
-
 /// All lanes of one scan and the seats of its workers.
 pub(super) struct Lanes {
     pub(super) lanes: Vec<Lane>,
@@ -138,13 +135,21 @@ pub(super) struct Lanes {
     arrivals: u64,
     queued: usize,
     peak: Option<usize>,
+    condition: Option<Condition>,
     #[cfg(test)]
     pub(super) moves: lending::Moves,
 }
 
 impl Lanes {
     /// Builds one lane per distinct group; `groups[root]` names a root's group.
-    pub(super) fn new(groups: &[usize], limit: usize, capacity: usize, track_peak: bool) -> Self {
+    pub(super) fn new(config: LaneConfig<'_>) -> Self {
+        let LaneConfig {
+            groups,
+            limit,
+            capacity,
+            track_peak,
+            lane_devices,
+        } = config;
         let mut dense: HashMap<usize, usize> = HashMap::new();
         let root_lanes = groups
             .iter()
@@ -153,9 +158,10 @@ impl Lanes {
                 *dense.entry(*group).or_insert(next)
             })
             .collect();
+        let mut lane_devices = lane_devices.into_iter().flatten();
         Self {
             lanes: (0..dense.len())
-                .map(|_| Lane::new(limit, capacity))
+                .map(|_| Lane::new(limit, capacity, lane_devices.next()))
                 .collect(),
             root_lanes,
             seats: Vec::new(),
@@ -163,6 +169,7 @@ impl Lanes {
             arrivals: 0,
             queued: 0,
             peak: track_peak.then_some(0),
+            condition: None,
             #[cfg(test)]
             moves: lending::Moves::default(),
         }

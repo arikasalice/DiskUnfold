@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub use du_core_contracts::settings::SharedTableLimit;
+mod devices;
 mod priority;
 mod resource;
 
@@ -229,6 +230,7 @@ struct Admitted {
     receipt: ScanStart,
     review_fingerprint: String,
     root_count: usize,
+    max_permit: u32,
     control: Option<du_scan_engine::scan::ScanControlHandle>,
 }
 
@@ -238,6 +240,7 @@ struct ScanAdmission {
     scope_fingerprint: String,
     review_fingerprint: String,
     root_count: usize,
+    max_permit: u32,
     collection: ScanCollection,
     recent: Option<PendingRecentScope>,
     control: Option<du_scan_engine::scan::ScanControlHandle>,
@@ -270,9 +273,6 @@ impl UseCase for StartScan {
             .and_then(|condition| condition.resource_mode)
             .unwrap_or(ScanResourceMode::Auto);
         let user_limit = condition.and_then(|condition| condition.user_limit);
-        if !du_scan_engine::scan::valid_resource_limit(user_limit) {
-            return Err(EngineError::reason("scan.resource_limit_invalid"));
-        }
         // Pin the rule before anything is opened or created: an unknown ID must
         // consume no scope root and leave no job or lineage behind.
         let size_rule = self.size_rules.bind_latest()?;
@@ -284,6 +284,11 @@ impl UseCase for StartScan {
             self.admissions.is_some(),
             caller.channel,
         )?;
+        let root_devices = devices::observe(&verified.roots);
+        let max_permit = du_scan_engine::scan_job::MetadataScan::max_device_permit(&root_devices);
+        if !du_scan_engine::scan::valid_resource_limit(user_limit, max_permit) {
+            return Err(EngineError::reason("scan.resource_limit_invalid"));
+        }
         let recent = self.admissions.as_ref().and_then(|_| {
             Some(PendingRecentScope {
                 normalized_scope: verified.normalized_draft,
@@ -294,20 +299,25 @@ impl UseCase for StartScan {
                 )?,
             })
         });
-        let scope_fingerprint = verified.scope_fingerprint.resolve()?;
-        let scope_version = self.ids.next_id();
-        let lineage = self
-            .store
-            .bind_current_analysis(&scope_fingerprint, self.ids.next_id())
-            .map_err(|_| internal())?;
         let root_count = verified.roots.len();
         let scope_roots = verified
             .roots
             .iter()
             .map(|root| crate::display_path::os_path(root.canonical_path.clone()).display)
             .collect();
-        let mut job = MetadataScan::new_roots(
-            verified.roots,
+        let roots_with_devices = verified
+            .roots
+            .into_iter()
+            .zip(root_devices.into_iter().map(|(_, device)| device))
+            .collect();
+        let scope_fingerprint = verified.scope_fingerprint.resolve()?;
+        let scope_version = self.ids.next_id();
+        let lineage = self
+            .store
+            .bind_current_analysis(&scope_fingerprint, self.ids.next_id())
+            .map_err(|_| internal())?;
+        let mut job = MetadataScan::new_roots_with_devices(
+            roots_with_devices,
             self.store.clone(),
             scope_version.clone(),
             self.ids.clone(),
@@ -355,6 +365,7 @@ impl UseCase for StartScan {
                 scope_fingerprint,
                 review_fingerprint: request.review_fingerprint,
                 root_count,
+                max_permit,
                 collection: ScanCollection {
                     resource_mode,
                     user_limit,
@@ -378,6 +389,7 @@ impl StartScan {
             scope_fingerprint,
             review_fingerprint,
             root_count,
+            max_permit,
             collection,
             recent,
             control,
@@ -417,6 +429,7 @@ impl StartScan {
                     receipt: receipt.clone(),
                     review_fingerprint,
                     root_count,
+                    max_permit,
                     control,
                 });
                 // A scan can retain its root even when recent-scope observation is unavailable.

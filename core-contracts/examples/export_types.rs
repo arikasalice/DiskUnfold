@@ -283,6 +283,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScanStartRequest::decl(&config),
         ScanStart::decl(&config),
         ScanResourceMode::decl(&config),
+        du_core_contracts::scan_observation::DeviceKind::decl(&config),
+        du_core_contracts::scan_observation::DeviceKindSource::decl(&config),
         ScanCollectionCondition::decl(&config),
         ScanCollection::decl(&config),
         ScanLaneStrategy::decl(&config),

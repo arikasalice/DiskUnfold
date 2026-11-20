@@ -1,10 +1,12 @@
 use du_core_contracts::{
     Id,
     job::{
-        HistoryChanged, JobBody, JobDescriptor, JobProgress, JobState, JobSummary, LaneStatusReport,
+        DeviceSeat, DiskSeat, HistoryChanged, JobBody, JobDescriptor, JobFlowError, JobProgress,
+        JobState, JobSummary, LaneStatusReport,
     },
     result_events::ResultVersionNotice,
     result_freshness::ResultFreshnessNotice,
+    scan_observation::DeviceKind,
 };
 use std::{
     collections::HashMap,
@@ -15,6 +17,15 @@ use std::{
     },
     thread::JoinHandle,
 };
+
+/// Metadata-call capacity shared by jobs that report the same device kind.
+pub fn device_permit(kind: DeviceKind) -> u32 {
+    match kind {
+        DeviceKind::Ssd => 64,
+        DeviceKind::Hdd => 4,
+        DeviceKind::Unknown => 16,
+    }
+}
 
 pub trait JobIdentity: Send + Sync {
     fn next_id(&self) -> Id;
@@ -372,11 +383,16 @@ pub(crate) struct Limits {
     pub(crate) active: AtomicUsize,
     pub(crate) content_limit: usize,
     pub(crate) content_active: AtomicUsize,
+    device_seats: Mutex<HashMap<Vec<u8>, DeviceCounter>>,
     pub(crate) wait_lock: Mutex<()>,
     pub(crate) wait_changed: Condvar,
     #[cfg(test)]
     pub(crate) waiters: AtomicUsize,
     pub(crate) pending: Arc<AtomicUsize>,
+}
+struct DeviceCounter {
+    in_flight: usize,
+    capacity: usize,
 }
 impl Limits {
     pub(crate) fn new(config: FlowLimits, content_limit: usize) -> Self {
@@ -385,6 +401,7 @@ impl Limits {
             active: AtomicUsize::new(0),
             content_limit,
             content_active: AtomicUsize::new(0),
+            device_seats: Mutex::new(HashMap::new()),
             wait_lock: Mutex::new(()),
             wait_changed: Condvar::new(),
             #[cfg(test)]
@@ -399,5 +416,50 @@ impl Limits {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.wait_changed.notify_all();
+    }
+
+    pub(crate) fn try_device_seat(
+        self: &Arc<Self>,
+        disk: &DiskSeat,
+    ) -> Result<Option<DeviceSeat>, JobFlowError> {
+        let key = disk.key().to_vec();
+        let permit = crate::device_permit(disk.kind()) as usize;
+        let mut seats = self
+            .device_seats
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        let counter = seats.entry(key.clone()).or_insert(DeviceCounter {
+            in_flight: 0,
+            capacity: permit,
+        });
+        if counter.in_flight == 0 {
+            counter.capacity = permit;
+        } else {
+            counter.capacity = counter.capacity.min(permit);
+        }
+        if counter.in_flight >= counter.capacity {
+            return Ok(None);
+        }
+        counter.in_flight += 1;
+        drop(seats);
+        let limits = Arc::clone(self);
+        Ok(Some(DeviceSeat::new(move || {
+            limits.release_device_seat(&key)
+        })))
+    }
+
+    fn release_device_seat(&self, key: &[u8]) {
+        let mut seats = self
+            .device_seats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(counter) = seats.get_mut(key) {
+            counter.in_flight = counter.in_flight.saturating_sub(1);
+            if counter.in_flight == 0 {
+                seats.remove(key);
+            }
+        }
+        drop(seats);
+        self.wake_waiters();
     }
 }
