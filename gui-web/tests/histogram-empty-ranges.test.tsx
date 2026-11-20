@@ -142,6 +142,7 @@ test("F06 README 43: an interval with items opens them as a range, an empty one 
       }}
       model={frame.model}
       text={text}
+      expanded
       onOpenGroup={() => undefined}
     />,
   );
