@@ -160,9 +160,10 @@ fn assemble(
                     evidence: SizeEvidence::Unknown,
                     amount: SizeAmount::Unknown,
                 });
+            // An item's share of the items is no measure of it; it has a share only in bytes.
             let item_ratio = if model.histogram.basis == Basis::Bytes {
                 let value = quantity("bytes", size_weight(&size)?, &request.unknown_reason)?;
-                byte_ratio(&value, &denominator)?
+                share(&value, &denominator)?
             } else {
                 None
             };
@@ -213,11 +214,8 @@ fn assemble(
         // The count of the bin is exact only while every member was seen, so an exact
         // count equals the total count of the bin's own page.
         let member_count = self::quantity("items", bin.item_count, &request.unknown_reason)?;
-        let row_ratio = if model.histogram.basis == Basis::Bytes {
-            byte_ratio(&quantity, &denominator)?
-        } else {
-            None
-        };
+        // An interval's share is in the unit of its axis: of the scope's bytes or of its items.
+        let row_ratio = share(&quantity, &denominator)?;
         let row = VizRow {
             item_ref: None,
             group_ref: Some(p.group_ref.clone()),
@@ -284,10 +282,7 @@ fn quantity(unit: &str, weight: Weight, unknown_reason: &str) -> Result<VizQuant
     .ok_or(Error::InvalidQuantity)
 }
 
-fn byte_ratio(
-    value: &VizQuantity,
-    denominator: &VizDenominator,
-) -> Result<Option<VizRatio>, Error> {
+fn share(value: &VizQuantity, denominator: &VizDenominator) -> Result<Option<VizRatio>, Error> {
     ratio::calculate(value, &denominator.value)
         .as_deref()
         .map(VizRatio::parse)

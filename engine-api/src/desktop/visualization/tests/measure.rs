@@ -40,6 +40,15 @@ fn a_histogram_counts_items_for_the_count_measure_and_bytes_for_size() -> TestRe
         assert!(!units.is_empty(), "{rows}");
         assert!(units.iter().all(|u| u == unit), "{measure}: {units:?}");
         assert_eq!(rows["rows"][0]["denominator"]["value"]["unit"], unit);
+        // Every interval has its share of the scope in the unit of its axis.
+        let intervals = rows["rows"].as_array().ok_or("no rows")?;
+        assert!(
+            intervals
+                .iter()
+                .filter(|row| !row["groupRef"].is_null())
+                .all(|row| !row["ratio"].is_null()),
+            "{measure}: {rows}"
+        );
     }
     Ok(())
 }
