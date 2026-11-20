@@ -120,3 +120,21 @@
     }
   }
 }
+
+/* The chosen type's chip on the status line (F06 README 46.2). Where the format
+   does not narrow it stays, dashed, with its note beside it (46.5). */
+.du-narrowing-chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.du-narrowing-chip[data-inactive] > .du-action {
+  border-style: dashed;
+}
+/* In the chart's place when the folder holds no file of the chosen type (46.1). */
+.du-type-absent {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding-block: 24px;
+}

@@ -1,14 +1,46 @@
 import { useState } from "react";
 import { SegmentedChoice, Text } from "../components";
-import type { VizCatalog } from "../ipc";
+import type { QueryCondition, VizCatalog, VizRenderRequest } from "../ipc";
 import { TYPE_CRITERION } from "../viz";
 import type { VisualizationViewRequest, VizText } from "../viz";
+import type { TypeNarrowing } from "../features/visualization/ModelLegend";
 
 const NONE = "none";
 /** The legend column and the gap before it, in CSS px (README 2). */
 const LEGEND_SPACE = 240 + 16;
 /** From this chart area width the legend stands beside the chart (README 2). */
 const LEGEND_BESIDE = 720;
+/** Formats whose shapes a type condition narrows (#301); the bar chart follows. */
+const NARROWED_FORMATS: ReadonlySet<string> = new Set(["treemap"]);
+
+type Choice = { key: string; label: string; condition: QueryCondition };
+
+/**
+ * The type the legend narrows to (F06 README 46). It is kept while the screen
+ * is used, across folders and formats: a format that does not narrow keeps it
+ * and shows it inactive, and the treemap applies it again. It is not sent
+ * without the type criterion, and comes back with it.
+ */
+function useTypeNarrowing(format: string, criterion: string) {
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const [announced, setAnnounced] = useState<TypeNarrowing["announced"]>(null);
+  const shown = criterion === TYPE_CRITERION ? choice : null;
+  const applied = shown !== null && NARROWED_FORMATS.has(format);
+  const condition: Pick<VizRenderRequest, "condition"> = applied
+    ? { condition: { kind: "normalized", condition: shown.condition } }
+    : {};
+  const narrowing: TypeNarrowing = {
+    key: shown?.key ?? null,
+    label: shown?.label ?? null,
+    inactive: shown !== null && !applied,
+    announced,
+    choose: (next) => {
+      setChoice(next);
+      setAnnounced(next ? { type: next.label } : "all");
+    },
+  };
+  return { condition, narrowing };
+}
 
 /**
  * The colour criterion and the legend of the space view (F06 README 44.1).
@@ -28,20 +60,33 @@ export function useLegendChoice(
 ) {
   const [criterion, setCriterion] = useState(TYPE_CRITERION);
   const [patterns, setPatterns] = useState(false);
+  const types = useTypeNarrowing(format, criterion);
   const ownerCriterion = owner?.request.colorCriterion ?? NONE;
-  if (
-    format === "histogram" ||
-    !catalog?.colorCriteria.includes(TYPE_CRITERION)
-  )
+  if (!catalog?.colorCriteria.includes(TYPE_CRITERION))
     return {
       colorCriterion: ownerCriterion,
+      request: { colorCriterion: ownerCriterion },
+      narrowing: undefined,
+      controls: undefined,
+      side: () => undefined,
+      chartWidth: (width: number) => width,
+    };
+  // A histogram has one colour and no legend; a type chosen elsewhere stays inactive.
+  if (format === "histogram")
+    return {
+      colorCriterion: ownerCriterion,
+      request: { colorCriterion: ownerCriterion },
+      narrowing: types.narrowing,
       controls: undefined,
       side: () => undefined,
       chartWidth: (width: number) => width,
     };
   const beside = (width: number) => width >= LEGEND_BESIDE;
+  const colorCriterion = criterion === TYPE_CRITERION ? TYPE_CRITERION : NONE;
   return {
-    colorCriterion: criterion === TYPE_CRITERION ? TYPE_CRITERION : NONE,
+    colorCriterion,
+    request: { colorCriterion, ...types.condition },
+    narrowing: types.narrowing,
     controls: {
       criterion: (
         // A visible name says what "None" turns off (README 44.1).
