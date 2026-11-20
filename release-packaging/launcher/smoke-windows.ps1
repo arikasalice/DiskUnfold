@@ -98,11 +98,30 @@ namespace DiskUnfoldSmoke {
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint count, Input[] inputs, int size);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetCursorPos(int x, int y);
+
+    // Another window may take the foreground for a moment on a runner (a console, a
+    // notification). Ask for it back until the window owns it or the time runs out;
+    // returns how many requests it took (0 when the window already had it). Press and
+    // Click still refuse to send when the window does not own the foreground.
+    public static int Foreground(IntPtr window, int timeoutMs) {
+      if (window == IntPtr.Zero) return 0;
+      var requests = 0;
+      var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+      while (GetForegroundWindow() != window && DateTime.UtcNow < deadline) {
+        SetForegroundWindow(window);
+        requests++;
+        System.Threading.Thread.Sleep(100);
+      }
+      return requests;
+    }
 
     // A real left click at a screen point, through the same input queue as a key.
     public static void Click(IntPtr window, int x, int y) {
@@ -430,10 +449,22 @@ function Wait-FinalLogicalSize($expected, $versionLabel = 'Final') {
     }
   }
 }
+# Brings the test window back to the foreground before input, for at most three seconds,
+# and logs when it had to. A window that does not get it back still fails the input step.
+function Request-SmokeForeground {
+  $process.Refresh()
+  $requests = [DiskUnfoldSmoke.Keyboard]::Foreground($process.MainWindowHandle, 3000)
+  if ($requests -gt 0) { Write-Host "Foreground requested $requests time(s) before input" }
+}
 # Send a key only while the test window owns the foreground.
 function Send-SmokeKey($key) {
-  $process.Refresh()
+  Request-SmokeForeground
   [DiskUnfoldSmoke.Keyboard]::Press($process.MainWindowHandle, $key)
+}
+# Click a screen point only while the test window owns the foreground.
+function Send-SmokeClick($x, $y) {
+  Request-SmokeForeground
+  [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
 }
 # The grid uses a row as its keyboard stop. File buttons stay out of the tab order.
 function Find-InspectionRow($file) {
@@ -1734,13 +1765,12 @@ function Show-FallbackTable($scope) {
   Save-SmokeCapture '01-fallback-table-expanded'
   if ($toggle.Current.IsOffscreen) { throw "$title is outside the window" }
   $bounds = $toggle.Current.BoundingRectangle
-  $process.Refresh()
   $x = [int]($bounds.Left + $bounds.Width / 2)
   $y = [int]($bounds.Top + $bounds.Height / 2)
-  [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
+  Send-SmokeClick $x $y
   $toggle = Wait-SmokeExpanded $title $false 'mouse'
   Save-SmokeCapture '02-fallback-table-collapsed'
-  [DiskUnfoldSmoke.Keyboard]::Click($process.MainWindowHandle, $x, $y)
+  Send-SmokeClick $x $y
   $toggle = Wait-SmokeExpanded $title $true 'mouse'
   $toggle.SetFocus()
   Send-SmokeKey 0x0D # VK_RETURN
@@ -2125,10 +2155,12 @@ function Test-VirtualGroups {
   if ($WindowSize) { Set-SmokeWindowSize $WindowSize }
   # The smoke assertions use English UIA names. Normalize a Korean startup
   # profile for every run, including runs that do not exercise locale switching.
+  # The first start on a runner also starts WebView2 cold; its page has been seen to
+  # take over 22 s to show its first control (#281, empty UI tree at the timeout).
   $startupLanguage = Wait-UI 'initial locale' {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
-  }
+  } 60
   $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
