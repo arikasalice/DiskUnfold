@@ -1881,7 +1881,8 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
     @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1
   }
   "Chip: '$($clear.Current.Name)'; status line: '$($total.Current.Name)'"
-  Save-SmokeCapture '01-narrowed-treemap'
+  # Choosing a legend row can scroll a narrow window down to the legend; show the status line.
+  Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
   if ($Short) { return }
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
