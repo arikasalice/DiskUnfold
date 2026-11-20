@@ -94,7 +94,11 @@ test("F06 README 12: bars are 24 px rows in model order with the name on the lef
   // The name column takes at most 40% of the width.
   expect(
     Number.parseFloat((options[0] as HTMLElement).style.left),
-  ).toBeLessThanOrEqual(0.4 * 500 + 8 + 1);
+  ).toBeLessThanOrEqual(0.4 * 500 + 12 + 1);
+  // Short names keep it narrow: the bars start 12 px after the longest name (README 43).
+  expect(
+    Number.parseFloat((options[0] as HTMLElement).style.left),
+  ).toBeLessThan(100);
 });
 
 test("F06 README 12: a long bar name keeps its start and end within the name column", () => {
