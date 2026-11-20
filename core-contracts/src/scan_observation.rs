@@ -5,6 +5,9 @@ use crate::{
 };
 use std::sync::atomic::AtomicBool;
 
+mod placeholder;
+pub use placeholder::PlaceholderObservation;
+
 /// A bounded filtered enumeration step; `Progress` is not end of directory.
 pub enum FilteredBatch {
     Entries(Vec<ObservedEntry>),
@@ -21,13 +24,6 @@ pub struct TimedObservedEntry {
     pub observed_at: Option<Timestamp>,
     /// Historical metadata-only observation; never authorizes content access.
     pub placeholder_observation: Option<PlaceholderObservation>,
-}
-
-/// Facts observed by the scan, not a current locality or no-recall guarantee.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlaceholderObservation {
-    /// The Windows metadata handle did not report the known offline or recall-on-data flags.
-    WindowsNoRecallDataFlags,
 }
 
 impl From<ObservedEntry> for TimedObservedEntry {

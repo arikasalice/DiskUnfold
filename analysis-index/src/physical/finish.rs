@@ -99,6 +99,12 @@ impl Physical {
         if self.capacity_exceeded() {
             output.limitations.to_mut().push("space.dedup_capacity");
         }
+        if self.placeholder_unknown {
+            output
+                .limitations
+                .to_mut()
+                .push("space.placeholder_local_unknown");
+        }
         if overflow && !output.limitations.contains(&"space.aggregation_overflow") {
             output
                 .limitations

@@ -322,7 +322,10 @@ fn every_result_kind_keeps_its_subtree_propagation() {
     let mut actual = space::aggregate(&forest.items, &[], ResultCompleteness::Complete, None);
     apply(
         &forest.items,
-        forest.observations.as_deref(),
+        FileEvidence {
+            observations: forest.observations.as_deref(),
+            placeholders: None,
+        },
         &[],
         ResultCompleteness::Complete,
         None,
@@ -397,7 +400,10 @@ fn whole_build_totals_equal_one_table_per_subtree() -> Result<(), String> {
             let mut actual = space::aggregate(&forest.items, &[], completeness, None);
             apply(
                 &forest.items,
-                forest.observations.as_deref(),
+                FileEvidence {
+                    observations: forest.observations.as_deref(),
+                    placeholders: None,
+                },
                 &[],
                 completeness,
                 None,

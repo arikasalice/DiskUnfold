@@ -151,7 +151,12 @@ test("a size that cannot arrive is not awaited", () => {
     ),
   ).toBeUndefined();
   // These reasons leave the size unknown for good.
-  for (const lasting of ["space.dedup_capacity", "space.aggregation_overflow"])
+  for (const lasting of [
+    "space.dedup_capacity",
+    "space.aggregation_overflow",
+    // A cloud placeholder's local occupancy is not reported (#211).
+    "space.placeholder_local_unknown",
+  ])
     expect(
       awaitedSize(
         unknown("allocated"),

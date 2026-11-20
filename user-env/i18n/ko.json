@@ -410,6 +410,7 @@
     ["ui.analysis.space_item_observed_at","항목 관측 시각",[]],
     ["ui.analysis.space_capabilities","공간 기능 지원",[]],
     ["ui.analysis.space_none_reported","보고된 항목 없음",[]],
+    ["ui.analysis.space_placeholder_local_unknown","클라우드 자리표시자라서 이 기기에서 차지하는 공간이 보고되지 않았습니다",[]],
     ["ui.analysis.space_placeholder_residency","자리표시자 로컬 상주 상태",[]],
     ["ui.analysis.space_details_mismatch","공간 상세 정보가 이 항목과 일치하지 않습니다.",[]],
     ["ui.analysis.space_open_latest","공간 상세를 보려면 최신 결과를 여세요.",[]],

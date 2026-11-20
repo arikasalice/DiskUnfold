@@ -7,6 +7,7 @@ use du_core_contracts::{
 use std::sync::Arc;
 
 mod correlated;
+mod dataless_records;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

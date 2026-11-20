@@ -130,7 +130,7 @@ impl RegisteredRule {
                     space::aggregate(&built.items, &built.boundary, completeness, proven);
                 physical::apply(
                     &built.items,
-                    built.physical.as_deref(),
+                    built.file_evidence(),
                     &built.boundary,
                     completeness,
                     proven,
@@ -153,7 +153,7 @@ impl RegisteredRule {
                 let mut total = space::scope_total(&built.items, &built.boundary, completeness);
                 physical::scope_total(
                     &built.items,
-                    built.physical.as_deref(),
+                    built.file_evidence(),
                     &built.boundary,
                     completeness,
                     limit,

@@ -242,6 +242,7 @@ fn measurement_limits(size: &SizeValue, limits: &[&str]) -> Vec<String> {
             "space.sharing_not_collected" => size.basis == SizeBasis::UniquePhysical,
             "space.allocated_not_collected"
             | "space.hardlink_identity_unknown"
+            | "space.placeholder_local_unknown"
             | "space.dedup_capacity" => size.basis != SizeBasis::Logical,
             _ => true,
         })

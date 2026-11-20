@@ -5,8 +5,8 @@ use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{
         CorrelatedDirectoryEvent, DirectoryObservations, FilterCallbackPhase, FilterDecision,
-        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, SpaceIdentity,
-        TimedFilteredBatch, TimedObservedEntry,
+        FilteredBatch, MetadataObservation, ObservedEntry, ObservedKind, PlaceholderObservation,
+        SpaceIdentity, TimedFilteredBatch, TimedObservedEntry,
     },
 };
 use std::os::fd::AsFd;
@@ -57,8 +57,9 @@ impl MacDirectory {
         for record in records {
             match include(&record.name) {
                 FilterDecision::Admit => {
+                    let placeholder = record.placeholder();
                     let entry = self.observe(record);
-                    self.pending.push_back(timed(entry, clock));
+                    self.pending.push_back(timed(entry, placeholder, clock));
                 }
                 FilterDecision::Exclude => {}
                 FilterDecision::Undecidable => {
@@ -96,6 +97,8 @@ impl MacDirectory {
     /// reports it: the data fork of a file, the target length of a symbolic
     /// link and the directory length of a directory. `allocated` is reported
     /// for files only and counts every fork, as `st_blocks` and `du` do.
+    /// A dataless file reports no allocation: macOS gives no separate local
+    /// occupancy for it, and its `st_blocks` is not taken as one (F03 FR6.HD1).
     ///
     /// A mount point, or an entry on another device, follows the rule for
     /// another volume: identity and kind only.
@@ -113,6 +116,7 @@ impl MacDirectory {
             return Ok(other_volume(kind.clone(), device, inode));
         }
         let file = *kind == ObservedKind::File;
+        let dataless = record.placeholder().is_some();
         Ok(MetadataObservation {
             kind: kind.clone(),
             device,
@@ -127,7 +131,7 @@ impl MacDirectory {
             native_modified_at: None,
             allocated: record
                 .allocated
-                .filter(|_| file)
+                .filter(|_| file && !dataless)
                 .and_then(|bytes| u64::try_from(bytes).ok()),
             link_count: record
                 .link_count
@@ -226,20 +230,10 @@ impl MacDirectory {
         }
         let decision = include(&record.name);
         if decision == FilterDecision::Admit {
+            let placeholder = record.placeholder();
             let entry = self.observe(record);
-            let observed_at = if entry.metadata.is_ok() {
-                clock()
-            } else {
-                None
-            };
-            self.correlated_pending_observation = Some((
-                child_id,
-                TimedObservedEntry {
-                    entry,
-                    observed_at,
-                    placeholder_observation: None,
-                },
-            ));
+            self.correlated_pending_observation =
+                Some((child_id, timed(entry, placeholder, clock)));
         }
         Ok(CorrelatedDirectoryEvent::FilterCallback {
             child_id,
@@ -268,17 +262,26 @@ pub(super) fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> Metad
     }
 }
 
-/// macOS dataless state has no placeholder variant in the port, so none is claimed.
-fn timed(entry: ObservedEntry, clock: &dyn Fn() -> Option<Timestamp>) -> TimedObservedEntry {
+/// Adds the observation time and the dataless placeholder observation of a file whose
+/// metadata was read.
+fn timed(
+    entry: ObservedEntry,
+    placeholder: Option<PlaceholderObservation>,
+    clock: &dyn Fn() -> Option<Timestamp>,
+) -> TimedObservedEntry {
     let observed_at = if entry.metadata.is_ok() {
         clock()
     } else {
         None
     };
+    let file = entry
+        .metadata
+        .as_ref()
+        .is_ok_and(|meta| meta.kind == ObservedKind::File);
     TimedObservedEntry {
         entry,
         observed_at,
-        placeholder_observation: None,
+        placeholder_observation: placeholder.filter(|_| file),
     }
 }
 

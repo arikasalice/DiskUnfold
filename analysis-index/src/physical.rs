@@ -14,7 +14,34 @@ pub(crate) const IDENTITY_LIMIT: usize =
     du_core_contracts::settings::SharedTableLimit::DEFAULT_ENTRIES;
 
 use du_core_contracts::result::{ResultCompleteness, ResultItem, SpaceAggregate};
+use du_core_contracts::scan_observation::PlaceholderObservation;
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+
+/// The retained placeholder observation of every item, when the build kept any.
+pub(crate) type Placeholders<'a> = Option<&'a [Option<PlaceholderObservation>]>;
+
+/// The per-item file evidence of a build: space observations and placeholder flags.
+#[derive(Clone, Copy)]
+pub(crate) struct FileEvidence<'a> {
+    pub(crate) observations: Option<&'a [Option<Arc<SpaceObservation>>]>,
+    pub(crate) placeholders: Placeholders<'a>,
+}
+
+impl crate::tree::BuiltItems {
+    pub(crate) fn file_evidence(&self) -> FileEvidence<'_> {
+        FileEvidence {
+            observations: self.physical.as_deref(),
+            placeholders: self.placeholder_observations.as_deref(),
+        }
+    }
+}
+
+/// Whether item `index` is a placeholder whose local occupancy the OS does not report.
+pub(crate) fn local_unknown(placeholders: Placeholders<'_>, index: usize) -> bool {
+    placeholders
+        .and_then(|values| values.get(index).copied().flatten())
+        .is_some_and(PlaceholderObservation::local_occupancy_unknown)
+}
 
 /// An OS-observed volume and file identity, scoped to the current observation.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -83,6 +110,8 @@ pub(crate) struct Physical {
     sharing_unknown: usize,
     missing: bool,
     identity_missing: bool,
+    /// A placeholder without a reported local occupancy is missing (F03 FR6.HD1).
+    placeholder_unknown: bool,
     capacity_exceeded: bool,
     #[cfg(test)]
     insertions: usize,
@@ -107,13 +136,21 @@ impl Physical {
             sharing_unknown: 0,
             missing: false,
             identity_missing: false,
+            placeholder_unknown: false,
             capacity_exceeded: false,
             #[cfg(test)]
             insertions: 0,
         }
     }
+    #[cfg(test)]
     fn observe(&mut self, input: Option<&SpaceObservation>) -> Option<u64> {
         self.record(&Observed::read(input), true)
+    }
+
+    /// Notes a placeholder file whose missing allocation is due to its unreported
+    /// local occupancy, so the total names that cause.
+    fn note_placeholder(&mut self, observed: &Observed<'_>, placeholder: bool) {
+        self.placeholder_unknown |= placeholder && matches!(observed, Observed::Missing);
     }
 
     /// Adds one file's reading. A `tabled` identity goes into the identity table;
@@ -162,7 +199,12 @@ impl Physical {
                 })
             })
         });
-        self.observe(if consistent { observed } else { None })
+        let reading = Observed::read(if consistent { observed } else { None });
+        self.note_placeholder(
+            &reading,
+            local_unknown(result.placeholder_observations.as_deref(), index),
+        );
+        self.record(&reading, true)
     }
 
     /// Finalizes a set total without treating missing attributes as partial matches.
@@ -247,6 +289,7 @@ impl Physical {
         }
         self.missing |= other.missing;
         self.identity_missing |= other.identity_missing;
+        self.placeholder_unknown |= other.placeholder_unknown;
         self.capacity_exceeded |= other.capacity_exceeded;
         // Untabled identities occur in exactly one of the merged scopes, so their
         // facts add up without any comparison.
@@ -276,7 +319,7 @@ impl Physical {
 /// Computes the scope-wide physical total with one shared identity table.
 pub(crate) fn scope_total(
     items: &[ResultItem],
-    observations: Option<&[Option<Arc<SpaceObservation>>]>,
+    evidence: FileEvidence<'_>,
     boundary: &[u32],
     completeness: ResultCompleteness,
     limit: usize,
@@ -286,7 +329,13 @@ pub(crate) fn scope_total(
     for item in items {
         let index = item.item_no as usize;
         if !is_structure(item.kind) && boundary.binary_search(&item.item_no).is_err() {
-            let _ = sum.observe(observations.and_then(|values| values[index].as_deref()));
+            let observed = Observed::read(
+                evidence
+                    .observations
+                    .and_then(|values| values[index].as_deref()),
+            );
+            sum.note_placeholder(&observed, local_unknown(evidence.placeholders, index));
+            let _ = sum.record(&observed, true);
         }
     }
     sum.finish(completeness, output);

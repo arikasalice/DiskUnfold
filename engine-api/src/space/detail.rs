@@ -18,6 +18,8 @@ use crate::{
 };
 
 const UNAVAILABLE: &str = "space.data_insufficient";
+/// A placeholder whose local occupancy the OS does not report (F03 FR6.HD1).
+const PLACEHOLDER_LOCAL_UNKNOWN: &str = "space.placeholder_local_unknown";
 
 pub(crate) fn register(builder: &mut EngineBuilder, store: IngestSink) {
     builder.register(Query(store));
@@ -59,15 +61,28 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         },
     );
     let (exclusive, shared, exclusive_decision) = exclusive_parts(&facts);
+    // The allocation of such a placeholder is unknown for this cause, never zero.
+    let placeholder_unknown = version
+        .item_placeholder_observation(&facts.item)
+        .ok()
+        .flatten()
+        .is_some_and(|value| value.local_occupancy_unknown());
+    let physical = |value, aggregate| {
+        if placeholder_unknown {
+            unknown(PLACEHOLDER_LOCAL_UNKNOWN)
+        } else {
+            size(value, aggregate)
+        }
+    };
     SpaceDetail {
         item: facts.item,
         logical: size(facts.logical, aggregate),
-        allocated: size(facts.allocated, aggregate),
-        unique_physical: size(facts.unique_physical, aggregate),
+        allocated: physical(facts.allocated, aggregate),
+        unique_physical: physical(facts.unique_physical, aggregate),
         exclusive,
         shared,
         link_group: link_group(facts.links),
-        placeholder_local_state: None,
+        placeholder_local_state: placeholder_unknown.then(|| unknown(PLACEHOLDER_LOCAL_UNKNOWN)),
         auxiliary: unknown("space.aux_not_included"),
         exclusive_decision,
         observed_at,

@@ -3,7 +3,7 @@ use super::{dataless, errors};
 use du_core_contracts::{
     Timestamp,
     ports::{PortError, PortErrorKind},
-    scan_observation::ObservedKind,
+    scan_observation::{ObservedKind, PlaceholderObservation},
 };
 use libc::{
     ATTR_BIT_MAP_COUNT, ATTR_CMN_DEVID, ATTR_CMN_FILEID, ATTR_CMN_FLAGS, ATTR_CMN_MODTIME,
@@ -104,6 +104,18 @@ impl Record {
         } else {
             self.data_length
         }
+    }
+
+    /// The placeholder observation of a file whose record carries `SF_DATALESS`.
+    ///
+    /// The flags come with the same record as the other metadata, so nothing is opened
+    /// or read and no download starts. A dataless directory is refused while listing.
+    pub(super) fn placeholder(&self) -> Option<PlaceholderObservation> {
+        (self.kind() == ObservedKind::File
+            && self
+                .flags
+                .is_some_and(|flags| flags & dataless::SF_DATALESS != 0))
+        .then_some(PlaceholderObservation::MacDataless)
     }
 }
 

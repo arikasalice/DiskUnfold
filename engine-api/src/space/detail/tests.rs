@@ -173,3 +173,69 @@ fn assert_unknown_file_values(
     }
     Ok(())
 }
+
+// #211, F03 FR6.HD1: a placeholder without a reported local occupancy shows its logical
+// size, and its allocation and residency are unknown for that cause, never zero.
+#[test]
+fn a_dataless_placeholder_reports_why_its_allocation_is_unknown() -> Result<(), String> {
+    let store = IngestSink::default();
+    let version_id = id(4)?;
+    let mut build = store
+        .open_forest(id(1)?, vec![root(b"/a", 1)])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    let path = vec![b"cloud".to_vec()];
+    build
+        .add_with_space_at(
+            0,
+            Observation {
+                path: path.clone(),
+                size: Some(logical(5_000_000)),
+            },
+            SpaceObservation {
+                allocated: None,
+                identity: Some(du_analysis_index::FileIdentity {
+                    volume: vec![1],
+                    file: vec![8],
+                }),
+                link_count: Some(1),
+                sharing: SharingEvidence::None,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .retain_enumerated_inode(0, &path, std::num::NonZeroU64::MIN)
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .retain_placeholder_observation(
+            0,
+            &path,
+            du_core_contracts::scan_observation::PlaceholderObservation::MacDataless,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(version_id.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let item = reference(&version_id, 1);
+    let detail = project(
+        &version,
+        version.space_detail(&item).map_err(|e| format!("{e:?}"))?,
+    );
+    let cause = BrowseValue::Unknown {
+        reason_key: PLACEHOLDER_LOCAL_UNKNOWN.to_owned(),
+    };
+    assert!(
+        matches!(&detail.logical, BrowseValue::Present { value } if value.size.amount == SizeAmount::Exact { bytes: 5_000_000_u64.into() })
+    );
+    assert_eq!(detail.allocated, cause);
+    assert_eq!(detail.unique_physical, cause);
+    assert_eq!(
+        detail.placeholder_local_state,
+        Some(BrowseValue::Unknown {
+            reason_key: PLACEHOLDER_LOCAL_UNKNOWN.to_owned(),
+        })
+    );
+    Ok(())
+}
