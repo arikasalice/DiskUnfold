@@ -73,7 +73,7 @@ mod tests {
         let found = first_symbolic_link(&path).ok_or("link not found")?;
         assert_eq!(found.link, link);
         assert_eq!(found.target, fs::canonicalize(target)?);
-        assert_eq!(found.suggestion, found.target.join("child"));
+        assert_eq!(found.suggestion, Some(found.target.join("child")));
         Ok(())
     }
 
@@ -89,7 +89,7 @@ mod tests {
         let found = first_symbolic_link(&link).ok_or("link not found")?;
         assert_eq!(found.link, link);
         assert_eq!(found.target, fs::canonicalize(target)?);
-        assert_eq!(found.suggestion, found.target);
+        assert_eq!(found.suggestion.as_ref(), Some(&found.target));
         Ok(())
     }
 

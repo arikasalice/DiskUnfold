@@ -205,7 +205,10 @@ fn a_path_through_a_symbolic_link_explains_the_resolved_scan_path()
         "{errors}"
     );
     assert!(
-        errors.contains(&format!("Scan this path instead: {}", root.display())),
+        errors.contains(&format!(
+            "Scan this path instead: {}",
+            target.join("x").display()
+        )),
         "{errors}"
     );
     Ok(())
