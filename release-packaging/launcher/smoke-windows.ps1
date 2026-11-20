@@ -1902,7 +1902,8 @@ function Test-CaptureHistory {
   Expand-UI $filterDisclosure
   $startDateLabel = Get-UiName 'From date'
   $throughDateLabel = Get-UiName 'Through date'
-  $startDateCalendarName = Get-UiName 'Open calendar for From date'
+  # Fill the template with the already localized label; the template keeps placeholder text as given.
+  $startDateCalendarName = Get-UiName "Open calendar for $startDateLabel"
   $null = Wait-UI 'history date fields' {
     if ((Find-UI $startDateLabel $null) -and (Find-UI $throughDateLabel $null)) { $true }
   }
