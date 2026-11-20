@@ -34,7 +34,9 @@ pub(super) fn refine(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use du_analysis_index::{IngestSink, Observation, SharingEvidence, SpaceObservation};
+    use du_analysis_index::{
+        FileIdentity, IngestSink, Observation, SharingEvidence, SpaceObservation,
+    };
     use du_core_contracts::{ByteSize, Id, SizeEvidence, SizeValue, result::ResultCompleteness};
     use std::sync::Arc;
 
@@ -52,7 +54,8 @@ mod tests {
         }
     }
 
-    /// A scope of one file with unknown sharing, with or without an allocated size.
+    /// A scope of one identified file with unknown sharing, with or without an
+    /// allocated size.
     fn scope(allocated: Option<u64>) -> Result<(Arc<ResultVersion>, ItemRef), String> {
         let sink = IngestSink::default();
         let mut build = sink.open(id(1)?).map_err(|e| format!("{e:?}"))?;
@@ -65,7 +68,10 @@ mod tests {
         };
         let space = SpaceObservation {
             allocated: allocated.map(|bytes| size(SizeBasis::Allocated, bytes)),
-            identity: None,
+            identity: Some(FileIdentity {
+                volume: vec![1],
+                file: vec![1],
+            }),
             link_count: Some(1),
             sharing: SharingEvidence::Unknown,
         };
