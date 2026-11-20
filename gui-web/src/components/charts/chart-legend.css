@@ -103,6 +103,8 @@
   }
 
   .du-chart-legend__item[data-selected] {
+    /* The system's text backplate would paint Canvas behind the text on Highlight. */
+    forced-color-adjust: none;
     background: Highlight;
     color: HighlightText;
   }
