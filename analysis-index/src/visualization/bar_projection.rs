@@ -402,11 +402,28 @@ fn verified_other(
         check(cancelled)?;
         members.push(sources.get(item).cloned().ok_or(Error::InvalidEvidence)?);
     }
+    let size = other_total(version, scope, basis, &members, sum, cancelled)?;
+    Ok(BarIdentity::Other { members, size })
+}
+
+/// The exact total of an Other group of `scope`'s children, established
+/// independently of the layout that summed `sum`: by the F03 set total of the
+/// members, or, since that total takes file rows only, by the per-child
+/// attribution the treemap sums for its own Other group (#242). Anything else
+/// fails closed with `GroupAttributionUnavailable`.
+pub fn other_total(
+    version: &ResultVersion,
+    scope: &ItemRef,
+    basis: &SizeBasis,
+    members: &[ItemRef],
+    sum: Weight,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<SizeValue, Error> {
     if !matches!(sum, Weight::Exact(_)) {
         return Err(Error::GroupAttributionUnavailable);
     }
     let aggregate = version
-        .selection_total(&members, true, &mut *cancelled)
+        .selection_total(members, true, &mut *cancelled)
         .map_err(|e| match e {
             crate::query::SpaceTotalError::Cancelled => Error::Cancelled,
             _ => Error::GroupAttributionUnavailable,
@@ -417,12 +434,10 @@ fn verified_other(
         SizeBasis::UniquePhysical => aggregate.unique_physical,
     };
     if weight(&size)? == sum {
-        return Ok(BarIdentity::Other { members, size });
+        return Ok(size);
     }
-    // A selection with folder rows has no independent file membership in the set
-    // total; children the treemap attributes on their own evidence are used instead.
-    let size = other::partition_total(version, scope, basis, items, sum, cancelled)?;
-    Ok(BarIdentity::Other { members, size })
+    let items: Vec<u32> = members.iter().map(|member| member.item_no).collect();
+    other::partition_total(version, scope, basis, &items, sum, cancelled)
 }
 
 fn weight(size: &SizeValue) -> Result<Weight, Error> {
