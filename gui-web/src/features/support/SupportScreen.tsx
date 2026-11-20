@@ -1,4 +1,5 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import type { ReactNode } from "react";
 import {
   Action,
   Notice,
@@ -123,16 +124,31 @@ function Environment({
  * The header shows the support-table revision and date. The combination
  * status, the security-support basis and the per-area status sit in separate
  * sections so one is never read as another.
+ *
+ * `lead` is placed first, whether or not the support table has loaded; the
+ * shell puts the startup checks there. It receives a function that moves focus
+ * to the combination status section.
  */
-export function SupportScreen({ client }: { client: AnalysisClient }) {
+export function SupportScreen({
+  client,
+  lead,
+}: {
+  client: AnalysisClient;
+  lead?: (showCombination: () => void) => ReactNode;
+}) {
   const text = useLocaleText();
   const copy = useMemo(() => supportCopy(text), [text]);
   const load = useCallback(() => client.call("app.support_info", {}), [client]);
   const { data, loading, failed, reload } = useHostQuery(load);
+  const combination = useRef<HTMLHeadingElement>(null);
+  const leading = lead?.(() =>
+    combination.current?.focus({ preventScroll: false }),
+  );
 
   if (!data) {
     return (
       <div className="du-info-screen">
+        {leading}
         {loading && <Progress label={copy.loading} />}
         {failed && (
           <>
@@ -164,6 +180,7 @@ export function SupportScreen({ client }: { client: AnalysisClient }) {
   const guided = matrixNotice !== undefined || envUnknown;
   return (
     <div className="du-info-screen">
+      {leading}
       <Text kind="muted">{copy.intro}</Text>
       {failed && <Notice tone="error">{copy.refreshFailed}</Notice>}
       <Environment
@@ -172,7 +189,7 @@ export function SupportScreen({ client }: { client: AnalysisClient }) {
         matrixNotice={matrixNotice}
         envUnknown={envUnknown}
       />
-      <ReviewSection title={copy.combinationHeading}>
+      <ReviewSection title={copy.combinationHeading} headingRef={combination}>
         <div className="du-info-badges">
           <Text kind="eyebrow">{copy.combinationLabel}</Text>
           <StatusBadge tone={statusTone(data.combinationStatus)}>

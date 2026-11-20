@@ -24,7 +24,7 @@ export function supportCopy(text: LocaleText) {
       "Support information could not be refreshed. The values below are from the last successful read.",
     ),
     retry: text("ui.common.retry", "Retry"),
-    refresh: text("ui.support.refresh", "Refresh"),
+    refresh: text("ui.support.refresh", "Refresh support information"),
     tableHeading: text("ui.support.table_heading", "Support table"),
     matrixRevision: text("ui.support.matrix_revision", "Revision"),
     matrixAsOf: text("ui.support.matrix_as_of", "Prepared on"),

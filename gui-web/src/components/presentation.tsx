@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ScanLine,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { ProgressBar } from "react-aria-components";
 import { useLocaleText } from "../i18n/presentation";
@@ -30,6 +31,7 @@ const icons = {
   activity: Activity,
   alert: CircleAlert,
   back: ArrowLeft,
+  close: X,
   copy: Copy,
   error: CircleX,
   folder: FolderOpen,

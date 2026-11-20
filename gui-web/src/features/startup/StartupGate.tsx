@@ -1,40 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Action, LiveStatus, Notice, Readout } from "../../components";
+import { Action, Icon, LiveStatus } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { AnalysisClient, StartupStatus } from "../../ipc";
 import { StartupStatusScreen } from "./StartupStatusScreen";
-import { checkLabel, outcomeLabel, startupCopy } from "./startup-copy";
-import type { StartupCopy } from "./startup-copy";
+import { startupCopy } from "./startup-copy";
+import { showsNotice, startupMemory, useStartupMemory } from "./startup-memory";
 import "./startup-status.css";
 
-function bannerMessage(status: StartupStatus, copy: StartupCopy) {
-  switch (status.grade) {
-    case "limited":
-      return copy.bannerLimited;
-    case "outside_verified":
-      return copy.bannerOutsideVerified;
-    case "unverifiable":
-      return copy.bannerUnverifiable;
-    default:
-      return copy.bannerUnknown;
-  }
-}
-
 /**
- * Startup notice for the first screen (F15 FR4.HD1.gui-web.DD1).
+ * Startup notice for the first screen (F15 FR4.HD1.gui-web.DD1; design F15
+ * README 1.1, 1.2).
  *
- * Shows a dismissible, non-blocking banner above `children` when the startup
- * grade is not a pass. The permission-only screen replaces `children` only when
- * the host reports that analysis entry is not allowed. A status read that fails
- * shows nothing: the banner is advisory and never gates the first screen.
- * Dismissal lasts for this session only and hands keyboard focus to the first
- * screen, so the focused button's removal does not drop focus to the page.
+ * The top of the screen carries a notice only when the app can start an action
+ * for the state: today an unconfirmed Full Disk Access on macOS, with "Open
+ * Settings". A grade alone shows nothing here; the support information screen
+ * and the dot beside its entry carry it. The notice is one line of an icon, a
+ * sentence and its buttons, with no table of checks. Dismissing it remembers
+ * the state key and hands focus to the screen title. The permission-only
+ * screen replaces `children` when the host reports that analysis entry is
+ * not allowed. A status read that fails shows nothing.
  *
- * The live status region is mounted before the status is read and receives the
- * notice text afterwards, so assistive technology announces the change.
- * `onOpenSupport` lets the shell open the support information screen from
- * the banner; this feature does not know where that screen lives.
+ * The live status region is mounted before the status is read, so the notice
+ * text and the result of "Open Settings" are announced as changes. When the
+ * window becomes active again the access is checked once more, as the user
+ * usually returns from System Settings.
  */
 export function StartupGate({
   client,
@@ -47,16 +37,17 @@ export function StartupGate({
 }) {
   const text = useLocaleText();
   const copy = useMemo(() => startupCopy(text), [text]);
-  const [status, setStatus] = useState<StartupStatus>();
-  const [dismissed, setDismissed] = useState(false);
-  const banner = useRef<HTMLDivElement>(null);
+  const state = useStartupMemory();
+  const [feedback, setFeedback] = useState<string>();
+  const [pending, setPending] = useState(false);
+  const line = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let current = true;
     client
       .call("app.startup_status", {})
       .then((next) => {
-        if (current) setStatus(next);
+        if (current) startupMemory.setStatus(next);
       })
       .catch(() => undefined);
     return () => {
@@ -64,58 +55,94 @@ export function StartupGate({
     };
   }, [client]);
 
+  const visible = showsNotice(state);
+  const recheck = useCallback(async () => {
+    try {
+      await client.call("app.startup_access", { action: "recheck" });
+      startupMemory.setStatus(await client.call("app.startup_status", {}));
+    } catch {
+      // The notice stays as it is; the next activation tries again.
+    }
+  }, [client]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const onFocus = () => void recheck();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [recheck, visible]);
+
+  const status = state.status;
   if (status && !status.analysisAllowed) {
-    return <StartupStatusScreen client={client} onAllowed={setStatus} />;
+    return (
+      <StartupStatusScreen
+        client={client}
+        onAllowed={(next: StartupStatus) => startupMemory.setStatus(next)}
+      />
+    );
   }
-  const dismiss = () => {
-    const next = banner.current?.nextElementSibling;
-    setDismissed(true);
-    if (next instanceof HTMLElement) {
-      if (!next.hasAttribute("tabindex")) next.tabIndex = -1;
-      next.focus({ preventScroll: true });
+  const openSettings = async () => {
+    setPending(true);
+    try {
+      const response = await client.call("app.startup_access", {
+        action: "open_privacy_settings",
+      });
+      setFeedback(
+        response.settingsOpened
+          ? copy.settingsOpened
+          : copy.settingsNotConfirmed,
+      );
+      startupMemory.setStatus(await client.call("app.startup_status", {}));
+    } catch {
+      setFeedback(copy.actionFailed);
+    } finally {
+      setPending(false);
     }
   };
-  const rows =
-    status?.checks.filter(
-      (check) =>
-        check.check !== "full_disk_access" &&
-        check.result !== "pass" &&
-        check.result !== "not_applicable",
-    ) ?? [];
-  const visible = status !== undefined && status.grade !== "pass" && !dismissed;
+  const dismiss = () => {
+    const screen = line.current?.nextElementSibling;
+    const title = screen?.querySelector("h1") ?? screen;
+    startupMemory.dismiss();
+    setFeedback(undefined);
+    if (title instanceof HTMLElement) {
+      if (!title.hasAttribute("tabindex")) title.tabIndex = -1;
+      title.focus({ preventScroll: true });
+    }
+  };
   return (
     <>
       <div
-        ref={banner}
-        className={visible ? "du-startup-banner" : undefined}
+        ref={line}
+        className={visible ? "du-startup-notice" : undefined}
         role={visible ? "region" : undefined}
         aria-label={visible ? copy.bannerHeading : undefined}
       >
+        {visible && <Icon name="warning" />}
         <LiveStatus>
-          {visible && (
-            <Notice announce={false}>{bannerMessage(status, copy)}</Notice>
-          )}
+          {visible && (feedback ?? copy.noticeFullDiskAccess)}
         </LiveStatus>
         {visible && (
-          <div className="du-startup-banner__details">
-            <Readout
-              label={copy.checksHeading}
-              rows={rows.map((check) => ({
-                label: checkLabel(check, copy),
-                value: outcomeLabel(check, copy),
-              }))}
-            />
-            <div className="du-startup__actions">
-              {onOpenSupport && (
-                <Action variant="quiet" onPress={onOpenSupport}>
-                  {copy.bannerOpenSupport}
-                </Action>
-              )}
-              <Action variant="quiet" onPress={dismiss}>
-                {copy.bannerDismiss}
+          <>
+            <Action
+              variant="quiet"
+              isPending={pending}
+              isDisabled={pending}
+              onPress={() => void openSettings()}
+            >
+              {copy.noticeOpenSettings}
+            </Action>
+            {onOpenSupport && (
+              <Action variant="quiet" onPress={onOpenSupport}>
+                {copy.bannerOpenSupport}
               </Action>
-            </div>
-          </div>
+            )}
+            <Action
+              variant="quiet"
+              icon="close"
+              aria-label={copy.noticeDismiss}
+              onPress={dismiss}
+            />
+          </>
         )}
       </div>
       {children}

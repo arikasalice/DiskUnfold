@@ -16,6 +16,7 @@ import {
 } from "../src/features/startup/StartupStatusScreen";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { StartupGate } from "../src/features/startup/StartupGate";
+import { startupMemory } from "../src/features/startup/startup-memory";
 import { createAnalysisClient } from "../src/ipc";
 import type {
   StartupAccessAction,
@@ -25,6 +26,7 @@ import type {
 
 afterEach(() => {
   cleanup();
+  startupMemory.reset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   document.documentElement.lang = "en";

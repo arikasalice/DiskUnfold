@@ -1725,6 +1725,16 @@ function Test-CaptureTour {
   $null = Wait-SmokeExpanded 'Full name' $true 'opening'
   Save-SmokeCapture '07-invisible-name'
   Invoke-UI (Wait-Enabled 'Close details' $true)
+  # F15 README 1: a grade alone puts no notice at the top. The runner's startup grade is not a
+  # pass, so the support entry carries the dot until support information is opened.
+  if (Find-UI 'Startup notice' $null) { throw 'A startup notice is shown above the first screen' }
+  $supportEntry = Wait-UI 'support entry with items to review' { Find-UI 'Support information, items to review' $button }
+  Save-SmokeCapture '08-support-entry-dot'
+  Invoke-UI $supportEntry
+  $null = Wait-UI 'startup checks section' { Find-UI 'Startup checks' $null }
+  Save-SmokeCapture '09-startup-checks'
+  Invoke-UI (Wait-Enabled 'Close details' $true)
+  $null = Wait-UI 'support entry without the dot' { Find-UI 'Support information' $button }
   "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # Best effort: a scope over the synchronous limit (200,000 files) classifies as a job, which
