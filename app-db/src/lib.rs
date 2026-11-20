@@ -1,10 +1,15 @@
 //! Implement SQLite storage ports.
 
-use std::{fs, path::Path, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 mod group_rules;
+mod history_open;
 mod history_schema;
 mod job_history;
 pub mod migration;
@@ -16,6 +21,7 @@ pub mod ruleset;
 pub mod scope_observation;
 mod settings;
 
+pub use history_open::{HistoryOpenError, HistoryOpenRefusal};
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
 pub use job_history::read as history_read;
 pub use publish::{CreationRecovery, recover_incomplete_creation};
@@ -28,6 +34,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// A configured app database. Feature-owned repositories keep SQL inside this adapter.
 pub struct AppDb {
     connection: Connection,
+    history_commit_path: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -217,7 +224,10 @@ impl AppDb {
             return Err(OpenError::WalUnavailable);
         }
         connection.pragma_update(None, "synchronous", "NORMAL")?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            history_commit_path: None,
+        })
     }
 
     /// Read without creating or modifying any file, changing pragmas or running
@@ -265,7 +275,10 @@ impl AppDb {
         } else {
             check_existing(&connection, true)?;
         }
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            history_commit_path: None,
+        })
     }
 
     /// Reads only `user_version` through the same side-file-free read-only open as
@@ -303,7 +316,10 @@ impl AppDb {
             return Err(OpenError::WalUnavailable);
         }
         connection.pragma_update(None, "synchronous", "NORMAL")?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            history_commit_path: None,
+        })
     }
 
     /// Create a new current-format database; never overwrites an existing file.
@@ -371,7 +387,10 @@ impl AppDb {
         match self.connection.close() {
             Ok(()) => Ok(()),
             Err((connection, error)) => Err(Box::new(AppDbCloseError {
-                database: Self { connection },
+                database: Self {
+                    connection,
+                    history_commit_path: self.history_commit_path,
+                },
                 error,
             })),
         }

@@ -2,6 +2,12 @@ use super::*;
 use du_user_env::i18n::embedded;
 use std::fs;
 
+struct ScanRun {
+    exit: ExitCode,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
 fn scan(arguments: &[&str]) -> Result<Scan, String> {
     let parsed = crate::args::parse(
         std::iter::once("scan")
@@ -43,52 +49,92 @@ fn a_draft_comes_from_the_command_line_with_absolute_paths_and_its_exclusions() 
     Ok(())
 }
 
-/// Runs a scan of a real folder to its end on this platform.
+/// Runs a scan with and without a database to compare its unaffected result.
 #[test]
-fn a_scan_of_a_real_folder_reports_its_end_and_warns_that_history_is_not_recorded()
+fn a_real_scan_records_history_only_when_the_current_database_exists()
 -> Result<(), Box<dyn std::error::Error>> {
     let folder = tempfile::tempdir()?;
-    fs::create_dir(folder.path().join("inner"))?;
-    fs::write(folder.path().join("inner").join("one.bin"), [1_u8; 7])?;
-    fs::write(folder.path().join("two.bin"), [2_u8; 5])?;
+    let root_dir = folder.path().join("scan-root");
+    let data_directory = folder.path().join("data");
+    fs::create_dir(&root_dir)?;
+    fs::create_dir(&data_directory)?;
+    fs::create_dir(root_dir.join("inner"))?;
+    fs::write(root_dir.join("inner").join("one.bin"), [1_u8; 7])?;
+    fs::write(root_dir.join("two.bin"), [2_u8; 5])?;
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     // Scope review does not follow links in a selected path, and the macOS
     // temporary folder sits under /var, a link to /private/var.
     #[cfg(not(windows))]
-    let base = fs::canonicalize(folder.path())?;
+    let base = fs::canonicalize(&root_dir)?;
     #[cfg(windows)]
-    let base = folder.path().to_path_buf();
+    let base = root_dir;
     let root = base.to_string_lossy().into_owned();
     let scan = scan(&["--format", "json", &root])?;
-    let engine = engine()?;
+    let missing = run_real_scan(&scan, &message, &data_directory)?;
+    assert_eq!(missing.exit, ExitCode::SUCCESS);
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("history.not_recorded"));
+
+    let database_path = data_directory.join(du_platform_os::application_data::DATABASE_FILE);
+    drop(
+        du_app_db::AppDb::create_gui_with_history(&database_path)
+            .map_err(|error| format!("{error:?}"))?,
+    );
+    let recorded = run_real_scan(&scan, &message, &data_directory)?;
+    assert_eq!(recorded.exit, ExitCode::SUCCESS);
+    assert!(!String::from_utf8_lossy(&recorded.stderr).contains("history.not_recorded"));
+
+    let mut missing_summary: Value = serde_json::from_slice(&missing.stdout)?;
+    let mut recorded_summary: Value = serde_json::from_slice(&recorded.stdout)?;
+    assert!(recorded_summary["result"]["resultVersion"].is_string());
+    for summary in [&mut missing_summary, &mut recorded_summary] {
+        summary["result"]
+            .as_object_mut()
+            .ok_or("result object")?
+            .remove("jobRef");
+        summary["result"]
+            .as_object_mut()
+            .ok_or("result object")?
+            .remove("resultVersion");
+    }
+    assert_eq!(missing_summary, recorded_summary);
+    assert_eq!(recorded_summary["command"], "scan");
+    assert_eq!(recorded_summary["result"]["state"], "done");
+    assert_eq!(recorded_summary["result"]["completed"], 4);
+    assert_eq!(recorded_summary["result"]["failed"], 0);
+    let mut database = du_app_db::AppDb::open_read_only_live(&database_path)
+        .map_err(|error| format!("{error:?}"))?;
+    let page = database
+        .read_history_page(du_app_db::history_read::Filter::default(), None, 10)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(page.rows.len(), 1);
+    Ok(())
+}
+
+fn run_real_scan(
+    scan: &Scan,
+    message: &Messages<'_>,
+    data_directory: &std::path::Path,
+) -> Result<ScanRun, Box<dyn std::error::Error>> {
+    let (engine, history) = engine()?;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let exit = run(
+    let exit = run_with_data_directory(
         &engine,
-        &scan,
+        HistoryRun {
+            history: &history,
+            data_directory: Some(data_directory.to_path_buf()),
+        },
+        scan,
         scan.format(),
-        &message,
+        message,
         &mut stdout,
         &mut stderr,
     );
-    let errors = String::from_utf8_lossy(&stderr);
-    assert_eq!(exit, ExitCode::SUCCESS, "{errors}");
-    let mut lines = errors.lines();
-    assert!(
-        lines
-            .next()
-            .is_some_and(|line| line.starts_with("DiskUnfold: Scan accepted: ")),
-        "{errors}"
-    );
-    assert_eq!(lines.next(), Some("Not recorded in history."), "{errors}");
-    let summary: Value = serde_json::from_slice(&stdout)?;
-    assert_eq!(summary["command"], "scan");
-    assert_eq!(summary["result"]["state"], "done");
-    // The root, the folder inside it and the two files.
-    assert_eq!(summary["result"]["completed"], 4);
-    assert_eq!(summary["result"]["failed"], 0);
-    assert!(summary["result"]["resultVersion"].is_string());
-    Ok(())
+    Ok(ScanRun {
+        exit,
+        stdout,
+        stderr,
+    })
 }
 
 #[test]
@@ -99,10 +145,11 @@ fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     let scan = scan(&[&missing])?;
-    let engine = engine()?;
+    let (engine, history) = engine()?;
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
     let exit = run(
         &engine,
+        &history,
         &scan,
         scan.format(),
         &message,

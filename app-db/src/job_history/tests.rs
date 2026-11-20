@@ -275,6 +275,7 @@ fn legacy_settings_survive_desktop_migrations_and_scan_append() -> TestResult {
     );
     let mut db = AppDb {
         connection: Connection::open(&path)?,
+        history_commit_path: None,
     };
     assert_eq!(
         db.append_scan_history(&summary(1), 250),

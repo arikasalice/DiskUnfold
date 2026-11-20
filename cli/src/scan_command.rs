@@ -8,6 +8,7 @@
 use std::{
     ffi::OsString,
     io::{self, Write},
+    path::PathBuf,
     process::ExitCode,
     sync::Arc,
     thread,
@@ -17,7 +18,7 @@ use std::{
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, Id, OsPath, PathBytes, PathEncoding,
     analysis_ipc::{ScopeBoundary, ScopeDraft, ScopeExclusion, ScopeSource},
-    job::{HistoryAppend, JobHistory, JobState, JobSummary},
+    job::JobState,
     ports::Random,
 };
 use du_engine_api::api::{CallerCtx, Channel, Engine, EngineBuilder};
@@ -33,11 +34,16 @@ use crate::{
     product_output::Messages,
 };
 
+mod history;
+use history::{DeferredHistory, Outcome as HistoryOutcome};
+
+struct HistoryRun<'a> {
+    history: &'a DeferredHistory,
+    data_directory: Option<PathBuf>,
+}
+
 /// How often the command reads the job's state while it waits.
 const POLL: Duration = Duration::from_millis(200);
-/// The reason the history port gives for a scan it does not record.
-const NOT_RECORDED: &str = "history.not_recorded";
-
 // The fields of each response the command uses; the outbound filter sends no more.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,28 +87,23 @@ struct AnalysisJobControl {
     outcome: String,
 }
 
-/// The first CLI scan records no history (#222); the job ends as it would anyway.
-struct NotRecorded;
-
-impl JobHistory for NotRecorded {
-    fn append(&self, _: &JobSummary) -> Result<HistoryAppend, String> {
-        Err(NOT_RECORDED.to_owned())
-    }
-}
-
 /// Assembles the engine the app uses, on this platform's ports.
-pub(crate) fn engine() -> Result<Engine, String> {
+pub(crate) fn engine() -> Result<(Engine, Arc<DeferredHistory>), String> {
     let mut builder = EngineBuilder::default();
+    let history = Arc::new(DeferredHistory::default());
     du_engine_api::desktop::register(
         &mut builder,
         ports::roots(),
         ports::volumes(),
-        Arc::new(NotRecorded),
+        history.clone(),
         &OsRandom,
     )
     .map_err(|error| error.to_string())?;
     builder.with_outbound_filter(CliOutbound);
-    builder.build().map_err(|error| format!("{error:?}"))
+    builder
+        .build()
+        .map(|engine| (engine, history))
+        .map_err(|error| format!("{error:?}"))
 }
 
 #[cfg(windows)]
@@ -227,6 +228,31 @@ fn call<T: DeserializeOwned>(engine: &Engine, name: &str, body: Value) -> Result
 /// Runs a scan to its end and writes its summary.
 pub(crate) fn run(
     engine: &Engine,
+    history: &DeferredHistory,
+    scan: &Scan,
+    format: OutputFormat,
+    message: &Messages<'_>,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> ExitCode {
+    let data_directory = du_platform_os::application_data::directory();
+    run_with_data_directory(
+        engine,
+        HistoryRun {
+            history,
+            data_directory,
+        },
+        scan,
+        format,
+        message,
+        stdout,
+        stderr,
+    )
+}
+
+fn run_with_data_directory(
+    engine: &Engine,
+    history_run: HistoryRun<'_>,
     scan: &Scan,
     format: OutputFormat,
     message: &Messages<'_>,
@@ -243,18 +269,63 @@ pub(crate) fn run(
         Err(failure) => return fail(stderr, message, &failure),
     };
     write_stderr_line(stderr, &accepted(message, &started));
-    write_stderr_line(stderr, &text(message, "cli.scan.history_not_recorded"));
     let end = match wait(engine, &started.job_ref, interrupts, message, stderr) {
         Waited::Ended(status) => status,
         Waited::Abandoned => return exit_code::exit(End::Interrupted),
         Waited::Failed(failure) => return fail(stderr, message, &failure),
     };
+    let interrupt_count = interrupts.map_or(0, Interrupts::count);
     let written = summary(stdout, message, format, &end).and_then(|()| stdout.flush());
     if written.is_err() {
         let _ = call::<AnalysisJobControl>(engine, "job.cancel", json!({"jobRef": end.job_ref}));
         return exit_code::exit(End::OutputClosed);
     }
+    match history::record(
+        history_run.history,
+        &end.job_ref,
+        history_run.data_directory.as_deref(),
+        interrupts,
+        interrupt_count,
+    ) {
+        HistoryOutcome::Recorded => {}
+        HistoryOutcome::Refused => history_warning(
+            stderr,
+            message,
+            "history.not_recorded",
+            "cli.scan.history_not_recorded",
+        ),
+        HistoryOutcome::Busy => {
+            history_warning(stderr, message, "db.busy", "cli.scan.history_busy")
+        }
+        HistoryOutcome::DiskFull => history_warning(
+            stderr,
+            message,
+            "db.disk_full",
+            "cli.scan.history_disk_full",
+        ),
+        HistoryOutcome::Interrupted => {
+            history_warning(
+                stderr,
+                message,
+                "history.interrupted",
+                "cli.scan.history_interrupted",
+            );
+            return exit_code::exit(End::Interrupted);
+        }
+    }
     exit_code::exit(End::Finished(end.state))
+}
+
+fn history_warning(
+    stderr: &mut impl Write,
+    message: &Messages<'_>,
+    reason: &str,
+    message_key: &str,
+) {
+    write_stderr_line(
+        stderr,
+        &format!("DiskUnfold: {reason}: {}", text(message, message_key)),
+    );
 }
 
 /// Reviews the scope as the screen does and starts the scan with its fingerprint.

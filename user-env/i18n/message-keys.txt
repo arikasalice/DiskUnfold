@@ -10,6 +10,9 @@ cli.access.full_disk_access_required
 cli.scan.accepted
 cli.scan.existing
 cli.scan.history_not_recorded
+cli.scan.history_busy
+cli.scan.history_disk_full
+cli.scan.history_interrupted
 cli.scan.cancel_requested
 cli.scan.state
 cli.scan.state_done
