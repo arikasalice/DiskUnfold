@@ -306,9 +306,17 @@ function boxOf(
  * edge: the focus stops there (README 10, 22). Nearness is the gap between the
  * facing edges; a shape level with this one goes first, one off to the side
  * pays twice its offset. An expanded folder stands where its header band is,
- * so a header and the first row inside it are neighbours (README 35).
+ * so a header and the first row inside it are neighbours (README 35). Among
+ * shapes as near (within the 3 px that insets and gaps make) it takes the shape
+ * focused just before, then the one sharing the longest edge, then the upper,
+ * then the left one (#186).
  */
-function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
+function nearestInDirection(
+  boxes: readonly Box[],
+  from: number,
+  key: string,
+  previous?: number,
+) {
   const centre = (box: Box) => ({
     x: (box.left + box.right) / 2,
     y: (box.top + box.bottom) / 2,
@@ -316,10 +324,8 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   const origin = boxes[from]!;
   const start = centre(origin);
   const horizontal = key === "ArrowLeft" || key === "ArrowRight";
-  let best: number | undefined;
-  let bestScore = Infinity;
-  boxes.forEach((box, index) => {
-    if (index === from) return;
+  const candidates = boxes.flatMap((box, index) => {
+    if (index === from) return [];
     const point = centre(box);
     const dx = point.x - start.x;
     const dy = point.y - start.y;
@@ -331,7 +337,7 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
           : key === "ArrowDown"
             ? dy
             : -dy;
-    if (along <= 0.5) return;
+    if (along <= 0.5) return [];
     const gap =
       key === "ArrowRight"
         ? box.left - origin.right
@@ -340,21 +346,22 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
           : key === "ArrowDown"
             ? box.top - origin.bottom
             : origin.top - box.bottom;
-    const level = horizontal
-      ? box.top < origin.bottom && box.bottom > origin.top
-      : box.left < origin.right && box.right > origin.left;
-    const score =
-      Math.max(0, gap) +
-      (level ? 0 : 2 * Math.abs(horizontal ? dy : dx)) +
-      // Ties go to the nearer centre, then the one more straight ahead.
-      along / 1000 +
-      Math.abs(horizontal ? dy : dx) / 1e6;
-    if (score < bestScore) {
-      bestScore = score;
-      best = index;
-    }
+    // How long the two share an edge across the direction of travel.
+    const shared = horizontal
+      ? Math.min(box.bottom, origin.bottom) - Math.max(box.top, origin.top)
+      : Math.min(box.right, origin.right) - Math.max(box.left, origin.left);
+    const distance =
+      Math.max(0, gap) + (shared > 0 ? 0 : 2 * Math.abs(horizontal ? dy : dx));
+    return [{ index, box, distance, shared }];
   });
-  return best;
+  const nearest = Math.min(...candidates.map(({ distance }) => distance));
+  const ties = candidates.filter(({ distance }) => distance <= nearest + 3);
+  if (ties.some(({ index }) => index === previous)) return previous;
+  ties.sort(
+    (a, b) =>
+      b.shared - a.shared || a.box.top - b.box.top || a.box.left - b.box.left,
+  );
+  return ties[0]?.index;
 }
 
 /** Where a shape stands for arrow keys: an expanded folder by its header band. */
@@ -518,6 +525,9 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const restoreFocus = useRef(false);
   // The model-order place of the focused shape, for "the same place" (README 22).
   const focusedIndex = useRef(0);
+  // The shape focused before the current one, so an arrow back returns there (#186).
+  const previousFocus = useRef<string | null>(null);
+  const currentFocus = useRef<string | null>(null);
   const order = useRef<string[]>([]);
   // The shape that holds the chart's one Tab stop: the last focused one (README 10).
   const [tabStop, setTabStop] = useState<string | null>(null);
@@ -632,6 +642,9 @@ export function GeometryRenderer(props: GeometryRendererProps) {
           targets.map(({ shape, box }) => placeOf(shape, box)),
           index,
           event.key,
+          targets.findIndex(
+            ({ shape }) => shape.shapeRef === previousFocus.current,
+          ),
         );
         break;
       case "Home":
@@ -759,6 +772,10 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               }}
               onFocus={({ currentTarget }) => {
                 focusedIndex.current = index;
+                if (currentFocus.current !== shape.shapeRef) {
+                  previousFocus.current = currentFocus.current;
+                  currentFocus.current = shape.shapeRef;
+                }
                 setTabStop(shape.shapeRef);
                 props.onShapeFocus?.(
                   shape.rowRef,

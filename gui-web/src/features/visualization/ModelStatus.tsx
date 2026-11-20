@@ -106,11 +106,7 @@ export function ModelStatus({
         ))}
       </LiveStatus>
       <Text>{text.observedAt(frame.observedAt)}</Text>
-      <Text>
-        {text.message("scopeTotalLine", {
-          value: text.quantity(model.totals.scope.quantity),
-        })}
-      </Text>
+      <Text>{scopeTotal(model, text)}</Text>
       {unwatched && !scanRunning && (
         <Text kind="muted">{visualizationReason(UNWATCHED, text.message)}</Text>
       )}
@@ -119,4 +115,18 @@ export function ModelStatus({
       )}
     </>
   );
+}
+
+/**
+ * The scope total, with the size basis when it is a size: the unique physical
+ * size differs from what a file manager shows (F06 README 36).
+ */
+function scopeTotal(model: ModelResponse["model"], text: VizText) {
+  const value = text.quantity(model.totals.scope.quantity);
+  return model.totals.scope.quantity.unit === "bytes"
+    ? text.message("scopeTotalBasisLine", {
+        value,
+        basis: text.key(model.representation.sizeBasis),
+      })
+    : text.message("scopeTotalLine", { value });
 }

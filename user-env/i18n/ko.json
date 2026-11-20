@@ -908,6 +908,7 @@
     ["ui.visualization.sameRevision","그래프와 목록은 같은 관측 결과를 다른 방식으로 보여줍니다.",[]],
     ["ui.visualization.sankey","생키",[]],
     ["ui.visualization.scopeTotal","범위 합계",[]],
+    ["ui.visualization.scopeTotalBasisLine","범위 합계 {value} · {basis}",[["value","name"],["basis","name"]]],
     ["ui.visualization.scopeTotalLine","범위 합계 {value}",[["value","name"]]],
     ["ui.visualization.selected","선택됨",[]],
     ["ui.visualization.selectionLost","이전 선택에 대응하는 항목을 이 결과에서 확인하지 못했습니다.",[]],

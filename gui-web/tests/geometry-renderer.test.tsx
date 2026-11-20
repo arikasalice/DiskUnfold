@@ -164,9 +164,9 @@ test("F06 README 35: a folder stands where its header band is; the arrow goes to
   expect(document.activeElement).toBe(option("album-a"));
   fireEvent.keyDown(option("album-a"), { key: "ArrowUp" });
   expect(document.activeElement).toBe(option("Photos"));
-  // Down from the header: a shape of the first row inside, the one nearest its centre.
+  // Down from the header returns to the shape it came from (#186).
   fireEvent.keyDown(option("Photos"), { key: "ArrowDown" });
-  expect(document.activeElement).toBe(option("album-b"));
+  expect(document.activeElement).toBe(option("album-a"));
 });
 
 test("F06 README 10: a wide shape's right neighbour is the shape level with it, not one nearer below", () => {
@@ -205,6 +205,102 @@ test("F06 README 10: a wide shape's right neighbour is the shape level with it, 
   act(() => option("Videos").focus());
   fireEvent.keyDown(option("Videos"), { key: "ArrowRight" });
   expect(document.activeElement).toBe(option("notes"));
+});
+
+test("#186: among shapes as near, an arrow back returns to the shape focused before", () => {
+  const input = props();
+  const rect = (left: number, top: number, right: number, bottom: number) => ({
+    primitive: "rect",
+    points: [
+      { x: left, y: top },
+      { x: right, y: bottom },
+    ],
+  });
+  // Two shapes stacked on the left, one tall shape on the right beside both.
+  input.shapes = [
+    {
+      shapeRef: "upper",
+      rowRef: "row-upper",
+      accessibleLabel: "upper",
+      geometry: rect(0, 0, 500_000, 500_000),
+    },
+    {
+      shapeRef: "lower",
+      rowRef: "row-lower",
+      accessibleLabel: "lower",
+      geometry: rect(0, 500_000, 500_000, 1_000_000),
+    },
+    {
+      shapeRef: "tall",
+      rowRef: "row-tall",
+      accessibleLabel: "tall",
+      geometry: rect(500_000, 0, 1_000_000, 1_000_000),
+    },
+  ];
+  input.relations = [];
+  render(<GeometryRenderer {...input} />);
+  const option = (name: string) => screen.getByRole("option", { name });
+  for (const from of ["lower", "upper"]) {
+    act(() => option(from).focus());
+    fireEvent.keyDown(option(from), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(option("tall"));
+    fireEvent.keyDown(option("tall"), { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(option(from));
+  }
+});
+
+test("#186: without a shape focused before, the longest shared edge wins, then the upper, then the left shape", () => {
+  const input = props();
+  const rect = (left: number, top: number, right: number, bottom: number) => ({
+    primitive: "rect",
+    points: [
+      { x: left, y: top },
+      { x: right, y: bottom },
+    ],
+  });
+  input.shapes = [
+    // On the left of "start": a short shape on top and a longer one below.
+    {
+      shapeRef: "short",
+      rowRef: "row-short",
+      accessibleLabel: "short",
+      geometry: rect(0, 0, 500_000, 300_000),
+    },
+    {
+      shapeRef: "long",
+      rowRef: "row-long",
+      accessibleLabel: "long",
+      geometry: rect(0, 300_000, 500_000, 1_000_000),
+    },
+    {
+      shapeRef: "start",
+      rowRef: "row-start",
+      accessibleLabel: "start",
+      geometry: rect(500_000, 0, 750_000, 1_000_000),
+    },
+    // On the right of "start": two halves sharing equal edges.
+    {
+      shapeRef: "top-half",
+      rowRef: "row-top",
+      accessibleLabel: "top-half",
+      geometry: rect(750_000, 0, 1_000_000, 500_000),
+    },
+    {
+      shapeRef: "bottom-half",
+      rowRef: "row-bottom",
+      accessibleLabel: "bottom-half",
+      geometry: rect(750_000, 500_000, 1_000_000, 1_000_000),
+    },
+  ];
+  input.relations = [];
+  render(<GeometryRenderer {...input} />);
+  const option = (name: string) => screen.getByRole("option", { name });
+  act(() => option("start").focus());
+  fireEvent.keyDown(option("start"), { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(option("long"));
+  act(() => option("start").focus());
+  fireEvent.keyDown(option("start"), { key: "ArrowRight" });
+  expect(document.activeElement).toBe(option("top-half"));
 });
 
 test("F06 README 4.7: the selection is a solid band with a check", () => {
