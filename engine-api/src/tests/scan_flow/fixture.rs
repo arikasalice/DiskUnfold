@@ -78,6 +78,7 @@ fn scan_harness_with_admissions(
     });
     let (release, blocked) = mpsc::channel();
     let (send, terminal) = mpsc::channel();
+    let (lane_status_send, lane_status) = mpsc::channel();
     let (
         priority,
         priority_opened,
@@ -123,7 +124,10 @@ fn scan_harness_with_admissions(
     });
     let clock = Arc::new(Clock);
     let events = Arc::new(crate::desktop::scan_completion::ScanEvents::new(Arc::new(
-        Events(send),
+        Events {
+            jobs: send,
+            lane_status: lane_status_send,
+        },
     )));
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
@@ -216,6 +220,7 @@ fn scan_harness_with_admissions(
         roots,
         release,
         terminal,
+        lane_status,
         versions,
         completed_scans,
         scan_events: events,

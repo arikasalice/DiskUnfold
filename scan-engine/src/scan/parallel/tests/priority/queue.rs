@@ -63,6 +63,7 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
         queue.prioritize(scheduler_queue::PriorityRegion {
             root_index: 0,
             path: vec![b"A".to_vec()],
+            priority_area: "A".into(),
         }),
         scheduler_queue::PriorityDecision::Accepted { remaining: 1 }
     ));
@@ -70,6 +71,7 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
         queue.prioritize(scheduler_queue::PriorityRegion {
             root_index: 0,
             path: vec![b"B".to_vec()],
+            priority_area: "B".into(),
         }),
         scheduler_queue::PriorityDecision::Accepted { remaining: 1 }
     ));
@@ -77,6 +79,7 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
         queue.prioritize(scheduler_queue::PriorityRegion {
             root_index: 0,
             path: vec![b"B".to_vec()],
+            priority_area: "B".into(),
         }),
         scheduler_queue::PriorityDecision::NoEffect {
             same_region: true,
@@ -98,6 +101,7 @@ fn replacement_and_root_component_boundaries_preserve_fair_order() {
         queue.prioritize(scheduler_queue::PriorityRegion {
             root_index: 0,
             path: vec![b"B".to_vec()],
+            priority_area: "B".into(),
         }),
         scheduler_queue::PriorityDecision::NoEffect {
             same_region: false,
@@ -141,6 +145,7 @@ fn other_roots_and_component_prefix_lookalikes_keep_fair_order() {
         queue.prioritize(scheduler_queue::PriorityRegion {
             root_index: 0,
             path: target,
+            priority_area: "target".into(),
         }),
         scheduler_queue::PriorityDecision::Accepted { remaining: 2 }
     ));
@@ -168,6 +173,7 @@ fn running_area_without_queued_work_keeps_its_priority_marker() {
     let region = || scheduler_queue::PriorityRegion {
         root_index: 0,
         path: area.clone(),
+        priority_area: "running-area".into(),
     };
     assert!(matches!(
         queue.prioritize(region()),

@@ -33,6 +33,8 @@ impl JobBody for LaneStatusBody {
                 mode: None,
                 permit: None,
                 strategy: None,
+                priority_area: None,
+                remaining_prioritized_directories: None,
                 wait: LaneWait::IoWait,
                 wait_confirmed: true,
                 remaining_directories: 3,

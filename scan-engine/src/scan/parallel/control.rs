@@ -154,6 +154,7 @@ impl ScanControlSession {
         &self,
         root_index: u32,
         path: Vec<Vec<u8>>,
+        priority_area: String,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         if root_index as usize >= self.root_count || path.iter().any(Vec::is_empty) {
             return Err(ScanControlError::OutOfScope);
@@ -179,7 +180,11 @@ impl ScanControlSession {
             .and_then(Weak::upgrade)
             .ok_or(ScanControlError::NotActive)?;
         let mut queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
-        let decision = queue.prioritize(queue::PriorityRegion { root_index, path });
+        let decision = queue.prioritize(queue::PriorityRegion {
+            root_index,
+            path,
+            priority_area,
+        });
         wake.notify_all();
         Ok(match decision {
             queue::PriorityDecision::Accepted { remaining } => ScanPriorityOutcome::Accepted {
@@ -273,12 +278,13 @@ impl ScanControlHandle {
         &self,
         root_index: u32,
         path: Vec<Vec<u8>>,
+        priority_area: String,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         let session = self
             .session
             .upgrade()
             .ok_or(ScanControlError::AlreadyTerminal)?;
-        session.prioritize(root_index, path)
+        session.prioritize(root_index, path, priority_area)
     }
 
     /// Replaces the live resource condition and returns the lane limits observed under the

@@ -151,7 +151,10 @@ fn other_bound_job_kinds_do_not_expose_scan_result() -> Result<(), Box<dyn std::
         ids,
         Arc::new(Clock),
         Arc::new(History),
-        Arc::new(Events(tx)),
+        Arc::new(Events {
+            jobs: tx,
+            lane_status: mpsc::channel().0,
+        }),
     )?);
     let mut descriptor = du_scan_engine::scan_job::descriptor();
     descriptor.kind_id = "refresh.other".into();

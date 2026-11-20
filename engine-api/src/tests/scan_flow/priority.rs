@@ -129,6 +129,28 @@ fn prioritize_body(
     )?)
 }
 
+fn lane_report_for_priority(
+    run: &PriorityRun,
+    key: &str,
+) -> Result<du_core_contracts::job::LaneReport, Box<dyn std::error::Error>> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err("no lane report carried the applied priority key".into());
+        }
+        let event = run.harness.lane_status.recv_timeout(remaining)?;
+        if event.job_id != run.started.job_ref {
+            continue;
+        }
+        if let Some(lane) = event.status.lanes.iter().find(|lane| {
+            lane.root_indexes.contains(&0) && lane.priority_area.as_deref() == Some(key)
+        }) {
+            return Ok(lane.clone());
+        }
+    }
+}
+
 /// Publishes two results in an unrelated lineage of the same store and
 /// returns a folder from the superseded and from the current result.
 fn other_lineage_areas(
@@ -283,6 +305,16 @@ fn assert_priority_replacement_and_completion(
         replacement.body["appliedPriorityArea"]["itemNo"],
         run.area_b.item_no
     );
+    let applied_area: ItemRef =
+        serde_json::from_value(replacement.body["appliedPriorityArea"].clone())?;
+    let applied_key = format!(
+        "{}:{}",
+        applied_area.result_version.as_str(),
+        applied_area.item_no
+    );
+    let lane = lane_report_for_priority(run, &applied_key)?;
+    assert_eq!(lane.priority_area.as_deref(), Some(applied_key.as_str()));
+    assert!(lane.remaining_prioritized_directories.is_some());
 
     let repeated = prioritize(run, &run.area_b, &run.started.job_ref, Channel::Gui)?;
     assert!(repeated.error.is_none());

@@ -223,7 +223,11 @@ impl Dir {
             && let Ok(mut outcomes) = self.tree.priority.lock()
         {
             for name in ["mnt", "skip", "odd", "twin", "b"] {
-                outcomes.push(control.prioritize(0, vec![name.as_bytes().to_vec()]));
+                outcomes.push(control.prioritize(
+                    0,
+                    vec![name.as_bytes().to_vec()],
+                    name.to_owned(),
+                ));
             }
         }
         if self.tree.seed != 0 {

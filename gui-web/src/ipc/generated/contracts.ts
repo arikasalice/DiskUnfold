@@ -1257,6 +1257,17 @@ permit?: number,
  */
 strategy?: ScanLaneStrategy,
 /**
+ * Opaque GUI item key for the active priority area; omitted when this
+ * lane has no priority area. It carries no path or display name and
+ * remains present while the engine keeps the region, even at zero.
+ */
+priorityArea?: string,
+/**
+ * Known directories in `priority_area` not read to their end, decimal.
+ * Zero alone does not release the region.
+ */
+remainingPrioritizedDirectories?: string,
+/**
  * The wait cause; not to be used when `wait_confirmed` is false.
  */
 waitReason: ScanLaneWait, waitConfirmed: boolean,

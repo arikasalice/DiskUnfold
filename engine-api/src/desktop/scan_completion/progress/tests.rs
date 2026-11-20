@@ -21,6 +21,13 @@ fn assert_resource_fields(lane: &serde_json::Value) {
     assert_eq!(lane["strategy"]["version"], json!(1));
 }
 
+fn assert_priority_fields(active: &serde_json::Value, inactive: &serde_json::Value) {
+    assert_eq!(active["priorityArea"], json!("opaque:priority-key"));
+    assert_eq!(active["remainingPrioritizedDirectories"], json!("12"));
+    assert!(inactive.get("priorityArea").is_none());
+    assert!(inactive.get("remainingPrioritizedDirectories").is_none());
+}
+
 fn next_event(desktop: &DesktopEvents) -> Result<EventEnvelope, Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -65,6 +72,8 @@ fn lane_status(job: &Id) -> JobLaneStatusEvent {
                 id: "resource.static".into(),
                 version: 1,
             }),
+            priority_area: (lane_index == 0).then(|| "opaque:priority-key".into()),
+            remaining_prioritized_directories: (lane_index == 0).then(|| "12".into()),
             wait: if lane_index == 0 {
                 LaneWait::Backpressure
             } else {
@@ -132,6 +141,7 @@ fn the_desktop_relay_sorts_and_caps_lane_status_with_decimal_counts() -> TestRes
     assert_eq!(lanes[0]["laneIndex"], json!(0));
     assert_eq!(lanes[63]["laneIndex"], json!(63));
     assert_resource_fields(&lanes[0]);
+    assert_priority_fields(&lanes[0], &lanes[1]);
     assert_eq!(lanes[0]["rootCount"], json!("65"));
     let roots = lanes[0]["rootIndexes"].as_array().ok_or("root indexes")?;
     assert_eq!(roots.len(), 64);

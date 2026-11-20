@@ -32,6 +32,7 @@ fn region(root: u32, path: &[&[u8]]) -> queue::PriorityRegion {
     queue::PriorityRegion {
         root_index: root,
         path: path.iter().map(|part| part.to_vec()).collect(),
+        priority_area: "test-key".into(),
     }
 }
 

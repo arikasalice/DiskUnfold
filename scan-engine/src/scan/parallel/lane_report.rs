@@ -26,6 +26,7 @@ impl Shared {
                 let (members, limit, queued) = queue.lanes.occupancy(lane);
                 let (in_flight, blocked_sends, failures) = self.meters.counts(lane);
                 let resource = queue.lanes.resource(lane);
+                let priority = queue.priority_for_roots(&root_indexes);
                 let (wait, wait_confirmed) = LaneSample {
                     in_flight,
                     blocked_sends,
@@ -42,6 +43,8 @@ impl Shared {
                     mode: resource.map(|policy| policy.mode),
                     permit: resource.map(|policy| policy.permit),
                     strategy: resource.map(|policy| policy.strategy.clone()),
+                    priority_area: priority.map(|(area, _)| area.to_owned()),
+                    remaining_prioritized_directories: priority.map(|(_, count)| count.to_string()),
                     wait,
                     wait_confirmed,
                     remaining_directories: u64::try_from(queued.saturating_add(members))

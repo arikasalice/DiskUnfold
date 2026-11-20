@@ -11,6 +11,7 @@ pub(super) const NORMAL: usize = CLASSES - 1;
 pub(super) struct PriorityRegion {
     pub root_index: u32,
     pub path: Vec<Vec<u8>>,
+    pub priority_area: String,
 }
 
 pub(super) enum PriorityDecision {
@@ -189,6 +190,25 @@ impl Queue {
             self.reclassify(previous);
         }
         true
+    }
+
+    /// Returns the current key and outstanding directory count for its lane.
+    /// A zero count does not imply release; presence follows the held region.
+    pub(super) fn priority_for_roots(&self, roots: &[u32]) -> Option<(&str, usize)> {
+        let region = self.priority.as_ref()?;
+        if !roots.contains(&region.root_index) {
+            return None;
+        }
+        let remaining = self
+            .outstanding
+            .as_ref()?
+            .count(region.root_index, &region.path);
+        Some((&region.priority_area, remaining))
+    }
+
+    /// Drops the active marker when a scan ends without completing its area.
+    pub(super) fn clear_priority(&mut self) {
+        self.priority = None;
     }
 
     /// The priority class of `frame` under the current area.
