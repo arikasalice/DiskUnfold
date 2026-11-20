@@ -1,4 +1,7 @@
 //! Review and atomic commit for supported setting kinds.
+//!
+//! A settings export, import or reset added later keeps the startup memory
+//! rules in [`crate::startup_memory`] (#205).
 use du_core_contracts::settings::{
     SETTINGS_SCHEMA_VERSION, SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore,
     SettingsStoreError,

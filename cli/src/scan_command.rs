@@ -36,6 +36,8 @@ use crate::{
 
 mod history;
 use history::{DeferredHistory, Outcome as HistoryOutcome};
+mod refusal;
+use refusal::{fail, fail_with_localized, path_link_message};
 
 struct HistoryRun<'a> {
     history: &'a DeferredHistory,
@@ -266,7 +268,12 @@ fn run_with_data_directory(
     };
     let started = match start(engine, draft) {
         Ok(started) => started,
-        Err(failure) => return fail(stderr, message, &failure),
+        Err(failure) => {
+            let link_message = (failure.reason == "path.unresolvable")
+                .then(|| path_link_message(scan, message))
+                .flatten();
+            return fail_with_localized(stderr, message, &failure, link_message.as_deref());
+        }
     };
     write_stderr_line(stderr, &accepted(message, &started));
     let end = match wait(engine, &started.job_ref, interrupts, message, stderr) {
@@ -484,15 +491,6 @@ fn summary(
             )
         }
     }
-}
-
-/// Writes one error record and returns the code the failure maps to; stdout stays empty.
-fn fail(stderr: &mut impl Write, message: &Messages<'_>, failure: &Failure) -> ExitCode {
-    let exit = exit_code::exit(End::Refused(failure));
-    // A usage error explains the path to fix; the others carry their key only.
-    let localized = (exit == ExitCode::from(2)).then(|| text(message, "cli.scan.path_unusable"));
-    write_error_line(stderr, &failure.reason, &failure.code, localized.as_deref());
-    exit
 }
 
 #[cfg(test)]

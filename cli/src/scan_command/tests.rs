@@ -141,7 +141,13 @@ fn run_real_scan(
 fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
 -> Result<(), Box<dyn std::error::Error>> {
     let folder = tempfile::tempdir()?;
-    let missing = folder.path().join("missing").to_string_lossy().into_owned();
+    // The macOS temporary folder lies under the /var link; resolve it so the
+    // refusal is about the missing folder, not about the link (#243).
+    #[cfg(unix)]
+    let base = fs::canonicalize(folder.path())?;
+    #[cfg(not(unix))]
+    let base = folder.path().to_path_buf();
+    let missing = base.join("missing").to_string_lossy().into_owned();
     let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
     let message = Messages::new(&registry, "en");
     let scan = scan(&[&missing])?;
@@ -160,5 +166,100 @@ fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
     let errors = String::from_utf8_lossy(&stderr);
     assert_eq!(errors.lines().count(), 1, "{errors}");
     assert_ne!(exit, ExitCode::SUCCESS, "{errors}");
+    assert!(errors.contains("A path cannot be analyzed."), "{errors}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_path_through_a_symbolic_link_explains_the_resolved_scan_path()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let folder = tempfile::tempdir()?;
+    let base = fs::canonicalize(folder.path())?;
+    let target = base.join("real");
+    fs::create_dir_all(target.join("x"))?;
+    let link = base.join("link");
+    symlink(&target, &link)?;
+    let root = link.join("x");
+    let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let message = Messages::new(&registry, "en");
+    let scan = scan(&[&root.to_string_lossy()])?;
+    let (engine, history) = engine()?;
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+
+    let exit = run(
+        &engine,
+        &history,
+        &scan,
+        scan.format(),
+        &message,
+        &mut stdout,
+        &mut stderr,
+    );
+
+    let errors = String::from_utf8_lossy(&stderr);
+    assert_eq!(exit, ExitCode::from(2), "{errors}");
+    assert!(stdout.is_empty());
+    assert!(errors.contains("path.unresolvable"), "{errors}");
+    assert!(
+        errors.contains(&format!(
+            "Link: {} -> {}.",
+            link.display(),
+            target.display()
+        )),
+        "{errors}"
+    );
+    assert!(
+        errors.contains(&format!(
+            "Scan this path instead: {}",
+            target.join("x").display()
+        )),
+        "{errors}"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_link_reports_its_target_without_a_suggestion()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let folder = tempfile::tempdir()?;
+    let base = fs::canonicalize(folder.path())?;
+    let link = base.join("dangling");
+    let target = base.join("missing");
+    symlink(&target, &link)?;
+    let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let message = Messages::new(&registry, "en");
+    let scan = scan(&[&link.to_string_lossy()])?;
+    let (engine, history) = engine()?;
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+
+    let exit = run(
+        &engine,
+        &history,
+        &scan,
+        scan.format(),
+        &message,
+        &mut stdout,
+        &mut stderr,
+    );
+
+    let errors = String::from_utf8_lossy(&stderr);
+    assert_eq!(exit, ExitCode::from(2), "{errors}");
+    assert!(stdout.is_empty());
+    assert!(errors.contains("Scans don't follow links."), "{errors}");
+    assert!(
+        errors.contains(&format!(
+            "Link: {} -> {}.",
+            link.display(),
+            target.display()
+        )),
+        "{errors}"
+    );
+    assert!(!errors.contains("Scan this path instead:"), "{errors}");
     Ok(())
 }

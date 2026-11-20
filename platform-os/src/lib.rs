@@ -28,6 +28,7 @@ pub mod macos_time_zone;
 #[cfg(target_os = "macos")]
 pub mod macos_ui_language;
 pub mod os_release;
+pub mod path_link;
 pub mod self_executable;
 pub mod startup;
 pub mod support_environment;
