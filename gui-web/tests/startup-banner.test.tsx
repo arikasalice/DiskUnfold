@@ -34,7 +34,7 @@ const bridge = vi.hoisted(() => ({ available: false }));
 
 vi.mock("../src/ipc", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ipc")>()),
-  hasWindowsAnalysisBridge: () => bridge.available,
+  hasDesktopAnalysisBridge: () => bridge.available,
 }));
 vi.mock("../src/app/App", async () => {
   const { InfoEntry } = await import("../src/app/InfoEntry");

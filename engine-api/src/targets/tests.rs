@@ -115,8 +115,12 @@ impl VolumePort for Volumes {
         };
         VolumeEnumeration {
             mounts: Ok(vec![VolumeMount {
-                mount_path: vec![67, 0, 58, 0, 92, 0],
-                display_path: "C:\\".into(),
+                mount_path: if cfg!(windows) {
+                    vec![67, 0, 58, 0, 92, 0]
+                } else {
+                    b"/".to_vec()
+                },
+                display_path: if cfg!(windows) { "C:\\" } else { "/" }.into(),
                 filesystem: vec![],
                 mount_source: vec![],
                 role: None,

@@ -1,5 +1,6 @@
 import {
   hasRecentScopes,
+  hostPathEncoding,
   invokeNative,
   subscribeNative,
   subscribeNativeFolderDrop,
@@ -516,7 +517,7 @@ export function createAnalysisClient(
       subscribeNativeFolderDrop((drop) =>
         listener(
           "path" in drop
-            ? { seq: drop.seq, path: windowsPath(drop.path) }
+            ? { seq: drop.seq, path: nativePath(drop.path) }
             : drop,
         ),
       ),
@@ -544,13 +545,33 @@ export function windowsPath(input: string): OsPath {
   };
 }
 
+/** Encodes a macOS or Linux path as its UTF-8 bytes and supplies its display string. */
+export function unixPath(input: string): OsPath {
+  // A lone surrogate has no UTF-8 form, so it is replaced and the path marked lossy.
+  const display = input.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
+  let bytes = "";
+  for (const byte of new TextEncoder().encode(display)) {
+    bytes += String.fromCharCode(byte);
+  }
+  const raw = btoa(bytes)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+  return { encoding: "unix", raw, display, lossy: display !== input };
+}
+
+/** Encodes a typed or dropped path the way the host opens paths (#253). */
+export function nativePath(input: string): OsPath {
+  return hostPathEncoding() === "unix" ? unixPath(input) : windowsPath(input);
+}
+
 export {
   hasDesktopLocaleBridge,
   hasCustomTitlebar,
   requestWindowDrag,
   requestWindowZoom,
   hasStartupStatusBridge,
-  hasWindowsAnalysisBridge,
+  hasDesktopAnalysisBridge,
   NativeIpcTransportError,
 } from "./bridge";
 export type { CallEnvelope, ResultEnvelope } from "./generated/contracts";
