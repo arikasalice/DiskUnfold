@@ -26,6 +26,12 @@ pub struct LaneReport {
     pub in_flight: u32,
     /// The lane's effective worker limit, at least 1.
     pub limit: u32,
+    /// Requested scan resource mode, omitted when unavailable.
+    pub mode: Option<crate::analysis_ipc::ScanResourceMode>,
+    /// Device worker permit, omitted when unknown.
+    pub permit: Option<u32>,
+    /// Strategy identity used to calculate `limit`, omitted when unavailable.
+    pub strategy: Option<crate::analysis_ipc::ScanLaneStrategy>,
     pub wait: LaneWait,
     /// Whether evidence confirms `wait`; when false `wait` is not used.
     pub wait_confirmed: bool,

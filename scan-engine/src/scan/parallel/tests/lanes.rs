@@ -25,6 +25,7 @@ mod moves;
 mod order;
 mod priority;
 mod remote;
+mod resource;
 
 type TestError = Box<dyn std::error::Error + Send + Sync>;
 

@@ -7,6 +7,7 @@ use std::{
 use du_analysis_index::{BoundSizeRule, IngestSink, ScopeHeader};
 use du_core_contracts::{
     Id,
+    analysis_ipc::ScanResourceMode,
     job::{
         HistoryMode, JobBody, JobContext, JobControl, JobDescriptor, JobOutcome, ProgressUnit,
         ResourceClass,
@@ -191,6 +192,27 @@ impl MetadataScan {
     pub fn with_priority_control(mut self) -> Self {
         if self.control.is_none() {
             self.control = Some(Arc::new(ScanControlSession::new(self.root_count)));
+        }
+        if let Some(control) = &self.control {
+            control.enable_priority();
+        }
+        self
+    }
+
+    /// Binds the initial resource condition and creates the weak live control handle.
+    pub fn with_resource_condition(
+        mut self,
+        mode: ScanResourceMode,
+        user_limit: Option<u32>,
+    ) -> Self {
+        if let Some(control) = &self.control {
+            control.initialize_resource_condition(mode, user_limit);
+        } else {
+            self.control = Some(Arc::new(ScanControlSession::with_resource_condition(
+                self.root_count,
+                mode,
+                user_limit,
+            )));
         }
         self
     }

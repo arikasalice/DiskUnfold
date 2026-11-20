@@ -211,8 +211,7 @@ impl<S: JobEvents + 'static> Harness<S> {
             std::thread::spawn(move || runtime.run_next())
         };
         acks.recv_timeout(WAIT)?;
-        // Open the first batch window before any report so that a value is
-        // published only after the test advances time.
+        // Reports wait for the test to advance past the first batch window.
         runtime.tick_progress()?;
         Ok(Self {
             runtime,
@@ -284,6 +283,9 @@ fn lane_status(remaining_directories: u64) -> LaneStatusReport {
             root_indexes: vec![0],
             in_flight: 1,
             limit: 2,
+            mode: None,
+            permit: None,
+            strategy: None,
             wait: LaneWait::IoWait,
             wait_confirmed: true,
             remaining_directories,
@@ -320,8 +322,7 @@ fn a_burst_within_one_interval_publishes_only_its_latest_value() -> TestResult {
     assert_eq!(event.wait_reason, JobWaitReason::Unknown);
     assert_eq!(event.observed_at_ms, 1_000);
     assert_eq!(event.job_id, job.id);
-    // Queued is 1 and running is 2; progress takes the next job sequence.
-    assert_eq!(event.sequence, 3);
+    assert_eq!(event.sequence, 3); // Queued and running take the first two sequences.
     assert_eq!(job.runtime.snapshot(&job.id)?.sequence, 3);
     job.finish()?;
     check_order(&job.sink.seen())?;

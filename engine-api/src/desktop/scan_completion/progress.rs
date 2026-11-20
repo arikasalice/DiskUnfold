@@ -83,6 +83,9 @@ fn lane_status_envelope(event: JobLaneStatusEvent) -> Option<EventEnvelope> {
                 root_count,
                 in_flight: lane.in_flight,
                 limit: lane.limit,
+                mode: lane.mode,
+                permit: lane.permit,
+                strategy: lane.strategy,
                 wait_reason: match lane.wait {
                     LaneWait::IoWait => ScanLaneWait::IoWait,
                     LaneWait::Backpressure => ScanLaneWait::Backpressure,

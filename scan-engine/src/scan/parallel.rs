@@ -41,7 +41,9 @@ mod disconnect;
 mod lane_meter;
 mod lane_report;
 mod preparation;
+mod resource;
 mod scheduler;
+pub(crate) use resource::valid_user_limit;
 mod volume_reports;
 
 /// Directory work held in one lane queue, counting items claimed from it that

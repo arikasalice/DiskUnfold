@@ -16,6 +16,11 @@ pub(crate) use parallel::{
 };
 pub use parallel::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 
+/// Whether a user worker limit is valid for the current unknown-device permit.
+pub fn valid_resource_limit(limit: Option<u32>) -> bool {
+    parallel::valid_user_limit(limit)
+}
+
 /// Supplies distinct result identifiers for partial and terminal publications.
 pub trait ResultIds: Send + Sync {
     fn next_id(&self) -> Id;

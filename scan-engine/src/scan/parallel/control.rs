@@ -1,6 +1,12 @@
 //! Job-bound controls over the live directory scheduler.
-use super::{Queue, queue};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use super::{Queue, queue, resource::Condition};
+use du_core_contracts::analysis_ipc::{
+    ScanResourceMode, ScanSetResourceLane, ScanSetResourceOutcome,
+};
+use std::sync::{
+    Arc, Condvar, Mutex, Weak,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// Why a scan control request was not recorded by the live scheduler.
 ///
@@ -57,11 +63,13 @@ struct Attachment {
     queue: Option<Weak<Mutex<Queue>>>,
     wake: Option<Weak<Condvar>>,
     terminal: bool,
+    condition: Condition,
 }
 
 /// State shared by a scan body and its job-bound control handle.
 pub(crate) struct ScanControlSession {
     root_count: usize,
+    priority_enabled: AtomicBool,
     attachment: Mutex<Attachment>,
 }
 
@@ -69,11 +77,46 @@ impl ScanControlSession {
     pub(crate) fn new(root_count: usize) -> Self {
         Self {
             root_count,
+            priority_enabled: AtomicBool::new(true),
             attachment: Mutex::new(Attachment {
                 queue: None,
                 wake: None,
                 terminal: false,
+                condition: Condition::default(),
             }),
+        }
+    }
+
+    pub(crate) fn with_resource_condition(
+        root_count: usize,
+        mode: ScanResourceMode,
+        user_limit: Option<u32>,
+    ) -> Self {
+        let session = Self::new(root_count);
+        session.priority_enabled.store(false, Ordering::Release);
+        session.initialize_resource_condition(mode, user_limit);
+        session
+    }
+
+    pub(crate) fn enable_priority(&self) {
+        self.priority_enabled.store(true, Ordering::Release);
+    }
+
+    pub(super) fn tracks_priority(&self) -> bool {
+        self.priority_enabled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn initialize_resource_condition(
+        &self,
+        mode: ScanResourceMode,
+        user_limit: Option<u32>,
+    ) {
+        let mut attachment = self
+            .attachment
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if attachment.queue.is_none() && !attachment.terminal {
+            attachment.condition = Condition { mode, user_limit };
         }
     }
 
@@ -89,6 +132,9 @@ impl ScanControlSession {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !attachment.terminal {
+            if let Ok(mut queue) = queue.lock() {
+                queue.lanes.apply_resource(attachment.condition);
+            }
             attachment.queue = Some(Arc::downgrade(queue));
             attachment.wake = Some(Arc::downgrade(wake));
         }
@@ -119,6 +165,9 @@ impl ScanControlSession {
         if attachment.terminal {
             return Err(ScanControlError::AlreadyTerminal);
         }
+        if !self.tracks_priority() {
+            return Err(ScanControlError::NotActive);
+        }
         let queue = attachment
             .queue
             .as_ref()
@@ -144,6 +193,47 @@ impl ScanControlSession {
                 remaining_directories: remaining,
             },
         })
+    }
+
+    fn set_resource(
+        &self,
+        condition: Condition,
+    ) -> Result<(ScanSetResourceOutcome, Vec<ScanSetResourceLane>), ScanControlError> {
+        let mut attachment = self
+            .attachment
+            .lock()
+            .map_err(|_| ScanControlError::Unavailable)?;
+        if attachment.terminal {
+            return Ok((ScanSetResourceOutcome::AlreadyTerminal, Vec::new()));
+        }
+        if attachment.condition == condition {
+            return Ok((
+                ScanSetResourceOutcome::NoEffect,
+                Self::resource_rows(&attachment)?,
+            ));
+        }
+        let rows = if let Some(queue) = attachment.queue.as_ref().and_then(Weak::upgrade) {
+            let mut queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
+            queue.lanes.apply_resource(condition);
+            queue.lanes.resource_rows()
+        } else {
+            Vec::new()
+        };
+        attachment.condition = condition;
+        if let Some(wake) = attachment.wake.as_ref().and_then(Weak::upgrade) {
+            wake.notify_all();
+        }
+        Ok((ScanSetResourceOutcome::Accepted, rows))
+    }
+
+    fn resource_rows(
+        attachment: &Attachment,
+    ) -> Result<Vec<ScanSetResourceLane>, ScanControlError> {
+        let Some(queue) = attachment.queue.as_ref().and_then(Weak::upgrade) else {
+            return Ok(Vec::new());
+        };
+        let queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
+        Ok(queue.lanes.resource_rows())
     }
 }
 
@@ -189,5 +279,18 @@ impl ScanControlHandle {
             .upgrade()
             .ok_or(ScanControlError::AlreadyTerminal)?;
         session.prioritize(root_index, path)
+    }
+
+    /// Replaces the live resource condition and returns the lane limits observed under the
+    /// scheduler lock. A queued job records the condition and applies it when its lanes attach.
+    pub fn set_resource(
+        &self,
+        mode: ScanResourceMode,
+        user_limit: Option<u32>,
+    ) -> Result<(ScanSetResourceOutcome, Vec<ScanSetResourceLane>), ScanControlError> {
+        let Some(session) = self.session.upgrade() else {
+            return Ok((ScanSetResourceOutcome::AlreadyTerminal, Vec::new()));
+        };
+        session.set_resource(Condition { mode, user_limit })
     }
 }

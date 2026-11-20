@@ -2,6 +2,8 @@
 use crate::Timestamp;
 use serde::{Deserialize, Serialize};
 
+use super::{ScanLaneStrategy, ScanResourceMode};
+
 /// Topic of the batched per-lane scan state.
 pub const SCAN_LANE_STATUS: &str = "scan.lane_status";
 /// The most lanes one event carries.
@@ -41,6 +43,18 @@ pub struct ScanLane {
     pub in_flight: u32,
     /// The lane's effective worker limit (u32, at least 1; 0 is never sent).
     pub limit: u32,
+    /// Requested resource strategy; omitted when the producer cannot report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub mode: Option<ScanResourceMode>,
+    /// Device worker permit; omitted when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub permit: Option<u32>,
+    /// Strategy identity used to calculate `limit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub strategy: Option<ScanLaneStrategy>,
     /// The wait cause; not to be used when `wait_confirmed` is false.
     pub wait_reason: ScanLaneWait,
     pub wait_confirmed: bool,

@@ -39,9 +39,11 @@
 //! marked area.
 mod lending;
 mod ready;
+mod resource;
 use super::{
     Frame, Queue,
     queue::{CLASSES, NORMAL, PriorityRegion, rank_in},
+    resource::Policy,
 };
 #[cfg(test)]
 pub(super) use lending::Moves;
@@ -57,6 +59,7 @@ const MARKED: [usize; NORMAL] = [0, 1];
 pub(super) struct Lane {
     pub(super) ready: ReadyQueue,
     limit: usize,
+    resource: Option<Policy>,
     capacity: usize,
     pub(super) members: usize,
     reserved: usize,
@@ -69,6 +72,7 @@ impl Lane {
         Self {
             ready: ReadyQueue::default(),
             limit,
+            resource: None,
             capacity,
             members: 0,
             reserved: 0,

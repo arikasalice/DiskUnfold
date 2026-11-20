@@ -1087,8 +1087,44 @@ export type RecentScopeOpenRequest = { recentScopeRef: Id, requestSeq: number, }
 export type RecentScopeTargetState = "matched" | "moved" | "disconnected" | "unverifiable";
 export type RecentScopeOpenTarget = { path: OsPath, state: RecentScopeTargetState, proposedEntry: OsPath | null, };
 export type RecentScopeOpen = { draft: ScopeDraft, targets: Array<RecentScopeOpenTarget>, review: ScopeReview | null, };
-export type ScanStartRequest = { draft: ScopeDraft, reviewFingerprint: string, };
-export type ScanStart = { jobRef: Id, existing: boolean, scopeVersion: Id, scopeFingerprint: string, lineageId?: Id, };
+export type ScanStartRequest = { draft: ScopeDraft, reviewFingerprint: string,
+/**
+ * Resource controls are not part of the reviewed scope fingerprint.
+ */
+collection?: ScanCollectionCondition, };
+export type ScanStart = { jobRef: Id, existing: boolean, scopeVersion: Id, scopeFingerprint: string,
+/**
+ * The current resource condition of this job, including on duplicate starts.
+ */
+collection?: ScanCollection, lineageId?: Id, };
+export type ScanResourceMode = "auto" | "quiet" | "fast";
+export type ScanCollectionCondition = {
+/**
+ * Omission selects `auto`.
+ */
+resourceMode?: ScanResourceMode,
+/**
+ * Omission leaves the strategy's worker limit unrestricted by the user.
+ */
+userLimit?: number, };
+export type ScanCollection = { resourceMode: ScanResourceMode, userLimit?: number, };
+export type ScanLaneStrategy = {
+/**
+ * Receivers treat an unknown ID as an unknown strategy.
+ */
+id: string, version: number, };
+export type ScanSetResourceRequest = { jobRef: Id, resourceMode: ScanResourceMode,
+/**
+ * Omission clears the prior user limit.
+ */
+userLimit?: number, };
+export type ScanSetResourceLane = { laneIndex: number, effectiveLimit: number, permit?: number, };
+export type ScanSetResourceOutcome = "accepted" | "no_effect" | "already_terminal";
+export type ScanSetResourceResponse = { outcome: ScanSetResourceOutcome, lanes: Array<ScanSetResourceLane>,
+/**
+ * An unknown value is interpreted as `next_assignment` by receivers.
+ */
+appliesFrom: string, };
 export type ScanFailureKind = "collection_failed" | "unread_range" | "uncertain" | "untraversed_link";
 export type ScanFailureStage = "metadata" | "open_directory" | "enumerate" | "traverse";
 export type ScanFailurePathRef = { rootIndex: number, relative: Array<PathBytes>, };
@@ -1196,6 +1232,18 @@ inFlight: number,
  * The lane's effective worker limit (u32, at least 1; 0 is never sent).
  */
 limit: number,
+/**
+ * Requested resource strategy; omitted when the producer cannot report it.
+ */
+mode?: ScanResourceMode,
+/**
+ * Device worker permit; omitted when unknown.
+ */
+permit?: number,
+/**
+ * Strategy identity used to calculate `limit`.
+ */
+strategy?: ScanLaneStrategy,
 /**
  * The wait cause; not to be used when `wait_confirmed` is false.
  */
