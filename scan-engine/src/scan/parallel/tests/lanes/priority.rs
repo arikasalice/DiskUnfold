@@ -102,7 +102,7 @@ fn a_request_during_pause_is_accepted_and_applies_after_resume() -> Result<(), T
     remote.set(|state| state.paused = true)?;
     // Accepted only acknowledges the request; nothing is assigned while paused.
     assert_eq!(
-        handle.prioritize(0, d("d2")),
+        handle.prioritize(0, d("d2"), test_item_ref(2)),
         Ok(ScanPriorityOutcome::Accepted {
             remaining_directories: 1
         })
@@ -145,7 +145,7 @@ fn a_request_during_cancellation_assigns_no_more_work() -> Result<(), TestError>
     // The scheduler is still attached, so the request is acknowledged, but
     // the cancelled scan assigns no directory after the open in flight.
     assert_eq!(
-        handle.prioritize(0, d("d2")),
+        handle.prioritize(0, d("d2"), test_item_ref(2)),
         Ok(ScanPriorityOutcome::Accepted {
             remaining_directories: 1
         })
@@ -158,7 +158,7 @@ fn a_request_during_cancellation_assigns_no_more_work() -> Result<(), TestError>
     assert_eq!(calls.lock().map_err(|_| "record lock")?.len(), recorded);
     assert_eq!(probe.live.load(Ordering::SeqCst), 0);
     assert_eq!(
-        handle.prioritize(0, d("d2")),
+        handle.prioritize(0, d("d2"), test_item_ref(2)),
         Err(ScanControlError::AlreadyTerminal)
     );
     Ok(())
@@ -208,7 +208,7 @@ fn race(
         } else {
             d(&format!("d{pick}"))
         };
-        match handle.prioritize(pick % 2, path) {
+        match handle.prioritize(pick % 2, path, test_item_ref(pick)) {
             Ok(_) => raced.live += 1,
             Err(ScanControlError::NotActive) => raced.early += 1,
             Err(ScanControlError::AlreadyTerminal) => return Ok(raced),
@@ -284,7 +284,7 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         assert_eq!(run.rows.len(), 2 * shape.items(), "{}", point());
         assert_eq!(probe.live.load(Ordering::SeqCst), 0, "{}", point());
         assert_eq!(
-            handle.prioritize(0, Vec::new()),
+            handle.prioritize(0, Vec::new(), test_item_ref(0)),
             Err(ScanControlError::AlreadyTerminal),
             "{}",
             point()

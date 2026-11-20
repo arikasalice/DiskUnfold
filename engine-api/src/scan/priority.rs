@@ -98,7 +98,6 @@ impl UseCase for PrioritizeScan {
             return Err(EngineError::reason("scan.priority_out_of_scope"));
         }
         let components = components.map(<[u8]>::to_vec).collect::<Vec<_>>();
-
         let Some(control) = active.control.as_ref() else {
             return Ok(already_terminal());
         };
@@ -107,7 +106,9 @@ impl UseCase for PrioritizeScan {
         // takes event-order -> result store; no publication or worker path takes Queue -> result store.
         let outcome = self
             .store
-            .with_current(&version, || control.prioritize(root_index, components))
+            .with_current(&version, || {
+                control.prioritize(root_index, components, request.priority_area.clone())
+            })
             .map_err(map_pin_error)?;
         match outcome {
             Ok(du_scan_engine::scan::ScanPriorityOutcome::Accepted { .. }) => {

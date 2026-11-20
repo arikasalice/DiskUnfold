@@ -222,8 +222,12 @@ impl Dir {
             && let Some(control) = control.as_ref()
             && let Ok(mut outcomes) = self.tree.priority.lock()
         {
-            for name in ["mnt", "skip", "odd", "twin", "b"] {
-                outcomes.push(control.prioritize(0, vec![name.as_bytes().to_vec()]));
+            for (item_no, name) in ["mnt", "skip", "odd", "twin", "b"].into_iter().enumerate() {
+                outcomes.push(control.prioritize(
+                    0,
+                    vec![name.as_bytes().to_vec()],
+                    test_item_ref(item_no as u32),
+                ));
             }
         }
         if self.tree.seed != 0 {

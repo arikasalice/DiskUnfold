@@ -40,6 +40,13 @@ test("F02 links the storage-lane progress review scene", () => {
   expect(Object.hasOwn(fixtures, "scan-lanes")).toBe(true);
 });
 
+test("F05 links the browse review scenes", () => {
+  expect(coverage.find((item) => item.feature === "F05")).toMatchObject({
+    reviewScenes: ["browse"],
+  });
+  expect(Object.hasOwn(fixtures, "browse")).toBe(true);
+});
+
 test("gallery recovery is explicit and inspection returns to its originating control", async () => {
   render(<Gallery />);
   fireEvent.change(screen.getByLabelText("검토할 화면"), {

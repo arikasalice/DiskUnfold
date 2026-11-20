@@ -9,11 +9,12 @@
 // - browse: the browse table with every mark of the "Scan status" column (#133).
 // - date-picker: the shared date field in empty, selected, invalid, open, and
 //   forced-colors states (#272).
+//   The default browse run captures the #133 scene and both #226 lower-bound scenes.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
-//   npm run capture:browse-gallery -- [output folder]
-//   npm run capture:browse-gallery -- [output folder] notice
+//   npm run capture:browse-gallery -- [output folder] [scene]
+//     scene: scan-status | lower-bounds | lower-bounds-notice
 //   npm run capture:date-picker-gallery -- [output folder]
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
@@ -47,6 +48,20 @@ const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
+const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
+const selectedBrowseScene =
+  requestedBrowseScene === "notice"
+    ? "lower-bounds-notice"
+    : requestedBrowseScene;
+if (selectedBrowseScene && !browseScenes.includes(selectedBrowseScene))
+  throw new Error("Unknown browse scene: " + selectedBrowseScene);
+const captureScenes =
+  surface === "browse"
+    ? selectedBrowseScene
+      ? [selectedBrowseScene]
+      : browseScenes
+    : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -64,13 +79,7 @@ const galleryShots =
         { name: "dark-1280", theme: "dark", width: 1280 },
         { name: "light-700", theme: "light", width: 700 },
       ];
-const noticeOnly = surface === "browse" && process.argv[4] === "notice";
-const shots = noticeOnly
-  ? [
-      { name: "notice-light-1280", theme: "light", width: 1280 },
-      { name: "notice-light-700", theme: "light", width: 700 },
-    ]
-  : galleryShots;
+const shots = galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -260,8 +269,13 @@ async function open(session, base, theme, width, scene, query = "") {
       throw new Error(
         "The scan lanes were not drawn for " + (scene ?? "three lanes"),
       );
-  } else if ((await session.run(drawn, ready, count)) !== count) {
-    throw new Error("The " + surface + " surface was not drawn");
+  } else {
+    const expected =
+      surface === "browse" && scene === "scan-status" ? 6 : count;
+    if ((await session.run(drawn, ready, expected)) !== expected)
+      throw new Error(
+        "The " + surface + " surface was not drawn for " + (scene ?? "default"),
+      );
   }
 }
 
@@ -300,7 +314,7 @@ async function openDatePickerCalendar(session) {
 }
 
 /** Saves the whole page, or with `viewport` only what the window shows. */
-async function save(session, name, viewport = false) {
+async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
   const options = { format: "png" };
   if (!viewport) {
@@ -317,7 +331,12 @@ async function save(session, name, viewport = false) {
   const { data } = await session.send("Page.captureScreenshot", options);
   const file = join(
     output,
-    "gallery-" + surface + "-browser-ko-" + name + ".png",
+    "gallery-" +
+      surface +
+      (scene ? "-" + scene : "") +
+      "-browser-ko-" +
+      name +
+      ".png",
   );
   await writeFile(file, Buffer.from(data, "base64"));
   console.log(file);
@@ -361,44 +380,34 @@ const { browser, port } = await launch(profile);
 try {
   const session = await page(port);
   await session.send("Page.enable");
-  for (const shot of shots) {
-    await open(
-      session,
-      base,
-      shot.theme,
-      shot.width,
-      undefined,
-      noticeOnly ? "&notice=1" : "",
-    );
-    if (surface === "scan-lanes") await saveLanes(session, shot.name);
-    else await save(session, shot.name);
+  for (const scene of captureScenes) {
+    for (const shot of shots) {
+      await open(session, base, shot.theme, shot.width, scene);
+      if (surface === "scan-lanes") await saveLanes(session, shot.name);
+      else await save(session, shot.name, false, scene);
+    }
   }
   if (surface === "scan-lanes") {
     await open(session, base, "light", 1280);
-    const expanded = await session.run(function expandLastLane() {
+    const expanded = await session.run(function expandPriorityLane() {
       const rows = document.querySelectorAll(
         ".du-scan-lanes .du-data-table tbody tr",
       );
-      const button = rows[2]?.querySelector(
+      const button = rows[1]?.querySelector(
         "td:first-child button[aria-expanded='false']",
       );
       button?.click();
       return Boolean(button);
     });
-    if (!expanded)
-      throw new Error("The unconfirmed lane row was not available");
+    if (!expanded) throw new Error("The priority lane row was not available");
     await session.run(
       drawn,
-      ".du-scan-lanes .du-data-table tbody tr:nth-child(3) td:first-child .du-detail-disclosure__content",
+      ".du-scan-lanes .du-data-table tbody tr:nth-child(2) td:first-child .du-detail-disclosure__content",
       1,
     );
     await saveLanes(session, "light-1280-expanded");
     await open(session, base, "light", 1280, "one-lane");
     await saveLanes(session, "light-1280-one-lane");
-  }
-  if (surface === "browse" && !noticeOnly) {
-    await open(session, base, "light", 1280, undefined, "&notice=1");
-    await save(session, "notice-light-1280");
   }
   if (surface === "date-picker") {
     await open(session, base, "light", 1280);

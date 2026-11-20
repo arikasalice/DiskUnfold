@@ -11,7 +11,9 @@ use du_core_contracts::{
         OpenedScopeRoot, ScopeRootPort,
     },
 };
-use du_job_runtime::{FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobRuntime};
+use du_job_runtime::{
+    FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobLaneStatusEvent, JobRuntime,
+};
 use std::{
     sync::{Arc, Mutex, mpsc},
     time::Duration,
@@ -48,7 +50,10 @@ impl JobHistory for History {
     }
 }
 
-struct Events(mpsc::Sender<JobEvent>);
+struct Events {
+    jobs: mpsc::Sender<JobEvent>,
+    lane_status: mpsc::Sender<JobLaneStatusEvent>,
+}
 
 impl JobEvents for Events {
     fn publish(&self, event: JobEvent) {
@@ -56,8 +61,12 @@ impl JobEvents for Events {
             event,
             JobEvent::Finished { .. } | JobEvent::ResultVersionChanged(_)
         ) {
-            let _ = self.0.send(event);
+            let _ = self.jobs.send(event);
         }
+    }
+
+    fn publish_lane_status(&self, event: JobLaneStatusEvent) {
+        let _ = self.lane_status.send(event);
     }
 }
 
@@ -68,6 +77,7 @@ struct ScanHarness {
     roots: Arc<Roots>,
     release: mpsc::Sender<()>,
     terminal: mpsc::Receiver<JobEvent>,
+    lane_status: mpsc::Receiver<JobLaneStatusEvent>,
     versions: du_analysis_index::IngestSink,
     completed_scans: crate::desktop::CompletedScanSource,
     scan_events: Arc<crate::desktop::scan_completion::ScanEvents>,

@@ -39,6 +39,7 @@
   {
     "feature": "F05",
     "title": "폴더·파일 탐색",
+    "reviewScenes": ["browse"],
     "primarySurface": "workspace",
     "sourceDldRevision": 72,
     "sourceStatus": "published",

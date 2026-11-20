@@ -30,6 +30,13 @@ pub(super) fn worker_test_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+pub(super) fn test_item_ref(item_no: u32) -> ItemRef {
+    ItemRef {
+        result_version: Id::from_v7_bytes([0xF0; 16]),
+        item_no,
+    }
+}
+
 struct Ids(AtomicUsize);
 impl ResultIds for Ids {
     fn next_id(&self) -> Id {

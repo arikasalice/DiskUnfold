@@ -78,6 +78,18 @@ fn lane(report: &LaneStatusReport, index: usize) -> Option<&LaneReport> {
     report.lanes.get(index)
 }
 
+fn assert_priority_lane(
+    report: &LaneStatusReport,
+    index: usize,
+    item_ref: Option<&du_core_contracts::ItemRef>,
+    remaining: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let lane = lane(report, index).ok_or("missing lane")?;
+    assert_eq!(lane.priority_area.as_ref(), item_ref);
+    assert_eq!(lane.remaining_prioritized_directories.as_deref(), remaining);
+    Ok(())
+}
+
 #[test]
 fn a_lane_blocked_in_an_os_call_reports_a_confirmed_io_wait_and_ends_idle()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -165,5 +177,79 @@ fn a_lane_blocked_in_an_os_call_reports_a_confirmed_io_wait_and_ends_idle()
         assert_eq!((lane.in_flight, lane.remaining_directories), (0, 0));
         assert_eq!((lane.wait, lane.wait_confirmed), (LaneWait::None, true));
     }
+    Ok(())
+}
+
+#[test]
+fn priority_status_follows_its_lane_replacement_completion_and_job_end()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut outstanding = queue::OutstandingPaths::new(2);
+    let area_a = vec![b"A".to_vec()];
+    let area_b = vec![b"B".to_vec()];
+    let item_a = test_item_ref(1);
+    let item_b = test_item_ref(2);
+    let child_b = vec![b"B".to_vec(), b"child".to_vec()];
+    assert!(outstanding.register(0, &area_a));
+    assert!(outstanding.register(0, &area_b));
+    assert!(outstanding.register(0, &child_b));
+    let mut queue = Queue::for_test(vec![0, 1], 1);
+    queue.outstanding = Some(outstanding);
+    let shared = Shared::for_test(queue, true);
+    let session = Arc::new(ScanControlSession::new(2));
+    session.attach(&shared.queue, &shared.wake);
+    let control = session.handle();
+
+    assert_eq!(
+        control.prioritize(0, area_a.clone(), item_a.clone()),
+        Ok(crate::scan::ScanPriorityOutcome::Accepted {
+            remaining_directories: 1
+        })
+    );
+    let first = shared.lane_report().ok_or("no initial lane report")?;
+    assert_priority_lane(&first, 0, Some(&item_a), Some("1"))?;
+    assert_priority_lane(&first, 1, None, None)?;
+
+    assert_eq!(
+        control.prioritize(0, area_b.clone(), item_b.clone()),
+        Ok(crate::scan::ScanPriorityOutcome::Accepted {
+            remaining_directories: 2
+        })
+    );
+    let replaced = shared.lane_report().ok_or("no replacement lane report")?;
+    assert_priority_lane(&replaced, 0, Some(&item_b), Some("2"))?;
+
+    {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
+        assert!(queue.complete_path(0, &area_b));
+    }
+    let partial = shared.lane_report().ok_or("no partial lane report")?;
+    assert_priority_lane(&partial, 0, Some(&item_b), Some("1"))?;
+    {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
+        assert!(queue.complete_path(0, &child_b));
+    }
+    let completed = shared.lane_report().ok_or("no completed lane report")?;
+    assert_priority_lane(&completed, 0, None, None)?;
+
+    let ending_area = vec![b"ending".to_vec()];
+    {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
+        let outstanding = queue
+            .outstanding
+            .as_mut()
+            .ok_or("priority path tracking is disabled")?;
+        assert!(outstanding.register(0, &ending_area));
+    }
+    assert!(matches!(
+        control.prioritize(0, ending_area, test_item_ref(3)),
+        Ok(crate::scan::ScanPriorityOutcome::Accepted { .. })
+    ));
+    {
+        let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
+        queue.clear_priority();
+    }
+    session.finish();
+    let ended = shared.lane_report().ok_or("no final lane report")?;
+    assert_priority_lane(&ended, 0, None, None)?;
     Ok(())
 }

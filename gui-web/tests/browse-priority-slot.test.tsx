@@ -125,6 +125,7 @@ test("F02 FR8.HD1: a folder the engine reports as its current area reads Analyzi
     showLatest: undefined,
     requested: () => true,
     status: () => "analyzing",
+    requestedArea: undefined,
     request: () => undefined,
     notice: undefined,
   };

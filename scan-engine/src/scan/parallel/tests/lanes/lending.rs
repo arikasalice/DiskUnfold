@@ -23,6 +23,7 @@ fn mark(queue: &mut Queue, area: Option<(u32, &[&str])>) {
     queue.priority = area.map(|(root_index, parts)| PriorityRegion {
         root_index,
         path: path(parts),
+        priority_area: test_item_ref(1),
     });
     queue.reclassify(previous);
 }
@@ -311,7 +312,7 @@ fn a_stalled_marked_lane_never_takes_the_last_worker_of_another_lane() -> Result
     let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, 4, context);
     stall.until(|state| state.entered >= 1)?;
     hold.until(|state| state.entered >= 1)?;
-    let outcome = handle.prioritize(0, Vec::new());
+    let outcome = handle.prioritize(0, Vec::new(), test_item_ref(2));
     assert!(
         matches!(outcome, Ok(ScanPriorityOutcome::Accepted { .. })),
         "{outcome:?}"

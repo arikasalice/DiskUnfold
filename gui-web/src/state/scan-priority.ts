@@ -3,6 +3,7 @@ import { scanPriorityFailure } from "../ipc";
 import type {
   AnalysisClient,
   ItemRef,
+  ScanLaneStatus,
   ScanPriorityAnnouncement,
   ScanPriorityOutcome,
 } from "../ipc";
@@ -19,7 +20,55 @@ export type ScanPriorityContext = {
   resultVersion: string;
   scanning?: boolean;
   paused?: boolean;
+  laneStatus?: ScanLaneStatus | undefined;
 };
+
+function sameLanePriorities(
+  left: ScanLaneStatus | undefined,
+  right: ScanLaneStatus | undefined,
+) {
+  if (!left || !right) return left === right;
+  return (
+    left.lanes.length === right.lanes.length &&
+    left.lanes.every((lane, index) => {
+      const other = right.lanes[index];
+      if (!other || lane.laneIndex !== other.laneIndex) return false;
+      const area = lane.priorityArea;
+      const otherArea = other.priorityArea;
+      return area === undefined
+        ? otherArea === undefined
+        : otherArea !== undefined &&
+            area.resultVersion === otherArea.resultVersion &&
+            area.itemNo === otherArea.itemNo;
+    })
+  );
+}
+
+function sameScanPriorityContext(
+  left: ScanPriorityContext,
+  right: ScanPriorityContext,
+) {
+  return (
+    left.jobRef === right.jobRef &&
+    left.resultVersion === right.resultVersion &&
+    left.scanning === right.scanning &&
+    left.paused === right.paused &&
+    sameLanePriorities(left.laneStatus, right.laneStatus)
+  );
+}
+
+/** Keeps the host's scan context stable when lane progress changes without changing priority. */
+export function useScanPriorityContext() {
+  const [context, setContextState] = useState<ScanPriorityContext>();
+  const setContext = useCallback((next: ScanPriorityContext | undefined) => {
+    setContextState((current) =>
+      next && current && sameScanPriorityContext(current, next)
+        ? current
+        : next,
+    );
+  }, []);
+  return [context, setContext] as const;
+}
 
 /**
  * The result a folder list shows, named with the scan that published it, and
@@ -51,15 +100,19 @@ export type ScanPriorityNotice = ScanPriorityAnnouncement & {
 /**
  * How a folder's "Analyze first" request is shown on its row.
  *
- * Only "requested" is produced for now, whether or not a response confirmed
- * the folder as the applied area. The engine releases the area by itself once
- * no work remains under the folder, and the window has no way to learn that
- * until IF-08 scan.lane_status reports the current area, so "analyzing" could
- * still be shown for a folder whose collection has finished. "analyzing" and
- * its row text are kept so IF-08 can bring them back while the engine reports
- * the folder as its current area.
+ * "requested" remains until IF-08 reports the same ItemRef in a lane;
+ * "analyzing" lasts only while that report is current. If the status stream is
+ * cleared, the request remains marked until a later lane report confirms it
+ * ended or one of the existing release rules removes it.
  */
 export type ScanPriorityStatus = "requested" | "analyzing";
+
+/** The GUI's retained name for its current priority request. */
+export type ScanPriorityArea = {
+  jobRef: string;
+  item: ItemRef;
+  name: string;
+};
 
 /** The "scan first" view state offered to a folder list. */
 export type ScanPriority = {
@@ -82,6 +135,8 @@ export type ScanPriority = {
   requested: (item: ItemRef) => boolean;
   /** The request state shown for this item, if it is the requested folder. */
   status: (item: ItemRef) => ScanPriorityStatus | undefined;
+  /** The request identity and name used by the per-storage progress panel. */
+  requestedArea: ScanPriorityArea | undefined;
   request: (item: ItemRef, name: string) => void;
   notice: ScanPriorityNotice | undefined;
 };
@@ -99,7 +154,10 @@ type Request = {
  * `pending` is unanswered, `received` was accepted without naming the folder
  * as the applied area and `applied` names it as that area.
  */
-type Marked = Request & { state: "pending" | "received" | "applied" };
+type Marked = Request & {
+  state: "pending" | "received" | "applied";
+  reportedLane?: number;
+};
 
 function sameItem(left: ItemRef, right: ItemRef): boolean {
   return (
@@ -154,11 +212,12 @@ function newerResult(
  * result (F02 FR8.HD1, HLD IF-03).
  *
  * The row is marked as requested before the response. "accepted" only confirms
- * receipt; the engine applies the area from its next assignment. The row reads
- * "requested" even after a response names the folder as the applied area (see
- * {@link ScanPriorityStatus}). The mark moves to a newly requested folder,
- * stays while the scan is paused and goes away once the scan ends, when the
- * host passes no context.
+ * receipt; the engine applies the area from its next assignment. The row
+ * reads "requested" until IF-08 reports the same ItemRef, then reads
+ * "analyzing" only while that report is current. The mark moves to a newly
+ * requested folder, stays while the scan is paused and goes away once the
+ * scan ends, when the host passes no context, or when IF-08 reports that the
+ * previously active area has ended.
  *
  * One rule decides when a folder can be requested again. While its request is
  * unanswered, or after a response named it as the applied area, it is not sent
@@ -211,12 +270,19 @@ export function useScanPriority(
   const resultVersion = context?.resultVersion;
   const scanning = context?.scanning === true;
   const paused = !scanning && context?.paused === true;
+  const laneStatus = context?.laneStatus;
   useEffect(() => {
     current.current =
       jobRef && resultVersion
-        ? { jobRef, resultVersion, scanning, paused }
+        ? {
+            jobRef,
+            resultVersion,
+            scanning,
+            paused,
+            ...(laneStatus ? { laneStatus } : {}),
+          }
         : undefined;
-  }, [jobRef, resultVersion, scanning, paused]);
+  }, [jobRef, resultVersion, scanning, paused, laneStatus]);
 
   const mark = useCallback((next: Marked | undefined) => {
     shown.current = next;
@@ -278,11 +344,30 @@ export function useScanPriority(
       mark(undefined);
   }, [resultVersion, mark]);
 
+  useEffect(() => {
+    const now = shown.current;
+    if (!now || now.jobRef !== jobRef || !laneStatus) return;
+    const reporting = laneStatus.lanes.find((lane) =>
+      lane.priorityArea ? sameItem(lane.priorityArea, now.item) : false,
+    );
+    if (reporting) {
+      if (now.state !== "applied" || now.reportedLane !== reporting.laneIndex)
+        mark({ ...now, state: "applied", reportedLane: reporting.laneIndex });
+    } else if (
+      now.reportedLane !== undefined &&
+      laneStatus.lanes.some((lane) => lane.laneIndex === now.reportedLane)
+    ) {
+      // A previously reported area disappearing from its lane means it ended.
+      mark(undefined);
+    }
+  }, [jobRef, laneStatus, mark]);
+
   /** Updates the mark only if it still belongs to this request. */
   const remark = useCallback(
     (owner: Request, state: Marked["state"] | undefined) => {
       const now = shown.current;
       if (now?.seq !== owner.seq) return;
+      if (now.state === "applied" && state !== "applied") return;
       mark(state === undefined ? undefined : { ...now, state });
     },
     [mark],
@@ -335,6 +420,12 @@ export function useScanPriority(
     marked !== undefined &&
     marked.jobRef === jobRef &&
     sameItem(marked.item, item);
+  const requestedArea =
+    marked !== undefined &&
+    marked.jobRef === jobRef &&
+    marked.item.resultVersion === resultVersion
+      ? { jobRef: marked.jobRef, item: marked.item, name: marked.name }
+      : undefined;
   return {
     canRequest: (item) =>
       client !== undefined &&
@@ -342,8 +433,15 @@ export function useScanPriority(
       item.resultVersion === resultVersion,
     ...newerResult(client, context, view),
     requested: (item) => mine(item) && marked?.state !== "received",
-    // "analyzing" waits for IF-08; see ScanPriorityStatus.
-    status: (item) => (mine(item) ? "requested" : undefined),
+    status: (item) =>
+      mine(item)
+        ? laneStatus?.lanes.some((lane) =>
+            lane.priorityArea ? sameItem(lane.priorityArea, item) : false,
+          )
+          ? "analyzing"
+          : "requested"
+        : undefined,
+    requestedArea,
     request,
     // An ended scan leaves no current job and still announces its outcome.
     notice:

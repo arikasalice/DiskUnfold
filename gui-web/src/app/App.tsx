@@ -34,8 +34,11 @@ import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasDesktopAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
-import { useScanPriority } from "../state/scan-priority";
-import type { ScanPriority, ScanPriorityContext } from "../state/scan-priority";
+import {
+  type ScanPriority,
+  useScanPriority,
+  useScanPriorityContext,
+} from "../state/scan-priority";
 import {
   browseOpener,
   priorityView,
@@ -57,7 +60,6 @@ import { useVisualizationOffer } from "./browse-visualization-offer";
 
 const desktop = createAnalysisClient();
 
-/** The analysis target screen shows when nothing else owns the main area. */
 function analysisVisible(screen: {
   connected: boolean;
   history: boolean;
@@ -118,7 +120,7 @@ export function App({
     basis: SizeBasisFilter;
   }>();
   const [visualizationOpen, setVisualizationOpen] = useState(false);
-  const [scanContext, setScanContext] = useState<ScanPriorityContext>();
+  const [scanContext, setScanContext] = useScanPriorityContext();
   const flow = useSampleFlow(client);
   const { sampleOpen, analysisKey, analysisSlot } = flow;
   const { version: browseVersion, choice: browseChoice } = browse;
@@ -312,6 +314,7 @@ export function App({
             }
             browseTrigger={browseTrigger}
             onScanContext={setScanContext}
+            priorityArea={priority.requestedArea}
             startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>

@@ -1,6 +1,12 @@
 //! The body of one metadata collection: preparation, workers and the publisher.
 use super::*;
 
+fn clear_priority(shared: &Shared) {
+    if let Ok(mut queue) = shared.queue.lock() {
+        queue.clear_priority();
+    }
+}
+
 pub(super) fn run(
     mut build: BuildHandle,
     roots: Vec<Box<dyn AnchoredDirectory>>,
@@ -99,6 +105,7 @@ pub(super) fn run(
             failure = Some(error);
             shared.abort(context);
         }
+        clear_priority(&shared);
     });
     // Preserve the peak after workers stop, including failure and cancellation.
     queue::record_ready_peak(&shared, diagnostics);

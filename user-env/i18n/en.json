@@ -300,6 +300,7 @@
     ["ui.analysis.lanes_wait_unconfirmed", "Wait cause · Not confirmed", []],
     ["ui.analysis.lanes_idle_announcement", "All storage reads have stopped.", []],
     ["ui.analysis.lanes_root_unavailable", "Scope path unavailable", []],
+    ["ui.analysis.lanes_priority_area", "Analyzing first: {name}", [["name","name"]]],
     ["ui.analysis.result_heading", "Analysis result", []],
     ["ui.analysis.progress_heading", "Scan progress", []],
     ["ui.analysis.waiting_cancel", "Waiting for cancellation", []],

@@ -86,6 +86,8 @@ fn lane_status_envelope(event: JobLaneStatusEvent) -> Option<EventEnvelope> {
                 mode: lane.mode,
                 permit: lane.permit,
                 strategy: lane.strategy,
+                priority_area: lane.priority_area,
+                remaining_prioritized_directories: lane.remaining_prioritized_directories,
                 wait_reason: match lane.wait {
                     LaneWait::IoWait => ScanLaneWait::IoWait,
                     LaneWait::Backpressure => ScanLaneWait::Backpressure,

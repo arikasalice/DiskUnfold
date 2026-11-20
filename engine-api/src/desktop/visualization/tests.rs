@@ -403,24 +403,6 @@ fn a_child_list_without_any_size_value_is_missing_item_sizes() -> TestResult {
 }
 
 #[test]
-fn a_classification_criterion_without_a_rule_table_is_an_invalid_argument() -> TestResult {
-    let harness = Harness::product(2000)?;
-    harness.publish(&two_files(3))?;
-    let view = harness.open_view()?;
-    for (seq, format) in (1..).zip(["treemap", "bar", "histogram"]) {
-        let mut body = render_body(&view, seq, format, 3);
-        body["classificationCriterion"] = json!("type");
-        let error = harness
-            .call("viz.render", body)
-            .error
-            .ok_or("a render with an unserved criterion succeeded")?;
-        assert_eq!(error.reason_key, "viz.measure_unknown", "{format}");
-        assert_eq!(error.code, ErrorCode::InvalidArgument, "{format}");
-    }
-    Ok(())
-}
-
-#[test]
 fn the_classification_criterion_is_a_required_request_field() -> TestResult {
     let harness = Harness::product(2000)?;
     harness.publish(&two_files(3))?;
@@ -435,5 +417,23 @@ fn the_classification_criterion_is_a_required_request_field() -> TestResult {
         .ok_or("a render without a classification criterion succeeded")?;
     assert_eq!(error.reason_key, "command.body_invalid");
     assert_eq!(error.code, ErrorCode::InvalidArgument);
+    Ok(())
+}
+
+#[test]
+fn a_classification_criterion_without_a_rule_table_is_an_invalid_argument() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&two_files(3))?;
+    let view = harness.open_view()?;
+    for (seq, format) in (1..).zip(["treemap", "bar", "histogram"]) {
+        let mut body = render_body(&view, seq, format, 3);
+        body["classificationCriterion"] = json!("type");
+        let error = harness
+            .call("viz.render", body)
+            .error
+            .ok_or("a render with an unserved criterion succeeded")?;
+        assert_eq!(error.reason_key, "viz.measure_unknown", "{format}");
+        assert_eq!(error.code, ErrorCode::InvalidArgument, "{format}");
+    }
     Ok(())
 }

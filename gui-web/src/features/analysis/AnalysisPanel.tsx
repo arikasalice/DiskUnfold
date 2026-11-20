@@ -25,7 +25,10 @@ import type {
   ScopeReview,
 } from "../../ipc";
 import { useScanResult } from "../../state/analysis-scan";
-import type { ScanPriorityContext } from "../../state/scan-priority";
+import type {
+  ScanPriorityArea,
+  ScanPriorityContext,
+} from "../../state/scan-priority";
 import { useTargets } from "../../state/analysis-targets";
 import {
   ResultActions,
@@ -151,6 +154,7 @@ export function AnalysisPanel({
   onSizeBasisChange,
   browseTrigger,
   onScanContext,
+  priorityArea,
   startAlternative,
 }: {
   client: AnalysisClient;
@@ -169,6 +173,8 @@ export function AnalysisPanel({
   browseTrigger?: RefObject<HTMLButtonElement | null>;
   /** Reports the running scan this panel started and its newest partial result. */
   onScanContext?: (context: ScanPriorityContext | undefined) => void;
+  /** The folder name retained by this GUI for its priority request. */
+  priorityArea?: ScanPriorityArea | undefined;
   /** Another way to begin, such as the sample experience, offered before a scan starts. */
   startAlternative?: ReactNode;
 }) {
@@ -230,10 +236,23 @@ export function AnalysisPanel({
   useEffect(() => {
     onScanContext?.(
       scanJob && priorityVersion
-        ? { jobRef: scanJob, resultVersion: priorityVersion, scanning, paused }
+        ? {
+            jobRef: scanJob,
+            resultVersion: priorityVersion,
+            scanning,
+            paused,
+            ...(scan.laneStatus ? { laneStatus: scan.laneStatus } : {}),
+          }
         : undefined,
     );
-  }, [onScanContext, scanJob, priorityVersion, scanning, paused]);
+  }, [
+    onScanContext,
+    scanJob,
+    priorityVersion,
+    scanning,
+    paused,
+    scan.laneStatus,
+  ]);
   // A panel that goes away no longer offers its scan to "Analyze first".
   useEffect(() => () => onScanContext?.(undefined), [onScanContext]);
   const restoredIsCurrent = restoredInput?.revision === editRevision.current;
@@ -753,6 +772,7 @@ export function AnalysisPanel({
               running={running}
               problem={error}
               roots={resultRoots}
+              priorityArea={priorityArea}
               exclusions={resultExclusions}
               actions={
                 <ResultActions

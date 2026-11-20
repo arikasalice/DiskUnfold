@@ -334,7 +334,7 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
         lineage,
     } = scan_fixture()?;
     assert_eq!(
-        handle.prioritize(0, vec![native("B")]),
+        handle.prioritize(0, vec![native("B")], test_item_ref(1)),
         Err(ScanControlError::NotActive)
     );
     let worker_context = context.clone();
@@ -348,11 +348,11 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
     assert_eq!(area.version.scope_version_id(), &scope);
     assert_eq!(area.version.lineage_id(), Some(&lineage));
     assert_eq!(
-        handle.prioritize(1, area.components.clone()),
+        handle.prioritize(1, area.components.clone(), test_item_ref(2)),
         Err(ScanControlError::OutOfScope)
     );
     let accepted = handle
-        .prioritize(0, area.components.clone())
+        .prioritize(0, area.components.clone(), area.item.clone())
         .map_err(|error| format!("prioritize region: {error:?}"))?;
     assert_eq!(
         accepted,
@@ -362,7 +362,7 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
     );
     assert_eq!(
         handle
-            .prioritize(0, area.components.clone())
+            .prioritize(0, area.components.clone(), area.item.clone())
             .map_err(|error| format!("repeat priority: {error:?}"))?,
         ScanPriorityOutcome::NoEffect {
             same_region: true,
@@ -375,7 +375,7 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
     visit_entered.recv_timeout(Duration::from_secs(5))?;
     assert_eq!(
         handle
-            .prioritize(0, area.components.clone())
+            .prioritize(0, area.components.clone(), area.item.clone())
             .map_err(|error| format!("completed area request: {error:?}"))?,
         ScanPriorityOutcome::NoEffect {
             same_region: false,
@@ -387,7 +387,7 @@ fn live_priority_reorders_existing_work_from_the_current_partial_result() -> Res
     let outcome = worker.join().map_err(|_| "scan worker panicked")?;
     assert!(outcome.completed_scope);
     assert_eq!(
-        handle.prioritize(0, area.components.clone()),
+        handle.prioritize(0, area.components.clone(), area.item.clone()),
         Err(ScanControlError::AlreadyTerminal)
     );
     assert_eq!(area.item.result_version, area.version.version_id().clone());
@@ -412,7 +412,7 @@ fn cancellation_releases_the_job_bound_priority_handle() -> Result<(), TestError
     let area = pinned_area(&store)?;
     assert!(matches!(
         handle
-            .prioritize(0, area.components.clone())
+            .prioritize(0, area.components.clone(), area.item.clone())
             .map_err(|error| format!("prioritize region: {error:?}"))?,
         ScanPriorityOutcome::Accepted { .. }
     ));
@@ -421,7 +421,7 @@ fn cancellation_releases_the_job_bound_priority_handle() -> Result<(), TestError
     let outcome = worker.join().map_err(|_| "scan worker panicked")?;
     assert!(!outcome.completed_scope);
     assert_eq!(
-        handle.prioritize(0, area.components.clone()),
+        handle.prioritize(0, area.components.clone(), area.item.clone()),
         Err(ScanControlError::AlreadyTerminal)
     );
     Ok(())

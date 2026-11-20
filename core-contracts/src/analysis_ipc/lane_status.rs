@@ -1,5 +1,5 @@
 //! The F02 `scan.lane_status` event body (HLD IF-08).
-use crate::Timestamp;
+use crate::{ItemRef, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use super::{ScanLaneStrategy, ScanResourceMode};
@@ -55,6 +55,18 @@ pub struct ScanLane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub strategy: Option<ScanLaneStrategy>,
+    /// The same `ItemRef` the GUI sent to `scan.prioritize` and the engine
+    /// returned as `appliedPriorityArea`; it carries no path or name and is
+    /// omitted when this lane has no priority area. It remains present while
+    /// the engine keeps the region, even at zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub priority_area: Option<ItemRef>,
+    /// Known directories in `priority_area` not read to their end, decimal.
+    /// Zero alone does not release the region.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub remaining_prioritized_directories: Option<String>,
     /// The wait cause; not to be used when `wait_confirmed` is false.
     pub wait_reason: ScanLaneWait,
     pub wait_confirmed: bool,
@@ -88,4 +100,75 @@ pub struct ScanLaneStatus {
     pub lane_count: Option<String>,
     /// UTC time at which the runtime observed this value.
     pub observed_at: Timestamp,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+
+    fn lane(priority_area: Option<ItemRef>, remaining: Option<&str>) -> ScanLane {
+        ScanLane {
+            lane_index: 0,
+            root_indexes: vec![0],
+            root_count: None,
+            in_flight: 0,
+            limit: 1,
+            mode: None,
+            permit: None,
+            strategy: None,
+            priority_area,
+            remaining_prioritized_directories: remaining.map(str::to_owned),
+            wait_reason: ScanLaneWait::None,
+            wait_confirmed: true,
+            remaining_directories: "0".into(),
+            failures: "0".into(),
+        }
+    }
+
+    fn status(lane: ScanLane) -> Result<ScanLaneStatus, Box<dyn Error>> {
+        Ok(ScanLaneStatus {
+            sequence: 1,
+            lanes: vec![lane],
+            lane_count: None,
+            observed_at: Timestamp::from_unix_millis(0).ok_or("invalid timestamp")?,
+        })
+    }
+
+    #[test]
+    fn lane_status_round_trips_priority_fields_verbatim_and_omits_them_when_absent()
+    -> Result<(), Box<dyn Error>> {
+        let item_ref = ItemRef {
+            result_version: crate::Id::from_v7_bytes([1; 16]),
+            item_no: 7,
+        };
+        let active = status(lane(Some(item_ref.clone()), Some("27")))?;
+        let active_json = serde_json::to_value(&active)?;
+        assert_eq!(
+            active_json["lanes"][0]["priorityArea"],
+            serde_json::to_value(&item_ref)?
+        );
+        assert_eq!(
+            active_json["lanes"][0]["remainingPrioritizedDirectories"],
+            "27"
+        );
+        assert_eq!(
+            serde_json::from_value::<ScanLaneStatus>(active_json)?,
+            active
+        );
+
+        let inactive = status(lane(None, None))?;
+        let inactive_json = serde_json::to_value(&inactive)?;
+        assert!(inactive_json["lanes"][0].get("priorityArea").is_none());
+        assert!(
+            inactive_json["lanes"][0]
+                .get("remainingPrioritizedDirectories")
+                .is_none()
+        );
+        assert_eq!(
+            serde_json::from_value::<ScanLaneStatus>(inactive_json)?,
+            inactive
+        );
+        Ok(())
+    }
 }

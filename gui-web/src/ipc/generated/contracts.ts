@@ -1257,6 +1257,18 @@ permit?: number,
  */
 strategy?: ScanLaneStrategy,
 /**
+ * The same `ItemRef` the GUI sent to `scan.prioritize` and the engine
+ * returned as `appliedPriorityArea`; it carries no path or name and is
+ * omitted when this lane has no priority area. It remains present while
+ * the engine keeps the region, even at zero.
+ */
+priorityArea?: ItemRef,
+/**
+ * Known directories in `priority_area` not read to their end, decimal.
+ * Zero alone does not release the region.
+ */
+remainingPrioritizedDirectories?: string,
+/**
  * The wait cause; not to be used when `wait_confirmed` is false.
  */
 waitReason: ScanLaneWait, waitConfirmed: boolean,

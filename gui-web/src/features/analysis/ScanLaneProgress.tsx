@@ -10,7 +10,8 @@ import {
 import type { LocaleText } from "../../i18n/presentation";
 import { useLocaleText } from "../../i18n/presentation";
 import { displayInteger, useRegionalFormat } from "../../i18n/regional-format";
-import type { OsPath, ScanLane, ScanLaneStatus } from "../../ipc";
+import type { ItemRef, OsPath, ScanLane, ScanLaneStatus } from "../../ipc";
+import type { ScanPriorityArea } from "../../state/scan-priority";
 import "../../theme/scan-lanes.css";
 
 const ROW_INTERVAL_MS = 1_000;
@@ -133,42 +134,82 @@ function folderCount(lane: ScanLane, text: LocaleText) {
       });
 }
 
-function rootTitle(lane: ScanLane, roots: readonly OsPath[], text: LocaleText) {
+function priorityName(
+  lane: ScanLane,
+  jobRef: string,
+  requested: ScanPriorityArea | undefined,
+) {
+  const area = lane.priorityArea;
+  return requested?.jobRef === jobRef && area && sameItem(area, requested.item)
+    ? requested.name
+    : undefined;
+}
+
+function sameItem(left: ItemRef, right: ItemRef) {
+  return (
+    left.resultVersion === right.resultVersion && left.itemNo === right.itemNo
+  );
+}
+
+function priorityText(name: string | undefined, text: LocaleText) {
+  return name
+    ? text("ui.analysis.lanes_priority_area", "Analyzing first: {name}", {
+        name,
+      })
+    : undefined;
+}
+
+function rootTitle(
+  lane: ScanLane,
+  roots: readonly OsPath[],
+  text: LocaleText,
+  name: string | undefined,
+) {
   const rootIndex = lane.rootIndexes[0];
   const path = rootIndex === undefined ? undefined : roots[rootIndex]?.display;
   const total = BigInt(lane.rootCount ?? String(lane.rootIndexes.length));
   const otherRoots = total > 0n ? total - 1n : 0n;
+  const areaLabel = priorityText(name, text);
   return (
     <div className="du-scan-lane__root-title">
-      {path ? (
-        <div className="du-scan-lane__path">
-          <MiddleEllipsisText text={path} cell />
-        </div>
-      ) : (
-        <div>
-          {text("ui.analysis.lanes_root_unavailable", "Scope path unavailable")}
-        </div>
-      )}
-      {otherRoots > 0n && (
-        <div className="du-scan-lane__more">
-          {text("ui.analysis.lanes_and_more", "and {count} more", {
-            count: otherRoots,
-          })}
-        </div>
-      )}
+      <div className="du-scan-lane__root-line">
+        {path ? (
+          <div className="du-scan-lane__path">
+            <MiddleEllipsisText text={path} cell />
+          </div>
+        ) : (
+          <div>
+            {text(
+              "ui.analysis.lanes_root_unavailable",
+              "Scope path unavailable",
+            )}
+          </div>
+        )}
+        {otherRoots > 0n && (
+          <div className="du-scan-lane__more">
+            {text("ui.analysis.lanes_and_more", "and {count} more", {
+              count: otherRoots,
+            })}
+          </div>
+        )}
+      </div>
+      {areaLabel && <div className="du-scan-lane__priority">{areaLabel}</div>}
     </div>
   );
 }
 
 function laneCells(
   lane: ScanLane,
+  jobRef: string,
   roots: readonly OsPath[],
   text: LocaleText,
   regional: ReturnType<typeof useRegionalFormat>,
+  requested: ScanPriorityArea | undefined,
 ) {
   const failures = BigInt(lane.failures);
+  const name = priorityName(lane, jobRef, requested);
   return [
-    <DetailDisclosure key="storage" title={rootTitle(lane, roots, text)}>
+    <DetailDisclosure key="storage" title={rootTitle(lane, roots, text, name)}>
       <Text>
         {text(
           "ui.analysis.lanes_reads_detail",
@@ -201,10 +242,12 @@ export function ScanLaneProgress({
   jobRef,
   status,
   roots,
+  priorityArea,
 }: {
   jobRef: string;
   status: ScanLaneStatus;
   roots: readonly OsPath[];
+  priorityArea?: ScanPriorityArea | undefined;
 }) {
   const text = useLocaleText();
   const regional = useRegionalFormat();
@@ -241,11 +284,18 @@ export function ScanLaneProgress({
 
   if (rows.length === 0) return null;
   const totalLanes = BigInt(status.laneCount ?? String(rows.length));
+  const singlePriority = priorityText(
+    priorityName(rows[0]!, jobRef, priorityArea),
+    text,
+  );
   return (
     <div className="du-scan-lanes">
       {totalLanes === 1n ? (
         <div className="du-scan-lanes__single">
           {laneStatusText(rows[0]!, text)}
+          {singlePriority && (
+            <div className="du-scan-lane__priority">{singlePriority}</div>
+          )}
         </div>
       ) : (
         <DetailDisclosure
@@ -264,7 +314,9 @@ export function ScanLaneProgress({
             density="compact"
             flat
             getRowKey={(lane) => String(lane.laneIndex)}
-            renderCells={(lane) => laneCells(lane, roots, text, regional)}
+            renderCells={(lane) =>
+              laneCells(lane, jobRef, roots, text, regional, priorityArea)
+            }
           />
         </DetailDisclosure>
       )}
