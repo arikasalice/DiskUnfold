@@ -302,6 +302,7 @@ function ActiveCard({
         ) : (
           <JobProgress card={card} />
         )}
+        {feedback && <FeedbackLine feedback={feedback} />}
         <div className="du-job-center__state-line">
           {pending && <Text kind="muted">{pendingText(pending, text)}</Text>}
           <Action variant="quiet" onPress={onOpen}>
@@ -309,7 +310,6 @@ function ActiveCard({
           </Action>
         </div>
       </div>
-      {feedback && <FeedbackLine feedback={feedback} />}
     </article>
   );
 }
