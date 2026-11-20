@@ -136,12 +136,10 @@ fn enumerate_mask(
         mounts.push(VolumeMount {
             mount_path: bytes(&drive),
             display_path: String::from_utf16_lossy(&drive),
-            filesystem: Vec::new(),
-            mount_source: Vec::new(),
-            role: None,
-            topology: None,
             target_kind,
             volume_id,
+            // No file system, source, role, topology or listing evidence: listed (#263).
+            ..VolumeMount::default()
         });
     }
     mounts

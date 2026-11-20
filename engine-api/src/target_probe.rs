@@ -3,7 +3,7 @@ use du_core_contracts::{
     OsPath, PathBytes,
     analysis_ipc::AnalysisTarget,
     job::{Checkpoint, JobBody, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
-    volume::{Capability, CapabilityState, VolumePort},
+    volume::{Capability, CapabilityState, VolumeCapacity, VolumeMount, VolumePort},
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::{
@@ -31,16 +31,37 @@ pub(crate) struct TargetProbe {
     pub clock: Arc<dyn JobClock>,
 }
 
+/// The reason of a target that was deliberately not opened (F01 #266).
+pub(crate) const ACCESS_NOT_CHECKED: &str = "target.access_not_checked";
+
+/// What the mount listing itself said about a target, read without opening it.
+#[derive(Clone)]
+pub(crate) struct Listing {
+    local: Option<bool>,
+    capacity: Option<VolumeCapacity>,
+}
+
+impl Listing {
+    pub(crate) fn of(mount: &VolumeMount) -> Self {
+        Self {
+            local: mount.local,
+            capacity: mount.listed_capacity.clone(),
+        }
+    }
+}
+
 /// The path and confirmed identity from the same discovery observation.
 #[derive(Clone)]
 pub(crate) struct ProbeTarget {
     path: OsPath,
     volume_id: Option<Vec<u8>>,
+    listing: Listing,
 }
 
 impl ProbeTarget {
     pub(crate) fn from_discovery(
         target: &AnalysisTarget,
+        listing: &Listing,
     ) -> Result<Self, crate::error::EngineError> {
         let volume_id = target
             .volume_id
@@ -53,6 +74,7 @@ impl ProbeTarget {
         Ok(Self {
             path: target.path.clone(),
             volume_id,
+            listing: listing.clone(),
         })
     }
 }
@@ -84,6 +106,24 @@ fn observation(
     }
     if Instant::now() >= deadline {
         return unavailable("os.call_slow", AccessStatus::Unresponsive);
+    }
+    // A volume that is not local is opened only when the user selects it: opening it
+    // here would raise an OS permission prompt for a volume nobody chose (F01 #266).
+    // The listing's capacity is reported as it is, marked as not aggregated by us.
+    if target.listing.local == Some(false) {
+        return ProbeResult {
+            access: AccessResult {
+                status: AccessStatus::Unknown,
+                reason: Some(ACCESS_NOT_CHECKED.into()),
+            },
+            capacity: target
+                .listing
+                .capacity
+                .clone()
+                .ok_or_else(|| ACCESS_NOT_CHECKED.into()),
+            aggregation_uncertain: true,
+            observed_at: None,
+        };
     }
     if path_access.state == CapabilityState::Unsupported {
         return unavailable(

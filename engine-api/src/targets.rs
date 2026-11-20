@@ -108,44 +108,49 @@ impl UseCase for List {
         let path_access = observation.capabilities.path_access.clone();
         let identity_supported =
             observation.capabilities.identity.state != CapabilityState::Unsupported;
-        let (mut targets, unavailable_reason) = if observation.capabilities.enumerate.state
-            == CapabilityState::Unsupported
-        {
-            (
-                Vec::new(),
-                Some(
-                    observation
-                        .capabilities
-                        .enumerate
-                        .reason_key
-                        .unwrap_or("os.unsupported")
-                        .to_owned(),
-                ),
-            )
-        } else {
-            match observation.mounts {
-                Ok(mounts) => {
-                    let observed_mounts = !mounts.is_empty();
-                    let mut targets: Vec<_> = mounts
-                        .into_iter()
-                        .filter_map(|mount| target(mount, identity_supported))
-                        .collect();
-                    targets
-                        .sort_by_cached_key(|target| target.path.raw.bytes().unwrap_or_default());
-                    targets.dedup_by(|a, b| a.path == b.path);
-                    let reason = (observed_mounts && targets.is_empty())
-                        .then(|| "os.unsupported".to_owned());
-                    (targets, reason)
+        let (mut targets, unavailable_reason) =
+            if observation.capabilities.enumerate.state == CapabilityState::Unsupported {
+                (
+                    Vec::new(),
+                    Some(
+                        observation
+                            .capabilities
+                            .enumerate
+                            .reason_key
+                            .unwrap_or("os.unsupported")
+                            .to_owned(),
+                    ),
+                )
+            } else {
+                match observation.mounts {
+                    Ok(mounts) => {
+                        let observed_mounts = !mounts.is_empty();
+                        let mut targets: Vec<_> = mounts
+                            .into_iter()
+                            .filter_map(|mount| {
+                                let listing = crate::target_probe::Listing::of(&mount);
+                                target(mount, identity_supported).map(|target| (target, listing))
+                            })
+                            .collect();
+                        targets.sort_by_cached_key(|(target, _)| {
+                            target.path.raw.bytes().unwrap_or_default()
+                        });
+                        targets.dedup_by(|a, b| a.0.path == b.0.path);
+                        let reason = (observed_mounts && targets.is_empty())
+                            .then(|| "os.unsupported".to_owned());
+                        (targets, reason)
+                    }
+                    Err(error) => (Vec::new(), Some(error.reason_key)),
                 }
-                Err(error) => (Vec::new(), Some(error.reason_key)),
-            }
-        };
+            };
         let mut probe_job_ref = None;
         if !targets.is_empty() {
             let body = Arc::new(crate::target_probe::TargetProbe {
                 targets: targets
                     .iter()
-                    .map(crate::target_probe::ProbeTarget::from_discovery)
+                    .map(|(target, listing)| {
+                        crate::target_probe::ProbeTarget::from_discovery(target, listing)
+                    })
                     .collect::<Result<_, _>>()?,
                 volumes: self.volumes.clone(),
                 capacity,
@@ -165,7 +170,7 @@ impl UseCase for List {
             };
             match probe.workers.runtime.submit(submission) {
                 Ok(SubmitResult::Created(id)) => {
-                    for target in &mut targets {
+                    for (target, _) in &mut targets {
                         target.access = TargetAccess::Checking;
                     }
                     *previous = Some(id.clone());
@@ -173,7 +178,7 @@ impl UseCase for List {
                     probe.workers.notify();
                 }
                 Err(RuntimeError::QueueFull | RuntimeError::DeliveryBusy) => {
-                    for target in &mut targets {
+                    for (target, _) in &mut targets {
                         target.reason_key = Some("job.queue_full".into());
                     }
                 }
@@ -181,7 +186,7 @@ impl UseCase for List {
             }
         }
         Ok(TargetList {
-            targets,
+            targets: targets.into_iter().map(|(target, _)| target).collect(),
             probe_job_ref,
             observed_at,
             unavailable_reason,
@@ -222,6 +227,9 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
     } else {
         IdentitySource::Unavailable
     };
+    // A mount without evidence is listed: showing a system mount costs less than
+    // hiding a user's volume (F01 #263).
+    let default_visible = Some(mount.browsable != Some(false));
     Some(AnalysisTarget {
         kind,
         path,
@@ -230,6 +238,7 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
         identity_source,
         access: TargetAccess::Unknown,
         reason_key: None,
+        default_visible,
     })
 }
 

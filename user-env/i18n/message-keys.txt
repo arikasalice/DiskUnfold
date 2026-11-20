@@ -1100,6 +1100,11 @@ ui.analysis.target_access_disconnected
 ui.analysis.target_access_missing
 ui.analysis.target_access_unresponsive
 ui.analysis.target_access_unknown
+ui.analysis.target_access_not_checked
+ui.analysis.target_network_checked_on_select
+ui.analysis.network_volume_denied
+ui.analysis.hidden_system_volumes count:count
+ui.analysis.hide_system_volumes
 ui.analysis.drives_empty
 ui.analysis.drives_empty.unix
 ui.analysis.capacity_unsupported

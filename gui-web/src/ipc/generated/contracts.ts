@@ -1095,7 +1095,12 @@ export type TargetKind = "internal" | "external" | "network_mount" | "folder_mou
 export type IdentitySource = "confirmed" | "estimated" | "unavailable";
 export type TargetAccess = "checking" | "accessible" | "denied" | "disconnected" | "missing" | "unresponsive" | "unknown";
 export type TargetListRequest = { refresh: boolean, };
-export type AnalysisTarget = { kind: TargetKind | null, path: OsPath, connected: boolean, volumeId: string | null, identitySource: IdentitySource, access: TargetAccess, reasonKey: string | null, };
+export type AnalysisTarget = { kind: TargetKind | null, path: OsPath, connected: boolean, volumeId: string | null, identitySource: IdentitySource, access: TargetAccess, reasonKey: string | null,
+/**
+ * Whether the target belongs in the default list (F01 #263). The engine always
+ * sets it; absent means listed. It only arranges the list and never limits a scope.
+ */
+defaultVisible?: boolean, };
 export type TargetList = { targets: Array<AnalysisTarget>, probeJobRef: Id | null, observedAt: Timestamp, unavailableReason: string | null, };
 export type TargetStatusChanged = { target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
 export type TargetProbeEvent = { sequence: number, target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };

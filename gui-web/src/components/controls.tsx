@@ -435,6 +435,7 @@ export function Choice({
   availablePercent,
   status,
   icon,
+  secondary,
 }: {
   value: string;
   label: string;
@@ -443,6 +444,8 @@ export function Choice({
   availablePercent?: number | undefined;
   status: { text: string; tone: "neutral" | "good" };
   icon: IconName;
+  /** Reads in the secondary text colour, as a target outside the default list does. */
+  secondary?: boolean | undefined;
 }) {
   const descriptionId = useId();
   const statusId = useId();
@@ -456,7 +459,11 @@ export function Choice({
     >
       <span className="du-choice__indicator" aria-hidden />
       <Icon name={icon} />
-      <span className="du-choice__label du-text--path">{label}</span>
+      <span
+        className={`du-choice__label du-text--path${secondary ? " du-text--muted" : ""}`}
+      >
+        {label}
+      </span>
       <span
         className="du-choice__description du-text--muted"
         id={descriptionId}

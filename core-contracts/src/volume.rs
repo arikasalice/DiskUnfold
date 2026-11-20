@@ -55,7 +55,7 @@ pub enum VolumeTargetKind {
 }
 
 /// A mount observation, retaining the OS path bytes without loss.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VolumeMount {
     pub mount_path: Vec<u8>,
     /// Human-readable display text; never reopen or compare a path from it.
@@ -71,6 +71,14 @@ pub struct VolumeMount {
     /// Confirmed OS volume identity, never a path-derived substitute. Windows
     /// volume GUID names are encoded as UTF-16LE without a terminating NUL.
     pub volume_id: Option<Vec<u8>>,
+    /// Whether the OS file manager lists this mount (F01 #263). `None` is no
+    /// evidence, and such a mount is listed.
+    pub browsable: Option<bool>,
+    /// Whether the mount is local storage (F01 #266). A mount that is known not to
+    /// be local is not opened before the user selects it; `None` keeps probing it.
+    pub local: Option<bool>,
+    /// Capacity reported with the listing itself, read without opening the mount.
+    pub listed_capacity: Option<VolumeCapacity>,
 }
 
 /// One observation: a failed enumeration is not an empty successful list.

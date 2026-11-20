@@ -127,6 +127,9 @@ impl VolumePort for Volumes {
                 topology: None,
                 target_kind: self.0,
                 volume_id: Some(vec![1, 2]),
+                browsable: None,
+                local: None,
+                listed_capacity: None,
             }]),
             capabilities: VolumeCapabilities {
                 enumerate: supported.clone(),
@@ -231,6 +234,36 @@ fn new_list_cancels_previous_and_keeps_partial_identity() -> Result<(), Box<dyn 
     assert_eq!(result.targets[0].identity_source, IdentitySource::Confirmed);
     Ok(())
 }
+/// F01 #263: only a mount the file manager hides leaves the default list; a mount
+/// without that evidence stays listed.
+#[test]
+fn only_a_mount_the_file_manager_hides_leaves_the_default_list() {
+    let mount = |browsable| VolumeMount {
+        mount_path: if cfg!(windows) {
+            vec![67, 0, 58, 0, 92, 0]
+        } else {
+            b"/".to_vec()
+        },
+        display_path: if cfg!(windows) { "C:\\" } else { "/" }.into(),
+        filesystem: vec![],
+        mount_source: vec![],
+        role: None,
+        topology: None,
+        target_kind: None,
+        volume_id: None,
+        browsable,
+        local: None,
+        listed_capacity: None,
+    };
+    for (browsable, listed) in [(Some(false), false), (Some(true), true), (None, true)] {
+        assert_eq!(
+            target(mount(browsable), false).and_then(|target| target.default_visible),
+            Some(listed),
+            "{browsable:?}"
+        );
+    }
+}
+
 #[test]
 fn full_queue_retains_targets_and_marks_probe_deferred() -> Result<(), Box<dyn std::error::Error>> {
     let (runtime, workers) = setup()?;

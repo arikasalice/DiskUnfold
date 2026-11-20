@@ -206,6 +206,9 @@ export function AnalysisPanel({
   const [recentOpen, setRecentOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  // Per-target access of the latest review, which checks a selected network volume.
+  const [reviewedTargets, setReviewedTargets] =
+    useState<ScopeReview["targets"]>();
   const [pathComposing, setPathComposing] = useState(false);
   const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
   const [resultExclusions, setResultExclusions] =
@@ -453,6 +456,7 @@ export function AnalysisPanel({
           response.requestSeq,
         )
       ) {
+        setReviewedTargets(response.targets);
         const candidate = {
           input: submittedDraft,
           review: response,
@@ -670,6 +674,16 @@ export function AnalysisPanel({
               }
               onPathCompositionChange={setPathComposing}
               primaryPathRef={firstPath}
+              review={{
+                reviewing,
+                targets: reviewedTargets,
+                openPrivacySettings: () =>
+                  void client
+                    .call("app.startup_access", {
+                      action: "open_privacy_settings",
+                    })
+                    .catch(() => undefined),
+              }}
             />
           </div>
           {!resultActive && !recentOpen && startAlternative}
