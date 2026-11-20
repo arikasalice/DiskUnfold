@@ -32,17 +32,17 @@ function overallLabel(status: StartupStatus, copy: StartupCopy) {
 
 /**
  * One line under a row that did not pass: what the user can do, or that
- * nothing is wrong when there is nothing to do. The tested-environment row
- * reuses the sentence of the combination status section.
+ * nothing is wrong when there is nothing to do. It sums the row up; the long
+ * explanation stays once in the sections below (design F15 README 1.6).
  */
 function description(row: StartupCheckResult, copy: StartupCopy) {
   if (row.check === "full_disk_access") return copy.noticeFullDiskAccess;
-  if (row.reasonKey === "support.env_unknown") return copy.describeEnvUnknown;
-  if (row.reasonKey === "support.matrix_unavailable") {
-    return copy.describeMatrixUnavailable;
+  if (row.check === "support_matrix") {
+    return row.result === "outside_verified"
+      ? copy.describeUntested
+      : copy.describeTestedUnknown;
   }
   if (row.result === "limited") return copy.describeLimited;
-  if (row.result === "outside_verified") return copy.describeOutsideVerified;
   return copy.describeUnverifiable;
 }
 

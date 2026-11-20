@@ -166,7 +166,8 @@ ui.startup.show_all_checks
 ui.startup.show_combination
 ui.startup.describe_limited
 ui.startup.describe_unverifiable
-ui.startup.banner_open_support
+ui.startup.describe_untested
+ui.startup.describe_tested_unknown
 ui.common.retry
 ui.common.close
 ui.common.translation_unverified

@@ -16,7 +16,8 @@ import "./startup-status.css";
  * for the state: today an unconfirmed Full Disk Access on macOS, with "Open
  * Settings". A grade alone shows nothing here; the support information screen
  * and the dot beside its entry carry it. The notice is one line of an icon, a
- * sentence and its buttons, with no table of checks. Dismissing it remembers
+ * sentence, the action and a dismiss button, with no table of checks; the dot
+ * is the way to the details (design F15 README 1.6). Dismissing it remembers
  * the state key and hands focus to the screen title. The permission-only
  * screen replaces `children` when the host reports that analysis entry is
  * not allowed. A status read that fails shows nothing.
@@ -29,11 +30,9 @@ import "./startup-status.css";
 export function StartupGate({
   client,
   children,
-  onOpenSupport,
 }: {
   client: AnalysisClient;
   children: ReactNode;
-  onOpenSupport?: () => void;
 }) {
   const text = useLocaleText();
   const copy = useMemo(() => startupCopy(text), [text]);
@@ -131,11 +130,6 @@ export function StartupGate({
             >
               {copy.noticeOpenSettings}
             </Action>
-            {onOpenSupport && (
-              <Action variant="quiet" onPress={onOpenSupport}>
-                {copy.bannerOpenSupport}
-              </Action>
-            )}
             <Action
               variant="quiet"
               icon="close"

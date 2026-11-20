@@ -108,27 +108,19 @@ export function startupCopy(text: LocaleText) {
     ),
     describeLimited: text(
       "ui.startup.describe_limited",
-      "Some features are limited on this computer. Feature areas below show which.",
+      "Some features are limited on this computer. See Feature areas below.",
     ),
     describeUnverifiable: text(
       "ui.startup.describe_unverifiable",
       "This could not be checked. It does not mean something is wrong, and DiskUnfold keeps running.",
     ),
-    describeOutsideVerified: text(
-      "ui.support.reason_outside_verified",
-      "This combination is outside the verified list.",
+    describeUntested: text(
+      "ui.startup.describe_untested",
+      "This combination hasn't been tested. This doesn't mean there's a problem.",
     ),
-    describeEnvUnknown: text(
-      "ui.support.env_unknown",
-      "The current system could not be identified.",
-    ),
-    describeMatrixUnavailable: text(
-      "ui.support.matrix_unavailable",
-      "The built-in support table is not available in this build.",
-    ),
-    bannerOpenSupport: text(
-      "ui.startup.banner_open_support",
-      "Open support information",
+    describeTestedUnknown: text(
+      "ui.startup.describe_tested_unknown",
+      "DiskUnfold can't tell whether this computer was tested. This doesn't mean there's a problem.",
     ),
     checkNames: {
       resource_integrity: text(

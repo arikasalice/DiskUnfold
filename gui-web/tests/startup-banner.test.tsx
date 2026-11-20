@@ -331,39 +331,19 @@ test("notice text follows the injected locale text", async () => {
   ).toBeTruthy();
 });
 
-test("the notice offers support information only when the shell can open it", async () => {
-  const onOpenSupport = vi.fn();
-  const first = render(
+test("the notice holds only its action and the dismiss button", async () => {
+  render(
     <StartupGate client={clientFor(() => accessUnknown())}>
       <FirstScreen />
     </StartupGate>,
   );
   const notice = await screen.findByRole("region", { name: "Startup notice" });
+  // The dot beside "Support information" is the way to the details.
   expect(
-    within(notice).queryByRole("button", { name: "Open support information" }),
-  ).toBeNull();
-  first.unmount();
-
-  render(
-    <StartupGate
-      client={clientFor(() => accessUnknown())}
-      onOpenSupport={onOpenSupport}
-    >
-      <FirstScreen />
-    </StartupGate>,
-  );
-  const withAction = await screen.findByRole("region", {
-    name: "Startup notice",
-  });
-  const buttons = within(withAction).getAllByRole("button");
-  // The action that fixes the state comes first.
-  expect(buttons.map((button) => button.textContent)).toEqual([
-    "Open Settings",
-    "Open support information",
-    "",
-  ]);
-  fireEvent.click(buttons[1] as HTMLElement);
-  expect(onOpenSupport).toHaveBeenCalledTimes(1);
+    within(notice)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent),
+  ).toEqual(["Open Settings", "Dismiss notice"]);
 });
 
 test("the status region exists before the notice text and receives it as a change", async () => {
@@ -423,8 +403,11 @@ test("support information leads with the startup checks", async () => {
   expect(within(checks).getByText("Tested environment")).toBeTruthy();
   expect(within(checks).getByText("Platform capabilities")).toBeTruthy();
   expect(within(checks).queryByText("WebView availability")).toBeNull();
+  // A short summary; the long explanation stays in the sections below.
   expect(
-    within(checks).getByText("This combination is outside the verified list."),
+    within(checks).getByText(
+      "This combination hasn't been tested. This doesn't mean there's a problem.",
+    ),
   ).toBeTruthy();
   // The section comes before the support table sections.
   await within(dialog).findByRole("region", { name: "Combination status" });

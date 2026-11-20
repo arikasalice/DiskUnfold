@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Action, InspectionDialog } from "../components";
 import { ProductScreen } from "../features/product/ProductScreen";
 import { StartupChecks } from "../features/startup/StartupChecks";
@@ -10,7 +10,6 @@ import {
 import { SupportScreen } from "../features/support/SupportScreen";
 import { useLocaleText } from "../i18n/presentation";
 import type { AnalysisClient } from "../ipc";
-import { useSupportRequests } from "./support-request";
 import "../theme/info-screens.css";
 
 type Open = "product" | "support";
@@ -21,7 +20,6 @@ type Open = "product" | "support";
  * Both screens open in a dialog that returns focus to the button that opened
  * it. The shell shows this entry in the header, and on the startup screen
  * where there is no header.
- * A request from `SupportRequestContext` opens the support dialog too.
  *
  * While the startup state is not a pass and has not been seen, a dot beside
  * "Support information" says there are items to review; opening the screen
@@ -40,14 +38,7 @@ export function InfoEntry({
 }) {
   const text = useLocaleText();
   const [open, setOpen] = useState<Open>();
-  const requests = useSupportRequests();
-  const handled = useRef(requests);
   const review = needsReview(useStartupMemory());
-  useEffect(() => {
-    if (requests === handled.current) return;
-    handled.current = requests;
-    setOpen("support");
-  }, [requests]);
   useEffect(() => {
     if (open === "support") startupMemory.markSeen();
   }, [open]);
