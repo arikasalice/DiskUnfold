@@ -89,7 +89,8 @@ pub fn review_matched_scope(
     }
     let mut effective = draft.clone();
     effective.source = ScopeSource::Gui;
-    super::validate(&effective, false).ok()?;
+    // Recent scopes are offered on the screen only.
+    super::validate(&effective, false, crate::api::Channel::Gui).ok()?;
     let mut expected = BTreeMap::new();
     for (path, volume) in effective.includes.iter().zip(volumes) {
         if volume.is_empty()

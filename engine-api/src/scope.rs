@@ -75,28 +75,33 @@ struct Review {
 
 impl UseCase for Review {
     const NAME: &'static str = "scope.review";
-    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    const CHANNELS: &'static [Channel] = &[Channel::Gui, Channel::Cli];
     type Request = ScopeReviewRequest;
     type Response = ScopeReview;
 
-    fn check_scope(&self, request: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
-        validate(&request.draft, self.comparison.is_some())
+    fn check_scope(&self, request: &Self::Request, caller: &CallerCtx) -> Result<(), EngineError> {
+        validate(&request.draft, self.comparison.is_some(), caller.channel)
     }
 
     fn execute(
         &self,
         request: Self::Request,
-        _: &CallerCtx,
+        caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         // Only the response is projected; admission repeats review from raw paths.
-        self.review(request).map(crate::display_path::scope_review)
+        self.review(request, caller.channel)
+            .map(crate::display_path::scope_review)
     }
 }
 
 impl Review {
-    fn review(&self, request: ScopeReviewRequest) -> Result<ScopeReview, EngineError> {
+    fn review(
+        &self,
+        request: ScopeReviewRequest,
+        channel: Channel,
+    ) -> Result<ScopeReview, EngineError> {
         let mut draft = request.draft;
-        validate(&draft, self.comparison.is_some())?;
+        validate(&draft, self.comparison.is_some(), channel)?;
         if !draft.exclusions.is_empty() {
             return exclusion::review(
                 draft,
@@ -140,14 +145,23 @@ impl Review {
     }
 }
 
-fn validate(draft: &ScopeDraft, has_comparison: bool) -> Result<(), EngineError> {
+/// The draft source a channel submits: the command line names its scopes `cli`,
+/// the screen `gui` (#222).
+fn source_of(channel: Channel) -> ScopeSource {
+    match channel {
+        Channel::Cli => ScopeSource::Cli,
+        Channel::Gui | Channel::Mcp => ScopeSource::Gui,
+    }
+}
+
+fn validate(draft: &ScopeDraft, has_comparison: bool, channel: Channel) -> Result<(), EngineError> {
     if !draft.exclusions.is_empty() {
         exclusion::check(draft, has_comparison)?;
     }
     if draft.includes.is_empty() {
         return Err(EngineError::reason("scope.empty"));
     }
-    if draft.source != ScopeSource::Gui
+    if draft.source != source_of(channel)
         || draft.boundary != ScopeBoundary::CurrentVolume
         || !draft.included_mounts.is_empty()
     {
@@ -327,6 +341,7 @@ impl ScopeFingerprint {
 }
 
 /// Revalidates the review against fresh handle evidence before starting work.
+#[cfg(test)]
 pub(crate) fn verify(
     draft: &ScopeDraft,
     expected: &str,
@@ -334,7 +349,27 @@ pub(crate) fn verify(
     comparison: Option<Arc<dyn exclusion::PathComparison>>,
     include_recent: bool,
 ) -> Result<VerifiedScope, EngineError> {
-    validate(draft, comparison.is_some())?;
+    verify_from(
+        draft,
+        expected,
+        roots,
+        comparison,
+        include_recent,
+        Channel::Gui,
+    )
+}
+
+/// Revalidates the review against fresh handle evidence before starting work, for a
+/// draft submitted on `channel`.
+pub(crate) fn verify_from(
+    draft: &ScopeDraft,
+    expected: &str,
+    roots: &dyn ScopeRootPort,
+    comparison: Option<Arc<dyn exclusion::PathComparison>>,
+    include_recent: bool,
+    channel: Channel,
+) -> Result<VerifiedScope, EngineError> {
+    validate(draft, comparison.is_some(), channel)?;
     if !draft.exclusions.is_empty() {
         return exclusion::verify(draft, expected, roots, comparison, include_recent);
     }

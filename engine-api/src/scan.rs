@@ -248,7 +248,7 @@ struct PendingRecentScope {
 
 impl UseCase for StartScan {
     const NAME: &'static str = "scan.start";
-    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    const CHANNELS: &'static [Channel] = &[Channel::Gui, Channel::Cli];
     type Request = ScanStartRequest;
     type Response = ScanStart;
 
@@ -265,12 +265,13 @@ impl UseCase for StartScan {
         // Pin the rule before anything is opened or created: an unknown ID must
         // consume no scope root and leave no job or lineage behind.
         let size_rule = self.size_rules.bind_latest()?;
-        let verified = scope::verify(
+        let verified = scope::verify_from(
             &request.draft,
             &request.review_fingerprint,
             &*self.roots,
             self.comparison.clone(),
             self.admissions.is_some(),
+            caller.channel,
         )?;
         let recent = self.admissions.as_ref().and_then(|_| {
             Some(PendingRecentScope {
