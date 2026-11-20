@@ -1,6 +1,8 @@
 //! Per-lane scan state reported through the job context (F02 FR10.HD1, port
 //! side of HLD IF-17). It is not serialized; the desktop relay converts it to
 //! the `scan.lane_status` wire body.
+use crate::scan_observation::{DeviceKind, DeviceKindSource};
+use std::num::NonZeroU32;
 
 /// What one lane waits for, as the scan measured it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,10 +28,16 @@ pub struct LaneReport {
     pub in_flight: u32,
     /// The lane's effective worker limit, at least 1.
     pub limit: u32,
+    /// Device class; unknown when the OS could not establish one.
+    pub device_kind: DeviceKind,
+    /// Source of the device class observation.
+    pub device_kind_source: DeviceKindSource,
     /// Requested scan resource mode, omitted when unavailable.
     pub mode: Option<crate::analysis_ipc::ScanResourceMode>,
-    /// Device worker permit, omitted when unknown.
+    /// Device permit by kind.
     pub permit: Option<u32>,
+    /// This lane's share of a permit split with other lanes on the same disk.
+    pub share: Option<NonZeroU32>,
     /// Strategy identity used to calculate `limit`, omitted when unavailable.
     pub strategy: Option<crate::analysis_ipc::ScanLaneStrategy>,
     /// The same `ItemRef` the GUI sent to `scan.prioritize` and the engine

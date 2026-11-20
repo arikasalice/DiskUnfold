@@ -1,6 +1,10 @@
 //! The F02 `scan.lane_status` event body (HLD IF-08).
-use crate::{ItemRef, Timestamp};
+use crate::{
+    ItemRef, Timestamp,
+    scan_observation::{DeviceKind, DeviceKindSource},
+};
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 use super::{ScanLaneStrategy, ScanResourceMode};
 
@@ -43,14 +47,26 @@ pub struct ScanLane {
     pub in_flight: u32,
     /// The lane's effective worker limit (u32, at least 1; 0 is never sent).
     pub limit: u32,
+    /// Device class; omitted or unrecognized values mean `unknown`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional, type = "string"))]
+    pub device_kind: Option<DeviceKind>,
+    /// Classification source; omitted or unrecognized values mean `unknown`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional, type = "string"))]
+    pub device_kind_source: Option<DeviceKindSource>,
     /// Requested resource strategy; omitted when the producer cannot report it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub mode: Option<ScanResourceMode>,
-    /// Device worker permit; omitted when unknown.
+    /// Device permit by kind; it keeps the full per-device permit when lanes share a disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub permit: Option<u32>,
+    /// This lane's share of a permit split with other lanes on the same disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional, type = "number"))]
+    pub share: Option<NonZeroU32>,
     /// Strategy identity used to calculate `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]

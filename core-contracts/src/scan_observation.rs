@@ -5,6 +5,13 @@ use crate::{
 };
 use std::sync::atomic::AtomicBool;
 
+mod anchored_directory;
+pub use anchored_directory::AnchoredDirectory;
+mod device;
+pub use device::{
+    DeviceKind, DeviceKindSource, OS_DEVICE_MULTIPLE_DISKS, OS_DEVICE_NETWORK, OS_QUERY_FAILED,
+    OS_UNSUPPORTED, VolumeDevice,
+};
 mod placeholder;
 pub use placeholder::PlaceholderObservation;
 mod observed_value;
@@ -280,74 +287,6 @@ pub struct HandleIdentity {
     /// the `inode` space. Empty when the adapter retained none. The Windows
     /// adapter omits retained ancestor IDs that are not exactly 8 bytes.
     pub ancestors: Vec<u64>,
-}
-
-/// A directory already opened and verified by an operating-system adapter.
-///
-/// Child opens must be relative to this handle, without following links or
-/// reparse points. Implementations must reject a changed identity or volume.
-pub trait AnchoredDirectory: DirectoryObservations {
-    /// Opens the previously observed directory entry after revalidating it.
-    fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError>;
-
-    /// Optionally observes name lookup mode on this handle without reopening a path.
-    /// An absent observation leaves the mode unknown and does not query the clock.
-    fn observe_directory_case(
-        &self,
-        _clock: &dyn Fn() -> Option<Timestamp>,
-    ) -> Option<DirectoryCaseEvidence> {
-        None
-    }
-
-    /// Retains read-only volume evidence without reopening a path.
-    /// The default explicitly declines the observation without filesystem I/O.
-    fn volume_space_reader(&self) -> Result<Box<dyn VolumeSpaceReader>, PortError> {
-        Err(PortError {
-            kind: PortErrorKind::Unsupported,
-            reason_key: "space.volume_report_unavailable".into(),
-            os_code: None,
-        })
-    }
-
-    /// Reads the last-write time from this verified handle without reopening it.
-    /// Missing permissions or unsupported or invalid observations return `None`.
-    fn observed_modified_at(&self) -> Option<Timestamp> {
-        None
-    }
-
-    /// True only when the volume's file system name and flags show it cannot share extents
-    /// between files (block clones, reflinks; hard links are file identity). `false`: unknown.
-    fn creates_no_shared_extents(&self) -> bool {
-        false
-    }
-
-    /// Optional timed metadata read. Existing adapters return their modification
-    /// time without invoking the clock or claiming a new observation time.
-    fn observed_modified_at_timed(
-        &self,
-        _clock: &dyn Fn() -> Option<Timestamp>,
-    ) -> (Option<Timestamp>, Option<Timestamp>) {
-        (self.observed_modified_at(), None)
-    }
-
-    /// IDs of verified same-volume ancestors, excluding this directory.
-    /// `None` means unavailable; `Some(&[])` confirms a volume root. Evidence
-    /// applies only while this anchored directory and its supporting handles live.
-    fn ancestor_file_ids(&self) -> Option<&[Vec<u8>]> {
-        None
-    }
-
-    /// Identity of this handle in the `MetadataObservation` identity space.
-    ///
-    /// The collector reads it once for every scope root, in root order and
-    /// under a metadata flow, before any root is enumerated, and compares child
-    /// volumes with it. It may perform filesystem I/O on this handle.
-    ///
-    /// `None` means the identity is unsupported or could not be verified. The
-    /// collector then records the root as an unread range, keeps the scan
-    /// result incomplete and does not enter its child directories. A wrapper
-    /// must forward the value of the handle it wraps.
-    fn observed_identity(&self) -> Option<HandleIdentity>;
 }
 
 /// The identity and canonical path of a scope root obtained from its open handle.

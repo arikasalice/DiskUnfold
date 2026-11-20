@@ -1129,6 +1129,8 @@ export type ScanStart = { jobRef: Id, existing: boolean, scopeVersion: Id, scope
  */
 collection?: ScanCollection, lineageId?: Id, };
 export type ScanResourceMode = "auto" | "quiet" | "fast";
+export type DeviceKind = "ssd" | "hdd" | "unknown";
+export type DeviceKindSource = "detected" | "user" | "unknown";
 export type ScanCollectionCondition = {
 /**
  * Omission selects `auto`.
@@ -1149,7 +1151,15 @@ export type ScanSetResourceRequest = { jobRef: Id, resourceMode: ScanResourceMod
  * Omission clears the prior user limit.
  */
 userLimit?: number, };
-export type ScanSetResourceLane = { laneIndex: number, effectiveLimit: number, permit?: number, };
+export type ScanSetResourceLane = { laneIndex: number, effectiveLimit: number,
+/**
+ * Device permit by kind; it keeps the full per-device permit when lanes share a disk.
+ */
+permit?: number,
+/**
+ * This lane's share of a permit split with other lanes on the same disk.
+ */
+share?: number, };
 export type ScanSetResourceOutcome = "accepted" | "no_effect" | "already_terminal";
 export type ScanSetResourceResponse = { outcome: ScanSetResourceOutcome, lanes: Array<ScanSetResourceLane>,
 /**
@@ -1264,13 +1274,25 @@ inFlight: number,
  */
 limit: number,
 /**
+ * Device class; omitted or unrecognized values mean `unknown`.
+ */
+deviceKind?: string,
+/**
+ * Classification source; omitted or unrecognized values mean `unknown`.
+ */
+deviceKindSource?: string,
+/**
  * Requested resource strategy; omitted when the producer cannot report it.
  */
 mode?: ScanResourceMode,
 /**
- * Device worker permit; omitted when unknown.
+ * Device permit by kind; it keeps the full per-device permit when lanes share a disk.
  */
 permit?: number,
+/**
+ * This lane's share of a permit split with other lanes on the same disk.
+ */
+share?: number,
 /**
  * Strategy identity used to calculate `limit`.
  */
