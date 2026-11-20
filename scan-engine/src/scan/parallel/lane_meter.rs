@@ -17,6 +17,7 @@ use std::{
 /// The counts of one lane at one moment.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct LaneSample {
+    pub(super) device_cap_waiters: u32,
     pub(super) in_flight: u32,
     pub(super) blocked_sends: u32,
     pub(super) members: usize,
@@ -30,7 +31,9 @@ impl LaneSample {
     /// worker limit, then an idle lane with no work. Anything else, such as
     /// queued work no worker has taken yet, has no confirmed cause.
     pub(super) fn wait(&self) -> (LaneWait, bool) {
-        if self.in_flight > 0 {
+        if self.device_cap_waiters > 0 {
+            (LaneWait::DeviceCap, true)
+        } else if self.in_flight > 0 {
             (LaneWait::IoWait, true)
         } else if self.blocked_sends > 0 {
             (LaneWait::Backpressure, true)
@@ -44,6 +47,7 @@ impl LaneSample {
 
 #[derive(Default)]
 struct Meter {
+    device_cap_waiters: AtomicU32,
     in_flight: AtomicU32,
     blocked_sends: AtomicU32,
     failures: AtomicU64,
@@ -62,9 +66,10 @@ impl LaneMeters {
     }
 
     /// The OS calls in flight, blocked sends and failures of `lane`.
-    pub(super) fn counts(&self, lane: usize) -> (u32, u32, u64) {
-        self.lanes.get(lane).map_or((0, 0, 0), |meter| {
+    pub(super) fn counts(&self, lane: usize) -> (u32, u32, u32, u64) {
+        self.lanes.get(lane).map_or((0, 0, 0, 0), |meter| {
             (
+                meter.device_cap_waiters.load(Ordering::Acquire),
                 meter.in_flight.load(Ordering::Acquire),
                 meter.blocked_sends.load(Ordering::Acquire),
                 meter.failures.load(Ordering::Acquire),
@@ -121,6 +126,11 @@ fn counted<R>(counter: fn(&Meter) -> &AtomicU32, work: impl FnOnce() -> R) -> R 
 /// Runs one call into the OS adapter, counted as in flight on the bound lane.
 pub(super) fn os_call<R>(call: impl FnOnce() -> R) -> R {
     counted(|meter| &meter.in_flight, call)
+}
+
+/// Counts a worker parked for a runtime disk permit on its current lane.
+pub(super) fn device_wait<R>(wait: impl FnOnce() -> R) -> R {
+    counted(|meter| &meter.device_cap_waiters, wait)
 }
 
 /// Counts one recorded failure on the bound lane.

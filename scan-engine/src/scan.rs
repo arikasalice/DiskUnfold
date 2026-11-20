@@ -11,14 +11,14 @@ use du_core_contracts::{
     scan_observation::AnchoredDirectory,
 };
 pub(crate) use parallel::{
-    DevicePlan, ScanControlSession, collect_open_build, collect_open_forest_diagnostic,
+    DevicePlan, LaneDevice, ScanControlSession, collect_open_build, collect_open_forest_diagnostic,
     collect_open_forest_filtered,
 };
 pub use parallel::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 
-/// Whether a user worker limit is valid for the current unknown-device permit.
-pub fn valid_resource_limit(limit: Option<u32>) -> bool {
-    parallel::valid_user_limit(limit)
+/// Whether a user worker limit fits the greatest permit among the job's lanes.
+pub fn valid_resource_limit(limit: Option<u32>, max_permit: u32) -> bool {
+    parallel::valid_user_limit(limit, max_permit)
 }
 
 /// Supplies distinct result identifiers for partial and terminal publications.

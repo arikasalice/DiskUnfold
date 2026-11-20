@@ -52,6 +52,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
             &mut JobCounts::default(),
             &clock,
             crate::scan::parallel::ScanOptions {
+                lane_devices: None,
                 devices: DevicePlan {
                     groups: vec![0, 1],
                     limit: 1,

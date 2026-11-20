@@ -113,6 +113,7 @@ impl Queue {
         if !self.started || seat >= self.lanes.seats.len() {
             return None;
         }
+        self.recompute_resource_limits();
         let root = self.priority.as_ref().map(|region| region.root_index);
         if let Some(lane) = self.lanes.seats[seat].lane {
             if self.lanes.lanes[lane].members > self.lanes.lanes[lane].limit() {

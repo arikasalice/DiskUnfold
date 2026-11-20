@@ -81,7 +81,9 @@ fn ready_peak_tracks_simultaneous_frames_and_overflow() -> Result<(), Box<dyn st
         // The claimed slot stays reserved: new work does not fit.
         let overflow = queue.offer(0, overflow).ok_or("reserved slot was reused")?;
         queue.stack(seat, 0, overflow);
-        let Claim { frame, mut turn } = claim;
+        let Claim {
+            frame, mut turn, ..
+        } = claim;
         let reserved = std::mem::take(&mut turn.reserved);
         queue.requeue(seat, 0, reserved, frame);
         drop(queue);

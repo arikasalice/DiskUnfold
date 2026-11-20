@@ -197,6 +197,7 @@ impl SampleLoad {
                 },
                 None,
                 None,
+                None,
             ),
         );
         // The collector counts each bundle item and the scope root directory

@@ -1,6 +1,10 @@
 //! Priority areas over outstanding directory work and optional peak accounting.
 use super::*;
-use du_core_contracts::ItemRef;
+use du_core_contracts::{
+    ItemRef,
+    job::DiskSeat,
+    scan_observation::{DeviceKind, DeviceKindSource},
+};
 use std::collections::HashMap;
 
 /// Number of priority classes; lower classes are claimed first.
@@ -143,6 +147,36 @@ impl OutstandingPaths {
 }
 
 impl Queue {
+    pub(in crate::scan::parallel) fn disk_seat(&self, lane: usize) -> Option<DiskSeat> {
+        self.lanes.disk_seat(lane).cloned()
+    }
+
+    pub(in crate::scan::parallel) fn apply_resource(
+        &mut self,
+        condition: super::resource::Condition,
+    ) {
+        let remaining = self.remaining_by_lane();
+        self.lanes.apply_resource(condition, &remaining);
+    }
+
+    pub(in crate::scan::parallel) fn recompute_resource_limits(&mut self) {
+        let remaining = self.remaining_by_lane();
+        self.lanes.recompute_resources(&remaining);
+    }
+
+    fn remaining_by_lane(&self) -> Vec<usize> {
+        let mut remaining = vec![0_usize; self.lanes.lanes.len()];
+        for (root, &count) in self.root_remaining.iter().enumerate() {
+            if let Ok(root) = u32::try_from(root)
+                && let Some(lane) = self.lanes.lane_of(root)
+                && let Some(total) = remaining.get_mut(lane)
+            {
+                *total = (*total).saturating_add(count);
+            }
+        }
+        remaining
+    }
+
     /// Changes only the next scheduling order. The caller resolves scope authority.
     ///
     /// Accepting a new or replacement area moves the items of the old and new
@@ -251,6 +285,23 @@ pub(super) fn record_ready_peak(
 pub(crate) struct DevicePlan {
     pub groups: Vec<usize>,
     pub limit: usize,
+}
+
+/// Device facts assigned to a lane after grouping roots by volume.
+pub(crate) struct LaneDevice {
+    pub kind: DeviceKind,
+    pub source: DeviceKindSource,
+    pub disk_seat: DiskSeat,
+}
+
+impl Clone for LaneDevice {
+    fn clone(&self) -> Self {
+        Self {
+            kind: self.kind,
+            source: self.source,
+            disk_seat: self.disk_seat.clone(),
+        }
+    }
 }
 impl DevicePlan {
     pub(super) fn valid(&self, count: usize) -> bool {

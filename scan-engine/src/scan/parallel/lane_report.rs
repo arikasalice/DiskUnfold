@@ -17,17 +17,21 @@ const INTERVAL: Duration = Duration::from_millis(100);
 impl Shared {
     /// One sample of every lane, or none when the queue lock is poisoned.
     pub(super) fn lane_report(&self) -> Option<LaneStatusReport> {
-        let queue = self.queue.lock().ok()?;
+        let mut queue = self.queue.lock().ok()?;
+        queue.recompute_resource_limits();
         let roots = queue.lanes.lane_roots();
         let lanes = roots
             .into_iter()
             .enumerate()
             .map(|(lane, root_indexes)| {
                 let (members, limit, queued) = queue.lanes.occupancy(lane);
-                let (in_flight, blocked_sends, failures) = self.meters.counts(lane);
+                let (device_cap_waiters, in_flight, blocked_sends, failures) =
+                    self.meters.counts(lane);
                 let resource = queue.lanes.resource(lane);
                 let priority = queue.priority_for_roots(&root_indexes);
+                let (device_kind, device_kind_source) = queue.lanes.device_kind(lane);
                 let (wait, wait_confirmed) = LaneSample {
+                    device_cap_waiters,
                     in_flight,
                     blocked_sends,
                     members,
@@ -40,8 +44,11 @@ impl Shared {
                     root_indexes,
                     in_flight,
                     limit: u32::try_from(limit).unwrap_or(u32::MAX).max(1),
+                    device_kind,
+                    device_kind_source,
                     mode: resource.map(|policy| policy.mode),
                     permit: resource.map(|policy| policy.permit),
+                    share: resource.and_then(|policy| policy.share),
                     strategy: resource.map(|policy| policy.strategy.clone()),
                     priority_area: priority.map(|(area, _)| area.clone()),
                     remaining_prioritized_directories: priority.map(|(_, count)| count.to_string()),

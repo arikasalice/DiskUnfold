@@ -16,9 +16,11 @@ mod bounds;
 mod control;
 mod determinism;
 mod gate;
+mod in_flight;
 mod isolation;
 use du_core_contracts::scan_observation::ObservedValue;
 use gate::{Gate, Opened};
+use in_flight::InFlight;
 mod lending;
 mod measure;
 mod moves;
@@ -82,6 +84,7 @@ struct Probe {
     returned: AtomicUsize,
     /// Opens and reads that started and did not yet return or fail.
     in_flight: AtomicUsize,
+    in_flight_peak: AtomicUsize,
     opens: Vec<AtomicUsize>,
     reads: Vec<AtomicUsize>,
     finished: Vec<AtomicUsize>,
@@ -97,6 +100,7 @@ impl Probe {
             peak: AtomicUsize::new(0),
             returned: AtomicUsize::new(0),
             in_flight: AtomicUsize::new(0),
+            in_flight_peak: AtomicUsize::new(0),
             opens: counters(),
             reads: counters(),
             finished: counters(),
@@ -131,22 +135,6 @@ fn sum(counters: &[AtomicUsize]) -> usize {
         .iter()
         .map(|count| count.load(Ordering::SeqCst))
         .sum()
-}
-
-/// Counts one OS call of a synthetic directory as in flight until dropped.
-struct InFlight<'a>(&'a AtomicUsize);
-
-impl<'a> InFlight<'a> {
-    fn enter(calls: &'a AtomicUsize) -> Self {
-        calls.fetch_add(1, Ordering::SeqCst);
-        Self(calls)
-    }
-}
-
-impl Drop for InFlight<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
 }
 
 /// FNV-1a over the root and path; never zero and clear of `test_identity`.
@@ -234,7 +222,7 @@ impl Drop for Synthetic {
 
 impl DirectoryObservations for Synthetic {
     fn next_batch(&mut self) -> Result<Vec<ObservedEntry>, PortError> {
-        let _call = InFlight::enter(&self.probe.in_flight);
+        let _call = InFlight::enter(&self.probe);
         (self.probe.hook)(self.root, &self.path, Call::Read)?;
         let names = self.names();
         let end = (self.next + self.probe.shape.batch).min(names.len());
@@ -263,7 +251,7 @@ impl AnchoredDirectory for Synthetic {
     }
 
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
-        let _call = InFlight::enter(&self.probe.in_flight);
+        let _call = InFlight::enter(&self.probe);
         let mut path = self.path.clone();
         path.push(entry.name.clone());
         (self.probe.hook)(self.root, &path, Call::Open)?;
@@ -405,6 +393,16 @@ fn shared_over(
     limit: usize,
     capacity: usize,
 ) -> Result<Shared, TestError> {
+    shared_over_with_devices(roots, groups, limit, capacity, None)
+}
+
+fn shared_over_with_devices(
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    groups: Vec<usize>,
+    limit: usize,
+    capacity: usize,
+    lane_devices: Option<Vec<crate::scan::parallel::queue::LaneDevice>>,
+) -> Result<Shared, TestError> {
     let count = roots.len();
     let identities = roots.iter().map(|root| root.observed_identity()).collect();
     let (visited, starts) = admission::Visited::reserve_roots(identities);
@@ -420,8 +418,14 @@ fn shared_over(
         track_peak: true,
         track_paths: false,
     };
-    let queue = scheduler::queue_for(roots, &boundaries, &DevicePlan { groups, limit }, options)
-        .map_err(|error| format!("{error:?}"))?;
+    let queue = scheduler::queue_for(
+        roots,
+        &boundaries,
+        &DevicePlan { groups, limit },
+        lane_devices,
+        options,
+    )
+    .map_err(|error| format!("{error:?}"))?;
     let meters = super::super::lane_meter::LaneMeters::new(queue.lanes.lanes.len());
     Ok(Shared {
         queue: Arc::new(Mutex::new(queue)),

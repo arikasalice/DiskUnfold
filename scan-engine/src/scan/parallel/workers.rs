@@ -27,9 +27,11 @@ mod handoff;
 #[cfg(test)]
 mod priority_dispatch_tests;
 mod read_batch;
+mod worker_loop;
 use entries::{EntryServices, open_pending, process_entry};
 use handoff::{complete, register_path, release_path, requeue, schedule};
 use read_batch::{ReadFailure, next_entries};
+use worker_loop::worker_loop;
 
 /// Sends observation events through the lane wait meter.
 trait SendMetered {
@@ -66,31 +68,6 @@ pub(super) fn worker(
         shared.abort(context);
     }
     flow.finish(JobCounts::default());
-}
-
-fn worker_loop(
-    shared: &Shared,
-    seat: usize,
-    sender: &SyncSender<Event>,
-    context: &dyn JobContext,
-    policy: Policy<'_>,
-    flow: &dyn JobFlow,
-) -> bool {
-    while context.checkpoint() != Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        if flow.safe_point() == Checkpoint::Cancel {
-            break;
-        }
-        let Some(Claim { frame, mut turn }) = dispatch::take(shared, context, seat, flow) else {
-            break;
-        };
-        if !process(frame, shared, sender, context, policy, &mut turn) {
-            return false;
-        }
-    }
-    if context.checkpoint() == Checkpoint::Cancel && !shared.abort.load(Ordering::Acquire) {
-        return cancel_drain::drain(shared, seat, sender, context, policy);
-    }
-    true
 }
 
 /// A worker's seat; dropping it leaves the lane, also during unwinding.
@@ -144,6 +121,7 @@ impl Drop for Turn<'_> {
 
 struct Claim<'a> {
     frame: Frame,
+    disk_seat: Option<du_core_contracts::job::DiskSeat>,
     turn: Turn<'a>,
 }
 

@@ -94,6 +94,7 @@ fn the_production_entry_records_attempt_evidence_without_exclusion_rules()
             },
             Some(&diagnostics),
             None,
+            None,
         ),
     );
     assert!(outcome.result_version_id.is_some());

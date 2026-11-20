@@ -92,7 +92,7 @@ fn a_marked_area_is_assigned_before_shallower_normal_work() -> Result<(), TestEr
             groups: vec![0],
             limit: 1,
         };
-        let options = (devices, None, Some(&*session));
+        let options = (devices, None, Some(&*session), None);
         Ok(collect_open_forest_diagnostic(
             build,
             job_probe.roots(),

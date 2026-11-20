@@ -134,7 +134,7 @@ impl ScanControlSession {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !attachment.terminal {
             if let Ok(mut queue) = queue.lock() {
-                queue.lanes.apply_resource(attachment.condition);
+                queue.apply_resource(attachment.condition);
             }
             attachment.queue = Some(Arc::downgrade(queue));
             attachment.wake = Some(Arc::downgrade(wake));
@@ -220,7 +220,7 @@ impl ScanControlSession {
         }
         let rows = if let Some(queue) = attachment.queue.as_ref().and_then(Weak::upgrade) {
             let mut queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
-            queue.lanes.apply_resource(condition);
+            queue.apply_resource(condition);
             queue.lanes.resource_rows()
         } else {
             Vec::new()
@@ -238,7 +238,8 @@ impl ScanControlSession {
         let Some(queue) = attachment.queue.as_ref().and_then(Weak::upgrade) else {
             return Ok(Vec::new());
         };
-        let queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
+        let mut queue = queue.lock().map_err(|_| ScanControlError::Unavailable)?;
+        queue.recompute_resource_limits();
         Ok(queue.lanes.resource_rows())
     }
 }

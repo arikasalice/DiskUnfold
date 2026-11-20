@@ -45,6 +45,7 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
             &mut counts,
             &ContextClock(&context),
             ScanOptions {
+                lane_devices: None,
                 devices,
                 diagnostics: Some(&peak),
                 scan_control: None,

@@ -52,7 +52,7 @@ pub(super) fn spawn_scan(
             .collect();
         let build = sink.open_forest(ids.next_id(), roots);
         let devices = DevicePlan { groups, limit };
-        let options = (devices, None, Some(&*session));
+        let options = (devices, None, Some(&*session), None);
         let outcome = collect_open_forest_diagnostic(
             build,
             probe.roots(),
