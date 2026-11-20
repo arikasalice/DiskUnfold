@@ -40,6 +40,7 @@ pub(super) fn to_projection(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Option<projection::Model>, EngineError> {
     let ranking = selected.output;
+    let filtered_bytes = ranking.filtered_bytes;
     let source = admitted.source.version();
     let parent = &admitted.request.aggregate_scope_ref;
     if selected.descriptor != admitted.descriptor
@@ -73,9 +74,10 @@ pub(super) fn to_projection(
             return Err(internal());
         }
     }
-    // Every child is exact and the children sum to the exact scope total, so the
-    // children partition the scope and a drawn subset adds up to its own bytes.
-    if sum != scope {
+    // Every child is exact and the children, with what a filter removed, sum to the
+    // exact scope total, so they partition the scope and a drawn subset adds up to
+    // its own bytes.
+    if sum.checked_add(filtered_bytes) != Some(scope) {
         return Ok(None);
     }
     if ranking
@@ -105,9 +107,10 @@ pub(super) fn to_projection(
     };
     // The F03 set total takes file rows only; a drawn folder leaves it without
     // independent membership, and the partition above gives the exact sum (#242).
+    // Under a filter the set total counts unfiltered files; the kept bytes are the rows'.
     let drawn_bytes = match exact(set_total) {
-        Some(bytes) => bytes,
-        None => drawn_sum(&drawn, &bytes_of)?,
+        Some(bytes) if admitted.filter.is_none() => bytes,
+        _ => drawn_sum(&drawn, &bytes_of)?,
     };
     Ok(Some(projection::Model {
         result_revision: ranking.result_version,
@@ -125,11 +128,11 @@ pub(super) fn to_projection(
             scope: ranking.scope_total.size,
             drawn_bytes,
             grouped_bytes: 0,
-            filtered_bytes: 0,
+            filtered_bytes,
             drawn_lower_bound: false,
             grouped_lower_bound: false,
         },
-        filter: None,
+        filter: admitted.filter,
         detail: projection::Detail {
             omitted_items: omitted,
             remainder_causes: projection::RemainderCauses {

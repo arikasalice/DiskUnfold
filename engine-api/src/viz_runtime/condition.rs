@@ -15,7 +15,7 @@ use du_core_contracts::{
 };
 
 /// Formats whose shapes stand for folders and files, which a type filter narrows.
-const FILTERED_FORMATS: [&str; 1] = ["treemap"];
+const FILTERED_FORMATS: [&str; 2] = ["treemap", "bar"];
 
 /// The condition fragment of a legend class: files of its type. The class of no
 /// type and the folder class have none.
@@ -67,6 +67,6 @@ pub(super) fn filter_of(request: &VizRenderRequest) -> Result<Option<ItemFilter>
         .ok_or_else(|| EngineError::reason("query.syntax_invalid"))
 }
 
-fn not_allowed() -> EngineError {
+pub(super) fn not_allowed() -> EngineError {
     EngineError::reason("predicate.not_allowed")
 }

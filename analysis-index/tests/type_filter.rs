@@ -276,6 +276,41 @@ fn measure_filtered_projection() -> Result<(), String> {
         let (_, _, dispatcher) = fixture()?;
         let fixture = (version, parent, dispatcher);
         let mut legend = Vec::new();
+        for filter in [None, Some(ItemFilter::FileType(FileType::Video))] {
+            let mut times = Vec::new();
+            for _ in 0..5 {
+                let started = std::time::Instant::now();
+                du_analysis_index::visualization::bar_projection::prepare_children(
+                    du_analysis_index::visualization::bar_projection::ChildrenRequest {
+                        version: &fixture.0,
+                        scope: &fixture.1,
+                        basis: SizeBasis::Logical,
+                        bounds: Rect {
+                            left: 0,
+                            top: 0,
+                            right: 1_000_000,
+                            bottom: 1_000_000,
+                        },
+                        scale: du_analysis_index::visualization::geometry::Scale::Automatic,
+                        top: 2_000,
+                        max_bars: 2_000,
+                        filter,
+                    },
+                    &mut || false,
+                )
+                .and_then(|prepared| prepared.render(&mut || false))
+                .map_err(|e| format!("{e:?}"))?;
+                times.push(started.elapsed());
+            }
+            times.sort();
+            println!(
+                "files {:>9} bar filter {:<5} median {:?} max {:?}",
+                folders * 1_000,
+                filter.is_some(),
+                times[times.len() / 2],
+                times[times.len() - 1]
+            );
+        }
         for _ in 0..5 {
             let started = std::time::Instant::now();
             du_analysis_index::visualization::type_legend::scope_totals(

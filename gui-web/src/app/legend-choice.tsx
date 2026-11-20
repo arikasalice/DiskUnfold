@@ -10,8 +10,8 @@ const NONE = "none";
 const LEGEND_SPACE = 240 + 16;
 /** From this chart area width the legend stands beside the chart (README 2). */
 const LEGEND_BESIDE = 720;
-/** Formats whose shapes a type condition narrows (#301); the bar chart follows. */
-const NARROWED_FORMATS: ReadonlySet<string> = new Set(["treemap"]);
+/** Formats whose shapes a type condition narrows (#301). */
+const NARROWED_FORMATS: ReadonlySet<string> = new Set(["treemap", "bar"]);
 
 type Choice = { key: string; label: string; condition: QueryCondition };
 

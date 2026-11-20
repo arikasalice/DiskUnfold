@@ -197,7 +197,7 @@ const catalog: VizCatalog = {
 };
 const owner = { request: { colorCriterion: "none" } };
 
-test("F06 README 46.5, 46.6: the treemap sends the chosen type, other formats keep it inactive, and a change is announced", () => {
+test("F06 README 46.5, 46.6: the treemap and the bar chart send the chosen type, the histogram keeps it inactive, and a change is announced", () => {
   let format = "treemap";
   const hook = renderHook(() => useLegendChoice(format, catalog, owner, text));
   expect(hook.result.current.request).toEqual({ colorCriterion: "type" });
@@ -213,12 +213,14 @@ test("F06 README 46.5, 46.6: the treemap sends the chosen type, other formats ke
     condition: { kind: "normalized", condition: video },
   });
   expect(hook.result.current.narrowing?.announced).toEqual({ type: "동영상" });
-  for (const other of ["bar", "histogram"]) {
-    format = other;
-    hook.rerender();
-    expect(hook.result.current.request).not.toHaveProperty("condition");
-    expect(hook.result.current.narrowing?.inactive).toBe(true);
-  }
+  format = "bar";
+  hook.rerender();
+  expect(hook.result.current.request).toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.inactive).toBe(false);
+  format = "histogram";
+  hook.rerender();
+  expect(hook.result.current.request).not.toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.inactive).toBe(true);
   format = "treemap";
   hook.rerender();
   expect(hook.result.current.request).toHaveProperty("condition");

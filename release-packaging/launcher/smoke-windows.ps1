@@ -1900,8 +1900,14 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
   Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
-  # The histogram does not narrow: the chip stays, inactive, with its note (46.5).
+  # The bar chart narrows too: clip.mp4 and docs by their video bytes (#301).
   $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
+  $barName = Get-UiName 'Bar chart'
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$barName*" }) | Select-Object -First 1 })
+  $barTotal = Wait-UI 'the narrowed bar total' { @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1 }
+  "Bar status line: '$($barTotal.Current.Name)'"
+  Save-SmokeCapture '02b-narrowed-bar' -Prepare { $null = Show-InWindow $clear }
+  # The histogram does not narrow: the chip stays, inactive, with its note (46.5).
   $histogramName = Get-UiName 'Histogram'
   Select-SmokeRadio (Wait-UI 'Histogram format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$histogramName*" }) | Select-Object -First 1 })
   $null = Wait-UI 'the inactive chip note' { Find-UI "Doesn't apply to this format" $null }
