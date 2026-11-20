@@ -5,9 +5,13 @@ use du_analysis_index::{
     BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
     SpaceObservation,
 };
-use du_core_contracts::result::{ResultCompleteness, ResultVersionRead, SpaceAggregate};
+use du_core_contracts::result::{
+    ResultCompleteness, ResultNativePath, ResultScopeRoot, ResultVersionRead, SpaceAggregate,
+};
 use du_core_contracts::scan_observation::PlaceholderObservation;
-use du_core_contracts::{ByteSize, Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+use du_core_contracts::{
+    ByteSize, Id, ItemRef, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+};
 use std::num::NonZeroU64;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -60,9 +64,20 @@ fn file(
 
 /// A folder with a local file and a file without an allocation report. When
 /// `placeholder` is set, the second file is a dataless placeholder.
+///
+/// The scope root carries a volume identity, as a real scan's does: a placeholder
+/// observation is kept only for a file whose identity is on the root's volume.
 fn sealed(placeholder: bool) -> Result<std::sync::Arc<du_analysis_index::ResultVersion>, String> {
     let sink = IngestSink::default();
-    let mut build = sink.open(id(1)?).map_err(error)?;
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/scope"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut build = sink.open_observed(id(1)?, root).map_err(error)?;
     build.add_structure(vec![]).map_err(error)?;
     build
         .add_structure(vec![b"folder".to_vec()])
@@ -74,9 +89,26 @@ fn sealed(placeholder: bool) -> Result<std::sync::Arc<du_analysis_index::ResultV
             .retain_placeholder_observation(0, &cloud, PlaceholderObservation::MacDataless)
             .map_err(error)?;
     }
-    build
+    let version = build
         .seal(id(2)?, ResultCompleteness::Complete)
-        .map_err(error)
+        .map_err(error)?;
+    let cloud = version
+        .items()
+        .iter()
+        .find(|item| item.name == b"cloud")
+        .ok_or("cloud")?;
+    let kept = version
+        .item_placeholder_observation(&ItemRef {
+            result_version: version.version_id().clone(),
+            item_no: cloud.item_no,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    // The fixture must really hold the placeholder it claims to.
+    assert_eq!(
+        kept,
+        placeholder.then_some(PlaceholderObservation::MacDataless)
+    );
+    Ok(version)
 }
 
 fn names_cause(aggregate: &SpaceAggregate) -> bool {
