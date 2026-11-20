@@ -4,7 +4,7 @@ import {
   createAnalysisClient,
   hasDesktopLocaleBridge,
   hasStartupStatusBridge,
-  hasWindowsAnalysisBridge,
+  hasDesktopAnalysisBridge,
 } from "./ipc";
 import "./theme/tokens.css";
 import "./theme/titlebar.css";
@@ -23,6 +23,6 @@ createRoot(root).render(
     client={client}
     localeEnabled={hasDesktopLocaleBridge()}
     startupStatusEnabled={startupBridge}
-    analysisEnabled={hasWindowsAnalysisBridge()}
+    analysisEnabled={hasDesktopAnalysisBridge()}
   />,
 );

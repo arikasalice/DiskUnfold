@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  hasDesktopAnalysisBridge,
   hasDesktopLocaleBridge,
   hasStartupStatusBridge,
 } from "../src/ipc/bridge";
@@ -54,6 +55,36 @@ test.each([
   expect(hasStartupStatusBridge()).toBe(false);
 });
 
+// #253: the macOS and Linux hosts assemble analysis too, so their own document enables it.
+test("enables analysis on the host's own app-scheme document only with its marker", () => {
+  stubNativeWindow("diskunfold://app/index.html");
+  const host = window as unknown as { __diskunfoldLocale?: boolean };
+
+  expect(hasDesktopAnalysisBridge()).toBe(false);
+  host.__diskunfoldLocale = true;
+  expect(hasDesktopAnalysisBridge()).toBe(true);
+});
+
+test.each([
+  ["an external document", "https://example.invalid/index.html", true, true],
+  ["a nested frame", "diskunfold://app/index.html", true, false],
+  [
+    "a page without the reply handler",
+    "diskunfold://app/index.html",
+    false,
+    true,
+  ],
+])(
+  "keeps analysis off for %s even with the marker",
+  (_, href, handler, mainFrame) => {
+    stubNativeWindow(href, handler, mainFrame);
+    (window as unknown as { __diskunfoldLocale?: boolean }).__diskunfoldLocale =
+      true;
+
+    expect(hasDesktopAnalysisBridge()).toBe(false);
+  },
+);
+
 function stubWebView2Window(
   origin: string,
   request: unknown,
@@ -74,6 +105,7 @@ test("detects the trusted Windows WebView2 bridge for the startup banner", () =>
   stubWebView2Window("https://diskunfold.invalid", vi.fn());
 
   expect(hasStartupStatusBridge()).toBe(true);
+  expect(hasDesktopAnalysisBridge()).toBe(true);
 });
 
 test.each([

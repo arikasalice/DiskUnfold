@@ -151,19 +151,24 @@ export function hasStartupStatusBridge(): boolean {
   return webKit || webView2;
 }
 
-/** Detects Windows analysis support before presenting analysis controls. */
-export function hasWindowsAnalysisBridge(): boolean {
-  return (
-    hasDesktopLocaleBridge() &&
-    window.location.origin === "https://diskunfold.invalid"
-  );
+/**
+ * Detects analysis support before presenting analysis controls (#253).
+ *
+ * Every desktop host assembles the analysis engine behind the same IPC, so analysis is on
+ * wherever the document is the host's own: the app's HTTPS origin with the WebView2
+ * request function (Windows), or the app-scheme document that carries the host's
+ * read-only marker and the WebKit reply handler (macOS, Linux), in the main frame. A
+ * capability only one host injects, such as recent scopes, keeps its own marker.
+ */
+export function hasDesktopAnalysisBridge(): boolean {
+  return hasDesktopLocaleBridge();
 }
 
 /** Reports the capability of the current desktop composition. */
 export function hasRecentScopes(): boolean {
   return (
     typeof window !== "undefined" &&
-    hasWindowsAnalysisBridge() &&
+    hasDesktopAnalysisBridge() &&
     (window as NativeWindow).__diskunfoldRecentScopes === true
   );
 }

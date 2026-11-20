@@ -550,7 +550,7 @@ export {
   requestWindowDrag,
   requestWindowZoom,
   hasStartupStatusBridge,
-  hasWindowsAnalysisBridge,
+  hasDesktopAnalysisBridge,
   NativeIpcTransportError,
 } from "./bridge";
 export type { CallEnvelope, ResultEnvelope } from "./generated/contracts";

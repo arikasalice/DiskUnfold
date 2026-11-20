@@ -6,7 +6,7 @@ import { createAnalysisClient } from "../src/ipc";
 const bridge = vi.hoisted(() => ({ available: false }));
 vi.mock("../src/ipc", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ipc")>()),
-  hasWindowsAnalysisBridge: () => bridge.available,
+  hasDesktopAnalysisBridge: () => bridge.available,
 }));
 vi.mock("../src/features/analysis/AnalysisPanel", () => ({
   AnalysisPanel: () => <div>Connected analysis</div>,

@@ -32,7 +32,7 @@ import { HistorySizeDisplay } from "../features/history/history-size";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
-import { createAnalysisClient, hasWindowsAnalysisBridge } from "../ipc";
+import { createAnalysisClient, hasDesktopAnalysisBridge } from "../ipc";
 import type { AnalysisClient } from "../ipc";
 import { useScanPriority } from "../state/scan-priority";
 import type { ScanPriority, ScanPriorityContext } from "../state/scan-priority";
@@ -102,7 +102,7 @@ export function App({
   /** Host connection for the product and support screens when analysis is off. */
   infoClient?: AnalysisClient;
 } = {}) {
-  const client = analysis ?? (hasWindowsAnalysisBridge() ? desktop : undefined);
+  const client = analysis ?? (hasDesktopAnalysisBridge() ? desktop : undefined);
   const savedPreferences = useDisplayPreferences(client);
   const regional = useRegionalFormat();
   const text = useLocaleText();
