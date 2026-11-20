@@ -19,24 +19,21 @@
   pointer-events: none;
 }
 
-/* Over the focused element it moves to the top of the window. */
 .du-toast svg {
   flex: none;
 }
 
-/* An outcome's icon carries its colour as well as its shape. */
+/* A success or error outcome colours its icon as well as shaping it; an
+   information icon keeps the text colour (F06 README 35). */
 .du-toast[data-icon="success"] svg {
   color: var(--du-success-text);
-}
-
-.du-toast[data-icon="info"] svg {
-  color: var(--du-info-text);
 }
 
 .du-toast[data-icon="error"] svg {
   color: var(--du-danger-text);
 }
 
+/* Over the focused element it moves to the top of the window. */
 .du-toast[data-place="top"] {
   inset-block-start: 24px;
   inset-block-end: auto;
