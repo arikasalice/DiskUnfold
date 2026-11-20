@@ -183,15 +183,10 @@ const wording = {
       "같은 파일이 여러 폴더에 걸쳐 있거나 속한 곳을 확인할 수 없습니다. 목록에서는 원래 수치를 볼 수 있습니다.",
     ],
   ],
+  // A finished result: the title says it all (F06 README 36).
   "viz.unavailable.no_item_sizes": [
-    [
-      "No item sizes are available",
-      "No item in this scope has a confirmed size.",
-    ],
-    [
-      "크기를 확인한 항목이 없습니다",
-      "이 범위에서 크기를 확인한 항목이 없습니다.",
-    ],
+    ["No item sizes are available", null],
+    ["크기를 확인한 항목이 없습니다", null],
   ],
   "viz.unavailable.negative_flow": [
     [
@@ -234,20 +229,21 @@ test.each(
   ),
 )("the panel words %s in %s", (reason, language, [title, body]) => {
   render(<UnavailablePanel reasonKey={reason} text={textFor(language)} />);
-  expect(screen.getByRole("heading", { name: title })).toBeTruthy();
-  expect(screen.getByText(body)).toBeTruthy();
+  const heading = screen.getByRole("heading", { name: title });
+  expect(heading.parentElement?.textContent).toBe(title + (body ?? ""));
   expect(document.body.textContent).not.toContain("viz.unavailable");
 });
 
-// #149, F06 README 28: only a result that a scan is still adding to promises
-// that sizes appear shortly; the completeness comes from the answer itself.
+// #149, F06 README 28 and 36: only a result that a scan is still adding to
+// explains missing sizes; a finished one shows the title alone. The
+// completeness comes from the answer itself.
 test.each([
   [
     "partial",
     "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
   ],
-  ["complete", "No item in this scope has a confirmed size."],
-  ["missing", "No item in this scope has a confirmed size."],
+  ["complete", null],
+  ["missing", null],
 ] as const)("missing item sizes in a %s result", async (completeness, body) => {
   const answer = {
     ...unavailable(1, "viz.unavailable.no_item_sizes"),
@@ -258,7 +254,9 @@ test.each([
     <ControlledVisualization controller={controller} text={textFor("en")} />,
   );
   await act(async () => controller.render(request(1)));
-  expect(screen.getByText(body)).toBeTruthy();
+  const title = "No item sizes are available";
+  const heading = screen.getByRole("heading", { name: title });
+  expect(heading.parentElement?.textContent).toBe(title + (body ?? ""));
 });
 
 // #149: a result without evidence for the chosen basis names that basis.

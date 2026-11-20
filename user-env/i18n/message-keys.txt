@@ -917,7 +917,6 @@ ui.visualization.unavailableBodyNegativeFlow
 ui.visualization.unavailableBodyNoAttribution
 ui.visualization.unavailableBodyNoBaseline
 ui.visualization.unavailableBodyNoItemSizes
-ui.visualization.unavailableBodyNoItemSizesFinished
 ui.visualization.unavailableBodySingleObservation
 ui.visualization.unavailableBodyUnknown
 ui.visualization.unavailableEvidence

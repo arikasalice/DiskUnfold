@@ -40,7 +40,7 @@ export function UnavailablePanel({
           <Heading level={3} id={headingId}>
             {title}
           </Heading>
-          <Text>{body}</Text>
+          {body && <Text>{body}</Text>}
         </div>
       </LiveStatus>
       {backAction && (

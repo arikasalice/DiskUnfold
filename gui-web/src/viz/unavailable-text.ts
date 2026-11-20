@@ -53,26 +53,24 @@ export type UnavailableContext = {
 
 /**
  * The title (what is missing) and body (why, and what to do) for an unavailable
- * reason. Missing item sizes promise to appear only while a scan is running;
- * a finished result says only that none is confirmed. A basis without
+ * reason. Missing item sizes are explained only while a scan is running; for a
+ * finished result the title says it all and there is no body. A basis without
  * evidence names the basis that was asked for.
  */
 export function visualizationUnavailableText(
   reasonKey: string,
   message: VizText["message"],
   context: UnavailableContext = {},
-): { title: string; body: string } {
+): { title: string; body: string | null } {
   const words = Object.hasOwn(unavailableWords, reasonKey)
     ? unavailableWords[reasonKey]!
     : unknownWords;
-  const body =
+  const title = message(words.title);
+  if (
     words.body === "unavailableBodyNoItemSizes" &&
     context.completeness !== "partial"
-      ? "unavailableBodyNoItemSizesFinished"
-      : words.body;
+  )
+    return { title, body: null };
   const basis = createVizKeyText(message)(context.sizeBasis ?? "");
-  return {
-    title: message(words.title),
-    body: vizMessage({ message }, body, { basis }),
-  };
+  return { title, body: vizMessage({ message }, words.body, { basis }) };
 }

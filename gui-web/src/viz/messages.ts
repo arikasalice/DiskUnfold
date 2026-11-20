@@ -73,8 +73,6 @@ export const visualizationMessages = {
     unavailableTitleNoItemSizes: "No item sizes are available",
     unavailableBodyNoItemSizes:
       "No item in this scope has a confirmed size yet. If a scan is running, items appear shortly.",
-    unavailableBodyNoItemSizesFinished:
-      "No item in this scope has a confirmed size.",
     unavailableTitleBasisNotCounted: "Sizes on this basis aren't available",
     unavailableBodyBasisNotCounted:
       "This result has no evidence to count {basis}. Choose another size basis.",
@@ -286,8 +284,6 @@ export const visualizationMessages = {
     unavailableTitleNoItemSizes: "크기를 확인한 항목이 없습니다",
     unavailableBodyNoItemSizes:
       "이 범위에서 크기를 확인한 항목이 아직 없습니다. 스캔 중이면 잠시 뒤 나타납니다.",
-    unavailableBodyNoItemSizesFinished:
-      "이 범위에서 크기를 확인한 항목이 없습니다.",
     unavailableTitleBasisNotCounted: "이 크기 기준의 값을 확인하지 못했습니다",
     unavailableBodyBasisNotCounted:
       "이 결과에는 {basis}를 셀 근거가 없습니다. 다른 크기 기준을 고르세요.",
