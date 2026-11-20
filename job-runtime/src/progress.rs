@@ -15,6 +15,9 @@ use std::{
     time::Duration,
 };
 
+mod lane_status;
+pub use lane_status::JobLaneStatusEvent;
+
 /// The progress batch interval.
 const INTERVAL: Duration = Duration::from_millis(100);
 /// Marks an unknown total; confirmed totals are clamped below it.
@@ -64,6 +67,14 @@ impl ProgressCell {
         self.reported.store(true, Ordering::Release);
     }
 
+    pub(crate) fn report_lane_status(
+        &self,
+        job: &Id,
+        status: du_core_contracts::job::LaneStatusReport,
+    ) {
+        self.lane_status.report(job, status);
+    }
+
     fn read(&self) -> Option<JobProgress> {
         if !self.reported.load(Ordering::Acquire) {
             return None;
@@ -87,6 +98,7 @@ impl ProgressSlot {
     pub(crate) fn start(&mut self) -> Arc<ProgressCell> {
         let cell = Arc::new(ProgressCell::default());
         self.cell = Some(cell.clone());
+        self.lane_status.cell = Some(cell.lane_status.clone());
         cell
     }
 
@@ -95,6 +107,7 @@ impl ProgressSlot {
         if let Some(cell) = &self.cell {
             cell.closed.store(true, Ordering::Release);
         }
+        self.lane_status.close();
     }
 }
 
@@ -110,26 +123,29 @@ pub(crate) fn tick(table: &mut Table, now: Option<Duration>, observed_at_ms: i64
         return;
     }
     table.progress_due = now.map(|now| now.saturating_add(INTERVAL));
-    let Table { jobs, sender, .. } = table;
-    let Some(sender) = sender.as_ref() else {
-        return;
-    };
-    for (id, job) in jobs.iter_mut() {
-        let Some((event, cell, value)) = changed(id, job, observed_at_ms) else {
-            continue;
-        };
-        let sequence = event.sequence;
-        cell.in_flight.store(true, Ordering::Release);
-        if sender
-            .send(Delivery::Progress(Box::new(event), cell.clone()))
-            .is_err()
-        {
-            cell.in_flight.store(false, Ordering::Release);
+    {
+        let Table { jobs, sender, .. } = table;
+        let Some(sender) = sender.as_ref() else {
             return;
+        };
+        for (id, job) in jobs.iter_mut() {
+            let Some((event, cell, value)) = changed(id, job, observed_at_ms) else {
+                continue;
+            };
+            let sequence = event.sequence;
+            cell.in_flight.store(true, Ordering::Release);
+            if sender
+                .send(Delivery::Progress(Box::new(event), cell.clone()))
+                .is_err()
+            {
+                cell.in_flight.store(false, Ordering::Release);
+                return;
+            }
+            job.sequence = sequence;
+            job.progress.published = Some(value);
         }
-        job.sequence = sequence;
-        job.progress.published = Some(value);
     }
+    lane_status::tick(table, observed_at_ms);
 }
 
 fn changed(

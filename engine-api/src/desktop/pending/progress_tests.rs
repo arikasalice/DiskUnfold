@@ -1,6 +1,6 @@
-//! F24 IF-06 and IF-14: `job.progress` coalescing in the desktop batch.
+//! F24 progress and F02 lane status coalescing in the desktop batch.
 use super::*;
-use du_core_contracts::Id;
+use du_core_contracts::{Id, analysis_ipc::SCAN_LANE_STATUS};
 use serde_json::json;
 
 const JOB_A: &str = "00000000-0000-7000-8000-00000000000a";
@@ -62,6 +62,30 @@ fn a_batch_keeps_the_latest_progress_per_job_after_its_other_events() -> TestRes
             row("job.state_changed", JOB_A, 4),
             row(JOB_PROGRESS, JOB_B, 3),
             row(JOB_PROGRESS, JOB_A, 6),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_batch_keeps_the_latest_lane_status_per_job_after_its_other_events() -> TestResult {
+    let mut pending = Pending::default();
+    let now = Instant::now();
+    pending.push(event(SCAN_LANE_STATUS, JOB_A, 3)?, now, observed()?);
+    pending.push(event("job.state_changed", JOB_A, 4)?, now, observed()?);
+    pending.push(event(SCAN_LANE_STATUS, JOB_B, 3)?, now, observed()?);
+    pending.push(event(SCAN_LANE_STATUS, JOB_A, 5)?, now, observed()?);
+    pending.push(event(SCAN_LANE_STATUS, JOB_A, 6)?, now, observed()?);
+    assert!(
+        pending.take(now).is_none(),
+        "the batch interval has not elapsed"
+    );
+    assert_eq!(
+        drain(&mut pending, now + EVENT_INTERVAL),
+        vec![
+            row("job.state_changed", JOB_A, 4),
+            row(SCAN_LANE_STATUS, JOB_B, 3),
+            row(SCAN_LANE_STATUS, JOB_A, 6),
         ]
     );
     Ok(())

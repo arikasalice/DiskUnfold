@@ -30,7 +30,7 @@ pub use model::{
     JobPriority, JobRuntime, JobSnapshot, ResultBinding, RuntimeError, Submission, SubmitResult,
     TerminalSnapshot,
 };
-pub use progress::JobProgressEvent;
+pub use progress::{JobLaneStatusEvent, JobProgressEvent};
 pub use publication::DuplicateTerminal;
 pub use shutdown::{DeliveryFlush, ShutdownCancellation, ShutdownStatus, ShutdownTicket};
 use std::sync::{

@@ -61,6 +61,9 @@ impl JobEvents for Fanout {
     fn publish_progress(&self, event: crate::JobProgressEvent) {
         self.downstream.publish_progress(event);
     }
+    fn publish_lane_status(&self, event: crate::JobLaneStatusEvent) {
+        self.downstream.publish_lane_status(event);
+    }
     fn retire_job(&self, id: &Id) {
         if !self.bus.retire_job(id) {
             self.failed.store(true, Ordering::Release);

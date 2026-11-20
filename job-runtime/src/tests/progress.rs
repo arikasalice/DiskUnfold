@@ -1,7 +1,7 @@
 //! F24 FR2.HD1.app-host.DD1 and FR14.HD1.app-host.DD1: batched job progress.
 use super::*;
-use crate::{JobProgressEvent, JobWaitReason};
-use du_core_contracts::job::JobProgress;
+use crate::{JobLaneStatusEvent, JobProgressEvent, JobWaitReason};
+use du_core_contracts::job::{JobProgress, LaneReport, LaneStatusReport, LaneWait};
 use std::{
     sync::{atomic::AtomicU64, mpsc},
     thread::JoinHandle,
@@ -35,6 +35,7 @@ impl JobClock for FakeClock {
 enum Seen {
     State(JobState, u64),
     Progress(JobProgressEvent),
+    LaneStatus(JobLaneStatusEvent),
     Finished(JobState, u64),
 }
 impl Seen {
@@ -42,6 +43,7 @@ impl Seen {
         match self {
             Self::State(_, sequence) | Self::Finished(_, sequence) => *sequence,
             Self::Progress(event) => event.sequence,
+            Self::LaneStatus(event) => event.sequence,
         }
     }
 }
@@ -58,6 +60,15 @@ impl Recorder {
             .into_iter()
             .filter_map(|seen| match seen {
                 Seen::Progress(event) => Some(event),
+                _ => None,
+            })
+            .collect()
+    }
+    fn lane_statuses(&self) -> Vec<JobLaneStatusEvent> {
+        self.seen()
+            .into_iter()
+            .filter_map(|seen| match seen {
+                Seen::LaneStatus(event) => Some(event),
                 _ => None,
             })
             .collect()
@@ -85,6 +96,9 @@ impl JobEvents for Recorder {
     fn publish_progress(&self, event: JobProgressEvent) {
         self.push(Seen::Progress(event));
     }
+    fn publish_lane_status(&self, event: JobLaneStatusEvent) {
+        self.push(Seen::LaneStatus(event));
+    }
 }
 
 /// Checks the per-job order: increasing sequences and one final job.finished.
@@ -109,7 +123,8 @@ fn check_order(seen: &[Seen]) -> Result<(), String> {
 }
 
 enum Step {
-    Report(JobProgress),
+    ReportProgress(JobProgress),
+    ReportLaneStatus(LaneStatusReport),
     Finish,
 }
 
@@ -120,11 +135,13 @@ struct Scripted {
     kept: Arc<Mutex<Option<Arc<dyn JobContext>>>>,
 }
 impl Scripted {
-    fn next_report(&self) -> Option<JobProgress> {
-        match self.steps.lock().ok()?.recv().ok()? {
-            Step::Report(progress) => Some(progress),
-            Step::Finish => None,
-        }
+    fn next_step(&self) -> Option<Step> {
+        self.steps
+            .lock()
+            .ok()?
+            .recv()
+            .ok()
+            .filter(|step| !matches!(step, Step::Finish))
     }
 }
 impl JobBody for Scripted {
@@ -136,8 +153,12 @@ impl JobBody for Scripted {
             *kept = Some(context.clone());
         }
         let _ = self.acks.send(());
-        while let Some(progress) = self.next_report() {
-            context.report_progress(progress);
+        while let Some(step) = self.next_step() {
+            match step {
+                Step::ReportProgress(progress) => context.report_progress(progress),
+                Step::ReportLaneStatus(status) => context.report_lane_status(status),
+                Step::Finish => break,
+            }
             let _ = self.acks.send(());
         }
         JobOutcome {
@@ -206,7 +227,12 @@ impl<S: JobEvents + 'static> Harness<S> {
     }
     fn report(&self, completed: u64, total: Option<u64>) -> TestResult {
         self.steps
-            .send(Step::Report(JobProgress { completed, total }))?;
+            .send(Step::ReportProgress(JobProgress { completed, total }))?;
+        self.acks.recv_timeout(WAIT)?;
+        Ok(())
+    }
+    fn report_lane_status(&self, status: LaneStatusReport) -> TestResult {
+        self.steps.send(Step::ReportLaneStatus(status))?;
         self.acks.recv_timeout(WAIT)?;
         Ok(())
     }
@@ -238,6 +264,31 @@ impl<S: JobEvents + 'static> Harness<S> {
             total: None,
         });
         Ok(())
+    }
+    fn late_lane_status(&self, status: LaneStatusReport) -> TestResult {
+        let context = self
+            .kept
+            .lock()
+            .map_err(|_| "context lock")?
+            .clone()
+            .ok_or("missing context")?;
+        context.report_lane_status(status);
+        Ok(())
+    }
+}
+
+fn lane_status(remaining_directories: u64) -> LaneStatusReport {
+    LaneStatusReport {
+        lanes: vec![LaneReport {
+            lane_index: 0,
+            root_indexes: vec![0],
+            in_flight: 1,
+            limit: 2,
+            wait: LaneWait::IoWait,
+            wait_confirmed: true,
+            remaining_directories,
+            failures: 0,
+        }],
     }
 }
 
@@ -273,6 +324,58 @@ fn a_burst_within_one_interval_publishes_only_its_latest_value() -> TestResult {
     assert_eq!(event.sequence, 3);
     assert_eq!(job.runtime.snapshot(&job.id)?.sequence, 3);
     job.finish()?;
+    check_order(&job.sink.seen())?;
+    Ok(())
+}
+
+#[test]
+fn lane_status_batches_with_progress_in_shared_sequence_order() -> TestResult {
+    let mut job = recorded(ProgressUnit::Items)?;
+    job.report(5, Some(12))?;
+    job.report_lane_status(lane_status(8))?;
+    job.report_lane_status(lane_status(3))?;
+    job.runtime.tick_progress()?;
+    job.runtime.flush()?;
+    assert!(job.sink.progress().is_empty());
+    assert!(job.sink.lane_statuses().is_empty());
+
+    job.next_batch()?;
+    let progress = job.sink.progress();
+    let statuses = job.sink.lane_statuses();
+    assert_eq!(progress.len(), 1);
+    assert_eq!(progress[0].sequence, 3);
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0].sequence, 4);
+    assert_eq!(statuses[0].status, lane_status(3));
+    assert_eq!(statuses[0].observed_at_ms, 1_000);
+    assert_eq!(
+        job.sink
+            .seen()
+            .iter()
+            .filter_map(|event| match event {
+                Seen::Progress(event) => Some(event.sequence),
+                Seen::LaneStatus(event) => Some(event.sequence),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec![3, 4]
+    );
+
+    job.next_batch()?;
+    assert_eq!(job.sink.progress().len(), 1);
+    assert_eq!(job.sink.lane_statuses().len(), 1);
+    job.finish()?;
+    check_order(&job.sink.seen())?;
+    Ok(())
+}
+
+#[test]
+fn lane_status_reported_after_job_finished_is_discarded() -> TestResult {
+    let mut job = recorded(ProgressUnit::Items)?;
+    job.finish()?;
+    job.late_lane_status(lane_status(1))?;
+    job.next_batch()?;
+    assert!(job.sink.lane_statuses().is_empty());
     check_order(&job.sink.seen())?;
     Ok(())
 }

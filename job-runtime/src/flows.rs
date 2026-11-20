@@ -4,7 +4,7 @@ use du_core_contracts::{
     Id, Timestamp,
     job::{
         Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobProgress, JobState,
-        ResourceClass,
+        LaneStatusReport, ResourceClass,
     },
 };
 use std::sync::{
@@ -91,6 +91,10 @@ impl JobContext for Context {
 
     fn report_progress(&self, progress: JobProgress) {
         self.services.progress.report(&self.id, progress);
+    }
+
+    fn report_lane_status(&self, status: LaneStatusReport) {
+        self.services.progress.report_lane_status(&self.id, status);
     }
 
     fn checkpoint(&self) -> Checkpoint {
