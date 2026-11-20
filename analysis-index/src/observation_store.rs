@@ -58,6 +58,8 @@ pub(crate) struct ObservationStore {
     limit: u32,
     /// Observed file nodes outside the scan boundary, ascending (F03 FR5.HD1).
     boundary: Vec<u32>,
+    /// Unknown attribute reasons as (node, attribute and reason code), in record order.
+    attribute_reasons: Vec<(u32, u8)>,
 }
 
 impl Default for ObservationStore {
@@ -82,7 +84,18 @@ impl ObservationStore {
             last: NO_NODE,
             limit: limit.min(MAX_NODES),
             boundary: Vec::new(),
+            attribute_reasons: Vec::new(),
         }
+    }
+
+    /// Records why an attribute of a node is unknown; a later record replaces it.
+    pub(crate) fn record_attribute_reason(&mut self, node: u32, code: u8) {
+        self.attribute_reasons.push((node, code));
+    }
+
+    /// Unknown attribute reasons in record order.
+    pub(crate) fn attribute_reasons(&self) -> &[(u32, u8)] {
+        &self.attribute_reasons
     }
 
     /// Marks an observed node as a file outside the scan boundary.

@@ -34,6 +34,7 @@ import {
 } from "./space-format";
 import "./file-inspection.css";
 import type { SizeDisplay } from "./space-format";
+import { unreadValueText } from "./unread-value";
 
 function attribute<T>(
   field: BrowseValue<T>,
@@ -44,9 +45,17 @@ function attribute<T>(
   if (field.state === "absent")
     return text("ui.analysis.not_recorded", "Not recorded");
   return (
+    unreadValueText(field.reasonKey, text)?.value ??
     displaySpaceReason(field.reasonKey, text) ??
     text("ui.inspection.unavailable_in_scan", "Unavailable in this scan")
   );
+}
+
+/** The description lines a value the scan could not read carries (#199). */
+function unreadNotes(field: BrowseValue<unknown>, text: LocaleText): string[] {
+  return field.state === "unknown"
+    ? (unreadValueText(field.reasonKey, text)?.notes ?? [])
+    : [];
 }
 
 /** Names the kind of an item; a kind without a name reads as unknown. */
@@ -73,6 +82,8 @@ function diagnosticReason(key: string, text: LocaleText): string {
       "ui.inspection.reason_not_in_result",
       "Not included in this result",
     );
+  const unread = unreadValueText(key, text);
+  if (unread) return unread.notes[0] ?? unread.value;
   return (
     displayKnownSpaceReason(key, text) ??
     text("ui.inspection.reason_unknown", "Unknown reason ({key})", { key })
@@ -126,7 +137,7 @@ function sizeRow(
       label,
       emphasized: true,
       value: attribute(field, String, text),
-      notes: [],
+      notes: unreadNotes(field, text),
     };
   }
   const { formatted, raw } = displaySizeParts(field.value, display, text);
@@ -378,10 +389,12 @@ export function FileInspection({
                   {
                     label: text("ui.inspection.modified", "Modified"),
                     value: attribute(detail.modifiedAt, renderTime, text),
+                    notes: unreadNotes(detail.modifiedAt, text),
                   },
                   {
                     label: text("ui.inspection.created", "Created"),
                     value: attribute(detail.createdAt, renderTime, text),
+                    notes: unreadNotes(detail.createdAt, text),
                   },
                 ]}
               />

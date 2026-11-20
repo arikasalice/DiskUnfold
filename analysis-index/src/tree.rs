@@ -1,7 +1,7 @@
 //! Deterministic forest numbering and hierarchy construction.
 use crate::item_kind::is_directory;
 use crate::observation_store::ObservationStore;
-use crate::{BuildError, SpaceObservation, StoredObservation};
+use crate::{BuildError, SpaceObservation, StoredObservation, observation::AttributeReasons};
 use du_core_contracts::Timestamp;
 use du_core_contracts::result::ResultItem;
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
@@ -19,8 +19,16 @@ pub(crate) struct BuiltItems {
     pub(crate) root_indices: Vec<u32>,
     /// Item number of every store node in this publication.
     pub(crate) item_of_node: Vec<u32>,
+    pub(crate) sparse: SparseItems,
+}
+
+/// Facts that only a few items carry, bound to the item numbers of one publication.
+#[derive(Debug, Default)]
+pub(crate) struct SparseItems {
     /// Files outside the scan boundary, ascending by item number.
     pub(crate) boundary: Box<[u32]>,
+    /// Why attributes of items are unknown.
+    pub(crate) attribute_reasons: AttributeReasons,
 }
 
 /// Numbers the observed forest: the roots in root order, then every item's
@@ -77,6 +85,7 @@ pub(crate) fn build_items(
         .map(|&node| item_of_node[node as usize])
         .collect();
     boundary.sort_unstable();
+    let attribute_reasons = AttributeReasons::bind(&item_of_node, store.attribute_reasons());
     Ok(BuiltItems {
         items,
         physical: columns.physical,
@@ -87,7 +96,10 @@ pub(crate) fn build_items(
         item_observed_times: columns.item_observed_times,
         root_indices,
         item_of_node,
-        boundary: boundary.into_boxed_slice(),
+        sparse: SparseItems {
+            boundary: boundary.into_boxed_slice(),
+            attribute_reasons,
+        },
     })
 }
 

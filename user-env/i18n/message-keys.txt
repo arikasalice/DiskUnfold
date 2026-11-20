@@ -469,6 +469,9 @@ ui.common.dismiss
 ui.common.scroll_area name:name
 ui.unit.byte
 ui.inspection.unavailable_in_scan
+ui.inspection.not_provided_for_item
+ui.inspection.query_failed_note
+ui.inspection.other_drive_note
 ui.inspection.name
 ui.inspection.path
 ui.inspection.kind

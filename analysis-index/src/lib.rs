@@ -88,8 +88,8 @@ mod observation;
 mod observation_range;
 mod observation_store;
 mod origin;
-pub use observation::Observation;
 use observation::StoredObservation;
+pub use observation::{Observation, ObservedAttribute};
 pub use observation_range::ObservationRange;
 use origin::ResultOrigin;
 #[derive(Debug)]
@@ -132,8 +132,8 @@ pub struct ResultVersion {
     /// lock. `None` when the version was not sealed by a store that tracks freshness.
     freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
     folder_evidence: Option<folder_evidence_snapshot::FolderEvidenceSnapshot>,
-    /// Files outside the scan boundary, ascending by item number (F03 FR5.HD1).
-    boundary_items: Box<[u32]>,
+    /// Boundary files (F03 FR5.HD1) and unknown attribute reasons (FR2.HD1, #239).
+    sparse: tree::SparseItems,
 }
 
 /// A single publication point. Readers retain their snapshot after releasing the lock.
@@ -446,7 +446,7 @@ impl BuildHandle {
             observed_at,
             freshness_outcomes,
             folder_evidence,
-            boundary_items: built.boundary,
+            sparse: built.sparse,
         });
         let order = self
             .events

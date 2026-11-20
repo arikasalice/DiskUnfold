@@ -1,7 +1,7 @@
 //! Projects pinned item observations into the main-window detail contract.
 pub mod copy_path;
 pub mod folder;
-use du_analysis_index::{IngestSink, QueryError, ResultVersion};
+use du_analysis_index::{IngestSink, ObservedAttribute, QueryError, ResultVersion};
 use du_core_contracts::{
     SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::{BrowseDetail, BrowseDetailRequest, BrowseOrigin, BrowseValue},
@@ -70,10 +70,17 @@ fn project(
         display_name: field(display_name, "ref.unavailable"),
         kind,
         logical_size: size(version.item_size(item_no, SizeBasis::Logical)),
-        allocated_size: size(version.item_size(item_no, SizeBasis::Allocated)),
+        allocated_size: size_or(
+            version.item_size(item_no, SizeBasis::Allocated),
+            version
+                .attribute_unknown_reason(item_no, ObservedAttribute::Allocated)
+                .unwrap_or("space.data_insufficient"),
+        ),
         modified_at: field(
             version.item_modified_at(item_no).cloned(),
-            "ref.unavailable",
+            version
+                .attribute_unknown_reason(item_no, ObservedAttribute::ModifiedAt)
+                .unwrap_or("ref.unavailable"),
         ),
         created_at: unknown("ref.unavailable"),
         observed_at: field(version.observed_at().cloned(), "ref.unavailable"),
@@ -111,13 +118,17 @@ fn unknown<T>(reason_key: &str) -> BrowseValue<T> {
 }
 
 fn size(value: Option<&SizeValue>) -> BrowseValue<SizeValue> {
+    size_or(value, "space.data_insufficient")
+}
+
+fn size_or(value: Option<&SizeValue>, reason_key: &str) -> BrowseValue<SizeValue> {
     field(
         value
             .filter(|size| {
                 size.amount != SizeAmount::Unknown && size.evidence != SizeEvidence::Unknown
             })
             .cloned(),
-        "space.data_insufficient",
+        reason_key,
     )
 }
 

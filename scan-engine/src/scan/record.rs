@@ -17,7 +17,8 @@ use super::{
     issues,
 };
 use du_analysis_index::{
-    BuildError, BuildHandle, FileIdentity, Observation, SharingEvidence, SpaceObservation,
+    BuildError, BuildHandle, FileIdentity, Observation, ObservedAttribute, SharingEvidence,
+    SpaceObservation,
 };
 use du_core_contracts::{
     SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp,
@@ -323,6 +324,7 @@ fn record_at(
             );
         }
     }
+    record_unknown_attributes(build, root_index, path, meta)?;
     if meta.kind == ObservedKind::File
         && let Some(inode) = std::num::NonZeroU64::new(entry.enumerated_inode)
     {
@@ -364,6 +366,31 @@ fn record_file(
         Some(space) => build.add_with_space_at(root_index, observation, space),
         None => build.add_file_at(root_index, observation),
     }
+}
+
+/// Keeps why each attribute of a recorded entry is unknown (FR2.HD1 stage 2, #239). A
+/// known or inapplicable attribute records nothing, so most entries cost nothing here.
+fn record_unknown_attributes(
+    build: &mut BuildHandle,
+    root_index: u32,
+    path: &[Vec<u8>],
+    meta: &MetadataObservation,
+) -> Result<(), BuildError> {
+    let reasons = [
+        (ObservedAttribute::ModifiedAt, meta.modified_at.reason()),
+        (ObservedAttribute::Allocated, meta.allocated.reason()),
+        (ObservedAttribute::LinkCount, meta.link_count.reason()),
+        (
+            ObservedAttribute::SpaceIdentity,
+            meta.space_identity.reason(),
+        ),
+    ];
+    for (attribute, reason) in reasons {
+        if let Some(reason) = reason {
+            build.set_attribute_unknown(root_index, path, attribute, reason)?;
+        }
+    }
+    Ok(())
 }
 
 fn observation_and_space(

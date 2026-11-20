@@ -3,6 +3,10 @@ use du_core_contracts::{
     SizeValue, Timestamp, result::ResultItemKind, scan_observation::NativeModifiedTime,
 };
 
+mod attribute_reasons;
+pub(crate) use attribute_reasons::AttributeReasons;
+pub use attribute_reasons::ObservedAttribute;
+
 pub(crate) struct StoredObservation {
     pub(crate) size: Option<SizeValue>,
     pub(crate) kind: ResultItemKind,
