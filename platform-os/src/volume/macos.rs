@@ -107,6 +107,7 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
     if !mount_path.starts_with(b"/") || filesystem.is_empty() {
         return Err(malformed());
     }
+    let flags = entry.f_flags;
     Ok(VolumeMount {
         display_path: String::from_utf8_lossy(&mount_path).into_owned(),
         volume_id: identity(entry, &mount_path),
@@ -116,6 +117,22 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
         mount_source,
         topology: None,
         target_kind: None,
+        // Finder lists exactly the mounts without MNT_DONTBROWSE (F01 #263).
+        browsable: Some(flags & libc::MNT_DONTBROWSE.cast_unsigned() == 0),
+        local: Some(flags & libc::MNT_LOCAL.cast_unsigned() != 0),
+        listed_capacity: listed_capacity(entry),
+    })
+}
+
+/// The capacity in the listing's own record, so a network volume needs no open (#266).
+fn listed_capacity(entry: &libc::statfs) -> Option<VolumeCapacity> {
+    let block = u64::from(entry.f_bsize);
+    if block == 0 || entry.f_bavail > entry.f_blocks {
+        return None;
+    }
+    Some(VolumeCapacity {
+        total_bytes: entry.f_blocks.checked_mul(block)?,
+        available_bytes: entry.f_bavail.checked_mul(block)?,
     })
 }
 

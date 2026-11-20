@@ -76,6 +76,15 @@ impl VolumePort for Port {
         unreachable!()
     }
     fn path_access(&self, path: &[u8]) -> Result<(), PortError> {
+        // Opening the network volume would be refused, so a report that is not a
+        // denial shows the probe never opened it.
+        if path == b"network" {
+            return Err(PortError {
+                kind: du_core_contracts::ports::PortErrorKind::PermissionDenied,
+                reason_key: "os.denied".into(),
+                os_code: None,
+            });
+        }
         if path == b"delay" {
             std::thread::sleep(Duration::from_millis(30));
         }
@@ -111,6 +120,10 @@ fn probe_target(name: &str) -> ProbeTarget {
     ProbeTarget {
         path: path(name),
         volume_id: None,
+        listing: Listing {
+            local: None,
+            capacity: None,
+        },
     }
 }
 fn release(gate: &Arc<(Mutex<bool>, Condvar)>) {
@@ -119,6 +132,62 @@ fn release(gate: &Arc<(Mutex<bool>, Condvar)>) {
         *value = true;
         cv.notify_all();
     }
+}
+
+/// F01 #266: a volume that is not local is reported without being opened, with the
+/// listing's capacity, so no OS permission prompt appears before the user selects it.
+#[test]
+fn a_volume_that_is_not_local_is_reported_unchecked_without_opening_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (finished, flows_finished) = mpsc::channel();
+    let context = Arc::new(Context {
+        cancelled: AtomicBool::new(false),
+        events: events.clone(),
+        finished: Some(finished),
+    });
+    let mut network = probe_target("network");
+    network.listing = Listing {
+        local: Some(false),
+        capacity: Some(VolumeCapacity {
+            total_bytes: 900,
+            available_bytes: 300,
+        }),
+    };
+    let supported = Capability {
+        state: CapabilityState::Supported,
+        reason_key: None,
+    };
+    let body = TargetProbe {
+        clock: Arc::new(FixedClock),
+        targets: vec![network, probe_target("local")],
+        volumes: Arc::new(Port(Arc::new((Mutex::new(true), Condvar::new())))),
+        capacity: supported.clone(),
+        path_access: supported,
+        timeout: IN_TIME_LIMIT,
+    };
+    let outcome = body.run(context);
+    assert!(outcome.completed_scope);
+    for _ in 0..2 {
+        flows_finished.recv_timeout(IN_TIME_LIMIT)?;
+    }
+    let events = events.lock().map_err(|_| "probe events poisoned")?;
+    let network = events
+        .iter()
+        .find(|event| event.target.display == "network")
+        .ok_or("no event for the network volume")?;
+    assert_eq!(network.access, TargetAccess::Unknown);
+    assert_eq!(network.reason_key.as_deref(), Some(ACCESS_NOT_CHECKED));
+    assert_eq!(
+        (&network.total_bytes, &network.available_bytes),
+        (&Some(900.into()), &Some(300.into()))
+    );
+    let local = events
+        .iter()
+        .find(|event| event.target.display == "local")
+        .ok_or("no event for the local volume")?;
+    assert_eq!(local.access, TargetAccess::Accessible);
+    Ok(())
 }
 
 #[test]

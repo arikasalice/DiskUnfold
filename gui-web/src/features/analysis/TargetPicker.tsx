@@ -17,7 +17,16 @@ import type { OsPath } from "../../ipc";
 import type { useTargets } from "../../state/analysis-targets";
 import { useRegionalFormat } from "../../i18n/regional-format";
 import { describeTargetCapacity } from "./target-capacity";
+import { accessLabel, defaultListing, shownAccess } from "./target-access";
+import type { ScopeReview } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
+
+/** The latest scope review as far as it checks a selected target (F01 #266). */
+export type TargetReview = {
+  reviewing: boolean;
+  targets: ScopeReview["targets"] | undefined;
+  openPrivacySettings: () => void;
+};
 
 /** Presents discovered drives and the direct path entry defined for scope review. */
 export function TargetPicker({
@@ -35,6 +44,7 @@ export function TargetPicker({
   isInitial,
   onPathCompositionChange,
   primaryPathRef,
+  review,
 }: {
   targets: ReturnType<typeof useTargets>;
   disabled: boolean;
@@ -50,6 +60,7 @@ export function TargetPicker({
   isInitial: boolean;
   onPathCompositionChange: (composing: boolean) => void;
   primaryPathRef?: RefObject<HTMLInputElement | null>;
+  review: TargetReview;
 }) {
   const text = useLocaleText();
   const fields = useRef(new Map<number, HTMLInputElement>());
@@ -95,6 +106,7 @@ export function TargetPicker({
       selected={selected[0]}
       disabled={disabled}
       choose={choose}
+      review={review}
     />
   );
   const pathEditor = (
@@ -197,12 +209,14 @@ function DrivePicker({
   selected,
   disabled,
   choose,
+  review,
 }: {
   isInitial: boolean;
   targets: ReturnType<typeof useTargets>;
   selected: OsPath | undefined;
   disabled: boolean;
   choose: (path: OsPath | undefined) => void;
+  review: TargetReview;
 }) {
   const text = useLocaleText();
   const regional = useRegionalFormat();
@@ -215,6 +229,9 @@ function DrivePicker({
   const checkingCapacity = Boolean(probeJobRef) && !targets.finished;
   const notice = targetListingNotice(error, text);
   const [showDriveDetails, setShowDriveDetails] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const { listed, hidden } = defaultListing(entries, selected, showHidden);
+  let deniedNetworkVolume = false;
   const driveGroupId = useId();
   return (
     <section
@@ -279,13 +296,20 @@ function DrivePicker({
               choose(entries.find(({ path }) => path.raw === raw)?.path)
             }
           >
-            {entries.map((target) => {
+            {listed.map((target) => {
               const probe = targets.probes[target.path.raw];
-              const access =
-                probe?.access ??
-                (targets.finished && target.access === "checking"
-                  ? "unknown"
-                  : target.access);
+              const isSelected = target.path.raw === selected?.raw;
+              const { access, deferred } = shownAccess(
+                target,
+                probe,
+                targets.finished,
+                {
+                  selected: isSelected,
+                  reviewing: review.reviewing,
+                  reviewed: review.targets,
+                },
+              );
+              deniedNetworkVolume ||= deferred && access === "denied";
               const capacity = describeTargetCapacity(
                 probe,
                 checkingCapacity,
@@ -315,48 +339,38 @@ function DrivePicker({
                   value={target.path.raw}
                   label={target.path.display}
                   icon="drive"
-                  description={`${kind} · ${capacity.evidence}`}
+                  description={[
+                    kind,
+                    capacity.evidence,
+                    ...(deferred
+                      ? [
+                          text(
+                            "ui.analysis.target_network_checked_on_select",
+                            "Network volumes are checked when you select them.",
+                          ),
+                        ]
+                      : []),
+                  ].join(" · ")}
                   summary={showDriveDetails ? undefined : capacity.summary}
                   availablePercent={capacity.availablePercent}
+                  secondary={target.defaultVisible === false}
                   status={{
-                    text:
-                      {
-                        checking: text(
-                          "ui.analysis.target_access_checking",
-                          "checking",
-                        ),
-                        accessible: text(
-                          "ui.analysis.target_access_accessible",
-                          "accessible",
-                        ),
-                        denied: text(
-                          "ui.analysis.target_access_denied",
-                          "denied",
-                        ),
-                        disconnected: text(
-                          "ui.analysis.target_access_disconnected",
-                          "disconnected",
-                        ),
-                        missing: text(
-                          "ui.analysis.target_access_missing",
-                          "missing",
-                        ),
-                        unresponsive: text(
-                          "ui.analysis.target_access_unresponsive",
-                          "unresponsive",
-                        ),
-                        unknown: text(
-                          "ui.analysis.target_access_unknown",
-                          "unknown",
-                        ),
-                      }[access] ??
-                      text("ui.analysis.target_access_unknown", "unknown"),
+                    text: accessLabel(access, text),
                     tone: access === "accessible" ? "good" : "neutral",
                   }}
                 />
               );
             })}
           </ChoiceGroup>
+          {deniedNetworkVolume && (
+            <NetworkVolumeDenied openSettings={review.openPrivacySettings} />
+          )}
+          <HiddenVolumesToggle
+            hidden={hidden}
+            shown={showHidden}
+            controls={driveGroupId}
+            toggle={() => setShowHidden(!showHidden)}
+          />
           {!isInitial && (
             <div className="du-drive-picker__details">
               <Action
@@ -374,6 +388,54 @@ function DrivePicker({
         </>
       )}
     </section>
+  );
+}
+
+/** Shows or folds the targets outside the default list (F01 #263). */
+function HiddenVolumesToggle({
+  hidden,
+  shown,
+  controls,
+  toggle,
+}: {
+  hidden: number;
+  shown: boolean;
+  controls: string;
+  toggle: () => void;
+}) {
+  const text = useLocaleText();
+  if (hidden === 0 && !shown) return null;
+  return (
+    <Action
+      variant="quiet"
+      aria-expanded={shown}
+      aria-controls={controls}
+      onPress={toggle}
+    >
+      {shown
+        ? text("ui.analysis.hide_system_volumes", "Hide system volumes")
+        : text(
+            "ui.analysis.hidden_system_volumes",
+            "{count} system volumes hidden · Show all",
+            { count: String(hidden) },
+          )}
+    </Action>
+  );
+}
+
+/** Says how to allow a network volume that macOS refused at selection (F01 #266). */
+function NetworkVolumeDenied({ openSettings }: { openSettings: () => void }) {
+  const text = useLocaleText();
+  return (
+    <Notice tone="error">
+      {text(
+        "ui.analysis.network_volume_denied",
+        "macOS didn't allow access to this network volume. Turn on Network Volumes for DiskUnfold in System Settings › Privacy & Security › Files and Folders.",
+      )}{" "}
+      <Action variant="quiet" onPress={openSettings}>
+        {text("ui.startup.notice_open_settings", "Open Settings")}
+      </Action>
+    </Notice>
   );
 }
 

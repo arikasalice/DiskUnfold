@@ -100,6 +100,47 @@ fn filesystem_role(filesystem: &[u8]) -> Option<VolumeRole> {
     }
 }
 
+/// Kernel, memory and helper file systems that a file manager does not list (F01 #263).
+const HIDDEN_FILESYSTEMS: &[&[u8]] = &[
+    b"autofs",
+    b"binfmt_misc",
+    b"bpf",
+    b"cgroup",
+    b"cgroup2",
+    b"configfs",
+    b"debugfs",
+    b"devpts",
+    b"devtmpfs",
+    b"efivarfs",
+    b"fusectl",
+    b"hugetlbfs",
+    b"mqueue",
+    b"nsfs",
+    b"proc",
+    b"pstore",
+    b"ramfs",
+    b"rpc_pipefs",
+    b"securityfs",
+    b"sysfs",
+    b"tmpfs",
+    b"tracefs",
+];
+
+/// Whether a file manager lists the mount (F01 #263). Besides the file systems
+/// above it hides snap packages, the EFI system partition and mounts whose options
+/// carry `x-gvfs-hide`; every other mount is listed.
+fn browsable(mount_path: &[u8], filesystem: &[u8], options: &[&[u8]]) -> bool {
+    let hidden_option = options.iter().any(|options| {
+        options
+            .split(|c| *c == b',')
+            .any(|option| option == b"x-gvfs-hide")
+    });
+    !(HIDDEN_FILESYSTEMS.contains(&filesystem)
+        || (filesystem == b"squashfs" && mount_path.starts_with(b"/snap/"))
+        || mount_path == b"/boot/efi"
+        || hidden_option)
+}
+
 fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
     data.split(|c| *c == b'\n')
         .filter(|line| !line.is_empty())
@@ -125,6 +166,11 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
             }
             Ok(VolumeMount {
                 display_path: String::from_utf8_lossy(&mount_path).into_owned(),
+                browsable: Some(browsable(
+                    &mount_path,
+                    fields[separator + 1],
+                    &[fields[5], fields[separator + 3]],
+                )),
                 mount_path,
                 filesystem: fields[separator + 1].to_vec(),
                 mount_source,
@@ -132,6 +178,8 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
                 topology: Some(topology(&fields)?),
                 target_kind: None,
                 volume_id: None,
+                local: None,
+                listed_capacity: None,
             })
         })
         .collect()
@@ -268,6 +316,41 @@ mod tests {
         assert_eq!(mounts[2].role, Some(VolumeRole::VirtualFs));
         assert_eq!(mounts[3].role, None);
         assert_eq!(mounts[4].role, None);
+        Ok(())
+    }
+    /// F01 #263: the default list holds what a file manager shows.
+    #[test]
+    fn hides_system_snap_efi_and_hidden_mounts_and_lists_the_rest()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mounts = parse_mounts(
+            b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+              2 1 8:2 / /home rw - ext4 /dev/sda2 rw\n\
+              3 1 8:17 / /media/me/USB rw - vfat /dev/sdb1 rw\n\
+              4 1 0:5 / /proc rw - proc proc rw\n\
+              5 1 0:6 / /run rw - tmpfs tmpfs rw\n\
+              6 1 7:0 / /snap/core/1 ro - squashfs /dev/loop0 ro\n\
+              7 1 8:3 / /boot/efi rw - vfat /dev/sda3 rw\n\
+              8 1 8:4 / /data rw,x-gvfs-hide - ext4 /dev/sda4 rw\n\
+              9 1 0:7 / /opt/image ro - squashfs /dev/loop1 ro\n",
+        )?;
+        let listed: Vec<_> = mounts
+            .iter()
+            .map(|mount| (mount.display_path.as_str(), mount.browsable))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("/", Some(true)),
+                ("/home", Some(true)),
+                ("/media/me/USB", Some(true)),
+                ("/proc", Some(false)),
+                ("/run", Some(false)),
+                ("/snap/core/1", Some(false)),
+                ("/boot/efi", Some(false)),
+                ("/data", Some(false)),
+                ("/opt/image", Some(true)),
+            ]
+        );
         Ok(())
     }
     #[test]

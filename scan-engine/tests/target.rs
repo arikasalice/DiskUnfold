@@ -36,6 +36,9 @@ fn mount(path: &[u8]) -> VolumeMount {
         topology: None,
         target_kind: None,
         volume_id: None,
+        browsable: None,
+        local: None,
+        listed_capacity: None,
     }
 }
 fn error(kind: PortErrorKind, reason: &str) -> PortError {

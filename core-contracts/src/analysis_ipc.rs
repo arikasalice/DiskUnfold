@@ -83,6 +83,11 @@ pub struct AnalysisTarget {
     pub identity_source: IdentitySource,
     pub access: TargetAccess,
     pub reason_key: Option<String>,
+    /// Whether the target belongs in the default list (F01 #263). The engine always
+    /// sets it; absent means listed. It only arranges the list and never limits a scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub default_visible: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
