@@ -50,11 +50,13 @@ fn a_send_to_a_full_channel_counts_as_blocked_until_room_frees() -> Result<(), S
         while watcher.counts(0).1 == 0 {
             std::thread::yield_now();
         }
-        receiver.recv().ok()
+        // The receiver is returned so the channel stays open until the blocked
+        // send has completed and the test joins this thread.
+        (receiver.recv().ok(), receiver)
     });
     send(&sender, 2).map_err(|error| error.to_string())?;
     let after = meters.counts(0);
-    let drained = drain.join().map_err(|_| "drain panicked")?;
+    let (drained, _receiver) = drain.join().map_err(|_| "drain panicked")?;
     assert_eq!((after, drained), ((0, 0, 0), Some(1)));
     Ok(())
 }
