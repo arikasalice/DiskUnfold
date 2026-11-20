@@ -104,7 +104,7 @@ fn probe_a_real_macos_scan() -> Result<(), Failure> {
         .map(|list| {
             list.split(':')
                 .filter(|path| !path.is_empty())
-                .map(native)
+                .map(|path| json!({"kind": "path", "path": native(path)}))
                 .collect()
         })
         .unwrap_or_default();
