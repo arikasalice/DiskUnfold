@@ -129,6 +129,7 @@ pub(super) fn to_projection(
             drawn_lower_bound: false,
             grouped_lower_bound: false,
         },
+        filter: None,
         detail: projection::Detail {
             omitted_items: omitted,
             remainder_causes: projection::RemainderCauses {

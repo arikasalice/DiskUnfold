@@ -31,10 +31,14 @@ import { useChartOffset } from "./chart-area";
 import {
   ClassChip,
   ModelLegend,
+  NarrowingStatus,
+  narrowedScopeLine,
+  narrowedFrame,
+  TypeAbsent,
   useAutoPatterns,
   useClassChoice,
 } from "./ModelLegend";
-import type { LegendControls } from "./ModelLegend";
+import type { LegendControls, TypeNarrowing } from "./ModelLegend";
 
 const defaultChartRenderer = createChartRenderers([
   ["bar", BarRenderer],
@@ -88,6 +92,8 @@ type ModelViewProps = {
   statusAction?: ReactNode;
   /** The legend's controls; absent where a format has no legend (histogram). */
   legend?: LegendControls | undefined;
+  /** The type the legend narrows to; without it a legend row only highlights. */
+  narrowing?: TypeNarrowing | undefined;
   /** Beside the chart from 720 CSS px of chart area, else under it (README 2). */
   legendSide?: "right" | "below" | undefined;
   text: VizText;
@@ -127,6 +133,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     [frame.model, text],
   );
   const classes = useClassChoice(entries, adapted.shapes);
+  const legendChoice = legendSelection(
+    props.narrowing,
+    frame,
+    entries,
+    classes,
+  );
   const autoPatterns = useAutoPatterns();
   const rowsContent =
     adapted.rowsMatch && page ? (
@@ -165,11 +177,16 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     >
       <div ref={contextRef}>
         <div className="du-review-context">
-          <ModelStatus frame={frame} text={text} />
-          <ClassChip
+          <ModelStatus
+            frame={frame}
+            text={text}
+            scopeLine={narrowedScopeLine(props.narrowing, frame, text)}
+          />
+          <StatusChoice
+            narrowing={props.narrowing}
+            frame={frame}
             entries={entries}
-            selected={classes.selected}
-            onClear={() => classes.choose(null)}
+            classes={classes}
             text={text}
           />
           {props.statusAction && (
@@ -244,9 +261,10 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
               resultRevision: frame.resultRevision,
               content:
                 frame.model.shapes.length === 0 ? (
-                  <EmptyResult
+                  <NoShapes
                     frame={frame}
                     text={text}
+                    narrowing={props.narrowing}
                     rowsTotal={
                       adapted.rowsMatch && page
                         ? page.response.totalCount
@@ -264,8 +282,8 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           text={text}
           controls={props.legend}
           entries={entries}
-          selected={classes.selected}
-          onSelect={classes.choose}
+          selected={legendChoice.selected}
+          onSelect={legendChoice.onSelect}
           forced={autoPatterns}
         />
       </div>
@@ -277,6 +295,80 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
 /** Patterns are drawn when the reader turned them on or the system asks for them. */
 function patternsOn(legend: LegendControls | undefined, auto: boolean) {
   return auto || (legend?.patterns ?? false);
+}
+
+/** The chosen type's chip and totals, or the highlighted class's chip. */
+function StatusChoice({
+  narrowing,
+  frame,
+  entries,
+  classes,
+  text,
+}: {
+  narrowing: TypeNarrowing | undefined;
+  frame: ModelResponse;
+  entries: ReturnType<typeof legendEntries>;
+  classes: ReturnType<typeof useClassChoice>;
+  text: VizText;
+}) {
+  return narrowing ? (
+    <NarrowingStatus narrowing={narrowing} frame={frame} text={text} />
+  ) : (
+    <ClassChip
+      entries={entries}
+      selected={classes.selected}
+      onClear={() => classes.choose(null)}
+      text={text}
+    />
+  );
+}
+
+/** A model without shapes: the chosen type is absent here, or the folder is empty. */
+function NoShapes({
+  frame,
+  text,
+  narrowing,
+  rowsTotal,
+}: {
+  frame: ModelResponse;
+  text: VizText;
+  narrowing: TypeNarrowing | undefined;
+  rowsTotal: number | null;
+}) {
+  return narrowing && narrowedFrame(narrowing, frame) ? (
+    <TypeAbsent narrowing={narrowing} text={text} />
+  ) : (
+    <EmptyResult frame={frame} text={text} rowsTotal={rowsTotal} />
+  );
+}
+
+/**
+ * What a legend row does (README 46.1). With narrowing, pressing a row with a
+ * condition narrows to its type, another row switches, the same row again
+ * clears; a row without a condition does nothing. Without it, a row highlights.
+ */
+function legendSelection(
+  narrowing: TypeNarrowing | undefined,
+  frame: ModelResponse,
+  entries: ReturnType<typeof legendEntries>,
+  classes: ReturnType<typeof useClassChoice>,
+) {
+  if (!narrowing)
+    return { selected: classes.selected, onSelect: classes.choose };
+  return {
+    selected: narrowing.key,
+    onSelect: (key: string | null) => {
+      if (key === null || key === narrowing.key) {
+        narrowing.choose(null);
+        return;
+      }
+      const condition = frame.model.legend.find(
+        (entry) => entry.key === key,
+      )?.condition;
+      const label = entries.find((entry) => entry.key === key)?.label;
+      if (condition && label) narrowing.choose({ key, label, condition });
+    },
+  };
 }
 
 /** The renderer's focus and key callbacks the caller supplied (README 34). */

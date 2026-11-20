@@ -140,7 +140,7 @@ fn type_classes() -> HashMap<String, LegendClass> {
             class.key.to_owned(),
             LegendClass {
                 label_key: class.label_key.to_owned(),
-                condition: None,
+                condition: crate::viz_runtime::type_fragment(class.key),
             },
         )
     });

@@ -8,7 +8,7 @@
 //! then by the raw name bytes preserved by the index (see `before`). That order
 //! is a display order only: it never decides whether two items are the same
 //! item and never maps items between result versions.
-use super::{geometry::valid_bounds, reference, root_ref, squarify, value};
+use super::{filter::ItemFilter, geometry::valid_bounds, reference, root_ref, squarify, value};
 use crate::{FileIdentity, ResultVersion};
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -22,7 +22,9 @@ use std::{
 mod physical;
 use physical::{link_bytes, physical_file};
 mod partial;
-pub(crate) use partial::{Partial, Unattributed, admit_partial_cancellable};
+pub(crate) use partial::{
+    Partial, Unattributed, admit_filtered_cancellable, admit_partial_cancellable,
+};
 
 /// Original F03 value and item associated with an index in the resulting layout.
 #[derive(Clone, Debug)]
@@ -97,6 +99,7 @@ pub fn admit_cancellable(
             &basis,
             &mut identities,
             false,
+            None,
             cancelled,
         )?
         .bytes;
@@ -346,6 +349,8 @@ struct Observed {
     /// it adds no bytes and the F03 value of the subtree can only be a lower bound. A link
     /// that was not followed is such an entry only when its own size is unknown.
     unmeasured: bool,
+    /// Bytes of the observations the filter keeps; all of [bytes](Self::bytes) without one.
+    kept: u64,
 }
 
 /// Whether a lower-bound F03 value may take part in a partition on this basis.
@@ -364,17 +369,21 @@ fn lower_bound_partitions(basis: &SizeBasis) -> bool {
 /// nor the completeness. A link whose own size is unknown is an unread entry. With
 /// allow_unmeasured, an unread entry adds no bytes and is reported in the result, so the
 /// subtree is placed by its lower bound; without it, such an entry refuses the sibling.
+/// With a filter, the bytes it keeps are summed apart; every entry is still checked.
 fn inspect_subtree(
     version: &ResultVersion,
     sibling: u32,
     basis: &SizeBasis,
     identities: &mut Identities,
     allow_unmeasured: bool,
+    filter: Option<ItemFilter>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Observed, AdmissionError> {
     let mut work = vec![sibling];
     let mut sum = 0_u64;
+    let mut kept = 0_u64;
     let mut unmeasured = false;
+    let keeps = |no: u32| filter.is_none_or(|filter| filter.keeps(version, no));
     while let Some(no) = work.pop() {
         check(cancelled)?;
         let item = version
@@ -401,6 +410,11 @@ fn inspect_subtree(
                 sum = sum
                     .checked_add(bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
+                if keeps(no) {
+                    kept = kept
+                        .checked_add(bytes)
+                        .ok_or(AdmissionError::NoAttribution)?;
+                }
             }
             ResultItemKind::UntraversedLink => {
                 match link_bytes(version, no, sibling, basis, identities)? {
@@ -408,6 +422,11 @@ fn inspect_subtree(
                         sum = sum
                             .checked_add(bytes)
                             .ok_or(AdmissionError::NoAttribution)?;
+                        if keeps(no) {
+                            kept = kept
+                                .checked_add(bytes)
+                                .ok_or(AdmissionError::NoAttribution)?;
+                        }
                     }
                     None if allow_unmeasured => unmeasured = true,
                     None => return Err(AdmissionError::NoAttribution),
@@ -422,6 +441,7 @@ fn inspect_subtree(
     Ok(Observed {
         bytes: sum,
         unmeasured,
+        kept,
     })
 }
 

@@ -47,6 +47,13 @@ pub(super) fn fingerprint(
         }),
     );
     serde_json::to_writer(&mut hash, &envelope).map_err(|_| Error::Fingerprint)?;
+    // An unfiltered request keeps the fingerprint it had before filters existed.
+    if let Some(du_analysis_index::visualization::filter::ItemFilter::FileType(kind)) =
+        request.filter
+    {
+        hash.update(b"\nfilter:file_type:");
+        hash.update(du_analysis_index::visualization::type_legend::key_of(kind).as_bytes());
+    }
     for child in evidence.values() {
         check(cancelled)?;
         hash.update(b"\n");

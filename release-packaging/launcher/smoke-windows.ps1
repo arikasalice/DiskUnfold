@@ -38,6 +38,10 @@ param(
   [switch]$CaptureTypeLegend,
   # Capture the type legend with a ninth class (a junction), folded and opened (F06 FR6).
   [switch]$CaptureTypeLegendMore,
+  # Capture the treemap narrowed to one type from the legend, its table, a folder without the
+  # type and the histogram with the chip inactive (#301); the Short form only the treemap.
+  [switch]$CaptureTypeNarrowing,
+  [switch]$CaptureTypeNarrowingShort,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1857,6 +1861,67 @@ function Select-SmokeRadio($radio) {
   else { Invoke-UI $radio }
   Start-Sleep -Milliseconds 1500
 }
+# F06 #301 (README 46): narrowing the treemap to one type from the legend. Videos sit at the top
+# and in a subfolder, so the legend's Videos row and the narrowed total count both (46.9). Captures
+# the narrowed treemap, its table, a folder without videos, and the histogram with the chip
+# inactive. With -Short only the narrowed treemap, for the dark and narrow runs.
+function Test-CaptureTypeNarrowing([switch]$Short) {
+  $scope = Join-Path $root 'type-narrowing-scope'
+  foreach ($folder in 'docs', 'songs') { [IO.Directory]::CreateDirectory((Join-Path $scope $folder)) | Out-Null }
+  $files = [ordered]@{ 'clip.mp4' = 6MB; 'notes.txt' = 1MB; 'docs\report.pdf' = 10MB; 'docs\talk.mp4' = 4MB; 'songs\song.mp3' = 2MB }
+  foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'clip.mp4' { Find-UI 'clip.mp4' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $legendName = Get-UiName 'Legend'
+  $listType = [Windows.Automation.ControlType]::List
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  $legend = Wait-UI 'type legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  } 60
+  $videosName = Get-UiName 'Videos'
+  $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
+  "Legend Videos before narrowing: '$($videos.Current.Name)'"
+  Select-SmokeRadio $videos
+  $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
+  $textCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $textType)
+  $total = Wait-UI 'the narrowed total' {
+    @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1
+  }
+  "Chip: '$($clear.Current.Name)'; status line: '$($total.Current.Name)'"
+  # Choosing a legend row can scroll a narrow window down to the legend; show the status line.
+  Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
+  if ($Short) { return }
+  # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
+  $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
+  Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
+  # The histogram does not narrow: the chip stays, inactive, with its note (46.5).
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
+  $histogramName = Get-UiName 'Histogram'
+  Select-SmokeRadio (Wait-UI 'Histogram format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$histogramName*" }) | Select-Object -First 1 })
+  $null = Wait-UI 'the inactive chip note' { Find-UI "Doesn't apply to this format" $null }
+  Save-SmokeCapture '03-histogram-inactive'
+  $treemapName = Get-UiName 'Treemap'
+  Select-SmokeRadio (Wait-UI 'Treemap format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$treemapName*" }) | Select-Object -First 1 })
+  $null = Wait-UI 'the narrowed total again' { @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1 }
+  # songs holds no video: the chart's place says so and offers to clear (46.1). The choice is
+  # kept while the folders are shown, so open songs there and show its space distribution.
+  Invoke-UI (Wait-Enabled 'Back to folders' $true)
+  $songs = Wait-UI 'the songs folder row' { Find-UI 'songs' $button }
+  Invoke-UI $songs
+  $null = Wait-UI 'song.mp3' { Find-UI 'song.mp3' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $null = Wait-UI 'no videos in songs' {
+    @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "*$videosName*" -and $_.Current.Name -notlike '*·*' -and $_.Current.Name -ne $videosName }) | Select-Object -First 1
+  } 30
+  Save-SmokeCapture '04-folder-without-type'
+  "Type narrowing capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 function Test-CaptureTypeLegend([switch]$More) {
   $scope = Join-Path $root 'type-legend-scope'
   [IO.Directory]::CreateDirectory((Join-Path $scope 'tiny')) | Out-Null
@@ -1890,7 +1955,7 @@ function Test-CaptureTypeLegend([switch]$More) {
   } 60
   $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
   "Legend: $(@($legend.FindAll($scopeTree, $listItem) | ForEach-Object { $_.Current.Name }) -join ' | ')"
-  "Folder note shown: $($null -ne (Find-UI 'Items inside folders show by type when expanded' $null))"
+  "Folder note shown: $($null -ne (Find-UI 'Files in uncolored folders are counted in the legend' $null))"
   Save-SmokeCapture '01-treemap-type'
   if ($More) {
     $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
@@ -1917,12 +1982,8 @@ function Test-CaptureTypeLegend([switch]$More) {
   Select-SmokeRadio $videos
   "Legend class chosen: '$($videos.Current.Name)'"
   Save-SmokeCapture '03-legend-videos'
-  # Choosing an item again does not let go of it; the chip on the status line does.
-  $buttonType = [Windows.Automation.ControlType]::Button
-  $chip = Wait-UI 'the class chip' {
-    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)) |
-      Where-Object { $_.Current.Name -like "*$videosName*" }) | Select-Object -First 1
-  }
+  # Choosing a type narrows the treemap to it (#301); the chip on the status line lets go.
+  $chip = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
   "Class chip: '$($chip.Current.Name)'"
   Invoke-UI $chip
   Start-Sleep -Milliseconds 600
@@ -2380,7 +2441,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2394,6 +2455,8 @@ function Test-VirtualGroups {
   if ($CaptureHistogramGaps) { Test-CaptureHistogramGaps }
   if ($CaptureTypeLegend) { Test-CaptureTypeLegend }
   if ($CaptureTypeLegendMore) { Test-CaptureTypeLegend -More }
+  if ($CaptureTypeNarrowing) { Test-CaptureTypeNarrowing }
+  if ($CaptureTypeNarrowingShort) { Test-CaptureTypeNarrowing -Short }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

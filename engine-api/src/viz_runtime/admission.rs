@@ -17,6 +17,7 @@ impl Runtime {
             .map_err(|_| unavailable())?;
         let source = self.pin_source(&request, caller.channel)?;
         validate_scope(&request, &source)?;
+        let filter = super::condition::filter_of(&request)?;
         let max_shapes = validate_viewport(&request, &self.assembly.policy)?;
         let strategy = request.strategy.as_ref().map(|s| LayoutStrategyKey {
             id: s.id.clone(),
@@ -106,6 +107,7 @@ impl Runtime {
             histogram,
             ranked_other,
             required_data,
+            filter,
         })
     }
     /// Pins the source for `channel`; a source it may not see fails as `ref.unavailable`.
@@ -273,9 +275,9 @@ fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Resul
     if request.denominator_basis != VizDenominatorBasis::Scope {
         return Err(EngineError::reason("viz.denominator_invalid"));
     }
-    // The currently registered implementation supports one unfiltered parent.
-    if request.condition.is_some()
-        || request.aggregate_scope_ref != request.navigation_scope_ref
+    // The currently registered implementation supports one parent; its condition is
+    // read by the condition module.
+    if request.aggregate_scope_ref != request.navigation_scope_ref
         || request
             .focus_item_ref
             .as_ref()

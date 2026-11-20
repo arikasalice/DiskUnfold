@@ -101,6 +101,16 @@ pub(super) fn project_rows(
         return Err(Error::Cancelled);
     }
     validate_model(&version, model)?;
+    // A filtered model shows only the children that keep a file; the others have no row.
+    let presentations = if model.filter.is_some() {
+        let shown: HashSet<u32> = model.rows.iter().map(|row| row.item.item_no).collect();
+        presentations
+            .into_iter()
+            .filter(|presentation| shown.contains(&presentation.item.item_no))
+            .collect()
+    } else {
+        presentations
+    };
     if model.rows.len() != presentations.len() {
         return Err(Error::MissingClassification);
     }
@@ -218,13 +228,16 @@ fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<
     }
     let original =
         original_size(version, model.parent.item_no, &model.basis).ok_or(Error::SourceMismatch)?;
-    if original != &model.totals.scope
-        || du_analysis_index::browse::open(version, Some(&model.parent))
-            .map_err(|_| Error::SourceMismatch)?
-            .children
-            .len()
-            != model.rows.len()
-    {
+    let children = du_analysis_index::browse::open(version, Some(&model.parent))
+        .map_err(|_| Error::SourceMismatch)?
+        .children
+        .len();
+    let rows_fit = if model.filter.is_some() {
+        model.rows.len() <= children
+    } else {
+        model.rows.len() == children
+    };
+    if original != &model.totals.scope || !rows_fit {
         return Err(Error::SourceMismatch);
     }
     Ok(())
@@ -242,7 +255,11 @@ fn project_row(
         .ok_or(Error::SourceMismatch)?;
     if row.item.result_version != model.result_revision
         || item.parent != Some(model.parent.item_no)
-        || original_size(version, item.item_no, &model.basis) != Some(&row.size)
+        || !row_size_holds(
+            original_size(version, item.item_no, &model.basis),
+            &row.size,
+            model.filter.is_some(),
+        )
     {
         return Err(Error::SourceMismatch);
     }
@@ -251,6 +268,29 @@ fn project_row(
         return Err(Error::InvalidRatio);
     }
     Ok(projected)
+}
+
+/// A row shows its child's original value, or under a filter the kept part of it:
+/// the same basis, no more bytes, and an unknown value for a child whose kept share
+/// cannot be proven.
+fn row_size_holds(original: Option<&SizeValue>, shown: &SizeValue, filtered: bool) -> bool {
+    let Some(original) = original else {
+        return false;
+    };
+    if !filtered {
+        return original == shown;
+    }
+    let bytes = |value: &SizeValue| match &value.amount {
+        du_core_contracts::SizeAmount::Exact { bytes }
+        | du_core_contracts::SizeAmount::LowerBound { bytes } => Some(bytes.get()),
+        du_core_contracts::SizeAmount::Unknown => None,
+    };
+    original.basis == shown.basis
+        && match (bytes(original), bytes(shown)) {
+            (Some(whole), Some(kept)) => kept <= whole,
+            (_, None) => true,
+            (None, Some(_)) => false,
+        }
 }
 
 fn make_row(

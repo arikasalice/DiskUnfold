@@ -1,5 +1,4 @@
 use super::*;
-use du_analysis_index::visualization::geometry::NoArea;
 use du_core_contracts::{
     SizeAmount, SizeValue,
     browse_page_ipc::{QueryStrategy, ResultOrigin},
@@ -200,29 +199,7 @@ pub(super) fn build_model(
             item_kind: None,
         });
     }
-    let mut classes = std::collections::BTreeMap::<String, (u64, u64, bool)>::new();
-    for row in &projection.rows {
-        if cancelled() {
-            return Err(internal());
-        }
-        let item = evidence.get(&row.item.item_no).ok_or_else(internal)?;
-        let total = classes
-            .entry(item.presentation.legend_class_key.clone())
-            .or_default();
-        total.0 = total.0.checked_add(1).ok_or_else(internal)?;
-        if row.omission == Some(NoArea::Unknown) {
-            // Counted, never added: the bytes of a sibling without a provable area
-            // are not known to be disjoint from the others, so the class total is
-            // only a lower bound.
-            total.2 = true;
-            continue;
-        }
-        total.1 = total
-            .1
-            .checked_add(bytes(&row.size)?)
-            .ok_or_else(internal)?;
-        total.2 |= matches!(row.size.amount, SizeAmount::LowerBound { .. });
-    }
+    let classes = super::legend_totals::classes(admitted, projection, evidence, cancelled)?;
     let mut legend = Vec::with_capacity(classes.len());
     for (key, (count, total, lower)) in
         super::legend_order::listed(classes, &admitted.facts.legend_order)

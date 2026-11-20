@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { LegendControls } from "./ModelLegend";
+import type { LegendControls, TypeNarrowing } from "./ModelLegend";
 import { LiveStatus, Notice, Text, Toast } from "../../components";
 import { VisualizationModelPresenter } from "./VisualizationModelPresenter";
 import type {
@@ -44,6 +44,7 @@ export function ControlledVisualization({
   sizeBasis,
   statusAction,
   legend,
+  narrowing,
   legendSide,
 }: {
   controller: VisualizationController;
@@ -63,6 +64,8 @@ export function ControlledVisualization({
   statusAction?: ReactNode;
   /** The legend's controls, where the format has a legend. */
   legend?: LegendControls | undefined;
+  /** The type the legend narrows to (README 46), kept by the screen. */
+  narrowing?: TypeNarrowing | undefined;
   legendSide?: "right" | "below" | undefined;
 }) {
   const state = useSyncExternalStore(
@@ -232,6 +235,7 @@ export function ControlledVisualization({
           rowsReturnTargetRef={graphRowsTargetRef}
           statusAction={statusAction}
           legend={legend}
+          narrowing={narrowing}
           legendSide={legendSide}
           text={text}
           folderRows={folderRows}

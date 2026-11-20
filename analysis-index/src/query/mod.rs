@@ -1,6 +1,7 @@
 //! In-memory, pinned-result query primitives. Text normalization and IPC belong to callers.
 pub mod boundary;
 mod condition;
+pub mod file_type_predicate;
 pub mod page;
 pub(crate) mod plan;
 pub mod prepared;
@@ -91,6 +92,7 @@ impl Registry {
         result.predicates.insert(("pred.name".into(), 1), builtin);
         result.predicates.insert(("pred.type".into(), 1), builtin);
         result.predicates.insert(("pred.size".into(), 1), builtin);
+        file_type_predicate::register(&mut result);
         result.sorts.insert(("sort.name".into(), 1), sort_name);
         result.sorts.insert(("sort.path".into(), 1), sort_path);
         result.sorts.insert(("sort.size".into(), 1), sort_size);

@@ -120,3 +120,26 @@
     }
   }
 }
+
+/* The chosen type's chip and what the filter left out, one group on the status
+   line that moves to the next line as a whole (F06 README 46.2, 46.11). Where the
+   format does not narrow the chip stays, solid and in disabled colours, with its
+   note beside it; a dashed line means a value that is not settled (4.6). */
+.du-narrowing-chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.du-narrowing-chip[data-inactive] > .du-action {
+  color: var(--du-disabled-text);
+  border-color: var(--du-disabled-border);
+}
+/* In the chart's place when the folder holds no file of the chosen type (46.1). */
+.du-type-absent {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding-block: 24px;
+}

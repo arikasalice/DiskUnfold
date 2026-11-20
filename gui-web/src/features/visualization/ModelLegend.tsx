@@ -1,9 +1,10 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { Action, ChartLegend, Text } from "../../components";
 import type { GeometryRendererProps, LegendEntry } from "../../components";
-import { hasClosedFolders, vizMessage } from "../../viz";
+import { hasClosedFolders, TYPE_CRITERION, vizMessage } from "../../viz";
 import type { ModelResponse, VizText } from "../../viz";
+import type { QueryCondition } from "../../ipc";
 
 /** The colour criterion choice and the pattern switch, kept by the screen. */
 export type LegendControls = {
@@ -139,5 +140,156 @@ export function ModelLegend({
       lessLabel={text.message("legendLess")}
       footer={footer}
     />
+  );
+}
+
+/** The type the legend narrows to (F06 README 46), kept by the screen. */
+export type TypeNarrowing = {
+  key: string | null;
+  label: string | null;
+  /** Chosen, but the format shown does not narrow (README 46.5). */
+  inactive: boolean;
+  /** What the last change said once to a screen reader (README 46.6). */
+  announced: { type: string } | "all" | null;
+  choose: (
+    choice: { key: string; label: string; condition: QueryCondition } | null,
+  ) => void;
+};
+
+/** Whether this frame is drawn narrowed to the chosen type. */
+export function narrowedFrame(
+  narrowing: TypeNarrowing | undefined,
+  frame: ModelResponse,
+) {
+  return (
+    !!narrowing?.key &&
+    !narrowing.inactive &&
+    frame.model.representation.colorCriterion === TYPE_CRITERION
+  );
+}
+
+/**
+ * The chosen type on the status line (README 46.2, 46.11): the chip
+ * "Type: Videos ×" and what the filter left out, one group that wraps as a
+ * whole; inactive with a note where the format does not narrow. The narrowed
+ * total takes the place of the scope total, see narrowedScopeLine.
+ */
+export function NarrowingStatus({
+  narrowing,
+  frame,
+  text,
+}: {
+  narrowing: TypeNarrowing | undefined;
+  frame: ModelResponse;
+  text: VizText;
+}) {
+  const noteId = useId();
+  if (!narrowing) return null;
+  const announcement =
+    narrowing.announced === null
+      ? ""
+      : narrowing.announced === "all"
+        ? text.message("filterAnnounceAll")
+        : vizMessage(text, "filterAnnounceType", narrowing.announced);
+  const live = (
+    <div className="du-visually-hidden" role="status" aria-live="polite">
+      {announcement}
+    </div>
+  );
+  if (!narrowing.key || !narrowing.label) return live;
+  const label = vizMessage(text, "legendChip", {
+    criterion: text.message("colorType"),
+    name: narrowing.label,
+  });
+  const removed = narrowedFrame(narrowing, frame)
+    ? filteredOutText(frame, text)
+    : null;
+  return (
+    <>
+      {live}
+      <div
+        className="du-narrowing-chip"
+        data-inactive={narrowing.inactive || undefined}
+      >
+        {/* Inactive, the chip still clears the condition (README 46.11). */}
+        <Action
+          onPress={() => narrowing.choose(null)}
+          aria-label={text.message("filterClearType")}
+          {...(narrowing.inactive ? { "aria-describedby": noteId } : {})}
+        >
+          {`${label} ×`}
+        </Action>
+        {narrowing.inactive && (
+          <div id={noteId}>
+            <Text kind="muted">{text.message("filterNotApplicable")}</Text>
+          </div>
+        )}
+        {removed && <Text kind="muted">{removed}</Text>}
+      </div>
+    </>
+  );
+}
+
+/**
+ * The scope total of a narrowed treemap, in its place on the status line:
+ * "Videos 10 MiB · Scope total 23 MiB · Allocated size" (README 46.11).
+ * Nothing when the frame is not narrowed or its type is not in the legend.
+ */
+export function narrowedScopeLine(
+  narrowing: TypeNarrowing | undefined,
+  frame: ModelResponse,
+  text: VizText,
+) {
+  if (!narrowing?.label || !narrowedFrame(narrowing, frame)) return null;
+  const { totals, legend, representation } = frame.model;
+  const entry = legend.find((candidate) => candidate.key === narrowing.key);
+  if (!entry) return null;
+  return vizMessage(text, "filterTotalLine", {
+    type: narrowing.label,
+    size: text.quantity(entry.total.quantity),
+    scope: text.quantity(totals.scope.quantity),
+    basis: text.key(representation.sizeBasis),
+  });
+}
+
+/** "Filtered out" by the value state (README 46.7); nothing when nothing was left out. */
+function filteredOutText(frame: ModelResponse, text: VizText) {
+  const quantity = frame.model.totals.filteredOut.quantity;
+  if (quantity.state === "exact")
+    return quantity.value === "0"
+      ? null
+      : vizMessage(text, "filterFilteredOut", {
+          size: text.quantity(quantity),
+        });
+  if (quantity.state === "lower_bound")
+    return vizMessage(text, "filterFilteredOutAtLeast", {
+      size: text.quantity({ ...quantity, state: "exact" }),
+    });
+  return text.message(
+    frame.completeness === "partial"
+      ? "filterFilteredOutCalculating"
+      : "filterFilteredOutUnavailable",
+  );
+}
+
+/** In the chart's place when the folder holds no file of the chosen type (README 46.1). */
+export function TypeAbsent({
+  narrowing,
+  text,
+}: {
+  narrowing: TypeNarrowing;
+  text: VizText;
+}) {
+  return (
+    <div className="du-type-absent">
+      <Text>
+        {vizMessage(text, "filterTypeAbsent", {
+          type: narrowing.label ?? "",
+        })}
+      </Text>
+      <Action onPress={() => narrowing.choose(null)}>
+        {text.message("filterClearType")}
+      </Action>
+    </div>
   );
 }

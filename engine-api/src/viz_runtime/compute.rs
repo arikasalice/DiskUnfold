@@ -94,6 +94,7 @@ impl JobBody for Compute {
                 strategy: Some(&self.admitted.descriptor.strategy),
                 max_shapes: self.admitted.max_shapes,
                 other: self.admitted.ranked_other.as_ref(),
+                filter: self.admitted.filter,
             },
             &self.admitted.source,
             hierarchy,

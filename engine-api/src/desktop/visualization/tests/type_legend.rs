@@ -64,12 +64,14 @@ fn the_type_criterion_classes_files_by_type_and_leaves_folders_out_of_the_legend
         .iter()
         .map(|entry| entry["key"].clone())
         .collect();
-    // The fixed order of the type legend, the folder left out.
+    // The fixed order of the type legend, the folder left out. A row counts its
+    // files at any depth: photos/a.jpg is an image of the scope.
     assert_eq!(
         legend,
         [
             "type.document",
             "type.audio",
+            "type.image",
             "type.installer_image",
             "type.unclassified",
             "type.no_extension",

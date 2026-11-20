@@ -53,9 +53,12 @@ const COMPLETENESS_BADGES: Readonly<
 export function ModelStatus({
   frame,
   text,
+  scopeLine,
 }: {
   frame: ModelResponse;
   text: VizText;
+  /** Said in the scope total's place, such as the narrowed total (README 46.11). */
+  scopeLine?: string | null | undefined;
 }) {
   const { completeness, model } = frame;
   const { staleness } = model;
@@ -106,7 +109,7 @@ export function ModelStatus({
         ))}
       </LiveStatus>
       <Text>{text.observedAt(frame.observedAt)}</Text>
-      <Text>{scopeTotal(model, text)}</Text>
+      <Text>{scopeLine ?? scopeTotal(model, text)}</Text>
       {unwatched && !scanRunning && (
         <Text kind="muted">{visualizationReason(UNWATCHED, text.message)}</Text>
       )}

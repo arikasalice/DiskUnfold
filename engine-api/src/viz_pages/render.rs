@@ -29,7 +29,7 @@ use super::{
 };
 use crate::{api::Channel, current_analysis, viz_catalog};
 
-/// Normalized rendering choices for the exact, unfiltered single-parent path.
+/// Normalized rendering choices for the exact single-parent path.
 pub struct Request<'a> {
     pub selected_revision: &'a Id,
     pub requested_revision: Option<&'a Id>,
@@ -43,6 +43,8 @@ pub struct Request<'a> {
     /// Presentation of the group that merges small siblings. Without it the small
     /// siblings are only counted, so no group shape or row is made.
     pub other: Option<&'a OtherPresentation>,
+    /// Files the projection keeps; every file without one.
+    pub filter: Option<du_analysis_index::visualization::filter::ItemFilter>,
 }
 /// Facts supplied by the path-comparison and presentation owners for one item.
 ///
@@ -267,12 +269,7 @@ impl ModelPages {
             check(cancelled)?;
             presentations.push(presentation(child));
         }
-        let project = if matches!(mode, PrepareMode::Hierarchical) {
-            projection::project_deferred
-        } else {
-            projection::project
-        };
-        let model = project(
+        let model = projection::project_filtered(
             Source {
                 version: source.version(),
                 parent: request.parent,
@@ -286,6 +283,8 @@ impl ModelPages {
                 max_shapes: request.max_shapes,
                 group_tail: request.other.is_some(),
             },
+            request.filter,
+            matches!(mode, PrepareMode::Hierarchical),
             cancelled,
         );
         let model = match model {

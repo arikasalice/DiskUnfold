@@ -117,10 +117,18 @@ export function ChartLegend({
               className="du-chart-legend__item"
               textValue={`${entry.label}, ${entry.count}, ${entry.total}`}
             >
-              <Swatch entry={entry} patterns={patterns} prefix={prefix} />
-              <span className="du-chart-legend__name">{entry.label}</span>
-              <span className="du-chart-legend__number">{entry.count}</span>
-              <span className="du-chart-legend__number">{entry.total}</span>
+              {({ isSelected }) => (
+                <>
+                  {/* A chosen row has a check left of its swatch (README 46.4). */}
+                  <span className="du-chart-legend__check" aria-hidden="true">
+                    {isSelected ? "✓" : ""}
+                  </span>
+                  <Swatch entry={entry} patterns={patterns} prefix={prefix} />
+                  <span className="du-chart-legend__name">{entry.label}</span>
+                  <span className="du-chart-legend__number">{entry.count}</span>
+                  <span className="du-chart-legend__number">{entry.total}</span>
+                </>
+              )}
             </ListBoxItem>
           )}
         </ListBox>

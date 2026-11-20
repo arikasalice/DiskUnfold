@@ -34,11 +34,14 @@ use std::{
 mod admission;
 mod commands;
 mod compute;
+mod condition;
+pub(crate) use condition::fragment as type_fragment;
 mod control;
 mod envelope;
 mod histogram;
 mod histogram_model;
 mod legend_order;
+mod legend_totals;
 mod lifecycle;
 mod ranked_bar;
 mod ranked_group_model;
@@ -272,6 +275,8 @@ struct Admitted {
     histogram: Option<HistogramFacts>,
     ranked_other: Option<crate::viz_pages::ranked_group::OtherPresentation>,
     required_data: Option<RequiredDataAdmission>,
+    /// The files the request's condition keeps; every file without one.
+    filter: Option<du_analysis_index::visualization::filter::ItemFilter>,
 }
 #[derive(Clone, serde::Serialize)]
 struct RequiredDataAdmission {

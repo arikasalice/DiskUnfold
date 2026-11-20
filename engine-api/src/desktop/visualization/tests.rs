@@ -7,6 +7,7 @@ mod remainder;
 mod revisions;
 mod support;
 mod totals;
+mod type_filter;
 mod type_legend;
 
 use std::sync::{Arc, atomic::Ordering};

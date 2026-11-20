@@ -123,6 +123,7 @@ pub fn add_framed_child_partition(
             min_area: model.detail.min_area,
             slots,
             allow_group: model.detail.group_tail,
+            filter: model.filter,
         },
         cancelled,
     ) {

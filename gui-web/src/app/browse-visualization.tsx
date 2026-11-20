@@ -480,7 +480,7 @@ export function BrowseVisualizationView({
                 format: formats.format,
                 depthLimit: formats.depthLimit,
                 measure: axis.measure,
-                colorCriterion: legend.colorCriterion,
+                ...legend.request,
                 viewport: {
                   ...viewport,
                   width: legend.chartWidth(viewport.width),
@@ -496,6 +496,7 @@ export function BrowseVisualizationView({
               onAvailableFormats={formats.learn}
               statusAction={axis.control}
               legend={legend.controls}
+              narrowing={legend.narrowing}
               legendSide={legend.side(viewport.width)}
               {...(formats.available
                 ? {
