@@ -129,6 +129,7 @@ fn submit_parked(runtime: &JobRuntime) -> Result<Id, crate::error::EngineError> 
                 body: Arc::new(Parked),
                 priority: JobPriority::Normal,
                 scope_summary: "parked".into(),
+                scope_roots: Vec::new(),
                 correlation_id: id(60),
                 sample: false,
             },

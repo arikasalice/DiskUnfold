@@ -4,11 +4,14 @@
 // - history: the operation history item results (F02 README #170), and the full
 //   location shown to a pointer resting 0.4 s on the cell cut in the middle;
 //   then the details of the lower-bound item (#204).
+// - history-list: scope roots on the operation history list and in operation
+//   details (#200), including a record from before roots were recorded.
 // - browse: the browse table with every mark of the "Scan status" column (#133).
 // - date-picker: the shared date field in empty, selected, invalid, open, and
 //   forced-colors states (#272).
 //
 //   npm run capture:history-gallery -- [output folder]
+//   npm run capture:history-list-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder] notice
 //   npm run capture:date-picker-gallery -- [output folder]
@@ -31,6 +34,7 @@ const gui = fileURLToPath(new URL("..", import.meta.url));
 const surfaces = {
   // 4 + 1 + 2 location cells: the main record and the two count sentence records.
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
+  "history-list": { ready: ".du-history-operation", count: 4, pointer: true },
   browse: { ready: ".du-browse-grid__row", count: 3, pointer: false },
   "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
   "date-picker": {
@@ -205,10 +209,12 @@ async function settleAnimations() {
 }
 
 /* In the page: the point of the second location, which is cut in the middle. */
-function cutCell() {
-  const cell = document.querySelectorAll(
-    ".du-history-item-location .du-fit",
-  )[1];
+function cutCell(surface) {
+  const selector =
+    surface === "history-list"
+      ? ".du-history-operation .du-fit"
+      : ".du-history-item-location .du-fit";
+  const cell = document.querySelectorAll(selector)[1];
   cell.scrollIntoView({ block: "center" });
   if (!cell.querySelector(".du-fit__full")) return null;
   const box = cell.getBoundingClientRect();
@@ -410,7 +416,7 @@ try {
   }
   if (pointer) {
     await open(session, base, "light", 1280);
-    const point = await session.run(cutCell);
+    const point = await session.run(cutCell, surface);
     if (!point) throw new Error("The long location was not cut at 1280 px");
     await session.send("Input.dispatchMouseEvent", {
       type: "mouseMoved",
@@ -418,17 +424,107 @@ try {
     });
     await sleep(400);
     await save(session, "light-1280-tooltip", true);
-    // #204: the details of the lower-bound item show its size with the size rule.
-    await open(session, base, "light", 1280);
-    await session.run(() => {
-      const view = document.querySelectorAll(
-        ".du-history-item-results .du-table-cell .du-action",
+    if (surface === "history") {
+      // #204: the details of the lower-bound item show its size with the size rule.
+      await open(session, base, "light", 1280);
+      await session.run(() => {
+        const view = document.querySelectorAll(
+          ".du-history-item-results .du-table-cell .du-action",
+        );
+        view[2]?.scrollIntoView({ block: "center" });
+        view[2]?.click();
+      });
+      await sleep(400);
+      await save(session, "light-1280-item-details", true);
+    }
+    if (surface === "history-list") {
+      const openRow = async (rowIndex) => {
+        const opened = await session.run((index) => {
+          const action = document.querySelector(
+            `.du-history-screen:not([hidden]) tr[aria-rowindex="${index}"] .du-action`,
+          );
+          if (!action) return false;
+          action.scrollIntoView({ block: "center" });
+          action.click();
+          return true;
+        }, rowIndex);
+        if (!opened) throw new Error("The history row action was not found");
+      };
+      const backToList = async () => {
+        const closed = await session.run(() => {
+          const action = Array.from(
+            document.querySelectorAll(
+              ".du-history-screen:not([hidden]) .du-history-header .du-action",
+            ),
+          ).find(
+            (element) => element.textContent?.trim() === "이력으로 돌아가기",
+          );
+          if (!action) return false;
+          action.click();
+          return true;
+        });
+        if (!closed)
+          throw new Error("The back-to-history action was not found");
+        if (
+          (await session.run(
+            drawn,
+            ".du-history-screen:not([hidden]) .du-history-operation",
+            4,
+          )) !== 4
+        )
+          throw new Error("The history list did not return after details");
+      };
+
+      await open(session, base, "light", 1280);
+      await openRow(3);
+      if (
+        (await session.run(
+          drawn,
+          ".du-history-screen:not([hidden]) .du-history-roots",
+          1,
+        )) !== 1
+      )
+        throw new Error("The history detail roots were not drawn");
+      await save(session, "light-1280-detail-roots");
+
+      await backToList();
+      await open(session, base, "light", 700);
+      await openRow(3);
+      if (
+        (await session.run(
+          drawn,
+          ".du-history-screen:not([hidden]) .du-history-roots",
+          1,
+        )) !== 1
+      )
+        throw new Error("The narrow history detail roots were not drawn");
+      await save(session, "light-700-detail-roots");
+
+      await backToList();
+      await session.send("Emulation.setDeviceMetricsOverride", {
+        width: 1280,
+        height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await openRow(5);
+      if (
+        (await session.run(
+          drawn,
+          ".du-history-screen:not([hidden]) .du-history-summary",
+          1,
+        )) !== 1
+      )
+        throw new Error("The older history detail was not drawn");
+      const notRecorded = await session.run(() =>
+        document
+          .querySelector(".du-history-screen:not([hidden]) .du-history-summary")
+          ?.textContent?.includes("기록되지 않음"),
       );
-      view[2]?.scrollIntoView({ block: "center" });
-      view[2]?.click();
-    });
-    await sleep(400);
-    await save(session, "light-1280-item-details", true);
+      if (!notRecorded)
+        throw new Error("The older record did not show roots as not recorded");
+      await save(session, "light-1280-detail-not-recorded");
+    }
   }
   session.close();
 } finally {

@@ -380,6 +380,7 @@ impl Harness {
             body: prepared.body,
             priority: JobPriority::Normal,
             scope_summary: "fixture".into(),
+            scope_roots: Vec::new(),
             correlation_id: id(9),
             sample: false,
         };

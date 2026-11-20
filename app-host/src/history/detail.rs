@@ -30,7 +30,7 @@ fn project(detail: Detail) -> StoredDetail {
         &mut missing,
     )
     .map(|mut row| {
-        if row.scope_summary.is_none() {
+        if row.scope_summary.is_none() || row.scope_roots_unavailable {
             missing.add("read_failed");
         }
         row.relation = linked.relation;
@@ -41,8 +41,10 @@ fn project(detail: Detail) -> StoredDetail {
             .map(|row| follow_up(row, &mut missing))
             .collect()
     });
+    let scope_roots = missing.read(detail.scope_roots);
     StoredDetail {
         summary,
+        scope_roots,
         executed_plan: linked.executed_plan,
         requires_plan_read: linked.requires_plan_read,
         follow_ups,
@@ -67,6 +69,9 @@ fn summary(
                 kind_version: start.kind_version,
                 state: HistoryEndState::Interrupted,
                 scope_summary: start.scope_summary,
+                scope_first_root: None,
+                scope_root_count: None,
+                scope_roots_unavailable: false,
                 counts: None,
                 started_at_ms: Some(start.started_at_ms),
                 finished_at_ms: None,

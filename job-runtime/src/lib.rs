@@ -184,15 +184,7 @@ impl JobRuntime {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| admit(&id)))
             .map_err(|_| RuntimeError::InvalidState)??;
         table.next_order = next_order;
-        let Submission {
-            kind_id,
-            deduplication_key,
-            body,
-            priority,
-            scope_summary,
-            correlation_id,
-            sample,
-        } = submission;
+        let (body, submission) = submission.into_parts();
         self.outstanding.fetch_add(1, Ordering::AcqRel);
         let publication_gate = publication.as_ref().map(|_| Arc::new(Mutex::new(())));
         table.jobs.insert(
@@ -200,14 +192,7 @@ impl JobRuntime {
             Entry {
                 descriptor,
                 result_binding,
-                submission: StoredSubmission {
-                    kind_id,
-                    deduplication_key,
-                    priority,
-                    scope_summary,
-                    correlation_id,
-                    sample,
-                },
+                submission,
                 body: Some(body),
                 publication,
                 publication_gate,
@@ -446,6 +431,7 @@ impl JobRuntime {
             kind_id: job.descriptor.kind_id.clone(),
             kind_version: job.descriptor.version,
             scope_summary: job.submission.scope_summary.clone(),
+            scope_roots: job.submission.scope_roots.clone(),
             state,
             counts: outcome.counts,
             failure_reason_key: outcome.failure_reason_key,

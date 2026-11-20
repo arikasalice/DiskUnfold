@@ -114,11 +114,8 @@
   max-block-size: none;
   overscroll-behavior: contain;
   scroll-padding-block-start: 36px;
-  scrollbar-gutter: stable;
-  /* #216: the head band also covers the gutter kept for the scroll bar. */
-  background-image: linear-gradient(var(--du-subtle), var(--du-subtle));
-  background-repeat: no-repeat;
-  background-size: 100% 36px;
+  /* #216: no gutter is kept, so without a scroll bar the head band and the
+     row lines reach the frame. */
 }
 
 .du-history-shell .du-data-table th {
@@ -152,6 +149,33 @@
 .du-history-operation {
   min-inline-size: 0;
   max-inline-size: 100%;
+}
+
+/* #200: the first root keeps its end; "and n more" always stays whole. */
+.du-history-target {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-inline-size: 0;
+  font-size: 12px;
+  color: var(--du-muted);
+}
+
+.du-history-target > :first-child {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+}
+
+.du-history-target > .du-text {
+  flex: none;
+  white-space: nowrap;
+}
+
+.du-history-roots,
+.du-history-roots__list {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
 }
 
 .du-history-time {
@@ -333,7 +357,6 @@
 @media (max-height: 15rem) {
   .du-history-table .du-table-viewport {
     scroll-padding-block: 6px;
-    background-image: none;
   }
 
   .du-history-table .du-data-table th {

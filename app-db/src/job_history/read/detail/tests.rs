@@ -10,11 +10,12 @@ fn parent_id() -> [u8; 16] {
 
 fn append(db: &mut AppDb, n: u8) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
-    let value = JobSummary {
+    let mut value = JobSummary {
         job_id: id.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,
@@ -24,6 +25,7 @@ fn append(db: &mut AppDb, n: u8) -> Result<(), String> {
         finished_at_ms: 20,
         correlation_id: id,
     };
+    value.scope_roots.push(format!("/fixture/{n}"));
     db.append_scan_history(&value, 30).map(|_| ())
 }
 

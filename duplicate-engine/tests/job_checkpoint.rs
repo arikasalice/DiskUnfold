@@ -204,6 +204,7 @@ fn runtime_cancellation_waits_for_inflight_file_and_stops_new_opens()
         body: body.clone(),
         priority: JobPriority::Normal,
         scope_summary: "test".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::from_v7_bytes([2; 16]),
         sample: false,
     })? {

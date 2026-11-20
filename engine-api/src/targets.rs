@@ -159,6 +159,7 @@ impl UseCase for List {
                 body,
                 priority: JobPriority::Normal,
                 scope_summary: String::new(),
+                scope_roots: Vec::new(),
                 correlation_id: caller.correlation_id.clone(),
                 sample: false,
             };

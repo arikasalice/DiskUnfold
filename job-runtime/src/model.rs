@@ -145,6 +145,8 @@ pub struct Submission {
     pub body: Arc<dyn JobBody>,
     pub priority: JobPriority,
     pub scope_summary: String,
+    /// Root display strings captured at submission time for history recording.
+    pub scope_roots: Vec<String>,
     pub correlation_id: Id,
     pub sample: bool,
 }
@@ -166,8 +168,36 @@ pub(crate) struct StoredSubmission {
     pub(crate) deduplication_key: Option<DeduplicationKey>,
     pub(crate) priority: JobPriority,
     pub(crate) scope_summary: String,
+    pub(crate) scope_roots: Vec<String>,
     pub(crate) correlation_id: Id,
     pub(crate) sample: bool,
+}
+
+impl Submission {
+    pub(crate) fn into_parts(self) -> (Arc<dyn JobBody>, StoredSubmission) {
+        let Self {
+            kind_id,
+            deduplication_key,
+            body,
+            priority,
+            scope_summary,
+            scope_roots,
+            correlation_id,
+            sample,
+        } = self;
+        (
+            body,
+            StoredSubmission {
+                kind_id,
+                deduplication_key,
+                priority,
+                scope_summary,
+                scope_roots,
+                correlation_id,
+                sample,
+            },
+        )
+    }
 }
 pub(crate) struct Entry {
     pub(crate) descriptor: JobDescriptor,

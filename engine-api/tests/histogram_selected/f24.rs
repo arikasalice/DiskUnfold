@@ -181,6 +181,7 @@ fn check_gate(basis: Basis) -> Result<(), String> {
                     }),
                     priority: JobPriority::Normal,
                     scope_summary: "test".into(),
+                    scope_roots: Vec::new(),
                     correlation_id: id(6),
                     sample: false,
                 },

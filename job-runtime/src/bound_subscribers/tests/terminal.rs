@@ -14,6 +14,7 @@ fn finished_job_is_in_snapshot_and_not_replayed_after_rejoin()
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {

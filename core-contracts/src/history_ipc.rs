@@ -143,6 +143,14 @@ pub struct HistoryListSummary {
     pub kind_id: String,
     pub kind_version: u32,
     pub scope_summary: Option<String>,
+    /// Omitted when roots were not recorded (an older record or a kind without scope roots).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope_first_root: Option<String>,
+    /// Omitted when roots were not recorded (an older record or a kind without scope roots).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope_root_count: Option<u32>,
     pub state: HistoryEndState,
     pub counts: Option<HistoryListCounts>,
     #[cfg_attr(feature = "typescript", ts(type = "number | null"))]
@@ -242,6 +250,10 @@ pub enum HistoryDetailCompleteness {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryDetail {
     pub summary: Option<HistoryListSummary>,
+    /// Ordered root display strings. Omitted when roots were not recorded (an older record or a kind without scope roots).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope_roots: Option<Vec<String>>,
     pub workflow: HistoryWorkflow,
     pub follow_ups: Option<Vec<HistoryFollowUp>>,
     pub effects: HistoryEffects,

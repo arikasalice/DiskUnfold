@@ -380,6 +380,7 @@ fn submit(
                         body,
                         priority: JobPriority::Normal,
                         scope_summary: "virtual group classification".into(),
+                        scope_roots: Vec::new(),
                         correlation_id: caller.correlation_id.clone(),
                         sample: data_source == DataSource::Sample,
                     },

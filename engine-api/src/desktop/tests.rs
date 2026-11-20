@@ -296,6 +296,7 @@ fn terminal_query_and_scan_results_are_distinct_on_wire() -> Result<(), Box<dyn 
                     kind_id: kind.into(),
                     kind_version: 1,
                     scope_summary: String::new(),
+                    scope_roots: Vec::new(),
                     state,
                     counts: JobCounts::default(),
                     failure_reason_key: None,

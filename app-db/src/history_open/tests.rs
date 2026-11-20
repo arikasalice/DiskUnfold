@@ -27,6 +27,7 @@ fn summary(id: u8, finished_at_ms: i64) -> JobSummary {
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: vec!["/fixture/root".into()],
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,

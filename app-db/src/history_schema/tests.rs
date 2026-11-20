@@ -120,6 +120,12 @@ fn backfills_links_and_advances_sequence_from_existing_summaries() -> TestResult
         &HISTORY_DEFINITIONS,
     )
     .map_err(|error| format!("{error:?}"))?;
+    migration::apply_next(
+        &path,
+        &dir.path().join("before-scope-roots.db"),
+        &HISTORY_DEFINITIONS,
+    )
+    .map_err(|error| format!("{error:?}"))?;
     let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     let mut statement = db.connection.prepare(
         "SELECT link.job_id, link.record_seq, link.reckon_at_ms, link.record_origin
@@ -153,11 +159,12 @@ fn backfills_links_and_advances_sequence_from_existing_summaries() -> TestResult
     assert_eq!(state, (0, 3));
     drop(statement);
     let next = Id::from_v7_bytes([4; 16]);
-    let job = JobSummary {
+    let mut job = JobSummary {
         job_id: next.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,
@@ -167,6 +174,7 @@ fn backfills_links_and_advances_sequence_from_existing_summaries() -> TestResult
         finished_at_ms: 320,
         correlation_id: next,
     };
+    job.scope_roots.push("/fixture/migrated".into());
     assert_eq!(db.append_scan_history(&job, 325), Ok(HistoryAppend::Added));
     let sequence: i64 = db.connection.query_row(
         "SELECT last_record_seq FROM job_runtime_history_state",

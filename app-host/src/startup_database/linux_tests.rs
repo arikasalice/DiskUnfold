@@ -52,7 +52,8 @@ fn linux_start_migrates_legacy_database_only_after_managed_backup() -> TestResul
     let database = open(dir.path())?;
     let settings = crate::settings::StartupSettings::load(&database, &["en", "ko"])?;
     assert_eq!(settings.stored_language()?, None);
-    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 6);
+    // One backup per migration step from version 1 to 8.
+    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 7);
     let sql = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let stored_limit: String = sql.query_row(
         "SELECT value_json FROM user_env_setting WHERE setting_key = 'space.shared_table_max_entries'",

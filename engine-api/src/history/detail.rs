@@ -16,6 +16,8 @@ use crate::{
 /// Readable parts of one history record captured in the same storage snapshot.
 pub struct StoredDetail {
     pub summary: Option<HistoryListSummary>,
+    /// Ordered display strings captured for a scan's scope roots.
+    pub scope_roots: Option<Vec<String>>,
     pub executed_plan: Option<Id>,
     pub requires_plan_read: bool,
     pub follow_ups: Option<Vec<HistoryFollowUp>>,
@@ -83,6 +85,7 @@ fn compose(mut stored: StoredDetail) -> HistoryDetail {
     }
     HistoryDetail {
         summary: stored.summary,
+        scope_roots: stored.scope_roots,
         workflow: HistoryWorkflow {
             plan_versions: (!stored.requires_plan_read).then(Vec::new),
             executed_plan: stored.executed_plan,

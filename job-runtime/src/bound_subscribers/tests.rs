@@ -129,6 +129,7 @@ fn runtime_bound_cut_completes_under_live_reporting_and_preserves_terminal_order
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {
@@ -323,6 +324,7 @@ fn queued_cancel_racing_cut_is_in_snapshot_or_delivered_after_it()
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {
@@ -448,6 +450,7 @@ fn blocked_legacy_downstream_delays_next_bus_delivery() -> Result<(), Box<dyn st
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {

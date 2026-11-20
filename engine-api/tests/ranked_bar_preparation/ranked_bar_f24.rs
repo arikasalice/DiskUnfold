@@ -92,6 +92,7 @@ pub(super) fn execute(
                 body: Arc::new(Body),
                 priority: JobPriority::Normal,
                 scope_summary: "fixture".into(),
+                scope_roots: Vec::new(),
                 correlation_id: Id::from_v7_bytes([8; 16]),
                 sample: false,
             },

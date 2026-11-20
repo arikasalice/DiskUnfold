@@ -4,7 +4,8 @@
 use super::*;
 use du_core_contracts::job::{HistoryAppend, JobState, JobSummary};
 
-const HISTORY_TABLES: [&str; 5] = [
+const HISTORY_TABLES: [&str; 6] = [
+    "job_runtime_job_scope_root",
     "job_runtime_item_result",
     "job_runtime_job_interrupt",
     "job_runtime_job_start",
@@ -13,11 +14,12 @@ const HISTORY_TABLES: [&str; 5] = [
 ];
 
 fn finished_scan(n: u64, finished_at_ms: i64) -> JobSummary {
-    JobSummary {
+    let mut summary = JobSummary {
         job_id: id(n),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,
@@ -26,7 +28,9 @@ fn finished_scan(n: u64, finished_at_ms: i64) -> JobSummary {
         started_at_ms: Some(finished_at_ms - 1),
         finished_at_ms,
         correlation_id: id(n),
-    }
+    };
+    summary.scope_roots.push(format!("/fixture/{n}"));
+    summary
 }
 
 fn history_rows(db: &AppDb) -> rusqlite::Result<i64> {
@@ -59,6 +63,8 @@ fn cleanup_before_a_cutoff_removes_history_but_not_observations() -> TestResult 
         "BEGIN IMMEDIATE;
          UPDATE app_db_purge_gate SET open = 1;
          DELETE FROM job_runtime_job_link WHERE reckon_at_ms < 3000;
+         DELETE FROM job_runtime_job_scope_root
+          WHERE job_id IN (SELECT job_id FROM job_runtime_job_record WHERE finished_at_ms < 3000);
          DELETE FROM job_runtime_job_record WHERE finished_at_ms < 3000;
          UPDATE app_db_purge_gate SET open = 0;
          COMMIT;",
@@ -121,7 +127,11 @@ fn deleting_one_jobs_history_removes_only_that_jobs_observation() -> TestResult 
     let delete = |db: &mut AppDb, commit: bool| -> rusqlite::Result<usize> {
         let tx = db.connection.transaction()?;
         tx.execute("UPDATE app_db_purge_gate SET open = 1", [])?;
-        for table in ["job_runtime_job_record", "job_runtime_job_link"] {
+        for table in [
+            "job_runtime_job_scope_root",
+            "job_runtime_job_record",
+            "job_runtime_job_link",
+        ] {
             tx.execute(
                 &format!("DELETE FROM {table} WHERE job_id = ?1"),
                 [key.as_slice()],

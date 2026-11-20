@@ -36,6 +36,7 @@ import { FixtureChart, FixtureDetails, FixtureRecords } from "./GalleryContent";
 import type { SelectedRecord } from "./GalleryContent";
 import { ResultSummaryPreview } from "./ResultSummaryPreview";
 import { HistoryItemsPreview } from "./HistoryItemsPreview";
+import { HistoryListPreview } from "./HistoryListPreview";
 import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
 import { ScanLanesPreview } from "./ScanLanesPreview";
 import { DatePickerPreview } from "./DatePickerPreview";
@@ -196,6 +197,7 @@ export function Gallery() {
   const props = { context, primary, secondary, actions: tools };
   const Presenter =
     surface === "history" ||
+    surface === "history-list" ||
     surface === "summary" ||
     surface === "browse" ||
     surface === "scan-lanes" ||
@@ -262,6 +264,8 @@ export function Gallery() {
             <ScanLanesPreview />
           ) : surface === "date-picker" ? (
             <DatePickerPreview />
+          ) : surface === "history-list" ? (
+            <HistoryListPreview />
           ) : (
             <>
               {primary}

@@ -25,11 +25,12 @@ fn start(db: &AppDb, n: u8, predecessor: Option<u8>) -> rusqlite::Result<()> {
 
 fn terminal(db: &mut AppDb, n: u8) -> Result<(), String> {
     let job_id = Id::from_v7_bytes(id(n));
-    let summary = JobSummary {
+    let mut summary = JobSummary {
         job_id: job_id.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,
@@ -39,6 +40,7 @@ fn terminal(db: &mut AppDb, n: u8) -> Result<(), String> {
         finished_at_ms: 2,
         correlation_id: job_id,
     };
+    summary.scope_roots.push(format!("/fixture/{n}"));
     db.append_scan_history(&summary, 3).map(|_| ())
 }
 

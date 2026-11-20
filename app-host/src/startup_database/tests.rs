@@ -28,23 +28,23 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     drop(database);
     assert!(matches!(open(dir.path()), Err(error) if error.kind() == io::ErrorKind::AlreadyExists));
     let id = Id::from_v7_bytes([42; 16]);
-    assert_eq!(
-        history.append(&JobSummary {
-            job_id: id.clone(),
-            kind_id: "scan.metadata".into(),
-            kind_version: 1,
-            scope_summary: "metadata: 1 root".into(),
-            state: JobState::Done,
-            counts: Default::default(),
-            failure_reason_key: None,
-            unprocessed_summary: None,
-            result_version_id: None,
-            started_at_ms: Some(100),
-            finished_at_ms: 200,
-            correlation_id: id,
-        }),
-        Ok(HistoryAppend::Added),
-    );
+    let mut summary = JobSummary {
+        job_id: id.clone(),
+        kind_id: "scan.metadata".into(),
+        kind_version: 1,
+        scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
+        state: JobState::Done,
+        counts: Default::default(),
+        failure_reason_key: None,
+        unprocessed_summary: None,
+        result_version_id: None,
+        started_at_ms: Some(100),
+        finished_at_ms: 200,
+        correlation_id: id,
+    };
+    summary.scope_roots.push("/fixture/startup".into());
+    assert_eq!(history.append(&summary), Ok(HistoryAppend::Added),);
     drop(history);
     let reopened = open(dir.path())?;
     let settings = crate::settings::StartupSettings::load(&reopened, &["en", "ko"])?;
@@ -60,7 +60,8 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     )?;
     assert_eq!(counts, (1, 1, 0));
     let backups = dir.path().join("db-backups");
-    assert_eq!(fs::read_dir(&backups)?.count(), 6);
+    // One backup per migration step from version 1 to 8.
+    assert_eq!(fs::read_dir(&backups)?.count(), 7);
     let original = Connection::open_with_flags(
         backups
             .join("backup-00000000000000000001")
@@ -290,8 +291,9 @@ fn startup_upgrades_v4_to_current_and_preserves_existing_settings() -> TestResul
     let settings = crate::settings::StartupSettings::load(&database, &["en", "ko"])?;
     assert_eq!(settings.scan_limit_source()().entries(), 200_000);
     let reader = AppDb::open_read_only(&path).map_err(open_error)?;
-    assert_eq!(reader.schema_version()?, 7);
-    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 3);
+    assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
+    // Steps 5 to 8.
+    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 4);
     assert!(
         reader
             .latest_ruleset()

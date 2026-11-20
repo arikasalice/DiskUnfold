@@ -11,6 +11,7 @@
     "preview:ui": "vite --config preview/vite.config.ts",
     "build:preview": "vite build --config preview/vite.config.ts",
     "capture:history-gallery": "node scripts/capture-gallery.mjs history",
+    "capture:history-list-gallery": "node scripts/capture-gallery.mjs history-list",
     "capture:browse-gallery": "node scripts/capture-gallery.mjs browse",
     "capture:date-picker-gallery": "node scripts/capture-gallery.mjs date-picker",
     "build": "vite build",

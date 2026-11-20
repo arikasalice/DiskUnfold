@@ -261,6 +261,7 @@ fn run_scan_with_rule(
         body: Arc::new(scan),
         priority: JobPriority::Normal,
         scope_summary: "scan".into(),
+        scope_roots: Vec::new(),
         correlation_id: id(4),
         sample: false,
     })?;

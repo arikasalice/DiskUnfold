@@ -75,6 +75,7 @@ fn controlled_submission(
         }),
         priority: JobPriority::Normal,
         scope_summary: "query".into(),
+        scope_roots: Vec::new(),
         correlation_id: correlation,
         sample: false,
     }

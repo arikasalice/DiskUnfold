@@ -18,6 +18,7 @@ fn expiry_reclaims_runtime_cuts_without_discarding_queued_terminal_events()
             body: Arc::new(Body(sender.clone())),
             priority: crate::JobPriority::Normal,
             scope_summary: "scope".into(),
+            scope_roots: Vec::new(),
             correlation_id: Identity(AtomicUsize::new(42)).next_id(),
             sample: false,
         })?
@@ -107,6 +108,7 @@ fn expiry_waits_behind_an_in_flight_terminal_delivery() -> Result<(), Box<dyn st
         body: Arc::new(Body(sender)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })?

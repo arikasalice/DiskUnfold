@@ -88,6 +88,7 @@ fn submit(runtime: &JobRuntime, prepared: PreparedJob) -> Result<Id, String> {
         body: prepared.body,
         priority: JobPriority::Normal,
         scope_summary: "test scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::from_v7_bytes([2; 16]),
         sample: false,
     };

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{HISTORY_DEFINITIONS, migration};
+use crate::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
 use du_core_contracts::{
     Id, SizeEvidence,
     result::ResultCompleteness,

@@ -161,6 +161,7 @@ fn fill_f24_queue(jobs: &JobRuntime) -> Result<(), String> {
             body: Arc::new(QueueFiller),
             priority: JobPriority::Normal,
             scope_summary: "queue fixture".into(),
+            scope_roots: Vec::new(),
             correlation_id: id(50),
             sample: false,
         });

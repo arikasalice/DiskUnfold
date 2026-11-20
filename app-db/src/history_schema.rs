@@ -19,7 +19,7 @@ const TERMINAL_SUMMARY: &str = concat!(
 );
 
 /// Current database version for the desktop store with job history.
-pub const HISTORY_SCHEMA_VERSION: u32 = 7;
+pub const HISTORY_SCHEMA_VERSION: u32 = 8;
 
 /// Desktop migrations in application-wide order, after the known settings schema.
 pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
@@ -46,8 +46,12 @@ pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
             sql: include_str!("group_rules_schema.sql"),
         },
         Definition {
-            number: HISTORY_SCHEMA_VERSION,
+            number: 7,
             sql: include_str!("scope_observation_schema.sql"),
+        },
+        Definition {
+            number: HISTORY_SCHEMA_VERSION,
+            sql: include_str!("job_history/scope_roots.sql"),
         },
     ],
 };
