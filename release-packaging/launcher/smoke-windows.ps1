@@ -1906,10 +1906,17 @@ function Test-CaptureTypeLegend([switch]$More) {
   Save-SmokeCapture '03-legend-videos'
   Select-SmokeRadio $videos
   $patterns = Wait-UI 'Use patterns' { Find-UI 'Use patterns' $null }
-  Invoke-UI $patterns
-  Start-Sleep -Milliseconds 800
+  # "Use patterns" is a toggle button: UI Automation offers it the Toggle pattern, not Invoke.
+  $toggle = $null
+  if (-not $patterns.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+    throw "'$($patterns.Current.Name)' does not expose TogglePattern"
+  }
+  # In high contrast the switch is on and cannot be changed: patterns are always drawn.
+  $forced = -not $patterns.Current.IsEnabled
+  if (-not $forced) { $toggle.Toggle(); Start-Sleep -Milliseconds 800 }
+  "Use patterns: $($toggle.Current.ToggleState), forced=$forced"
   Save-SmokeCapture '04-patterns'
-  Invoke-UI $patterns
+  if (-not $forced) { $toggle.Toggle() }
   # "None" names more than one English text, so it is taken as the criterion group's first option.
   $colorBy = Wait-UI 'Color by' { $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName 'Color by'))) }
   Select-SmokeRadio (@($colorBy.FindAll($scopeTree, $radioCondition))[0])
