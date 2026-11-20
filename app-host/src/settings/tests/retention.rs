@@ -70,7 +70,7 @@ fn invalid_policy_rows_are_quarantined_and_never_enable_retention()
 }
 
 #[test]
-fn invalid_days_reviews_leave_the_sqlite_setting_unchanged()
+fn non_editable_days_reviews_leave_the_sqlite_setting_unchanged()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("history-retention-write.db");
@@ -101,7 +101,7 @@ fn invalid_days_reviews_leave_the_sqlite_setting_unchanged()
         let changes = SettingsChanges::from([(DAYS_KEY.into(), Some(value))]);
         assert_eq!(
             service.review(before.revision, &changes),
-            Err(du_user_env::settings::SettingsError::InvalidValue)
+            Err(du_user_env::settings::SettingsError::NotEditable)
         );
         assert_eq!(service.snapshot(), &before);
     }
@@ -118,4 +118,29 @@ fn invalid_days_reviews_leave_the_sqlite_setting_unchanged()
         Some(&json!(180))
     );
     Ok(())
+}
+
+#[test]
+fn days_validation_rejects_invalid_values_and_accepts_limits() {
+    for value in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!("180"),
+        Value::Null,
+        json!(u64::from(u32::MAX) + 1),
+    ] {
+        assert_eq!(
+            du_user_env::history_retention::validate_days(&value),
+            Err(du_user_env::settings::SettingsError::InvalidValue)
+        );
+    }
+    assert_eq!(
+        du_user_env::history_retention::validate_days(&json!(1)),
+        Ok(1)
+    );
+    assert_eq!(
+        du_user_env::history_retention::validate_days(&json!(u32::MAX)),
+        Ok(u32::MAX)
+    );
 }

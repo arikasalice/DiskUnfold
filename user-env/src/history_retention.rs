@@ -77,17 +77,24 @@ pub fn policy(
         None => false,
     };
     let specified_days = match snapshot.values.get(DAYS_KEY) {
-        Some(value) => match value
-            .as_i64()
-            .filter(|days| (1..=MAX_DAYS).contains(days))
-            .and_then(|days| u32::try_from(days).ok())
-        {
-            Some(days) => Some(days),
-            None => return unavailable("invalid"),
+        Some(value) => match validate_days(value) {
+            Ok(days) => Some(days),
+            Err(_) => return unavailable("invalid"),
         },
         None => None,
     };
     available(enabled, specified_days)
+}
+
+/// Validates that a history retention age is an integer from 1 through `u32::MAX`.
+///
+/// Returns [`crate::settings_error::SettingsError::InvalidValue`] for any other JSON value.
+pub fn validate_days(value: &Value) -> Result<u32, crate::settings_error::SettingsError> {
+    value
+        .as_i64()
+        .filter(|days| (1..=MAX_DAYS).contains(days))
+        .and_then(|days| u32::try_from(days).ok())
+        .ok_or(crate::settings_error::SettingsError::InvalidValue)
 }
 
 /// Returns the fail-closed policy used when the settings service cannot be read.

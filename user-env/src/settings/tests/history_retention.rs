@@ -125,19 +125,40 @@ fn empty_and_stored_policy_values_are_projected_without_storing_the_suggestion()
 }
 
 #[test]
-fn invalid_days_values_are_invalid_arguments_and_do_not_change_the_snapshot() -> Result<(), String>
-{
+fn days_validation_rejects_invalid_values_and_accepts_limits() -> Result<(), String> {
+    for value in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!("180"),
+        Value::Null,
+        json!(u64::from(u32::MAX) + 1),
+    ] {
+        assert_eq!(
+            history_retention::validate_days(&value),
+            Err(crate::settings::SettingsError::InvalidValue)
+        );
+    }
+    assert_eq!(history_retention::validate_days(&json!(1)), Ok(1));
+    assert_eq!(
+        history_retention::validate_days(&json!(u32::MAX)),
+        Ok(u32::MAX)
+    );
+    let invalid_reason =
+        ErrorEnvelope::from_reason("settings.value_invalid", Id::from_v7_bytes([1; 16]), vec![])
+            .ok_or("settings.value_invalid has no public error mapping")?;
+    assert_eq!(invalid_reason.code, ErrorCode::InvalidArgument);
+    Ok(())
+}
+
+#[test]
+fn non_editable_days_reviews_leave_the_snapshot_unchanged() -> Result<(), String> {
     let stored = BTreeMap::from([
         (ENABLED_KEY.into(), json!(true)),
         (DAYS_KEY.into(), json!(180)),
     ]);
     let service = service(stored)?;
     let before = service.snapshot().clone();
-    let correlation = Id::from_v7_bytes([1; 16]);
-    let invalid_reason = ErrorEnvelope::from_reason("settings.value_invalid", correlation, vec![])
-        .ok_or("settings.value_invalid has no public error mapping")?;
-    assert_eq!(invalid_reason.code, ErrorCode::InvalidArgument);
-
     for value in [
         json!(0),
         json!(-1),
@@ -149,7 +170,7 @@ fn invalid_days_values_are_invalid_arguments_and_do_not_change_the_snapshot() ->
         let changes = SettingsChanges::from([(DAYS_KEY.to_owned(), Some(value))]);
         assert_eq!(
             service.review(before.revision, &changes),
-            Err(crate::settings::SettingsError::InvalidValue)
+            Err(crate::settings::SettingsError::NotEditable)
         );
         assert_eq!(service.snapshot(), &before);
     }

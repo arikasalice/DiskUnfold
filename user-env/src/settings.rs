@@ -8,6 +8,7 @@ use du_core_contracts::settings::{
 };
 use std::collections::BTreeSet;
 
+pub use crate::settings_error::SettingsError;
 use crate::{CatalogEntry, Registry};
 mod restore_status;
 pub mod search;
@@ -48,21 +49,6 @@ pub fn builtin_descriptors_with_size_rules(
         .chain(crate::startup_memory::descriptors())
         .chain(crate::history_retention::descriptors())
         .collect())
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum SettingsError {
-    UnknownKey,
-    NotEditable,
-    InvalidValue,
-    StaleVersion,
-    StaleReview,
-    Store(SettingsStoreError),
-    Encoding,
-    SchemaNewer,
-    SchemaUnsupported,
-    InvalidStoredValue,
-    RestoreLocked,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -404,14 +390,14 @@ impl<S: SettingsStore> SettingsService<S> {
                 .descriptors
                 .get(key)
                 .ok_or(SettingsError::UnknownKey)?;
+            if !descriptor.editable {
+                return Err(SettingsError::NotEditable);
+            }
             if value
                 .as_ref()
                 .is_some_and(|value| !crate::accepts(&descriptor.kind, value))
             {
                 return Err(SettingsError::InvalidValue);
-            }
-            if !descriptor.editable {
-                return Err(SettingsError::NotEditable);
             }
         }
         if (changes.contains_key(crate::space::SIZE_UNIT_SYSTEM)

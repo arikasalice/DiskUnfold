@@ -13,6 +13,7 @@ pub mod i18n;
 pub mod locale;
 pub mod scope;
 pub mod settings;
+mod settings_error;
 pub mod space;
 pub mod space_format;
 pub mod startup_memory;
