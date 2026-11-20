@@ -1918,8 +1918,13 @@ function Test-CaptureTypeLegend([switch]$More) {
   Save-SmokeCapture '04-patterns'
   if (-not $forced) { $toggle.Toggle() }
   # "None" names more than one English text, so it is taken as the criterion group's first option.
-  $colorBy = Wait-UI 'Color by' { $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName 'Color by'))) }
-  Select-SmokeRadio (@($colorBy.FindAll($scopeTree, $radioCondition))[0])
+  # The visible "Color by" label has the group's name too; the group is the one holding radios.
+  $colorByName = Get-UiName 'Color by'
+  $noneOption = Wait-UI 'Color by None' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $colorByName)) |
+      ForEach-Object { @($_.FindAll($scopeTree, $radioCondition)) } | Where-Object { $_ }) | Select-Object -First 1
+  }
+  Select-SmokeRadio $noneOption
   Save-SmokeCapture '05-color-none'
   "Type legend capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
   } finally {
