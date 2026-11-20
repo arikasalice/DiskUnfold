@@ -43,7 +43,7 @@ impl Shared {
                     mode: resource.map(|policy| policy.mode),
                     permit: resource.map(|policy| policy.permit),
                     strategy: resource.map(|policy| policy.strategy.clone()),
-                    priority_area: priority.map(|(area, _)| area.to_owned()),
+                    priority_area: priority.map(|(area, _)| area.clone()),
                     remaining_prioritized_directories: priority.map(|(_, count)| count.to_string()),
                     wait,
                     wait_confirmed,

@@ -1,5 +1,6 @@
 //! Priority areas over outstanding directory work and optional peak accounting.
 use super::*;
+use du_core_contracts::ItemRef;
 use std::collections::HashMap;
 
 /// Number of priority classes; lower classes are claimed first.
@@ -11,7 +12,7 @@ pub(super) const NORMAL: usize = CLASSES - 1;
 pub(super) struct PriorityRegion {
     pub root_index: u32,
     pub path: Vec<Vec<u8>>,
-    pub priority_area: String,
+    pub priority_area: ItemRef,
 }
 
 pub(super) enum PriorityDecision {
@@ -194,7 +195,7 @@ impl Queue {
 
     /// Returns the current key and outstanding directory count for its lane.
     /// A zero count does not imply release; presence follows the held region.
-    pub(super) fn priority_for_roots(&self, roots: &[u32]) -> Option<(&str, usize)> {
+    pub(super) fn priority_for_roots(&self, roots: &[u32]) -> Option<(&ItemRef, usize)> {
         let region = self.priority.as_ref()?;
         if !roots.contains(&region.root_index) {
             return None;

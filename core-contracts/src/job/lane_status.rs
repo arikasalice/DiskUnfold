@@ -32,8 +32,9 @@ pub struct LaneReport {
     pub permit: Option<u32>,
     /// Strategy identity used to calculate `limit`, omitted when unavailable.
     pub strategy: Option<crate::analysis_ipc::ScanLaneStrategy>,
-    /// Opaque GUI item key for the priority area held by this lane.
-    pub priority_area: Option<String>,
+    /// The same `ItemRef` the GUI sent to `scan.prioritize` and the engine
+    /// returned as `appliedPriorityArea`; it carries no path or name.
+    pub priority_area: Option<crate::ItemRef>,
     /// Known directories in the priority area not read to their end, decimal.
     pub remaining_prioritized_directories: Option<String>,
     pub wait: LaneWait,

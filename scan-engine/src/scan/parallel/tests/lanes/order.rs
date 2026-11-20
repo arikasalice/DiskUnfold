@@ -106,7 +106,7 @@ fn a_marked_area_is_assigned_before_shallower_normal_work() -> Result<(), TestEr
     gate.until(|state| state.entered == 1)?;
     // "d1" is queued at depth one with returned entries and no child yet.
     assert_eq!(
-        handle.prioritize(0, vec![b"d1".to_vec()], "d1".into()),
+        handle.prioritize(0, vec![b"d1".to_vec()], test_item_ref(1)),
         Ok(ScanPriorityOutcome::Accepted {
             remaining_directories: 1
         })
@@ -131,7 +131,7 @@ fn a_marked_area_is_assigned_before_shallower_normal_work() -> Result<(), TestEr
             .all(|(path, _)| path.first() != Some(&b"d1".to_vec()))
     );
     assert_eq!(
-        handle.prioritize(0, vec![b"d1".to_vec()], "d1".into()),
+        handle.prioritize(0, vec![b"d1".to_vec()], test_item_ref(1)),
         Err(ScanControlError::AlreadyTerminal)
     );
     Ok(())

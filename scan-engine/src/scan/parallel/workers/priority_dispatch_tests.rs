@@ -32,7 +32,10 @@ fn region(root: u32, path: &[&[u8]]) -> queue::PriorityRegion {
     queue::PriorityRegion {
         root_index: root,
         path: path.iter().map(|part| part.to_vec()).collect(),
-        priority_area: "test-key".into(),
+        priority_area: du_core_contracts::ItemRef {
+            result_version: du_core_contracts::Id::from_v7_bytes([0xF0; 16]),
+            item_no: 1,
+        },
     }
 }
 

@@ -1,7 +1,7 @@
 use super::*;
 use crate::desktop::scan_completion::ScanEvents;
 use du_core_contracts::{
-    Id,
+    Id, ItemRef,
     analysis_ipc::{ScanLaneStrategy, ScanResourceMode},
     job::{LaneReport, LaneStatusReport, LaneWait, ProgressUnit},
 };
@@ -22,7 +22,13 @@ fn assert_resource_fields(lane: &serde_json::Value) {
 }
 
 fn assert_priority_fields(active: &serde_json::Value, inactive: &serde_json::Value) {
-    assert_eq!(active["priorityArea"], json!("opaque:priority-key"));
+    assert_eq!(
+        active["priorityArea"],
+        json!({
+            "resultVersion": Id::from_v7_bytes([0xF0; 16]),
+            "itemNo": 7,
+        })
+    );
     assert_eq!(active["remainingPrioritizedDirectories"], json!("12"));
     assert!(inactive.get("priorityArea").is_none());
     assert!(inactive.get("remainingPrioritizedDirectories").is_none());
@@ -72,7 +78,10 @@ fn lane_status(job: &Id) -> JobLaneStatusEvent {
                 id: "resource.static".into(),
                 version: 1,
             }),
-            priority_area: (lane_index == 0).then(|| "opaque:priority-key".into()),
+            priority_area: (lane_index == 0).then(|| ItemRef {
+                result_version: Id::from_v7_bytes([0xF0; 16]),
+                item_no: 7,
+            }),
             remaining_prioritized_directories: (lane_index == 0).then(|| "12".into()),
             wait: if lane_index == 0 {
                 LaneWait::Backpressure

@@ -1257,11 +1257,12 @@ permit?: number,
  */
 strategy?: ScanLaneStrategy,
 /**
- * Opaque GUI item key for the active priority area; omitted when this
- * lane has no priority area. It carries no path or display name and
- * remains present while the engine keeps the region, even at zero.
+ * The same `ItemRef` the GUI sent to `scan.prioritize` and the engine
+ * returned as `appliedPriorityArea`; it carries no path or name and is
+ * omitted when this lane has no priority area. It remains present while
+ * the engine keeps the region, even at zero.
  */
-priorityArea?: string,
+priorityArea?: ItemRef,
 /**
  * Known directories in `priority_area` not read to their end, decimal.
  * Zero alone does not release the region.

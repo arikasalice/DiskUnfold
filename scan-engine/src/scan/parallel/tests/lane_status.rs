@@ -81,11 +81,11 @@ fn lane(report: &LaneStatusReport, index: usize) -> Option<&LaneReport> {
 fn assert_priority_lane(
     report: &LaneStatusReport,
     index: usize,
-    key: Option<&str>,
+    item_ref: Option<&du_core_contracts::ItemRef>,
     remaining: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let lane = lane(report, index).ok_or("missing lane")?;
-    assert_eq!(lane.priority_area.as_deref(), key);
+    assert_eq!(lane.priority_area.as_ref(), item_ref);
     assert_eq!(lane.remaining_prioritized_directories.as_deref(), remaining);
     Ok(())
 }
@@ -186,6 +186,8 @@ fn priority_status_follows_its_lane_replacement_completion_and_job_end()
     let mut outstanding = queue::OutstandingPaths::new(2);
     let area_a = vec![b"A".to_vec()];
     let area_b = vec![b"B".to_vec()];
+    let item_a = test_item_ref(1);
+    let item_b = test_item_ref(2);
     let child_b = vec![b"B".to_vec(), b"child".to_vec()];
     assert!(outstanding.register(0, &area_a));
     assert!(outstanding.register(0, &area_b));
@@ -198,30 +200,30 @@ fn priority_status_follows_its_lane_replacement_completion_and_job_end()
     let control = session.handle();
 
     assert_eq!(
-        control.prioritize(0, area_a.clone(), "key-a".into()),
+        control.prioritize(0, area_a.clone(), item_a.clone()),
         Ok(crate::scan::ScanPriorityOutcome::Accepted {
             remaining_directories: 1
         })
     );
     let first = shared.lane_report().ok_or("no initial lane report")?;
-    assert_priority_lane(&first, 0, Some("key-a"), Some("1"))?;
+    assert_priority_lane(&first, 0, Some(&item_a), Some("1"))?;
     assert_priority_lane(&first, 1, None, None)?;
 
     assert_eq!(
-        control.prioritize(0, area_b.clone(), "key-b".into()),
+        control.prioritize(0, area_b.clone(), item_b.clone()),
         Ok(crate::scan::ScanPriorityOutcome::Accepted {
             remaining_directories: 2
         })
     );
     let replaced = shared.lane_report().ok_or("no replacement lane report")?;
-    assert_priority_lane(&replaced, 0, Some("key-b"), Some("2"))?;
+    assert_priority_lane(&replaced, 0, Some(&item_b), Some("2"))?;
 
     {
         let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
         assert!(queue.complete_path(0, &area_b));
     }
     let partial = shared.lane_report().ok_or("no partial lane report")?;
-    assert_priority_lane(&partial, 0, Some("key-b"), Some("1"))?;
+    assert_priority_lane(&partial, 0, Some(&item_b), Some("1"))?;
     {
         let mut queue = shared.queue.lock().map_err(|_| "queue lock poisoned")?;
         assert!(queue.complete_path(0, &child_b));
@@ -239,7 +241,7 @@ fn priority_status_follows_its_lane_replacement_completion_and_job_end()
         assert!(outstanding.register(0, &ending_area));
     }
     assert!(matches!(
-        control.prioritize(0, ending_area, "key-at-end".into()),
+        control.prioritize(0, ending_area, test_item_ref(3)),
         Ok(crate::scan::ScanPriorityOutcome::Accepted { .. })
     ));
     {

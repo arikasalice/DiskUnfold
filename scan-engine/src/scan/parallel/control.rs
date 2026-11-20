@@ -1,5 +1,6 @@
 //! Job-bound controls over the live directory scheduler.
 use super::{Queue, queue, resource::Condition};
+use du_core_contracts::ItemRef;
 use du_core_contracts::analysis_ipc::{
     ScanResourceMode, ScanSetResourceLane, ScanSetResourceOutcome,
 };
@@ -154,7 +155,7 @@ impl ScanControlSession {
         &self,
         root_index: u32,
         path: Vec<Vec<u8>>,
-        priority_area: String,
+        priority_area: ItemRef,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         if root_index as usize >= self.root_count || path.iter().any(Vec::is_empty) {
             return Err(ScanControlError::OutOfScope);
@@ -278,7 +279,7 @@ impl ScanControlHandle {
         &self,
         root_index: u32,
         path: Vec<Vec<u8>>,
-        priority_area: String,
+        priority_area: ItemRef,
     ) -> Result<ScanPriorityOutcome, ScanControlError> {
         let session = self
             .session

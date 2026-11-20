@@ -1,5 +1,5 @@
 //! The F02 `scan.lane_status` event body (HLD IF-08).
-use crate::Timestamp;
+use crate::{ItemRef, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use super::{ScanLaneStrategy, ScanResourceMode};
@@ -55,12 +55,13 @@ pub struct ScanLane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub strategy: Option<ScanLaneStrategy>,
-    /// Opaque GUI item key for the active priority area; omitted when this
-    /// lane has no priority area. It carries no path or display name and
-    /// remains present while the engine keeps the region, even at zero.
+    /// The same `ItemRef` the GUI sent to `scan.prioritize` and the engine
+    /// returned as `appliedPriorityArea`; it carries no path or name and is
+    /// omitted when this lane has no priority area. It remains present while
+    /// the engine keeps the region, even at zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
-    pub priority_area: Option<String>,
+    pub priority_area: Option<ItemRef>,
     /// Known directories in `priority_area` not read to their end, decimal.
     /// Zero alone does not release the region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,7 +107,7 @@ mod tests {
     use super::*;
     use std::error::Error;
 
-    fn lane(priority_area: Option<&str>, remaining: Option<&str>) -> ScanLane {
+    fn lane(priority_area: Option<ItemRef>, remaining: Option<&str>) -> ScanLane {
         ScanLane {
             lane_index: 0,
             root_indexes: vec![0],
@@ -116,7 +117,7 @@ mod tests {
             mode: None,
             permit: None,
             strategy: None,
-            priority_area: priority_area.map(str::to_owned),
+            priority_area,
             remaining_prioritized_directories: remaining.map(str::to_owned),
             wait_reason: ScanLaneWait::None,
             wait_confirmed: true,
@@ -137,10 +138,16 @@ mod tests {
     #[test]
     fn lane_status_round_trips_priority_fields_verbatim_and_omits_them_when_absent()
     -> Result<(), Box<dyn Error>> {
-        let key = "opaque:item-key/with punctuation";
-        let active = status(lane(Some(key), Some("27")))?;
+        let item_ref = ItemRef {
+            result_version: crate::Id::from_v7_bytes([1; 16]),
+            item_no: 7,
+        };
+        let active = status(lane(Some(item_ref.clone()), Some("27")))?;
         let active_json = serde_json::to_value(&active)?;
-        assert_eq!(active_json["lanes"][0]["priorityArea"], key);
+        assert_eq!(
+            active_json["lanes"][0]["priorityArea"],
+            serde_json::to_value(&item_ref)?
+        );
         assert_eq!(
             active_json["lanes"][0]["remainingPrioritizedDirectories"],
             "27"

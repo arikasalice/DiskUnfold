@@ -33,7 +33,7 @@ fn measure(shape: Shape, workers: usize, marked: bool) -> Result<Moves, TestErro
         queue.priority = Some(PriorityRegion {
             root_index: 1,
             path: Vec::new(),
-            priority_area: "root-1".into(),
+            priority_area: test_item_ref(1),
         });
         queue.reclassify(None);
     }
