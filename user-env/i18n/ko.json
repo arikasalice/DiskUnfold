@@ -474,7 +474,7 @@
     ["ui.inspection.unavailable_in_scan", "이 스캔에서 확인 불가", []],
     ["ui.inspection.name", "이름", []],
     ["ui.inspection.path", "경로", []],
-    ["ui.inspection.kind", "종류", []],
+    ["ui.inspection.kind", "유형", []],
     ["ui.inspection.modified", "수정 시각", []],
     ["ui.inspection.created", "생성 시각", []],
     ["ui.inspection.published", "결과 게시 시각", []],

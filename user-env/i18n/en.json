@@ -474,7 +474,7 @@
     ["ui.inspection.unavailable_in_scan", "Unavailable in this scan", []],
     ["ui.inspection.name", "Name", []],
     ["ui.inspection.path", "Path", []],
-    ["ui.inspection.kind", "Kind", []],
+    ["ui.inspection.kind", "Type", []],
     ["ui.inspection.modified", "Modified", []],
     ["ui.inspection.created", "Created", []],
     ["ui.inspection.published", "Result published", []],
