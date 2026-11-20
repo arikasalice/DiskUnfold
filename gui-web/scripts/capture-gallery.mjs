@@ -94,6 +94,18 @@ const galleryShots =
           scene: "forced-colors",
           forcedColors: "active",
         },
+        {
+          name: "07-toast-open-panel-700",
+          theme: "light",
+          width: 700,
+          scene: "toast-open-panel",
+        },
+        {
+          name: "07-toast-open-panel-1280",
+          theme: "light",
+          width: 1280,
+          scene: "toast-open-panel",
+        },
       ]
     : [
         { name: "light-1280", theme: "light", width: 1280 },

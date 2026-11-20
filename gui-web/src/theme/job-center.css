@@ -14,6 +14,19 @@
   line-height: 1;
 }
 
+.du-job-center-overlay {
+  --du-job-center-inline-size: min(360px, calc(100vw - 48px));
+  display: contents;
+}
+
+.du-job-center-overlay[data-panel-open] .du-toast {
+  inset-inline-end: var(--du-job-center-inline-size);
+  max-inline-size: min(
+    480px,
+    calc(100vw - var(--du-job-center-inline-size) - 32px)
+  );
+}
+
 .du-job-center {
   position: fixed;
   z-index: 20;
@@ -22,7 +35,7 @@
   inset-inline-end: 0;
   display: flex;
   flex-direction: column;
-  inline-size: min(360px, calc(100vw - 48px));
+  inline-size: var(--du-job-center-inline-size);
   min-inline-size: 0;
   border-inline-start: 1px solid var(--du-border);
   background: var(--du-surface);

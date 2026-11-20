@@ -79,7 +79,10 @@ export function useJobCenterParts({
     onOpenChange((open) => !open);
   });
   const overlay = (
-    <>
+    <div
+      className="du-job-center-overlay"
+      data-panel-open={isOpen || undefined}
+    >
       {client && (
         <JobCenterPresenter
           isOpen={isOpen}
@@ -120,7 +123,7 @@ export function useJobCenterParts({
         icon={toast.icon}
         version={toast.version}
       />
-    </>
+    </div>
   );
   return { entry, overlay };
 }

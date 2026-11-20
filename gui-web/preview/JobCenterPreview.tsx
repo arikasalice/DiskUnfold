@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Heading, Text } from "../src/components";
+import { useEffect, useRef, useState } from "react";
+import { Heading, Text, Toast } from "../src/components";
 import { JobCenterEntry } from "../src/features/jobs/JobCenterEntry";
 import { JobCenterPresenter } from "../src/features/jobs/JobCenterPresenter";
 import { LocaleTextContext } from "../src/i18n/presentation";
@@ -16,6 +16,12 @@ export function JobCenterPreview({ scene }: { scene: string }) {
   const knownScene: JobCenterGalleryScene = isScene(scene) ? scene : "main";
   const snapshot = jobCenterSnapshot(knownScene);
   const activeCount = snapshot.inProgress.length;
+  const showToast = knownScene === "toast-open-panel";
+  const [toastVersion, setToastVersion] = useState(0);
+
+  useEffect(() => {
+    if (showToast) setToastVersion((version) => version + 1);
+  }, [showToast]);
 
   return (
     <LocaleTextContext.Provider value={koreanText}>
@@ -46,19 +52,29 @@ export function JobCenterPreview({ scene }: { scene: string }) {
               aria-hidden="true"
             />
           </section>
-          <JobCenterPresenter
-            isOpen={open}
-            trigger={trigger}
-            snapshot={snapshot}
-            onClose={() => setOpen(false)}
-            onOpenHistory={() => setOpen(false)}
-            onOpenJob={() => setOpen(false)}
-            onRetry={() => {}}
-            onControl={() => {}}
-            {...(knownScene === "cancel-confirm"
-              ? { initialCancelJobRef: jobCenterSceneJobRef }
-              : {})}
-          />
+          <div
+            className="du-job-center-overlay"
+            data-panel-open={open || undefined}
+          >
+            <JobCenterPresenter
+              isOpen={open}
+              trigger={trigger}
+              snapshot={snapshot}
+              onClose={() => setOpen(false)}
+              onOpenHistory={() => setOpen(false)}
+              onOpenJob={() => setOpen(false)}
+              onRetry={() => {}}
+              onControl={() => {}}
+              {...(knownScene === "cancel-confirm"
+                ? { initialCancelJobRef: jobCenterSceneJobRef }
+                : {})}
+            />
+            <Toast
+              message={showToast ? "디스크 분석이 끝났습니다" : ""}
+              icon="success"
+              version={toastVersion}
+            />
+          </div>
         </main>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
@@ -73,5 +89,6 @@ function isScene(scene: string): scene is JobCenterGalleryScene {
     "empty",
     "cancel-confirm",
     "forced-colors",
+    "toast-open-panel",
   ].includes(scene);
 }
