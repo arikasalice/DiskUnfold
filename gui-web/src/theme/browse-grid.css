@@ -91,6 +91,18 @@
     minmax(10em, 16fr);
 }
 
+/* With the "Scan status" column, which holds a short phrase such as "Contents
+   not read" and wraps rather than squeezing the name. Cards keep their own
+   tracks. */
+@container (width > 700px) {
+  .du-browse-grid-frame[data-columns="6"]
+    :is(.du-browse-grid__header [role="row"], .du-browse-grid__row) {
+    grid-template-columns:
+      minmax(0, 37fr) minmax(4em, 8fr) repeat(2, minmax(8em, 15fr))
+      minmax(10em, 16fr) minmax(7em, 16fr);
+  }
+}
+
 .du-browse-grid__body {
   position: relative;
   overflow: clip;
@@ -189,6 +201,13 @@
     flex-wrap: wrap;
     align-items: baseline;
     gap: 0 8px;
+  }
+
+  /* A blank "Scan status" takes no line of its own in a card. */
+  .du-browse-grid-frame[data-columns="6"]
+    .du-browse-grid__row
+    > [role="gridcell"]:last-child:has(> .du-text:empty) {
+    display: none;
   }
 }
 

@@ -109,7 +109,11 @@ fn verify_open_response(open: LiveOpen) -> Result<(), String> {
     assert_eq!(body["page"]["unknownCount"], 1);
     let row = &body["page"]["rows"][0];
     assert_eq!(row["flags"]["unenumerated"]["state"], "unknown");
-    assert_eq!(row["flags"]["excluded"]["state"], "unknown");
+    // A scan-lineage row is never an excluded entry.
+    assert_eq!(
+        row["flags"]["excluded"],
+        json!({"state": "present", "value": false})
+    );
     assert_eq!(row["correspondence"]["state"], "unknown");
     Ok(())
 }

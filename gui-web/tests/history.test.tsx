@@ -63,7 +63,8 @@ test("loads history, filters, and preserves opaque paging cursors", async () => 
     await screen.findByRole("table", { name: "Operation history" }),
   ).toBeDefined();
   expect(screen.getByText("Time unavailable")).toBeDefined();
-  expect(screen.getByText("1 folder")).toBeDefined();
+  // The engine's target text is not drawn under the operation (#170).
+  expect(screen.queryByText("1 folder")).toBeNull();
   expect(
     within(screen.getByRole("table", { name: "Operation history" })).getByText(
       "Completed",
@@ -303,8 +304,10 @@ test.each(["history.changed", "job.resync_required"])(
     );
     expect(refreshFrame).toBeDefined();
     await act(async () => finishPage?.(response([deleted])));
-    expect(screen.queryByText("Deleted folder")).toBeNull();
-    expect(screen.queryByText("1 folder")).toBeNull();
+    // Neither the dropped page nor the earlier rows are shown.
+    expect(
+      screen.queryAllByRole("button", { name: /^View details:/ }),
+    ).toHaveLength(0);
     expect(call).toHaveBeenCalledTimes(2);
     act(() => refreshFrame?.(0));
     await screen.findByText("No operations recorded yet.");
@@ -336,7 +339,7 @@ test("F21: an older refreshed revision stays hidden until a successful manual re
     .mockResolvedValueOnce({ ...response(), revision });
   const events = historyEvents(call);
   render(<HistoryPanel client={events.client} onClose={() => {}} />);
-  await screen.findByText("1 folder");
+  await screen.findByRole("button", { name: /^View details:/ });
   const schedule = vi
     .spyOn(window, "requestAnimationFrame")
     .mockImplementation((callback) => {
@@ -351,11 +354,15 @@ test("F21: an older refreshed revision stays hidden until a successful manual re
   expect(call).toHaveBeenCalledTimes(1);
   act(() => frame?.(0));
   await screen.findByRole("alert");
-  expect(screen.queryByText("1 folder")).toBeNull();
+  expect(
+    screen.queryAllByRole("button", { name: /^View details:/ }),
+  ).toHaveLength(0);
   expect(call).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("alert");
-  expect(screen.queryByText("1 folder")).toBeNull();
+  expect(
+    screen.queryAllByRole("button", { name: /^View details:/ }),
+  ).toHaveLength(0);
   expect(call).toHaveBeenCalledTimes(3);
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(call).toHaveBeenCalledTimes(3);
@@ -464,7 +471,8 @@ test("virtualizes a long history and keeps the loaded count outside the scrollin
   );
   const table = await screen.findByRole("table", { name: "Operation history" });
   expect(within(table).getAllByRole("row").length).toBeLessThan(40);
-  expect(screen.queryByText("Recorded target 80")).toBeNull();
+  const last = () => table.querySelector('[aria-rowindex="81"]');
+  expect(last()).toBeNull();
   const region = screen.getByRole("region", {
     name: "Operation history scroll area",
   });
@@ -473,7 +481,7 @@ test("virtualizes a long history and keeps the loaded count outside the scrollin
     configurable: true,
   });
   fireEvent.scroll(region);
-  expect(screen.getByText("Recorded target 80")).toBeDefined();
+  expect(last()).not.toBeNull();
   expect(screen.getByText("80 records shown")).toBeDefined();
   expect(table.getAttribute("aria-rowcount")).toBe("81");
 });

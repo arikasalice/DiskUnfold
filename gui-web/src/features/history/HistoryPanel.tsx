@@ -301,10 +301,7 @@ function HistoryPages({
             }
             label={text("ui.history.operation_history", "Operation history")}
             columns={[
-              text(
-                "ui.history.operation_recorded_target",
-                "Operation / recorded target",
-              ),
+              text("ui.history.operation", "Operation"),
               text("ui.history.status", "Status"),
               text("ui.history.finished", "Finished"),
               text("ui.history.details", "Details"),
@@ -352,21 +349,16 @@ function rowCells(
 ) {
   const { summary, jobRef } = row;
   const name = kindLabel(summary?.kindId, text);
-  const target =
-    summary?.scopeSummary ?? text("ui.history.unavailable", "Unavailable");
   const time = displayTime(summary?.finishedAtMs);
   const state = summary?.state;
   const unavailable = row.missingReasons
     .map((reason) => missingLabel(reason, text))
     .join(" ");
   return [
+    // F02 README #170: the recorded target is a fixed engine summary, not a
+    // path, so it is not shown until the scope roots are recorded.
     <div className="du-history-operation" key="operation">
-      <div title={name}>
-        <Text>{name}</Text>
-      </div>
-      <div title={target}>
-        <Text kind="muted">{target}</Text>
-      </div>
+      <Text>{name}</Text>
     </div>,
     <div
       key="status"
@@ -388,8 +380,8 @@ function rowCells(
         variant="quiet"
         aria-label={text(
           "ui.history.view_details_aria",
-          "View details: {name}, {time}, {target}",
-          { name, time, target },
+          "View details: {name}, {time}",
+          { name, time },
         )}
         onPress={(event) => {
           if (event.target instanceof HTMLElement) onOpen(jobRef, event.target);

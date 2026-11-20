@@ -26,6 +26,8 @@ pub(super) fn page_context(page: &Page) -> Result<Option<BrowseContext>, super::
     } else {
         (None, Vec::new(), 0)
     };
+    let excluded_children =
+        super::super::collection::excluded_children(version, location.as_ref())?;
     let metadata = page.metadata();
     project_context(
         ResultOrigin("scan".into()),
@@ -34,11 +36,14 @@ pub(super) fn page_context(page: &Page) -> Result<Option<BrowseContext>, super::
         breadcrumbs,
         metadata.sorts,
         metadata.predicate_strategies,
+        excluded_children,
     )
     .map(Some)
 }
 
 /// Projects location and strategy evidence consistently for open and page responses.
+///
+/// `excluded_children` must be read from the same pinned version as `location`.
 pub(in super::super) fn project_context(
     origin: ResultOrigin,
     data_source: du_core_contracts::data_source::DataSource,
@@ -46,6 +51,7 @@ pub(in super::super) fn project_context(
     breadcrumbs: Vec<super::super::Breadcrumb>,
     sorts: &[du_analysis_index::query::SortSpec],
     predicates: &[(String, u32)],
+    excluded_children: Option<du_core_contracts::browse_page_ipc::QueryTotal>,
 ) -> Result<BrowseContext, super::super::Error> {
     let root_kind = match (location.is_some(), breadcrumbs.len()) {
         (false, 0) => BrowseRootKind::VirtualRoot,
@@ -80,6 +86,6 @@ pub(in super::super) fn project_context(
                 revision: *revision,
             })
             .collect(),
-        excluded_children: None,
+        excluded_children,
     })
 }

@@ -2,8 +2,8 @@
 
 use du_analysis_index::query::page::Total;
 use du_core_contracts::browse_page_ipc::{
-    BrowseContext, BrowseOpenResponse, FolderFlags, FolderQueryPage, FolderQueryRow, FolderRowKind,
-    QueryPage, QueryPageResponse, QueryTotal, ResultOrigin,
+    BrowseContext, BrowseOpenResponse, FolderQueryPage, FolderQueryRow, FolderRowKind, QueryPage,
+    QueryPageResponse, QueryTotal, ResultOrigin,
 };
 
 use super::{FolderPage, LiveOpen, Row, cursor::CursorPage};
@@ -33,6 +33,7 @@ impl LiveOpen {
             opened.breadcrumbs,
             &opened.sort_strategies,
             &opened.predicate_strategies,
+            opened.excluded_children,
         )
         .map_err(|_| internal())?;
         let page = folder_page(opened.page, self.page.next_cursor)?;
@@ -99,12 +100,7 @@ fn row(value: Row) -> FolderQueryRow {
         allocated_size: size(value.allocated_size.as_ref()),
         modified_at: field(value.modified_at, "ref.unavailable"),
         has_child_folder: field(value.has_observed_child_folder, "ref.unavailable"),
-        // Exact gap reports alone cannot establish either of these independent facts.
-        flags: FolderFlags {
-            unenumerated: unknown("ref.unavailable"),
-            excluded: unknown("ref.unavailable"),
-            boundary: None,
-        },
+        flags: value.flags,
         correspondence: unknown("ref.unavailable"),
     }
 }

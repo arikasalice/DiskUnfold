@@ -22,11 +22,10 @@ import type {
 import type { BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
-import { formatByteUnit } from "../../i18n/bytes";
+import { copyDisabled, notCounted, scanStatus, size } from "./browse-cells";
 import type { SizeDisplay } from "../../i18n/bytes";
 import { useTimestampParts } from "../../i18n/regional-format";
 import { useLocaleText } from "../../i18n/presentation";
-import { SIZE_UNIT_RULES } from "../../ipc";
 import { useBrowsePaging } from "./use-browse-paging";
 import { useBrowseCopy } from "./use-browse-copy";
 import { PriorityToast, SelectionAnalyzeFirst } from "./SelectionAnalyzeFirst";
@@ -50,40 +49,6 @@ export type ListEntryFocus = (origin: Element) => void;
  * the row that held focus went away.
  */
 export type ListRowFocus = (index: number) => void;
-
-function size(
-  value: FolderQueryRow["logicalSize"],
-  display: SizeDisplay,
-  text: ReturnType<typeof useLocaleText>,
-): string {
-  if (value.state === "absent")
-    return text("ui.browse.not_recorded", "Not recorded");
-  if (value.state !== "present" || value.value.state === "unknown")
-    return text("ui.browse.unavailable", "Unavailable");
-  const lowerBound = value.value.state === "lower_bound";
-  const readable = formatByteUnit(
-    BigInt(value.value.bytes),
-    SIZE_UNIT_RULES[display.system],
-    SIZE_UNIT_RULES.decimalPlaces,
-    display.unit,
-    lowerBound,
-    display.regional,
-  );
-  return `${lowerBound ? `${text("ui.browse.at_least", "At least")} ` : ""}${readable}`;
-}
-
-/** The disabled reason of the copy action: the host's reason first, else "Unavailable now". */
-function copyDisabled(
-  hostReason: string | undefined,
-  unavailable: boolean,
-  text: ReturnType<typeof useLocaleText>,
-): { disabledReason?: string } {
-  if (hostReason !== undefined) return { disabledReason: hostReason };
-  if (!unavailable) return {};
-  return {
-    disabledReason: text("ui.browse.unavailable_now", "Unavailable now"),
-  };
-}
 
 export function BrowseResults({
   pages,
@@ -143,12 +108,18 @@ export function BrowseResults({
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampParts();
+  // The column shows once a row of this list carries the boundary fact; a
+  // producer without it gets no column (F02 README #27).
+  const scanStatusColumn = pages.boundaries;
   const columns = [
     text("ui.browse.column_name", "Name"),
     text("ui.browse.column_type", "Type"),
     text("ui.browse.column_logical_size", "Logical size"),
     text("ui.browse.column_allocated_size", "Allocated size"),
     text("ui.browse.column_modified", "Modified"),
+    ...(scanStatusColumn
+      ? [text("ui.browse.column_scan_status", "Scan status")]
+      : []),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
   // A row is named by its name and its badge only; the controls beside them
@@ -461,12 +432,11 @@ export function BrowseResults({
                     : // A kind this screen has no name for; the kind was decided.
                       text("ui.common.unknown", "Unknown")}
           </Text>,
-          <Text>
-            <Unbroken>{size(row.logicalSize, display, text)}</Unbroken>
-          </Text>,
-          <Text>
-            <Unbroken>{size(row.allocatedSize, display, text)}</Unbroken>
-          </Text>,
+          ...[row.logicalSize, row.allocatedSize].map((value) => (
+            <Text kind={notCounted(row, value) ? "muted" : "body"}>
+              <Unbroken>{size(row, value, display, text)}</Unbroken>
+            </Text>
+          )),
           <Text>
             {row.modifiedAt.state === "present"
               ? (() => {
@@ -481,6 +451,7 @@ export function BrowseResults({
                 ? text("ui.browse.not_recorded", "Not recorded")
                 : text("ui.browse.unavailable", "Unavailable")}
           </Text>,
+          ...(scanStatusColumn ? [<Text>{scanStatus(row, text)}</Text>] : []),
         ]}
       />
       <ActionFeedback

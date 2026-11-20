@@ -2,6 +2,7 @@
 //!
 //! The desktop adapter shares this registry between folder opens and pages.
 mod admission;
+mod collection;
 pub(crate) mod commands;
 pub mod cursor;
 pub mod job;
@@ -78,6 +79,8 @@ pub struct Row {
     pub has_observed_child_folder: Option<bool>,
     /// Explicitly reported gaps at this exact observed item; empty does not prove completeness.
     pub reported_gaps: Vec<GapEvidence>,
+    /// Scan state of this item in the pinned version, as published on the folder row.
+    pub flags: du_core_contracts::browse_page_ipc::FolderFlags,
 }
 
 /// A collector report attached to the exact observed item in a pinned result.
@@ -114,6 +117,8 @@ pub struct Opened {
     pub sort_strategies: Vec<query::SortSpec>,
     /// Registered predicate strategies used to evaluate the pinned condition.
     pub predicate_strategies: Vec<(String, u32)>,
+    /// Entries an exclusion rule left out directly under `location`; absent when unknown.
+    pub excluded_children: Option<du_core_contracts::browse_page_ipc::QueryTotal>,
     pub page: FolderPage,
 }
 
@@ -143,20 +148,6 @@ struct AdmittedOpen {
     location: Option<ItemRef>,
     breadcrumbs: Vec<Breadcrumb>,
     page: Page,
-}
-
-impl AdmittedOpen {
-    fn project(self) -> Result<Opened, Error> {
-        let metadata = self.page.metadata();
-        Ok(Opened {
-            location: self.location,
-            data_source: self.page.version().data_source(),
-            breadcrumbs: self.breadcrumbs,
-            sort_strategies: metadata.sorts.to_vec(),
-            predicate_strategies: metadata.predicate_strategies.to_vec(),
-            page: project(self.page)?,
-        })
-    }
 }
 
 #[derive(Clone)]

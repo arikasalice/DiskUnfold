@@ -2,7 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { graphemes } from "./graphemes";
 import { isImeProcessingKey } from "./ime-composition";
+import { ELLIPSIS, drawnParts, isSeparator, useFittedLine } from "./line-fit";
+import { NAME_SPACE_MARK, pathNameEdges } from "./name-edges";
+import { NameText, hasPathSeparator } from "./name-text";
 import "../theme/text-fit.css";
+import "../theme/name-text.css";
 
 /** Longest tail, in characters, kept when a text has no path structure to follow. */
 const MIDDLE_TAIL_LIMIT = 16;
@@ -10,10 +14,6 @@ const MIDDLE_TAIL_LIMIT = 16;
 const TAIL_NAME_LIMIT = 32;
 /** The tail also keeps the parent folder while it stays within this many characters. */
 const TAIL_FOLDER_BUDGET = 24;
-
-function isSeparator(unit: string | undefined): boolean {
-  return unit === "/" || unit === "\\";
-}
 
 /**
  * Where the tail of a path starts: at the separator before the last component,
@@ -84,24 +84,56 @@ function useOverflow(
  *
  * With `wholeCopy`, copying a selection that lies inside the frame puts the
  * full text on the clipboard once, whatever part of it is visible.
+ *
+ * With `focusable` false, as in a table cell, a cut frame takes no tab stop
+ * and no role; the full text shows after the pointer rests on it for a moment,
+ * and the content still carries the whole text for assistive technology.
  */
 function CutTextFrame({
   text,
+  full = text,
   cut,
   className,
   wholeCopy = false,
+  focusable = true,
   children,
 }: {
   text: string;
+  /** The full text as shown in the aid; `text` by default. */
+  full?: ReactNode;
   cut: boolean;
   className: string;
   wholeCopy?: boolean;
+  focusable?: boolean;
   children: ReactNode;
 }) {
   const [dismissed, setDismissed] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const frame = useRef<HTMLSpanElement>(null);
+  const [anchor, setAnchor] = useState<CSSProperties>();
   const shown = cut && (hovered || focused) && !dismissed;
+
+  // A table cell clips what overflows it, so there the full text is placed
+  // against the window, under the cell, and follows it while the page scrolls.
+  const place = () => {
+    const box = frame.current?.getBoundingClientRect();
+    if (box)
+      setAnchor({
+        "--du-fit-top": box.bottom + "px",
+        "--du-fit-left": box.left + "px",
+      } as CSSProperties);
+  };
+  const placing = cut && !focusable && hovered;
+  useEffect(() => {
+    if (!placing) return;
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [placing]);
 
   // A pointer-opened aid has no focus to receive Escape, so it listens on the
   // window while it is shown and takes the key before a dialog sees it.
@@ -118,11 +150,15 @@ function CutTextFrame({
 
   return (
     <span
-      className={`du-fit ${className}`}
-      tabIndex={cut ? 0 : undefined}
-      role={cut ? "note" : undefined}
+      ref={frame}
+      className={`du-fit ${className}${focusable ? "" : " du-fit--cell"}`}
+      tabIndex={cut && focusable ? 0 : undefined}
+      role={cut && focusable ? "note" : undefined}
       data-dismissed={dismissed || undefined}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        setHovered(true);
+        if (!focusable) place();
+      }}
       onMouseLeave={() => {
         setHovered(false);
         if (!focused) setDismissed(false);
@@ -160,8 +196,13 @@ function CutTextFrame({
     >
       {children}
       {cut && (
-        <span className="du-fit__full" dir="auto" aria-hidden>
-          {text}
+        <span
+          className="du-fit__full"
+          dir="auto"
+          aria-hidden
+          style={focusable ? undefined : anchor}
+        >
+          {full}
         </span>
       )}
     </span>
@@ -222,6 +263,49 @@ export function splitForMiddleEllipsis(text: string): {
   };
 }
 
+/** UTF-16 ranges of the edge white space of a path's last component. */
+function edgeRanges(text: string): [number, number][] {
+  const { head, name } = pathNameEdges(text);
+  const start = head.length;
+  const trailing = start + name.leading.length + name.middle.length;
+  return [
+    [start, start + name.leading.length],
+    [trailing, trailing + name.trailing.length],
+  ];
+}
+
+/**
+ * `part`, which starts at `offset` in its text, with the characters inside
+ * `ranges` kept for copying and drawn as "\u2423" marks.
+ */
+function marked(
+  part: string,
+  offset: number,
+  ranges: readonly [number, number][],
+): ReactNode {
+  const nodes: ReactNode[] = [];
+  let at = 0;
+  for (const [from, to] of ranges) {
+    const start = Math.max(from - offset, at);
+    const end = Math.min(to - offset, part.length);
+    if (start >= end) continue;
+    if (start > at) nodes.push(part.slice(at, start));
+    const spaces = part.slice(start, end);
+    nodes.push(
+      <span key={start}>
+        <span className="du-name__space">{spaces}</span>
+        <span className="du-name__mark">
+          {NAME_SPACE_MARK.repeat(Array.from(spaces).length)}
+        </span>
+      </span>,
+    );
+    at = end;
+  }
+  if (nodes.length === 0) return part;
+  if (at < part.length) nodes.push(part.slice(at));
+  return nodes;
+}
+
 /**
  * A path or file name on one line with the ellipsis in the middle.
  *
@@ -230,28 +314,75 @@ export function splitForMiddleEllipsis(text: string): {
  * text is cut, the element takes focus and shows the full text, and a copy of
  * the selection gives the full path once.
  *
+ * The last component keeps its extension: when it is wider than the line by
+ * itself, its middle is cut too. The edge white space of the last component
+ * is drawn as "\u2423" on screen and in the full text, and screen readers hear
+ * the explanation after the path, as `NameText` reads it.
+ *
+ * With `cell`, for a table cell, a cut text takes no tab stop: the row's own
+ * details give keyboard users the full value (F02 README #170).
+ *
+ * When the tail alone is wider than the line, the head is hidden and the line
+ * reads "…" and the tail, with the name cut by whole characters.
+ *
  * The container takes its direction from the whole text (`dir="auto"`) and
  * both parts are bidi isolates that inherit it, so the two flex items stand in
  * the order of the unsplit text and a right-to-left name does not swap sides.
  */
-export function MiddleEllipsisText({ text }: { text: string }) {
+export function MiddleEllipsisText({
+  text,
+  cell = false,
+}: {
+  text: string;
+  /** Inside a table cell: no tab stop when cut (F02 README #170). */
+  cell?: boolean;
+}) {
   const head = useRef<HTMLSpanElement>(null);
   const tail = useRef<HTMLSpanElement>(null);
-  const refs = useRef([head, tail]).current;
-  const cut = useOverflow(refs, text);
+  const tailName = useRef<HTMLSpanElement>(null);
+  const line = useRef<HTMLSpanElement>(null);
+  const ruler = useRef<HTMLSpanElement>(null);
+  const refs = useRef([head, tail, tailName]).current;
+  const overflowing = useOverflow(refs, text);
   const parts = splitForMiddleEllipsis(text);
+  const fitted = useFittedLine(line, ruler, text, parts.head, parts.tail);
+  const cut = overflowing || fitted !== undefined;
+  const drawn = drawnParts(parts.head, parts.tail, fitted);
+  const ranges = edgeRanges(text);
+  const path = hasPathSeparator(text);
   return (
-    <CutTextFrame text={text} cut={cut} className="du-fit--line" wholeCopy>
-      <span className="du-middle" dir="auto">
+    <CutTextFrame
+      text={text}
+      full={<NameText name={text} path={path} />}
+      cut={cut}
+      className="du-fit--line"
+      wholeCopy
+      focusable={!cell}
+    >
+      <span
+        ref={line}
+        className="du-middle"
+        dir="auto"
+        data-head-hidden={drawn.headHidden || undefined}
+      >
         <span ref={head} className="du-middle__head" aria-hidden>
-          {parts.head}
+          {marked(drawn.head, 0, ranges)}
+          {drawn.headCut && ELLIPSIS}
         </span>
         <span ref={tail} className="du-middle__tail" aria-hidden>
-          {parts.tail}
+          {drawn.headHidden && ELLIPSIS}
+          <span ref={tailName} className="du-middle__name">
+            {marked(drawn.name, drawn.nameOffset, ranges)}
+            {drawn.nameCut && ELLIPSIS}
+          </span>
+          <span className="du-middle__end">
+            {marked(drawn.end, drawn.endOffset, ranges)}
+          </span>
         </span>
+        <span ref={ruler} className="du-middle__ruler" aria-hidden />
       </span>
       <span className="du-visually-hidden" dir="auto">
-        {text}
+        <NameText name={text} path={path} />
       </span>
     </CutTextFrame>
   );

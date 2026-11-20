@@ -39,10 +39,43 @@
   unicode-bidi: isolate;
 }
 
-/* The tail keeps its size until it alone is wider than the line. */
+/* The head shrinks first; the tail keeps its size until it alone is wider than
+   the line, and then its last component loses characters in its middle. */
+.du-middle__head {
+  flex: 0 1 auto;
+}
+
 .du-middle__tail {
-  flex: none;
+  display: flex;
+  flex: 0 0.0001 auto;
   max-inline-size: 100%;
+}
+
+.du-middle__name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The extension, or the last characters of a name without one, always shows. */
+.du-middle__end {
+  flex: none;
+}
+
+/* "…" and the tail are wider than the line: the head gives way to the "…"
+   that the tail starts with. */
+.du-middle[data-head-hidden] > .du-middle__head {
+  display: none;
+}
+
+/* Measures the tail's text in the same font; never seen or laid out in the line. */
+.du-middle__ruler {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
 }
 
 /* The copies of the text are not selectable, so a selection copies the path once. */
@@ -90,4 +123,20 @@
 
 .du-fit:is(:focus, :hover):not([data-dismissed]) > .du-fit__full {
   display: block;
+}
+
+/* In a table cell the full text waits for the pointer to rest for 0.3 s. It
+   stays laid out, hidden, so the delayed change of visibility can run. The
+   cell clips what overflows it, so the text is placed against the window. */
+.du-fit--cell > .du-fit__full {
+  position: fixed;
+  inset-block-start: var(--du-fit-top, 0);
+  left: var(--du-fit-left, 0);
+  display: block;
+  visibility: hidden;
+}
+
+.du-fit--cell:hover:not([data-dismissed]) > .du-fit__full {
+  visibility: visible;
+  transition: visibility 0s linear 300ms;
 }

@@ -289,6 +289,38 @@ test("text that is not cut has no tab stop, role or full-text aid", () => {
   expect(container.querySelector(".du-fit__full")).toBeNull();
 });
 
+// #170, F02 README: a table cell gives keyboard users the full value through
+// the row's details, so a cut text there takes no tab stop or role.
+test("a cut text in a table cell takes no tab stop or role and keeps its full text", async () => {
+  overflowing(true);
+  const path = PATHS[0]!;
+  const { container } = render(<MiddleEllipsisText text={path} cell />);
+  await act(async () => {});
+  const frame = container.querySelector(".du-fit") as HTMLElement;
+  expect(frame.hasAttribute("tabindex")).toBe(false);
+  expect(frame.hasAttribute("role")).toBe(false);
+  expect(frame.classList.contains("du-fit--cell")).toBe(true);
+  expect(container.querySelector(".du-fit__full")?.textContent).toBe(path);
+  expect(container.querySelector(".du-visually-hidden")?.textContent).toBe(
+    path,
+  );
+  const css = readFileSync("src/theme/text-fit.css", "utf8");
+  expect(css).toMatch(
+    /\.du-fit--cell:hover:not\(\[data-dismissed\]\) > \.du-fit__full \{[^}]*transition: visibility 0s linear 300ms/,
+  );
+});
+
+test("a last component wider than the line keeps its extension", () => {
+  overflowing(false);
+  const { container } = render(
+    <MiddleEllipsisText text={"C:\\data\\quarterly-report-q3.xlsx"} />,
+  );
+  expect(container.querySelector(".du-middle__end")?.textContent).toBe(".xlsx");
+  expect(container.querySelector(".du-middle__name")?.textContent).toBe(
+    "\\quarterly-report-q3",
+  );
+});
+
 test("a cut text is a focusable note whose content is its full text", async () => {
   overflowing(true);
   const { container } = render(<MiddleEllipsisText text={PATHS[0]!} />);
