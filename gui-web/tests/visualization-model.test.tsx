@@ -160,6 +160,23 @@ test("pointer selection returns the generated identity and does not open details
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+test("#185: a scope total in bytes names its size basis", () => {
+  const input = modelFixture();
+  const { container } = render(
+    <VisualizationModelPresenter
+      {...input}
+      view={view}
+      selected={null}
+      onSelect={vi.fn()}
+      text={fixtureText}
+    />,
+  );
+  const line = Array.from(container.querySelectorAll("p"), (p) =>
+    (p.textContent ?? "").trim(),
+  ).find((content) => content.startsWith("Scope total"));
+  expect(line?.endsWith(` · ${fixtureText.key("logical")}`)).toBe(true);
+});
+
 test("unsupported geometry shows same-model rows without drawing a partial graph", () => {
   const input = modelFixture();
   input.frame.model.shapes[1]!.geometry.primitive = "future-primitive";
