@@ -126,7 +126,7 @@ test("F06 README 10, 22, 34: arrows go to the nearest shape on screen and stop a
   expect(onClearSelection).toHaveBeenCalledTimes(1);
 });
 
-test("F06 README 10: from a file in a folder the arrow goes to the file beside it, not to the folder around it", () => {
+test("F06 README 35: a folder stands where its header band is; the arrow goes to the file beside a file and up to the header", () => {
   const input = props();
   const rect = (left: number, top: number, right: number, bottom: number) => ({
     primitive: "rect",
@@ -147,13 +147,13 @@ test("F06 README 10: from a file in a folder the arrow goes to the file beside i
       shapeRef: "left",
       rowRef: "row-left",
       accessibleLabel: "album-a",
-      geometry: rect(0, 100_000, 400_000, 1_000_000),
+      geometry: rect(0, 200_000, 400_000, 1_000_000),
     },
     {
       shapeRef: "right",
       rowRef: "row-right",
       accessibleLabel: "album-b",
-      geometry: rect(400_000, 100_000, 1_000_000, 1_000_000),
+      geometry: rect(400_000, 200_000, 1_000_000, 1_000_000),
     },
   ];
   input.relations = [];
@@ -163,6 +163,8 @@ test("F06 README 10: from a file in a folder the arrow goes to the file beside i
   fireEvent.keyDown(option("album-b"), { key: "ArrowLeft" });
   expect(document.activeElement).toBe(option("album-a"));
   fireEvent.keyDown(option("album-a"), { key: "ArrowUp" });
+  expect(document.activeElement).toBe(option("Photos"));
+  fireEvent.keyDown(option("Photos"), { key: "ArrowDown" });
   expect(document.activeElement).toBe(option("album-a"));
 });
 

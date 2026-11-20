@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { LiveStatus, Notice, Text } from "../../components";
+import { LiveStatus, Notice, Text, Toast } from "../../components";
 import { VisualizationModelPresenter } from "./VisualizationModelPresenter";
 import type {
   VisualizationController,
@@ -229,6 +229,7 @@ export function ControlledVisualization({
           <Text key={announcement.count}>{announcement.message}</Text>
         )}
       </LiveStatus>
+      <Toast message={announcement.message} version={announcement.count} />
       <RowsRetry
         controller={controller}
         state={state}

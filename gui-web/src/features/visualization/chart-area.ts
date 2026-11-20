@@ -5,6 +5,12 @@ import type { RefObject } from "react";
 export const MIN_CHART_HEIGHT = 240;
 /** Space kept free below the chart. */
 export const CHART_BOTTOM_MARGIN = 16;
+/**
+ * Room kept on each side of the chart for the focus line of a shape at its
+ * edge: a 1 px gap and a 2 px line (F06 README 4.7, 35). The chart frame has
+ * this margin; the chart is requested that much narrower.
+ */
+export const CHART_FOCUS_ROOM = 3;
 
 /**
  * The height of the chart box: the visible height of the scroll area, less what

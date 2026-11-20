@@ -1,0 +1,47 @@
+/* A short notice fixed at the bottom centre of the window (F06 README 35). */
+.du-toast {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 24px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  inline-size: max-content;
+  max-inline-size: min(480px, calc(100vw - 32px));
+  margin-inline: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  color: var(--du-text);
+  box-shadow: var(--du-shadow);
+  pointer-events: none;
+}
+
+/* Over the focused element it moves to the top of the window. */
+.du-toast[data-place="top"] {
+  inset-block-start: 24px;
+  inset-block-end: auto;
+}
+
+/* Only leaving fades, briefly; with reduced motion it goes at once. */
+.du-toast[data-leaving] {
+  opacity: 0;
+  transition: opacity 150ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .du-toast[data-leaving] {
+    transition: none;
+  }
+}
+:root[data-du-motion="reduce"] .du-toast[data-leaving] {
+  transition: none;
+}
+
+@media (forced-colors: active) {
+  .du-toast {
+    border-color: CanvasText;
+  }
+}

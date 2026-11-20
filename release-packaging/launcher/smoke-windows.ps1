@@ -1379,6 +1379,15 @@ function Test-CaptureTreemap {
   Start-Sleep -Milliseconds 300
   "Focus after one Tab: $(& $focusName)"
   Save-SmokeCapture '03-first-shape'
+  # README 35: a folder stands where its header band is; Down reaches the first row inside it.
+  Send-SmokeKey 0x28 # VK_DOWN
+  Start-Sleep -Milliseconds 300
+  "Focus after Down from the Videos header: $(& $focusName)"
+  Save-SmokeCapture '03a-header-down'
+  Send-SmokeKey 0x26 # VK_UP
+  Start-Sleep -Milliseconds 300
+  "Focus after Up from clip.bin: $(& $focusName)"
+  Save-SmokeCapture '03b-child-up'
   Send-SmokeKey 0x27 # VK_RIGHT
   Start-Sleep -Milliseconds 300
   "Focus after Right: $(& $focusName)"
@@ -1393,7 +1402,7 @@ function Test-CaptureTreemap {
   Save-SmokeCapture '06-selected'
   $options = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)) |
     Where-Object { $_.Current.Name -like '*,*' })
-  foreach ($option in $options | Select-Object -First 6) {
+  foreach ($option in @($options | Select-Object -First 6) + @($options | Where-Object { $_.Current.Name -like 'notes.bin*' })) {
     $item = $null
     $selected = if ($option.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$item)) { $item.Current.IsSelected } else { 'no pattern' }
     'Shape: {0} "{1}" selected={2}' -f $option.Current.ControlType.ProgrammaticName, $option.Current.Name, $selected
@@ -1405,8 +1414,8 @@ function Test-CaptureTreemap {
     Start-Sleep -Milliseconds 200
     Send-SmokeKey 0x0D # VK_RETURN
     Start-Sleep -Milliseconds 400
-    $said = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName 'This item cannot be opened here yet.')))).Count
-    "Enter on album-a.bin: status says it cannot be opened here: $($said -gt 0)"
+    $said = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName "This item can't be opened or expanded here yet.")))).Count
+    "Enter on album-a.bin: status says it cannot be opened or expanded here: $($said -gt 0)"
     Save-SmokeCapture '07-enter-item'
   } else { 'album-a.bin is not among the shapes' }
   # Enter on the group shape opens its list; closing returns the focus to that shape (README 22).
@@ -2101,4 +2110,5 @@ function Remove-SmokeFixture {
   Remove-Item -LiteralPath $verifiedRoot -Recurse -Force -ErrorAction Stop
 }
 if ($KeepFixture) { "Fixture kept: $root" } else { Remove-SmokeFixture -FixtureRoot $root }
+
 

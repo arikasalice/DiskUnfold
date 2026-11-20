@@ -777,7 +777,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       colorCriterion: "none",
       denominatorBasis: "scope",
       depthLimit: 2,
-      viewport: { width: 640, height: 344, scale: 1 },
+      viewport: { width: 634, height: 344, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");
     expect(request?.body).not.toHaveProperty("focusItemRef");
@@ -801,7 +801,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
         true,
       );
     expect(
-      accessibleLabels.some((name) => name.startsWith(`${groupLabel} ·`)),
+      accessibleLabels.some((name) => name.startsWith(`${groupLabel},`)),
     ).toBe(true);
     for (const name of names)
       expect(accessibleLabels.some((label) => label.includes(name))).toBe(true);

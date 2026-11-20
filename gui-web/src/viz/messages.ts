@@ -23,7 +23,7 @@ export const visualizationMessages = {
     focusMovedTitle:
       "The focused item is no longer in the result, so focus moved to the chart title.",
     folderExpandUnavailable: "Expanding folders is not available yet.",
-    itemOpenUnavailable: "This item cannot be opened here yet.",
+    itemOpenUnavailable: "This item can't be opened or expanded here yet.",
     noGraphTargets: "There are no selectable items in the chart.",
     previousName: "Previous item:",
     previousBasis: "Previous observation:",
@@ -129,6 +129,7 @@ export const visualizationMessages = {
     shapeFolder:
       "{name}, folder, {value}, {ratio} of {denominator}, {count} shown inside",
     shapeInFolder: "{name}, in {folder}, {value}, {ratio} of {denominator}",
+    shapeTop: "{name}, {value}, {ratio} of {denominator}",
     viewMembers: "View combined items",
     viewMembersOf: "View items in {name}",
     measurementBasisTotals: "Measurement basis and totals",
@@ -231,7 +232,7 @@ export const visualizationMessages = {
     focusMovedTitle:
       "초점을 둔 항목이 새 결과에 없어 그래프 제목으로 옮겼습니다",
     folderExpandUnavailable: "폴더 펼치기는 아직 사용할 수 없습니다",
-    itemOpenUnavailable: "이 항목은 아직 이 화면에서 열 수 없습니다",
+    itemOpenUnavailable: "이 항목은 아직 이 화면에서 열거나 펼칠 수 없습니다",
     noGraphTargets: "그래프에서 선택할 수 있는 항목이 없습니다.",
     previousName: "이전 항목:",
     previousBasis: "이전 관측:",
@@ -334,6 +335,7 @@ export const visualizationMessages = {
     shapeFolder:
       "{name}, 폴더, {value}, {denominator}의 {ratio}, 안에 {count}개 표시",
     shapeInFolder: "{name}, {folder} 안, {value}, {denominator}의 {ratio}",
+    shapeTop: "{name}, {value}, {denominator}의 {ratio}",
     viewMembers: "묶인 항목 보기",
     viewMembersOf: "{name}의 항목 보기",
     measurementBasisTotals: "측정 기준 및 합계",

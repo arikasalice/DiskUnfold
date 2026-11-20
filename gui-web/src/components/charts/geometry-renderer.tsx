@@ -303,11 +303,10 @@ function boxOf(
 
 /**
  * The shape nearest in the direction of an arrow key on screen, or none at the
- * edge: the focus stops there (README 10, 22). Distance across the direction
- * counts double, and none for a shape level with this one, so a shape straight
- * ahead wins over one off to the side. A
- * folder and the shapes inside it are not each other's neighbours: from a file
- * in a folder the arrow goes to the file beside it, not to the folder around it.
+ * edge: the focus stops there (README 10, 22). Nearness is the gap between the
+ * facing edges; a shape level with this one goes first, one off to the side
+ * pays twice its offset. An expanded folder stands where its header band is,
+ * so a header and the first row inside it are neighbours (README 35).
  */
 function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   const centre = (box: Box) => ({
@@ -316,20 +315,14 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   });
   const origin = boxes[from]!;
   const start = centre(origin);
-  // A folder is drawn a pixel or two inside its own rectangle (insetOf).
-  const holds = (outer: Box, inner: Box) =>
-    outer.left <= inner.left + 2 &&
-    outer.top <= inner.top + 2 &&
-    outer.right >= inner.right - 2 &&
-    outer.bottom >= inner.bottom - 2;
+  const horizontal = key === "ArrowLeft" || key === "ArrowRight";
   let best: number | undefined;
   let bestScore = Infinity;
   boxes.forEach((box, index) => {
-    if (index === from || holds(box, origin) || holds(origin, box)) return;
+    if (index === from) return;
     const point = centre(box);
     const dx = point.x - start.x;
     const dy = point.y - start.y;
-    const horizontal = key === "ArrowLeft" || key === "ArrowRight";
     const along =
       key === "ArrowRight"
         ? dx
@@ -339,10 +332,23 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
             ? dy
             : -dy;
     if (along <= 0.5) return;
+    const gap =
+      key === "ArrowRight"
+        ? box.left - origin.right
+        : key === "ArrowLeft"
+          ? origin.left - box.right
+          : key === "ArrowDown"
+            ? box.top - origin.bottom
+            : origin.top - box.bottom;
     const level = horizontal
       ? box.top < origin.bottom && box.bottom > origin.top
       : box.left < origin.right && box.right > origin.left;
-    const score = along + (level ? 0 : 2 * Math.abs(horizontal ? dy : dx));
+    const score =
+      Math.max(0, gap) +
+      (level ? 0 : 2 * Math.abs(horizontal ? dy : dx)) +
+      // Ties go to the nearer centre, then the one more straight ahead.
+      along / 1000 +
+      Math.abs(horizontal ? dy : dx) / 1e6;
     if (score < bestScore) {
       bestScore = score;
       best = index;
@@ -350,6 +356,15 @@ function nearestInDirection(boxes: readonly Box[], from: number, key: string) {
   });
   return best;
 }
+
+/** Where a shape stands for arrow keys: an expanded folder by its header band. */
+function placeOf(shape: Shape, box: Box): Box {
+  return shape.container
+    ? { ...box, bottom: Math.min(box.bottom, box.top + HEADER_PLACE) }
+    : box;
+}
+/** The 20 px header band less the inset of the shapes under it. */
+const HEADER_PLACE = 18;
 
 /**
  * A text cut to `limit` characters with the ellipsis in the middle, so the end
@@ -614,7 +629,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
       case "ArrowUp":
       case "ArrowDown":
         next = nearestInDirection(
-          targets.map(({ box }) => box),
+          targets.map(({ shape, box }) => placeOf(shape, box)),
           index,
           event.key,
         );

@@ -522,7 +522,7 @@ test("repeated item shapes select their own evidence by pointer and keyboard whi
     JSON.stringify(["shape", "fixture-shape-1"]),
   );
   // Space on a shape must carry the same per-shape reference.
-  const options = screen.getAllByRole("option", { name: /^영상 ·/ });
+  const options = screen.getAllByRole("option", { name: /^영상, / });
   options[0]!.focus();
   fireEvent.keyDown(options[0]!, { key: " ", code: "Space" });
   expect(select).toHaveBeenLastCalledWith(

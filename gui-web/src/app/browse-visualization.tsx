@@ -15,6 +15,7 @@ import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
 import {
   ChartAreaContext,
+  CHART_FOCUS_ROOM,
   chartHeight,
   usableSize,
 } from "../features/visualization/chart-area";
@@ -368,12 +369,15 @@ export function BrowseVisualizationView({
         element.getBoundingClientRect(),
         element,
       );
-      update(width, shownHeight(height));
+      update(width - 2 * CHART_FOCUS_ROOM, shownHeight(height));
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries.find(({ target }) => target === element);
       if (entry)
-        update(entry.contentRect.width, shownHeight(entry.contentRect.height));
+        update(
+          entry.contentRect.width - 2 * CHART_FOCUS_ROOM,
+          shownHeight(entry.contentRect.height),
+        );
     });
     observer.observe(element);
     measure();

@@ -62,6 +62,7 @@ export type {
 } from "./charts/geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";
+export { Toast, TOAST_DURATION } from "./toast";
 export { RowAction, RowSlot } from "./row-action";
 export { SelectionActions } from "./selection-actions";
 export type { SelectionNotice } from "./selection-actions";

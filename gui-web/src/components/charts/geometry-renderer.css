@@ -55,6 +55,8 @@
 /* Each shape is an option of the chart's list, laid over its drawing (README 34). */
 .du-geometry-frame {
   position: relative;
+  /* Room for the focus line of a shape at the edge (CHART_FOCUS_ROOM, README 35). */
+  margin-inline: 3px;
 }
 
 .du-geometry-targets {
