@@ -1,4 +1,4 @@
-//! Byte histogram work admitted by the live visualization runtime.
+//! Histogram work admitted by the live visualization runtime, counting bytes or items.
 use super::*;
 use crate::viz_pages::{histogram, production::RowPresentation};
 use du_analysis_index::visualization::{
@@ -82,7 +82,11 @@ fn prepare(
                 unit_table: facts.unit_table,
                 unit_table_revision: facts.unit_table_revision,
                 bounds,
-                basis: Basis::Bytes,
+                basis: if request.measure == "count" {
+                    Basis::ItemCount
+                } else {
+                    Basis::Bytes
+                },
                 scale: Scale::Automatic,
                 unknown_reason: &facts.unknown_reason,
             },

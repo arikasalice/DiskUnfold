@@ -398,7 +398,10 @@ fn the_advertised_catalog_matches_what_render_accepts() -> TestResult {
         json!(policy::DENOMINATOR_SCOPE)
     );
     let catalog = policy::catalog_policy();
-    assert_eq!(catalog.measures, [policy::MEASURE_SIZE]);
+    assert_eq!(
+        catalog.measures,
+        [policy::MEASURE_SIZE, policy::MEASURE_COUNT]
+    );
     assert_eq!(catalog.color_criteria, [policy::COLOR_CRITERION_NONE]);
     assert_eq!(catalog.denominator_criteria, [policy::DENOMINATOR_SCOPE]);
     Ok(())

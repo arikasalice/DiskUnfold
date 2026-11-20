@@ -66,7 +66,7 @@ export function ModelRows({
   /** Opens the section when it first shows; the rows are what a reader came for. */
   expanded?: boolean;
 }) {
-  const rowTitle = title ?? text.message("rowsFromGraph");
+  const rowTitle = title ?? defaultTitle(model, text);
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const { rows } = response;
@@ -192,6 +192,8 @@ export function ModelRows({
           density="compact"
           flat
           rowHeight={ROW_HEIGHT}
+          // The action column holds only buttons; its header would read as a value.
+          hiddenHeaders={[text.message("actions")]}
           columns={columns.map(({ header }) => header)}
           rows={rows}
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
@@ -220,6 +222,15 @@ export function ModelRows({
         )}
       </DetailDisclosure>
     </div>
+  );
+}
+
+/** A histogram lists size ranges, so its table says so (README 43). */
+function defaultTitle(model: VizModel | undefined, text: VizText) {
+  return text.message(
+    model?.representation.format === "histogram"
+      ? "rowsBySizeRange"
+      : "rowsFromGraph",
   );
 }
 

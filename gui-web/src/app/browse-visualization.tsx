@@ -35,6 +35,7 @@ import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
 import { shownHeight } from "./page-scroll";
+import { useHistogramAxis } from "./histogram-axis";
 
 export type BrowseVisualizationSelection = {
   resultVersion: string;
@@ -335,6 +336,12 @@ export function BrowseVisualizationView({
     assembly,
     selection,
   );
+  const axis = useHistogramAxis(
+    formats.format,
+    catalog,
+    assembly?.request,
+    vizText,
+  );
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });
@@ -475,6 +482,7 @@ export function BrowseVisualizationView({
                 ...assembly.request,
                 format: formats.format,
                 depthLimit: formats.depthLimit,
+                measure: axis.measure,
                 viewport: {
                   ...viewport,
                   height: chartHeight(viewport.height, chartParts.offset),
@@ -487,6 +495,7 @@ export function BrowseVisualizationView({
               text={vizText}
               autoLoadRows={assembly.autoLoadRows}
               onAvailableFormats={formats.learn}
+              statusAction={axis.control}
               {...(formats.available
                 ? {
                     formatAction: {

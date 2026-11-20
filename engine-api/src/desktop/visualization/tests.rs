@@ -2,6 +2,7 @@
 mod folders;
 mod groups;
 mod lower_bound;
+mod measure;
 mod remainder;
 mod revisions;
 mod support;
@@ -139,7 +140,10 @@ fn default_registration_serves_the_catalog_and_every_command() -> TestResult {
             ("viz.waterfall", Some(1)),
         ]
     );
-    assert_eq!(catalog["measures"], json!([policy::MEASURE_SIZE]));
+    assert_eq!(
+        catalog["measures"],
+        json!([policy::MEASURE_SIZE, policy::MEASURE_COUNT])
+    );
     assert_eq!(
         catalog["colorCriteria"],
         json!([policy::COLOR_CRITERION_NONE])

@@ -25,6 +25,14 @@
   flex-wrap: wrap;
   align-items: center;
 }
+/* Kept at the right end of the status line, and of the next line when it wraps. */
+.du-review-context__end {
+  margin-inline-start: auto;
+}
+/* The histogram's vertical axis title, at the top left of the chart. */
+.du-chart-axis-title {
+  margin-block-start: 12px;
+}
 .du-review-surface__body,
 .du-review-stack,
 .du-content-state {

@@ -1559,6 +1559,24 @@ function Test-CaptureTreemap {
     "Format $($step[0]): selected as '$($radio.Current.Name)'"
     Save-SmokeCapture $step[1]
   }
+  # F06 README 43: the histogram opens on the item count; its vertical axis switches to size.
+  # "Size" names more than one English text, so the size radio is taken as the group's second.
+  $axisName = Get-UiName 'Vertical axis'
+  $axis = Wait-UI 'Vertical axis' {
+    $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $axisName))
+  }
+  $axisRadios = @($axis.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)))
+  if ($axisRadios.Count -ne 2) { throw "The vertical axis has $($axisRadios.Count) options, not two" }
+  "Histogram axis on entry: $(@($axisRadios | ForEach-Object { $_.Current.Name }) -join ' | ')"
+  $sizeAxis = $axisRadios[1]
+  $pattern = $null
+  $sizeAxis.SetFocus()
+  if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $sizeAxis }
+  Start-Sleep -Milliseconds 2000
+  if (Find-UI 'The chart could not be loaded.' $null) { throw 'The size axis request was refused' }
+  "Histogram axis: '$($sizeAxis.Current.Name)' selected"
+  Save-SmokeCapture '11-histogram-size'
 }
 # README 31 review captures: a progress row is short-lived, so it is captured the moment it shows.
 # $name is an English progress label, or '*' for the first progress bar of any name. Not seeing it in

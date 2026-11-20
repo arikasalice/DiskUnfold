@@ -264,7 +264,8 @@ fn validate_scope(request: &VizRenderRequest, source: &CurrentAnalysis) -> Resul
     }
     du_analysis_index::browse::open(source.version(), Some(&request.aggregate_scope_ref))
         .map_err(|_| EngineError::reason("browse.not_folder"))?;
-    if request.measure != "size" {
+    // An item count is the histogram's other vertical axis; no other format counts items.
+    if request.measure != "size" && !(request.measure == "count" && request.format == "histogram") {
         return Err(EngineError::reason("viz.measure_unknown"));
     }
     if request.denominator_basis != VizDenominatorBasis::Scope {

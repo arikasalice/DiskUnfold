@@ -23,6 +23,7 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
   allocated: "sizeBasisAllocated",
   unique_physical: "sizeBasisUniquePhysical",
   size: "measureSize",
+  count: "measureCount",
   treemap: "treemap",
   bar: "bar",
   trend: "trend",

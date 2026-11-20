@@ -13,8 +13,12 @@ use crate::{
     viz_runtime::{LegendClass, SourcePolicyFacts},
 };
 
-/// The one measure `viz.render` serves.
+/// The size measure, which every format serves.
 pub const MEASURE_SIZE: &str = "size";
+/// The item-count measure: the vertical axis of a histogram counts items (design README 223).
+///
+/// Only the histogram serves it; it reads the interval item counts the histogram already has.
+pub const MEASURE_COUNT: &str = "count";
 /// The one denominator basis `viz.render` serves, spelled as its wire value.
 pub const DENOMINATOR_SCOPE: &str = "scope";
 /// The one color criterion served until the F06 legend rule table (FR6) exists.
@@ -67,7 +71,7 @@ pub const STALENESS_UNWATCHED_REASON: &str = "viz.staleness.unwatched";
 /// The catalog policy the product advertises; it lists only what render serves.
 pub fn catalog_policy() -> viz_catalog::Policy {
     viz_catalog::Policy {
-        measures: vec![MEASURE_SIZE.into()],
+        measures: vec![MEASURE_SIZE.into(), MEASURE_COUNT.into()],
         color_criteria: vec![COLOR_CRITERION_NONE.into()],
         denominator_criteria: vec![DENOMINATOR_SCOPE.into()],
         interpretation_table_revision: INTERPRETATION_TABLE_REVISION,

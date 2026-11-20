@@ -1,10 +1,12 @@
 import { useMemo, useRef } from "react";
+import type { ReactNode } from "react";
 import {
   BarRenderer,
   createChartRenderers,
   HistogramRenderer,
   Notice,
   Progress,
+  Text,
 } from "../../components";
 import type {
   ItemRef,
@@ -70,6 +72,8 @@ type ModelViewProps = {
   ) => void;
   returnTargetRef?: { current: HTMLElement | null } | undefined;
   rowsReturnTargetRef?: { current: HTMLElement | null } | undefined;
+  /** A control at the end of the status line (F06 README 43: the histogram axis). */
+  statusAction?: ReactNode;
   text: VizText;
 };
 
@@ -132,8 +136,24 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       className="du-review-stack"
       aria-label={text.message("storageVisualization")}
     >
-      <div ref={contextRef} className="du-review-context">
-        <ModelStatus frame={frame} text={text} />
+      <div ref={contextRef}>
+        <div className="du-review-context">
+          <ModelStatus frame={frame} text={text} />
+          {props.statusAction && (
+            <div className="du-review-context__end">{props.statusAction}</div>
+          )}
+        </div>
+        {frame.model.representation.format === "histogram" && (
+          <div className="du-chart-axis-title">
+            <Text kind="muted">
+              {text.message(
+                frame.model.representation.measure === "count"
+                  ? "measureCount"
+                  : "axisTitleSize",
+              )}
+            </Text>
+          </div>
+        )}
       </div>
       <div ref={chartBox}>
         <ChartRenderer
