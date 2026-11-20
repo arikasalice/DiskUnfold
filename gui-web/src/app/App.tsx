@@ -13,7 +13,6 @@ import {
   LiveStatus,
   Notice,
   Text,
-  Toast,
   useTitleBarContext,
 } from "../components";
 import { AnalysisPanel } from "../features/analysis/AnalysisPanel";
@@ -31,7 +30,7 @@ import { useGroupsEntry } from "../features/groups/use-groups-entry";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { HistorySizeDisplay } from "../features/history/history-size";
 import { JobCenterEntry } from "../features/jobs/JobCenterEntry";
-import { JobCenterPresenter } from "../features/jobs/JobCenterPresenter";
+import { JobCenter } from "../features/jobs/JobCenter";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -42,8 +41,6 @@ import {
   useScanPriority,
   useScanPriorityContext,
 } from "../state/scan-priority";
-import { useJobCenter } from "../state/job-center";
-import type { JobCenterCard } from "../state/job-center";
 import {
   browseOpener,
   priorityView,
@@ -109,7 +106,7 @@ export function App({
   /** Host connection for the product and support screens when analysis is off. */
   infoClient?: AnalysisClient;
 } = {}) {
-  const client = resolveAnalysisClient(analysis);
+  const client = analysis ?? (hasDesktopAnalysisBridge() ? desktop : undefined);
   const savedPreferences = useDisplayPreferences(client);
   const regional = useRegionalFormat();
   const text = useLocaleText();
@@ -133,39 +130,6 @@ export function App({
   const groups = useGroupsEntry(browseVersion);
   const browseTrigger = useRef<HTMLButtonElement>(null);
   const tasksTrigger = useRef<HTMLButtonElement>(null);
-  const tasksOpenRef = useRef(tasksOpen);
-  tasksOpenRef.current = tasksOpen;
-  const [jobToast, setJobToast] = useState<{
-    message: string;
-    icon: "success" | "error";
-    version: number;
-  }>({ message: "", icon: "success", version: 0 });
-  const [jobAnnouncement, setJobAnnouncement] = useState<{
-    id: number;
-    message: string;
-    target: "panel" | "global";
-  }>();
-  const finishedAnnouncementId = useRef(0);
-  const announceFinishedJob = useCallback(
-    (card: JobCenterCard) => {
-      const notice = finishedJobNotice(card, text);
-      const id = ++finishedAnnouncementId.current;
-      const inPanel = tasksOpenRef.current;
-      setJobAnnouncement({
-        id,
-        message: notice.message,
-        target: inPanel ? "panel" : "global",
-      });
-      if (!inPanel)
-        setJobToast((previous) => ({
-          message: notice.message,
-          icon: notice.icon,
-          version: previous.version + 1,
-        }));
-    },
-    [text],
-  );
-  const jobCenter = useJobCenter(client, announceFinishedJob);
   // Names the screen for the window title bar: operation history, folder browsing or analysis.
   useTitleBarContext(
     screenLabel(text, {
@@ -203,28 +167,17 @@ export function App({
     priorityView(browse.selection, openBrowse),
   );
   const browsePort = useMemo(
-    () => browsePortFor(client, browseVersion),
+    () => (client && browseVersion ? createBrowsePort(client) : undefined),
     [client, browseVersion],
   );
   useEffect(() => () => browsePort?.dispose(), [browsePort]);
   const restoreFocus = useRef(false);
-  const restoreTasksFocus = useRef(false);
-  const closeTasks = useCallback(() => {
-    restoreTasksFocus.current = true;
-    setTasksOpen(false);
-  }, []);
   useEffect(() => {
     if (!history && restoreFocus.current) {
       tasksTrigger.current?.focus();
       restoreFocus.current = false;
     }
   }, [history]);
-  useEffect(() => {
-    if (!tasksOpen && restoreTasksFocus.current) {
-      tasksTrigger.current?.focus();
-      restoreTasksFocus.current = false;
-    }
-  }, [tasksOpen]);
   useEffect(() => {
     if (!browseVersion && restoreBrowseFocus.current) {
       browseTrigger.current?.focus();
@@ -272,11 +225,11 @@ export function App({
           <InfoEntry client={client} fallbackClient={infoClient} />
           <BrowseReturn
             visible={controls.backVisible}
-            autoFocus={browseReturnAutoFocus(
-              browseShown.current,
-              visualizationFocus.restoring(),
-              groups.restoringFocus(),
-            )}
+            autoFocus={
+              browseShown.current &&
+              !visualizationFocus.restoring() &&
+              !groups.restoringFocus()
+            }
             onPress={() => {
               restoreBrowseFocus.current = true;
               visualization.invalidate();
@@ -306,16 +259,34 @@ export function App({
               visible={Boolean(analysisOpen)}
             />
           )}
-          <JobCenterEntry
-            clientAvailable={client !== undefined}
-            historyOpen={history}
-            count={jobCenter.inProgress.length}
-            expanded={tasksOpen}
+          <JobCenter
+            client={client}
+            isOpen={tasksOpen}
             trigger={tasksTrigger}
-            onPress={() => {
-              restoreTasksFocus.current = false;
-              setJobAnnouncement(undefined);
-              setTasksOpen((open) => !open);
+            renderEntry={(count, onPress) => (
+              <JobCenterEntry
+                clientAvailable={client !== undefined}
+                historyOpen={history}
+                count={count}
+                expanded={tasksOpen}
+                trigger={tasksTrigger}
+                onPress={onPress}
+              />
+            )}
+            onOpenChange={setTasksOpen}
+            onOpenHistory={() => setHistory(true)}
+            onOpenJob={(card) => {
+              if (card.row.kind === "scan.metadata") {
+                if (sampleOpen)
+                  void flow.endSample().then((ended) => {
+                    if (ended) flow.startRealAnalysis();
+                  });
+                browse.set(undefined);
+                setVisualizationOpen(false);
+                setHistory(false);
+              } else {
+                setHistory(true);
+              }
             }}
           />
         </div>
@@ -400,46 +371,6 @@ export function App({
         entry={groups}
         display={browseDisplay}
       />
-      {client && (
-        <JobCenterPresenter
-          isOpen={tasksOpen}
-          trigger={tasksTrigger}
-          snapshot={jobCenter}
-          onClose={closeTasks}
-          onOpenHistory={() => {
-            restoreTasksFocus.current = false;
-            setJobAnnouncement(undefined);
-            setTasksOpen(false);
-            setHistory(true);
-          }}
-          onOpenJob={(card) => {
-            restoreTasksFocus.current = false;
-            setJobAnnouncement(undefined);
-            setTasksOpen(false);
-            if (card.row.kind === "scan.metadata") {
-              if (sampleOpen)
-                void flow.endSample().then((ended) => {
-                  if (ended) flow.startRealAnalysis();
-                });
-              browse.set(undefined);
-              setVisualizationOpen(false);
-              setHistory(false);
-            } else {
-              setHistory(true);
-            }
-          }}
-          onRetry={jobCenter.retry}
-          onControl={jobCenter.control}
-          {...(jobAnnouncement?.target === "panel"
-            ? {
-                announcement: {
-                  id: jobAnnouncement.id,
-                  message: jobAnnouncement.message,
-                },
-              }
-            : {})}
-        />
-      )}
       {client && history && (
         <HistorySizeDisplay.Provider value={browseDisplay}>
           <HistoryPanel
@@ -451,72 +382,8 @@ export function App({
           />
         </HistorySizeDisplay.Provider>
       )}
-      {jobAnnouncement?.target === "global" && (
-        <div className="du-announcer">
-          <LiveStatus key={jobAnnouncement.id}>
-            {jobAnnouncement.message}
-          </LiveStatus>
-        </div>
-      )}
-      <Toast
-        message={jobToast.message}
-        icon={jobToast.icon}
-        version={jobToast.version}
-      />
     </main>
   );
-}
-
-function jobKindLabel(kind: string, text: LocaleText) {
-  if (kind === "scan.metadata")
-    return text("ui.history.kind_disk_analysis", "Disk analysis");
-  if (kind === "duplicate.check")
-    return text("ui.history.kind_duplicate_check", "Duplicate check");
-  return text("ui.history.kind_unavailable", "Operation type unavailable");
-}
-
-function resolveAnalysisClient(analysis: AnalysisClient | undefined) {
-  return analysis ?? (hasDesktopAnalysisBridge() ? desktop : undefined);
-}
-
-function browsePortFor(
-  client: AnalysisClient | undefined,
-  resultVersion: string | undefined,
-) {
-  return client && resultVersion ? createBrowsePort(client) : undefined;
-}
-
-function browseReturnAutoFocus(
-  wasBrowsing: boolean,
-  restoringVisualization: boolean,
-  restoringGroups: boolean,
-) {
-  return wasBrowsing && !restoringVisualization && !restoringGroups;
-}
-
-function finishedJobNotice(card: JobCenterCard, text: LocaleText) {
-  const name = jobKindLabel(card.row.kind, text);
-  switch (card.terminal?.state) {
-    case "failed":
-      return {
-        message: text("ui.job_center.toast_failed", "{name} failed", { name }),
-        icon: "error" as const,
-      };
-    case "cancelled":
-      return {
-        message: text("ui.job_center.toast_cancelled", "{name} was canceled", {
-          name,
-        }),
-        icon: "success" as const,
-      };
-    default:
-      return {
-        message: text("ui.job_center.toast_finished", "{name} finished", {
-          name,
-        }),
-        icon: "success" as const,
-      };
-  }
 }
 
 function shouldShowConnectionUnavailable(
