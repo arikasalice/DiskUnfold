@@ -39,6 +39,7 @@ use du_core_contracts::visualization::cancel::{
 };
 use du_core_contracts::visualization::catalog::{VizCatalog, VizCatalogRequest};
 use du_core_contracts::visualization::geometry::{Geometry, Point};
+use du_core_contracts::visualization::item_kind::VizItemKind;
 use du_core_contracts::visualization::locate::{VizLocate, VizLocateRequest};
 use du_core_contracts::visualization::model::{
     ShapeMeta, VizLegendEntry, VizMatchKey, VizModel, VizRelationship, VizRepresentation, VizShape,
@@ -212,6 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizTotals::decl(&config),
         VizTableRevisions::decl(&config),
         VizMatchKey::decl(&config),
+        VizItemKind::decl(&config),
         VizShape::decl(&config),
         VizLegendEntry::decl(&config),
         VizSummary::decl(&config),

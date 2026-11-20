@@ -23,6 +23,7 @@ export const visualizationMessages = {
     focusMovedTitle:
       "The focused item is no longer in the result, so focus moved to the chart title.",
     folderExpandUnavailable: "Expanding folders is not available yet.",
+    fileDetailUnavailable: "File details are not available here yet.",
     itemOpenUnavailable: "This item can't be opened or expanded here yet.",
     noGraphTargets: "There are no selectable items in the chart.",
     previousName: "Previous item:",
@@ -237,6 +238,7 @@ export const visualizationMessages = {
     focusMovedTitle:
       "초점을 둔 항목이 새 결과에 없어 그래프 제목으로 옮겼습니다",
     folderExpandUnavailable: "폴더 펼치기는 아직 사용할 수 없습니다",
+    fileDetailUnavailable: "파일 상세는 아직 이 화면에서 열 수 없습니다",
     itemOpenUnavailable: "이 항목은 아직 이 화면에서 열거나 펼칠 수 없습니다",
     noGraphTargets: "그래프에서 선택할 수 있는 항목이 없습니다.",
     previousName: "이전 항목:",

@@ -2,6 +2,7 @@
 
 use super::{
     geometry::Geometry,
+    item_kind::{VizItemKind, optional_known},
     optional_present,
     quantity::VizQuantity,
     render::{VizColorMode, VizLabelMode},
@@ -266,6 +267,15 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub member_count: Option<VizQuantity>,
+    /// Kind of the referenced item, on item shapes only; omitted when unknown. See
+    /// [`VizItemKind`].
+    #[serde(
+        default,
+        deserialize_with = "optional_known",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub item_kind: Option<VizItemKind>,
 }
 
 /// A legend class with its original item and quantity evidence.
@@ -421,6 +431,12 @@ impl VizModel {
             let mut child = shape;
             while let Some(key) = child.parent_shape_ref.as_ref().and_then(Option::as_deref) {
                 let parent = *refs.get(key).ok_or("unknown parent shape")?;
+                if parent
+                    .item_kind
+                    .is_some_and(|kind| kind != VizItemKind::Folder)
+                {
+                    return Err("parent shape is not a folder");
+                }
                 if matches!((child.visible_depth, parent.visible_depth), (Some(c), Some(p)) if p >= c)
                 {
                     return Err("parent shape must be shallower than its child");
@@ -439,51 +455,7 @@ impl VizModel {
     }
 }
 
-impl VizShape {
-    fn validate(&self, revision: &Id, treemap: bool) -> Result<(), &'static str> {
-        let items = self
-            .item_ref
-            .iter()
-            .chain(self.root_branch_ref.iter().flatten());
-        if self.item_ref.is_some() == self.group_ref.is_some()
-            || items
-                .into_iter()
-                .any(|item| item.result_version != *revision)
-            || self.group_ref.as_ref().is_some_and(String::is_empty)
-            || self.legend_class_key.is_empty()
-            || matches!(&self.match_key, VizMatchKey::Unknown { reason_key } if reason_key.is_empty())
-            || (self.group_ref.is_some()
-                && !matches!(self.match_key, VizMatchKey::NotApplicable {}))
-        {
-            return Err("invalid shape reference or evidence");
-        }
-        let mut flags = HashSet::new();
-        if self
-            .display_flags
-            .iter()
-            .any(|flag| flag.is_empty() || !flags.insert(flag))
-        {
-            return Err("invalid shape flags");
-        }
-        if self
-            .member_count
-            .as_ref()
-            .is_some_and(|count| self.group_ref.is_none() || count.unit() != "items")
-        {
-            return Err("member count on an item shape or not in items");
-        }
-        if treemap
-            && (self.shape_ref.is_none()
-                || self.parent_shape_ref.is_none()
-                || self.visible_depth.is_none()
-                || self.root_branch_ref.is_none())
-        {
-            return Err("missing treemap hierarchy");
-        }
-        Ok(())
-    }
-}
-
+mod shape;
 #[cfg(test)]
 mod tests;
 mod totals;

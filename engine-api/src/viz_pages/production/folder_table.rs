@@ -49,7 +49,7 @@ pub(crate) fn rows(
             .ok_or(Error::MissingClassification)?;
         table.push(make_row(
             version,
-            &item.name,
+            item,
             &shape.size,
             RowPresentation {
                 item: presentation.item.clone(),

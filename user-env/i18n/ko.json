@@ -807,6 +807,7 @@
     ["ui.visualization.evidenceFreshness","최신성",[]],
     ["ui.visualization.evidenceOrigin","출처",[]],
     ["ui.visualization.evidenceStatus","결과 상태",[]],
+    ["ui.visualization.fileDetailUnavailable","파일 상세는 아직 이 화면에서 열 수 없습니다",[]],
     ["ui.visualization.filteredOutTotal","필터링 제외 합계",[]],
     ["ui.visualization.flagLowerBound","최소값",[]],
     ["ui.visualization.flagOtherGroup","묶음",[]],

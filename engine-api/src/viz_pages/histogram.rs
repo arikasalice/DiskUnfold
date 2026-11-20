@@ -23,6 +23,7 @@ use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::ResultVersionRead,
     visualization::{
+        item_kind::VizItemKind,
         quantity::VizQuantity,
         rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow},
     },
@@ -177,6 +178,7 @@ fn assemble(
                 display_flags: p.display_flags,
                 label_key: None,
                 member_count: None,
+                item_kind: VizItemKind::from_result(item.kind),
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -228,6 +230,7 @@ fn assemble(
             display_flags: p.display_flags,
             label_key: None,
             member_count: Some(member_count),
+            item_kind: None,
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;

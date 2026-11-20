@@ -46,6 +46,7 @@ fn row(value: SizeValue) -> Result<VizRow, String> {
         display_flags: vec![],
         label_key: None,
         member_count: None,
+        item_kind: None,
     })
 }
 

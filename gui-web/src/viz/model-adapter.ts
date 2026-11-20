@@ -94,6 +94,8 @@ export function adaptVizModel(
     [...folderRows, ...rows].map((row) => [targetKey(row), row]),
   );
   const targetsByShape = new Map<string, VizSelection>();
+  // The item kind the engine supplied; absent when unknown (#183).
+  const kindsByShape = new Map<string, NonNullable<VizShape["itemKind"]>>();
   let validTargets = true;
   const childCount = new Map<string, number>();
   const byRef = new Map<string, VizShape>();
@@ -136,6 +138,7 @@ export function adaptVizModel(
           resultRevision: frame.resultRevision,
         };
         if (shape.itemRef) {
+          if (shape.itemKind) kindsByShape.set(shapeRef, shape.itemKind);
           targetsByShape.set(shapeRef, {
             ...base,
             kind: "item",
@@ -171,7 +174,15 @@ export function adaptVizModel(
         ? {}
         : { geometry: relation.geometry }),
     }));
-  return { shapes, relations, targetsByShape, rows, rowsMatch, validTargets };
+  return {
+    shapes,
+    relations,
+    targetsByShape,
+    kindsByShape,
+    rows,
+    rowsMatch,
+    validTargets,
+  };
 }
 
 /** Indexes of `shapes` with each folder followed by the shapes it holds. */

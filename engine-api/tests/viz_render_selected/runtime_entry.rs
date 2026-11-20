@@ -473,6 +473,7 @@ mod fallback_location;
 mod folder_rows_tests;
 mod hierarchy_tests;
 mod histogram_runtime;
+mod item_kind_tests;
 mod nested_group_tests;
 mod replacement;
 mod source_selection;

@@ -262,3 +262,58 @@ fn a_member_count_is_refused_on_an_item_shape_and_outside_items()
     assert!(serde_json::from_value::<VizModel>(null).is_err());
     Ok(())
 }
+
+#[test]
+fn an_item_kind_round_trips_on_an_item_shape_and_is_refused_on_a_group_shape()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let mut value = fixture();
+    value["shapes"][0]["itemKind"] = json!("file");
+    let model: VizModel = serde_json::from_value(value.clone())?;
+    assert_eq!(model.shapes[0].item_kind, Some(VizItemKind::File));
+    assert_eq!(model.validate_revision(&id), Ok(()));
+    assert_eq!(serde_json::to_value(&model)?, value);
+
+    value["shapes"][0]["itemKind"] = json!("future_kind");
+    let model: VizModel = serde_json::from_value(value.clone())?;
+    assert_eq!(model.shapes[0].item_kind, None);
+    value["shapes"][0]["itemKind"] = Value::Null;
+    assert!(serde_json::from_value::<VizModel>(value).is_err());
+
+    let mut group = fixture();
+    let mut shape = group_shape(json!({"unit":"items","state":"exact","value":"2"}));
+    shape["itemKind"] = json!("folder");
+    group["shapes"] = json!([shape]);
+    let model: VizModel = serde_json::from_value(group)?;
+    assert!(model.validate_revision(&id).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_shape_with_children_must_not_be_a_file_or_other() -> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let mut child = fixture()["shapes"][0].clone();
+    child["itemRef"]["itemNo"] = json!(1);
+    child["shapeRef"] = json!("b");
+    child["parentShapeRef"] = json!("a");
+    child["visibleDepth"] = json!(1);
+    child["itemKind"] = json!("file");
+    for (parent, valid) in [
+        (Some("folder"), true),
+        (None, true),
+        (Some("file"), false),
+        (Some("other"), false),
+    ] {
+        let mut value = fixture();
+        if let Some(kind) = parent {
+            value["shapes"][0]["itemKind"] = json!(kind);
+        }
+        value["shapes"]
+            .as_array_mut()
+            .ok_or("not array")?
+            .push(child.clone());
+        let model: VizModel = serde_json::from_value(value)?;
+        assert_eq!(model.validate_revision(&id).is_ok(), valid, "{parent:?}");
+    }
+    Ok(())
+}

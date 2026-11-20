@@ -174,6 +174,40 @@ test("F06 README 22, 34: Enter on an item does nothing else and says why; Esc un
   expect(controller.getSnapshot().selection).toBeNull();
 });
 
+test.each([
+  ["file", "fileDetailUnavailable"],
+  ["folder", "folderExpandUnavailable"],
+] as const)(
+  "F06 README 34, #183: Enter on a known %s says the %s text",
+  async (kind, key) => {
+    const result = frame(1);
+    const parents = new Set(
+      result.model.shapes.flatMap((shape) => shape.parentShapeRef ?? []),
+    );
+    for (const shape of result.model.shapes)
+      if (shape.itemRef && !(shape.shapeRef && parents.has(shape.shapeRef)))
+        shape.itemKind = kind;
+    const controller = new VisualizationController({
+      render: vi.fn().mockResolvedValue(result),
+      rows: vi.fn(),
+      cancel: vi.fn(),
+      canDisplay: () => true,
+    });
+    render(
+      <ControlledVisualization controller={controller} text={fixtureText} />,
+    );
+    await act(async () => controller.render(request(1)));
+    const shape = within(
+      screen.getByRole("listbox", { name: "Space distribution" }),
+    ).getAllByRole("option")[0]!;
+    shape.focus();
+    fireEvent.keyDown(shape, { key: "Enter", code: "Enter" });
+    expect(
+      screen.getByText(fixtureText.message(key), { selector: "p" }),
+    ).toBeTruthy();
+  },
+);
+
 test("selection while an unrelated control has focus does not become a shape origin", async () => {
   const result = frame(1);
   const shape = result.model.shapes[0]!;
