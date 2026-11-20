@@ -188,6 +188,15 @@ pub struct VizTableRevisions {
     pub legend: u32,
     pub view_policy: u32,
     pub size_rule: QueryStrategy,
+    /// Revision of the type classification table, present when the model's
+    /// legend classes come from it (color criterion "type").
+    #[serde(
+        default,
+        deserialize_with = "super::optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub file_type: Option<u32>,
 }
 
 /// Source-proven identity correspondence, including explicit unavailable states.

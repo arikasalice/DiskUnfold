@@ -21,6 +21,7 @@ pub mod sankey;
 pub mod squarify;
 pub mod treemap;
 pub mod trend;
+pub mod type_legend;
 pub mod typed_layout;
 pub mod unit_bins;
 pub mod waterfall;

@@ -42,6 +42,7 @@ fn a_publication_in_another_lineage_does_not_disturb_a_named_request() -> TestRe
         scope: 5,
         revision: 6,
         files: &[(b'x', Some(1))],
+        named: &[],
     })?;
     let view = harness.open_view()?;
     let named = harness.ok("viz.render", render_body(&view, 1, "treemap", 3))?;

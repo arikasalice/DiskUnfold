@@ -7,6 +7,7 @@ mod remainder;
 mod revisions;
 mod support;
 mod totals;
+mod type_legend;
 
 use std::sync::{Arc, atomic::Ordering};
 
@@ -38,6 +39,7 @@ fn two_files(revision: u8) -> Publication<'static> {
         scope: revision - 1,
         revision,
         files: &[(b'a', Some(25)), (b'b', Some(75))],
+        named: &[],
     }
 }
 
@@ -146,7 +148,7 @@ fn default_registration_serves_the_catalog_and_every_command() -> TestResult {
     );
     assert_eq!(
         catalog["colorCriteria"],
-        json!([policy::COLOR_CRITERION_NONE])
+        json!([policy::COLOR_CRITERION_NONE, policy::COLOR_CRITERION_TYPE])
     );
     assert_eq!(
         catalog["denominatorCriteria"],

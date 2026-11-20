@@ -236,8 +236,10 @@ fn owner_bound_facts(source: &CurrentAnalysis, policy: SourcePolicyFacts) -> Sou
                 id: rule.id.into(),
                 revision: rule.revision,
             },
+            file_type: policy.file_type_revision,
         },
         classes: policy.classes,
+        legend_order: policy.legend_order,
         available_formats: policy.available_formats,
     }
 }

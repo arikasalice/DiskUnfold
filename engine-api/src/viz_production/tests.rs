@@ -220,7 +220,7 @@ fn availability_and_render_agree_on_the_base_scope_facts() -> TestResult {
 fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
     let source = publish(&[(b'a', Some(10))])?;
     let producer = producer(&SI_UNITS);
-    let rejected = producer.source_policy_facts(&source, &request("type", "treemap")?);
+    let rejected = producer.source_policy_facts(&source, &request("size", "treemap")?);
     assert_eq!(
         rejected.err(),
         Some(crate::error::EngineError::new(
@@ -238,6 +238,34 @@ fn an_unlisted_color_criterion_is_rejected_as_measure_unknown() -> TestResult {
         accepted
             .classes
             .contains_key(policy::LEGEND_CLASS_UNCLASSIFIED)
+    );
+    assert!(accepted.legend_order.is_empty());
+    assert_eq!(accepted.file_type_revision, None);
+    Ok(())
+}
+
+#[test]
+fn the_type_criterion_brings_the_type_classes_and_their_table_revision() -> TestResult {
+    use du_analysis_index::visualization::type_legend;
+    let source = publish(&[(b'a', Some(10))])?;
+    let facts = producer(&SI_UNITS)
+        .source_policy_facts(&source, &request(policy::COLOR_CRITERION_TYPE, "treemap")?)
+        .map_err(|error| format!("{error:?}"))?
+        .ok_or("missing policy facts")?;
+    let listed: Vec<_> = type_legend::LISTED.iter().map(|c| c.key).collect();
+    assert_eq!(facts.legend_order, listed);
+    // The folder is a known class that the legend never lists.
+    assert!(facts.classes.contains_key(type_legend::FOLDER));
+    assert!(
+        !facts
+            .legend_order
+            .iter()
+            .any(|key| key == type_legend::FOLDER)
+    );
+    assert!(listed.iter().all(|key| facts.classes.contains_key(*key)));
+    assert_eq!(
+        facts.file_type_revision,
+        Some(type_legend::FILE_TYPE_TABLE_REVISION)
     );
     Ok(())
 }
@@ -402,7 +430,11 @@ fn the_advertised_catalog_matches_what_render_accepts() -> TestResult {
         catalog.measures,
         [policy::MEASURE_SIZE, policy::MEASURE_COUNT]
     );
-    assert_eq!(catalog.color_criteria, [policy::COLOR_CRITERION_NONE]);
+    assert_eq!(
+        catalog.color_criteria,
+        [policy::COLOR_CRITERION_NONE, policy::COLOR_CRITERION_TYPE]
+    );
+    assert_eq!(catalog.file_type_table_revision, Some(1));
     assert_eq!(catalog.denominator_criteria, [policy::DENOMINATOR_SCOPE]);
     Ok(())
 }

@@ -3,6 +3,8 @@
 use crate::browse_page_ipc::QueryStrategy;
 use serde::{Deserialize, Serialize};
 
+use super::optional_present;
+
 /// Reads the catalog for the calling desktop session without selecting a result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -23,6 +25,15 @@ pub struct VizCatalog {
     pub interpretation_table_revision: u32,
     pub required_data_table_revision: u32,
     pub legend_rule_revision: u32,
+    /// Revision of the type classification table behind the "type" color
+    /// criterion; absent when the catalog offers no type criterion.
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub file_type_table_revision: Option<u32>,
 }
 
 #[cfg(test)]

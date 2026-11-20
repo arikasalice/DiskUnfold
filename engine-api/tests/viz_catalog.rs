@@ -45,6 +45,7 @@ fn policy() -> Policy {
         interpretation_table_revision: 1,
         required_data_table_revision: 2,
         legend_rule_revision: 3,
+        file_type_table_revision: None,
     }
 }
 

@@ -131,7 +131,7 @@ pub(super) fn build(
         &policy.unknown_reason,
     )?;
     let mut legend = Vec::new();
-    for (key, members) in classes {
+    for (key, members) in super::legend_order::listed(classes, &admitted.facts.legend_order) {
         let class = admitted.facts.classes.get(&key).ok_or_else(internal)?;
         legend.push(VizLegendEntry {
             key,

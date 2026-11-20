@@ -196,6 +196,7 @@ fn composed_engine() -> Result<Engine, Box<dyn Error>> {
                 interpretation_table_revision: 1,
                 required_data_table_revision: 1,
                 legend_rule_revision: 1,
+                file_type_table_revision: Some(1),
             },
         )?;
     history::detail::register(&mut builder, Unavailable);

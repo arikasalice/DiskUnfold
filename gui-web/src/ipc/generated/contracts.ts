@@ -843,7 +843,12 @@ export type VizFormatAvailability = { format: string, available: boolean,
 reasonKey: string | null, };
 export type VizAvailabilityResponse = { formats: Array<VizFormatAvailability>, requiredDataTableRevision: number, };
 export type VizCatalogRequest = Record<string, never>;
-export type VizCatalog = { formats: Array<string>, strategies: Array<QueryStrategy>, measures: Array<string>, colorCriteria: Array<string>, denominatorCriteria: Array<string>, interpretationTableRevision: number, requiredDataTableRevision: number, legendRuleRevision: number, };
+export type VizCatalog = { formats: Array<string>, strategies: Array<QueryStrategy>, measures: Array<string>, colorCriteria: Array<string>, denominatorCriteria: Array<string>, interpretationTableRevision: number, requiredDataTableRevision: number, legendRuleRevision: number,
+/**
+ * Revision of the type classification table behind the "type" color
+ * criterion; absent when the catalog offers no type criterion.
+ */
+fileTypeTableRevision?: number, };
 export type VizViewOpenRequest = Record<string, never>;
 export type VizViewChannel = { viewChannel: Id, };
 export type VizSourceRef = { kind: string, ref: Id, };
@@ -876,7 +881,12 @@ remainder?: VizTotal,
  * duplicates, and an unregistered key is preserved. Omitted rather than null.
  */
 remainderReasonKeys?: Array<string>, };
-export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy, };
+export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy,
+/**
+ * Revision of the type classification table, present when the model's
+ * legend classes come from it (color criterion "type").
+ */
+fileType?: number, };
 export type VizMatchKey = { "state": "present", value: CorrespondenceKey, } | { "state": "unknown", reasonKey: string, } | { "state": "not_applicable", };
 export type VizItemKind = "file" | "folder" | "other";
 export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null,

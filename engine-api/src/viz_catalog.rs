@@ -42,6 +42,8 @@ pub struct Policy {
     pub interpretation_table_revision: u32,
     pub required_data_table_revision: u32,
     pub legend_rule_revision: u32,
+    /// Present when the color criteria include "type".
+    pub file_type_table_revision: Option<u32>,
 }
 
 /// Registers the GUI-only catalog from one validated registry and policy snapshot.
@@ -88,6 +90,7 @@ pub(crate) fn prepare(dispatcher: &Dispatcher, policy: Policy) -> Result<ReadCat
         interpretation_table_revision: policy.interpretation_table_revision,
         required_data_table_revision: policy.required_data_table_revision,
         legend_rule_revision: policy.legend_rule_revision,
+        file_type_table_revision: policy.file_type_table_revision,
     }))
 }
 

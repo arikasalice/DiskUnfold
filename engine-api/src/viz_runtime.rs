@@ -38,6 +38,7 @@ mod control;
 mod envelope;
 mod histogram;
 mod histogram_model;
+mod legend_order;
 mod lifecycle;
 mod ranked_bar;
 mod ranked_group_model;
@@ -80,6 +81,10 @@ pub struct SourceFacts {
     pub staleness: VizStaleness,
     pub tables: VizTableRevisions,
     pub classes: HashMap<String, LegendClass>,
+    /// The listed legend classes in the owner's order. A class absent from it
+    /// (such as a folder) is drawn but never listed. Empty: every class is
+    /// listed, ordered by key.
+    pub legend_order: Vec<String>,
     /// Formats the required-data owner evaluated for this same pinned source.
     pub available_formats: Vec<String>,
 }
@@ -91,7 +96,10 @@ pub struct SourcePolicyFacts {
     pub required_data_revision: u32,
     pub legend_revision: u32,
     pub view_policy_revision: u32,
+    /// Revision of the type classification table, for the "type" color criterion.
+    pub file_type_revision: Option<u32>,
     pub classes: HashMap<String, LegendClass>,
+    pub legend_order: Vec<String>,
     pub available_formats: Vec<String>,
 }
 /// Item evidence supplied by the pinned path and presentation owners.

@@ -255,6 +255,9 @@ pub(super) struct Publication<'a> {
     pub(super) scope: u8,
     pub(super) revision: u8,
     pub(super) files: &'a [(u8, Option<u64>)],
+    /// Files by full name below the root, for tests that need real names; a path
+    /// of more than one part creates its folders.
+    pub(super) named: &'a [(&'a [&'a [u8]], Option<u64>)],
 }
 
 impl Publication<'_> {
@@ -275,9 +278,26 @@ impl Publication<'_> {
             .open_forest_in_lineage(id(self.scope), vec![root], lineage.clone())
             .map_err(|error| debug(&error))?;
         scan.add_directory(vec![]).map_err(|error| debug(&error))?;
-        for (name, bytes) in self.files {
+        let mut folders = std::collections::BTreeSet::new();
+        let files = self
+            .files
+            .iter()
+            .map(|(name, bytes)| (vec![vec![*name]], *bytes));
+        let named = self.named.iter().map(|(path, bytes)| {
+            (
+                path.iter().map(|part| part.to_vec()).collect::<Vec<_>>(),
+                *bytes,
+            )
+        });
+        for (path, bytes) in files.chain(named) {
+            for depth in 1..path.len() {
+                let folder = path[..depth].to_vec();
+                if folders.insert(folder.clone()) {
+                    scan.add_directory(folder).map_err(|error| debug(&error))?;
+                }
+            }
             scan.add_file(Observation {
-                path: vec![vec![*name]],
+                path,
                 size: bytes.map(|bytes| SizeValue {
                     basis: SizeBasis::Logical,
                     evidence: SizeEvidence::Measured,
