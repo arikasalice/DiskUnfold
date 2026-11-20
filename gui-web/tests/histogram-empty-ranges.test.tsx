@@ -1,10 +1,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { modelFixture } from "../preview/model-fixture";
 import { HistogramRenderer } from "../src/components/charts/ranked-renderers";
 import type {
   GeometryRendererProps,
   HistogramRange,
 } from "../src/components/charts/geometry-renderer";
+import { ModelRows } from "../src/features/visualization/ModelRows";
+import type { VizRow } from "../src/ipc";
+import { createProductionVizText, visualizationMessage } from "../src/viz";
 
 afterEach(cleanup);
 
@@ -105,4 +109,53 @@ test("F06 README 43: without the table's intervals the drawn columns stand side 
       .getAllByRole("option")
       .every((option) => option.getAttribute("aria-disabled") === null),
   ).toBe(true);
+});
+
+test("F06 README 43: an interval with items opens them as a range, an empty one has nothing to open", () => {
+  const text = createProductionVizText(
+    (key, values) =>
+      Object.entries(values ?? {}).reduce(
+        (message, [name, value]) => message.replace(`{${name}}`, String(value)),
+        visualizationMessage("ko", key),
+      ),
+    { system: "iec", unit: "auto" },
+  );
+  const { frame, page } = modelFixture();
+  frame.model.representation = {
+    ...frame.model.representation,
+    format: "histogram",
+  };
+  const base = page.response.rows[0]!;
+  const interval = (name: string, count: string): VizRow => ({
+    ...base,
+    itemRef: null,
+    groupRef: `viz.group.bin.${name}`,
+    displayName: name,
+    memberCount: { unit: "items", state: "exact", value: count },
+  });
+  const rows = [interval("0 B–1 KiB", "0"), interval("1 KiB–1 MiB", "4")];
+  render(
+    <ModelRows
+      page={{
+        request: page.request,
+        response: { ...page.response, rows, totalCount: rows.length },
+      }}
+      model={frame.model}
+      text={text}
+      onOpenGroup={() => undefined}
+    />,
+  );
+  const buttons = screen.getAllByRole("button", {
+    name: /의 항목 보기$/,
+  });
+  expect(buttons).toHaveLength(1);
+  expect(buttons[0]!.getAttribute("aria-label")).toBe(
+    "1 KiB–1 MiB의 항목 보기",
+  );
+  expect(buttons[0]!.textContent).toBe(
+    visualizationMessage("ko", "viewRangeItems"),
+  );
+  expect(document.body.textContent).not.toContain(
+    visualizationMessage("ko", "viewMembers"),
+  );
 });

@@ -1034,6 +1034,7 @@
     ["ui.visualization.viewGroupMembers","View combined items",[]],
     ["ui.visualization.viewMembers","View combined items",[]],
     ["ui.visualization.viewMembersOf","View items in {name}",[["name","name"]]],
+    ["ui.visualization.viewRangeItems","View items in this range",[]],
     ["ui.visualization.waterfall","Waterfall",[]],
     ["ui.visualization.working","Calculating the chart.",[]],
     ["ui.analysis.target_or_result_changed","The target or result changed. Review the scope again.",[]],

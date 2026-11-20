@@ -1858,12 +1858,22 @@ function Test-CaptureHistogramGaps {
   $empty = Wait-UI 'the empty 1 MiB–1 GiB interval' $emptyName 60
   "Empty interval on the item count axis: '$($empty.Current.Name)' enabled=$($empty.Current.IsEnabled)"
   Save-SmokeCapture '01-histogram-gaps-count'
+  # The table below the chart: an empty interval has no open button, one with items opens them
+  # as a range. The last interval's button brings the rows into the window.
+  $buttonType = [Windows.Automation.ControlType]::Button
+  $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)
+  $openButton = { param($range) @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -like "*$range*" }) | Select-Object -First 1 }
+  $openLast = Wait-UI 'the open button of the 1 GiB interval' { & $openButton '1 GiB*1 TiB' }
+  $openEmpty = & $openButton '1 MiB*1 GiB'
+  "Open buttons: 1 GiB–1 TiB shows '$($openLast.Current.Name)'; empty 1 MiB–1 GiB has one: $($null -ne $openEmpty)"
+  Save-SmokeCapture '03-histogram-gaps-count-table' -Prepare { $null = Show-InWindow $openLast }
   $axisName = Get-UiName 'Vertical axis'
   $axis = Wait-UI 'Vertical axis' {
     $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $axisName))
   }
   # "Size" names more than one English text, so the size radio is taken as the group's second.
   $sizeAxis = @($axis.FindAll($scopeTree, $radioCondition))[1]
+  $null = Show-InWindow $sizeAxis
   $sizeAxis.SetFocus()
   if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
   else { Invoke-UI $sizeAxis }
@@ -1872,6 +1882,8 @@ function Test-CaptureHistogramGaps {
   $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
   "Empty interval on the size axis: '$($empty.Current.Name)'"
   Save-SmokeCapture '02-histogram-gaps-size'
+  $openLast = Wait-UI 'the open button on the size axis' { & $openButton '1 GiB*1 TiB' }
+  Save-SmokeCapture '04-histogram-gaps-size-table' -Prepare { $null = Show-InWindow $openLast }
   "Histogram gaps capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # F05 #133: the "Scan status" column of the browse table. A child folder the scan may not list reads

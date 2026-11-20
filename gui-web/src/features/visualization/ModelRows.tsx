@@ -72,9 +72,7 @@ export function ModelRows({
   const { rows } = response;
   const next = request.start + rows.length;
   const paged = request.start > 0 || next < response.totalCount;
-  const hasOpenableGroups =
-    onOpenGroup !== undefined &&
-    rows.some((row) => row.groupRef !== null && row.itemRef === null);
+  const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
   const showClassification = rows.some(
     (row) => !UNCLASSIFIED.has(row.legendClassKey),
   );
@@ -113,10 +111,11 @@ export function ModelRows({
           {
             header: text.message("actions"),
             cell: (row: VizRow) =>
-              row.groupRef !== null && row.itemRef === null && onOpenGroup ? (
+              openable(row) && onOpenGroup ? (
                 <OpenGroup
                   row={row}
                   name={nameOf(row)}
+                  label={openLabel(model, text)}
                   text={text}
                   onOpenGroup={onOpenGroup}
                   returnTarget={() =>
@@ -225,6 +224,27 @@ export function ModelRows({
   );
 }
 
+/**
+ * A group row whose items can be opened. An empty histogram interval has
+ * nothing to open, so it gets no button (README 43).
+ */
+function openable(row: VizRow) {
+  return (
+    row.groupRef !== null &&
+    row.itemRef === null &&
+    !(row.memberCount?.state === "exact" && row.memberCount.value === "0")
+  );
+}
+
+/** A histogram interval is a size range, not a combined group (README 43). */
+function openLabel(model: VizModel | undefined, text: VizText) {
+  return text.message(
+    model?.representation.format === "histogram"
+      ? "viewRangeItems"
+      : "viewMembers",
+  );
+}
+
 /** A histogram lists size ranges, so its table says so (README 43). */
 function defaultTitle(model: VizModel | undefined, text: VizText) {
   return text.message(
@@ -263,12 +283,14 @@ function pageWords(
 function OpenGroup({
   row,
   name,
+  label,
   text,
   onOpenGroup,
   returnTarget,
 }: {
   row: VizRow;
   name: string;
+  label: string;
   text: VizText;
   onOpenGroup: NonNullable<Parameters<typeof ModelRows>[0]["onOpenGroup"]>;
   returnTarget: () => HTMLElement | null;
@@ -289,7 +311,7 @@ function OpenGroup({
       }}
       aria-label={vizMessage(text, "viewMembersOf", { name })}
     >
-      {text.message("viewMembers")}
+      {label}
     </Action>
   );
 }

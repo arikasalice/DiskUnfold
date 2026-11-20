@@ -1017,6 +1017,7 @@ ui.visualization.value
 ui.visualization.viewGroupMembers
 ui.visualization.viewMembers
 ui.visualization.viewMembersOf name:name
+ui.visualization.viewRangeItems
 ui.visualization.waterfall
 ui.visualization.working
 ui.analysis.target_or_result_changed
