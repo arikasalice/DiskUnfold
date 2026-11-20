@@ -7,7 +7,12 @@ import { useJobCenter } from "../../state/job-center";
 import type { JobCenterCard } from "../../state/job-center";
 import { JobCenterPresenter } from "./JobCenterPresenter";
 
-export function JobCenter({
+/**
+ * Owns the Job Center state and returns its two parts: the header entry and the
+ * overlay (panel, announcer and toast). The app shell places the overlay after
+ * the screen content so the closed panel never precedes it in document order.
+ */
+export function useJobCenterParts({
   client,
   isOpen,
   trigger,
@@ -23,7 +28,7 @@ export function JobCenter({
   onOpenChange: Dispatch<SetStateAction<boolean>>;
   onOpenHistory: () => void;
   onOpenJob: (card: JobCenterCard) => void;
-}) {
+}): { entry: ReactNode; overlay: ReactNode } {
   const text = useLocaleText();
   const restoreFocus = useRef(false);
   const [toast, setToast] = useState<{
@@ -68,13 +73,13 @@ export function JobCenter({
     }
   }, [isOpen, trigger]);
 
-  return (
+  const entry = renderEntry(jobCenter.inProgress.length, () => {
+    restoreFocus.current = false;
+    setAnnouncement(undefined);
+    onOpenChange((open) => !open);
+  });
+  const overlay = (
     <>
-      {renderEntry(jobCenter.inProgress.length, () => {
-        restoreFocus.current = false;
-        setAnnouncement(undefined);
-        onOpenChange((open) => !open);
-      })}
       {client && (
         <JobCenterPresenter
           isOpen={isOpen}
@@ -117,6 +122,7 @@ export function JobCenter({
       />
     </>
   );
+  return { entry, overlay };
 }
 
 function finishedJobNotice(

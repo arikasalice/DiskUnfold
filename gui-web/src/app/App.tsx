@@ -30,7 +30,7 @@ import { useGroupsEntry } from "../features/groups/use-groups-entry";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { HistorySizeDisplay } from "../features/history/history-size";
 import { JobCenterEntry } from "../features/jobs/JobCenterEntry";
-import { JobCenter } from "../features/jobs/JobCenter";
+import { useJobCenterParts } from "../features/jobs/JobCenter";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -207,6 +207,36 @@ export function App({
     browseDisplay,
     visualization.opened,
   );
+  const jobCenter = useJobCenterParts({
+    client,
+    isOpen: tasksOpen,
+    trigger: tasksTrigger,
+    renderEntry: (count, onPress) => (
+      <JobCenterEntry
+        clientAvailable={client !== undefined}
+        historyOpen={history}
+        count={count}
+        expanded={tasksOpen}
+        trigger={tasksTrigger}
+        onPress={onPress}
+      />
+    ),
+    onOpenChange: setTasksOpen,
+    onOpenHistory: () => setHistory(true),
+    onOpenJob: (card) => {
+      if (card.row.kind === "scan.metadata") {
+        if (sampleOpen)
+          void flow.endSample().then((ended) => {
+            if (ended) flow.startRealAnalysis();
+          });
+        browse.set(undefined);
+        setVisualizationOpen(false);
+        setHistory(false);
+      } else {
+        setHistory(true);
+      }
+    },
+  });
   return (
     <main
       ref={frame}
@@ -259,36 +289,7 @@ export function App({
               visible={Boolean(analysisOpen)}
             />
           )}
-          <JobCenter
-            client={client}
-            isOpen={tasksOpen}
-            trigger={tasksTrigger}
-            renderEntry={(count, onPress) => (
-              <JobCenterEntry
-                clientAvailable={client !== undefined}
-                historyOpen={history}
-                count={count}
-                expanded={tasksOpen}
-                trigger={tasksTrigger}
-                onPress={onPress}
-              />
-            )}
-            onOpenChange={setTasksOpen}
-            onOpenHistory={() => setHistory(true)}
-            onOpenJob={(card) => {
-              if (card.row.kind === "scan.metadata") {
-                if (sampleOpen)
-                  void flow.endSample().then((ended) => {
-                    if (ended) flow.startRealAnalysis();
-                  });
-                browse.set(undefined);
-                setVisualizationOpen(false);
-                setHistory(false);
-              } else {
-                setHistory(true);
-              }
-            }}
-          />
+          {jobCenter.entry}
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
@@ -371,6 +372,7 @@ export function App({
         entry={groups}
         display={browseDisplay}
       />
+      {jobCenter.overlay}
       {client && history && (
         <HistorySizeDisplay.Provider value={browseDisplay}>
           <HistoryPanel
