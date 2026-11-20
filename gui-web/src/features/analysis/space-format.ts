@@ -153,6 +153,28 @@ export function displayMeasurementLimit(key: string, text: LocaleText): string {
   );
 }
 
+/**
+ * The measurement limits that every size row shares, said once below the rows
+ * (#214). The common pair of missing auxiliary data and the observation
+ * details it leaves out reads as one sentence.
+ */
+export function displaySharedLimits(
+  keys: readonly string[],
+  text: LocaleText,
+): string {
+  if (
+    keys.length === 2 &&
+    keys.includes("space.aux_not_included") &&
+    keys.includes("space.observation_detail_insufficient")
+  ) {
+    return text(
+      "ui.analysis.space_aux_detail_unavailable",
+      "Auxiliary data was not collected, so some observation details are unavailable.",
+    );
+  }
+  return keys.map((key) => displayMeasurementLimit(key, text)).join(" ");
+}
+
 /** Explains a space reason of either table; a key without a text gives none. */
 export function displayKnownSpaceReason(
   key: string,

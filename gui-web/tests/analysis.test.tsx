@@ -526,8 +526,8 @@ test("F01 capacity: current observations preserve zero, time, and selection", as
 // Individual null fields are possible on the wire even though the current
 // producer emits both values together or neither.
 test.each([
-  ["0", null, /Total: 0 bytes · Available: Could not verify/],
-  [null, "0", /Total: Could not verify · Available: 0 bytes/],
+  ["0", null, /Total: 0 bytes · Available: Unavailable/],
+  [null, "0", /Total: Unavailable · Available: 0 bytes/],
 ] as const)(
   "F01 capacity: preserves a single reported value (%s, %s)",
   async (totalBytes, availableBytes, description) => {
@@ -575,7 +575,7 @@ test.each([
     });
     render(<App analysis={client} />);
     const description = await screen.findByText(
-      /Total: Could not verify · Available: Could not verify/,
+      /Total: Unavailable · Available: Unavailable/,
     );
     expect(description.textContent).toContain(explanation);
     if (capacityReason)
@@ -609,7 +609,7 @@ test.each(["probe", null])(
       });
     }
     const description = screen.getByText(
-      /Total: Could not verify · Available: Could not verify/,
+      /Total: Unavailable · Available: Unavailable/,
     );
     expect(description.textContent).toContain(
       "No capacity check was reported.",

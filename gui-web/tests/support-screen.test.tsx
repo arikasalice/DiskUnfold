@@ -108,7 +108,7 @@ test("explains an unavailable support table without calling the system unsupport
   expect(await screen.findAllByText(/no support table/)).toHaveLength(1);
   expect(screen.getByText(/does not mean it is unsupported/)).toBeTruthy();
   expect(screen.getAllByText("Not available")).toHaveLength(2);
-  expect(screen.getByText("Could not be determined")).toBeTruthy();
+  expect(screen.getByText("Unavailable")).toBeTruthy();
   expect(screen.queryByRole("table")).toBeNull();
   expect(
     screen.getByText(
@@ -144,7 +144,7 @@ test("gives guidance when the environment could not be identified", async () => 
   expect(within(env).getAllByText("Unknown")).toHaveLength(2);
   expect(within(env).getAllByText("Not detected")).toHaveLength(2);
   const status = screen.getByRole("region", { name: "Combination status" });
-  expect(within(status).getByText("Could not be determined")).toBeTruthy();
+  expect(within(status).getByText("Unavailable")).toBeTruthy();
   expect(within(status).queryByRole("status")).toBeNull();
   expect((await axe.run(container)).violations).toEqual([]);
 });
@@ -172,10 +172,8 @@ test("treats values it does not know as undetermined rather than guessing", asyn
     await screen.findByRole("region", { name: "Feature areas" }),
   );
   expect(areas.getByText("Other feature area (brand_new_area)")).toBeTruthy();
-  expect(areas.getByText("Right now: Could not be determined")).toBeTruthy();
-  expect(
-    areas.getByText("Support table: Could not be determined"),
-  ).toBeTruthy();
+  expect(areas.getByText("Right now: Unavailable")).toBeTruthy();
+  expect(areas.getByText("Support table: Unavailable")).toBeTruthy();
   expect(
     screen.getAllByText(/reason that this version does not recognize/).length,
   ).toBeGreaterThan(0);
