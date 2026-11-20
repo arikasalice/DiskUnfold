@@ -147,6 +147,10 @@ impl JobEvents for ScanEvents {
         self.downstream.relay_progress(event);
     }
 
+    fn publish_lane_status(&self, event: du_job_runtime::JobLaneStatusEvent) {
+        self.downstream.relay_lane_status(event);
+    }
+
     fn retire_job(&self, id: &Id) {
         self.downstream.retire_job(id);
     }

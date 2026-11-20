@@ -38,6 +38,8 @@ use std::{
 
 mod correlated_budget;
 mod disconnect;
+mod lane_meter;
+mod lane_report;
 mod preparation;
 mod scheduler;
 mod volume_reports;
@@ -86,6 +88,8 @@ struct Shared {
     track_priority_paths: bool,
     visited: Visited,
     correlated_budget: Arc<correlated_budget::CorrelatedBudget>,
+    /// Wait evidence per lane, indexed like `queue.lanes`.
+    meters: Arc<lane_meter::LaneMeters>,
 }
 impl Shared {
     /// Stops all scan flows after an internal failure, without requesting user cancellation.

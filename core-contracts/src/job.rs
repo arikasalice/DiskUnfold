@@ -2,6 +2,9 @@
 use crate::{Id, Timestamp};
 use std::sync::Arc;
 
+mod lane_status;
+pub use lane_status::{LaneReport, LaneStatusReport, LaneWait};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
@@ -260,6 +263,13 @@ pub trait JobContext: Send + Sync {
     /// and it discards reports that arrive after the job's terminal state. The
     /// default ignores the report for contexts that do not deliver progress.
     fn report_progress(&self, _progress: JobProgress) {}
+    /// Reports the body's latest per-lane state without blocking (F02 IF-17).
+    ///
+    /// The same rules as [`JobContext::report_progress`] apply: a later report
+    /// replaces an earlier one, at most one value per job and batch interval is
+    /// published, and reports after the job's terminal state are discarded. The
+    /// default ignores the report.
+    fn report_lane_status(&self, _status: LaneStatusReport) {}
     /// Returns Busy rather than spawning or waiting when no metadata I/O permit is available.
     /// Returns UnsupportedResource when metadata I/O is disabled or not declared for the job.
     fn try_start_flow(&self) -> Result<Box<dyn JobFlow>, JobFlowError>;

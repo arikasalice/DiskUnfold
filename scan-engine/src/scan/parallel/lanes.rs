@@ -168,6 +168,29 @@ impl Lanes {
         self.root_lanes.get(root as usize).copied()
     }
 
+    /// The scope roots each lane serves, in ascending order.
+    pub(super) fn lane_roots(&self) -> Vec<Vec<u32>> {
+        let mut roots = vec![Vec::new(); self.lanes.len()];
+        for (root, &lane) in self.root_lanes.iter().enumerate() {
+            if let (Some(roots), Ok(root)) = (roots.get_mut(lane), u32::try_from(root)) {
+                roots.push(root);
+            }
+        }
+        roots
+    }
+
+    /// Workers, worker limit and queued directories (lane queue and worker
+    /// stacks) of `lane`.
+    pub(super) fn occupancy(&self, lane: usize) -> (usize, usize, usize) {
+        self.lanes.get(lane).map_or((0, 0, 0), |state| {
+            (
+                state.members,
+                state.limit,
+                state.ready.len() + state.stacked,
+            )
+        })
+    }
+
     /// Greatest number of items held in all lane queues at once, if tracked.
     pub(super) fn peak(&self) -> Option<usize> {
         self.peak

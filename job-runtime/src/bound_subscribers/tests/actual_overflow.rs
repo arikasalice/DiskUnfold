@@ -1,9 +1,76 @@
 use super::*;
+use crate::JobLaneStatusEvent;
+use du_core_contracts::job::{LaneReport, LaneStatusReport, LaneWait};
+use std::sync::Mutex;
+
+#[derive(Default)]
+struct LaneStatusDownstream(Mutex<Vec<JobLaneStatusEvent>>);
+
+impl JobEvents for LaneStatusDownstream {
+    fn publish(&self, _: JobEvent) {}
+
+    fn publish_lane_status(&self, event: JobLaneStatusEvent) {
+        if let Ok(mut events) = self.0.lock() {
+            events.push(event);
+        }
+    }
+}
+
+struct LaneStatusBody(mpsc::Sender<Box<dyn JobFlow>>);
+
+impl JobBody for LaneStatusBody {
+    fn kind_id(&self) -> &str {
+        "scan.metadata"
+    }
+
+    fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
+        context.report_lane_status(LaneStatusReport {
+            lanes: vec![LaneReport {
+                lane_index: 0,
+                root_indexes: vec![0],
+                in_flight: 1,
+                limit: 2,
+                wait: LaneWait::IoWait,
+                wait_confirmed: true,
+                remaining_directories: 3,
+                failures: 0,
+            }],
+        });
+        if let Ok(flow) = context.try_start_flow() {
+            let _ = self.0.send(flow);
+        }
+        JobOutcome {
+            counts: JobCounts::default(),
+            completed_scope: true,
+            failure_reason_key: None,
+            unprocessed_summary: None,
+            result_version_id: None,
+        }
+    }
+}
+
+fn setup_with_lane_sink()
+-> Result<(Arc<RuntimeSubscribers>, Arc<LaneStatusDownstream>), RuntimeError> {
+    let downstream = Arc::new(LaneStatusDownstream::default());
+    let session = RuntimeSubscribers::new(RuntimeSubscribersConfig {
+        identity: Arc::new(Identity(AtomicUsize::new(1))),
+        runtime_clock: Arc::new(Clock),
+        subscriber_clock: Arc::new(Clock),
+        history: Arc::new(History),
+        downstream: downstream.clone(),
+        limits: FlowLimits {
+            metadata_io: 1,
+            queued_items: 8,
+            item_bytes: 32,
+        },
+    })?;
+    Ok((Arc::new(session), downstream))
+}
 
 #[test]
 fn real_runtime_isolates_slow_subscriber_and_rejoins_at_snapshot()
 -> Result<(), Box<dyn std::error::Error>> {
-    let session = setup()?;
+    let (session, downstream) = setup_with_lane_sink()?;
     let slow = session.subscribe().ok_or("slow")?;
     let fast = session.subscribe().ok_or("fast")?;
     let runtime = session.runtime();
@@ -12,7 +79,7 @@ fn real_runtime_isolates_slow_subscriber_and_rejoins_at_snapshot()
     let job = match runtime.submit(crate::Submission {
         kind_id: "scan.metadata".into(),
         deduplication_key: None,
-        body: Arc::new(Body(tx)),
+        body: Arc::new(LaneStatusBody(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
@@ -45,6 +112,7 @@ fn real_runtime_isolates_slow_subscriber_and_rejoins_at_snapshot()
         slow.try_next(Duration::from_millis(100))?,
         Some(SubscriberMessage::ResyncRequired { dropped: 1024 })
     ));
+    assert!(slow.try_next(Duration::from_millis(100))?.is_none());
     assert!(matches!(
         fast.try_next(Duration::from_millis(100))?,
         Some(SubscriberMessage::Event(JobEvent::ItemResult { .. }))
@@ -64,5 +132,12 @@ fn real_runtime_isolates_slow_subscriber_and_rejoins_at_snapshot()
     flow.finish(JobCounts::default());
     worker.join().map_err(|_| "worker panic")??;
     runtime.flush()?;
+    runtime.flush()?;
+    let lane_statuses = downstream
+        .0
+        .lock()
+        .map_err(|_| "downstream lane status lock")?;
+    assert_eq!(lane_statuses.len(), 1);
+    assert_eq!(lane_statuses[0].job_id, job);
     Ok(())
 }

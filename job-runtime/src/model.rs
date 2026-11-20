@@ -1,6 +1,8 @@
 use du_core_contracts::{
     Id,
-    job::{HistoryChanged, JobBody, JobDescriptor, JobProgress, JobState, JobSummary},
+    job::{
+        HistoryChanged, JobBody, JobDescriptor, JobProgress, JobState, JobSummary, LaneStatusReport,
+    },
     result_events::ResultVersionNotice,
     result_freshness::ResultFreshnessNotice,
 };
@@ -35,6 +37,12 @@ pub trait JobEvents: Send + Sync {
     /// Called on the delivery thread like `publish`. Progress values may be
     /// skipped, so a sink that does not relay progress may ignore them.
     fn publish_progress(&self, _event: crate::JobProgressEvent) {}
+
+    /// Deliver one job's latest batched per-lane status in job-sequence order.
+    ///
+    /// Like progress, intermediate values may be skipped. Sinks that do not
+    /// relay scan lane status may ignore it.
+    fn publish_lane_status(&self, _event: crate::JobLaneStatusEvent) {}
 
     /// Reports expiry after all earlier delivery for this job has finished.
     fn retire_job(&self, _id: &Id) {}
@@ -181,15 +189,17 @@ pub(crate) struct Entry {
     pub(crate) order: u64,
     pub(crate) progress: ProgressSlot,
 }
-/// Per-job progress state kept in the job table.
+/// Per-job batched status state kept in the job table.
 #[derive(Default)]
 pub(crate) struct ProgressSlot {
     /// The cell shared with the running body, created when the body starts.
     pub(crate) cell: Option<Arc<ProgressCell>>,
     /// The last value queued for delivery.
     pub(crate) published: Option<JobProgress>,
+    /// Per-lane status shares this job's batch tick and sequence.
+    pub(crate) lane_status: LaneStatusSlot,
 }
-/// One job's latest progress report, written by its body without locks.
+/// Progress amounts and the lane status cell shared with one running body.
 #[derive(Default)]
 pub(crate) struct ProgressCell {
     pub(crate) completed: AtomicU64,
@@ -201,6 +211,29 @@ pub(crate) struct ProgressCell {
     pub(crate) late_logged: AtomicBool,
     /// Set while a value from this cell waits in the delivery queue.
     pub(crate) in_flight: AtomicBool,
+    /// The per-job lane status cell shares the body's runtime context.
+    pub(crate) lane_status: Arc<LaneStatusCell>,
+}
+/// Per-job lane status state kept in the job table.
+#[derive(Default)]
+pub(crate) struct LaneStatusSlot {
+    /// The cell shared with the running body, created when the body starts.
+    pub(crate) cell: Option<Arc<LaneStatusCell>>,
+    /// The last value queued for delivery.
+    pub(crate) published: Option<LaneStatusReport>,
+}
+/// One job's latest lane report, protected only while replacing or cloning it.
+#[derive(Default)]
+pub(crate) struct LaneStatusCell {
+    pub(crate) state: Mutex<LaneStatusCellState>,
+    /// Set while a value from this cell waits in the delivery queue.
+    pub(crate) in_flight: AtomicBool,
+}
+#[derive(Default)]
+pub(crate) struct LaneStatusCellState {
+    pub(crate) latest: Option<Arc<LaneStatusReport>>,
+    pub(crate) closed: bool,
+    pub(crate) late_logged: bool,
 }
 pub(crate) struct TerminalOutcome {
     pub(crate) sequence: u64,
@@ -263,6 +296,7 @@ pub(crate) enum Delivery {
     Event(JobEvent),
     Item(JobEvent, Arc<AtomicUsize>),
     Progress(Box<crate::JobProgressEvent>, Arc<ProgressCell>),
+    LaneStatus(Box<crate::JobLaneStatusEvent>, Arc<LaneStatusCell>),
     Terminal {
         summary: Box<JobSummary>,
         sequence: u64,

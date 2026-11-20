@@ -53,7 +53,7 @@ pub(super) fn unread(
     context: &dyn JobContext,
 ) -> bool {
     sender
-        .send(Event::Failure {
+        .send_metered(Event::Failure {
             root_index,
             root: path.is_empty(),
             path,
@@ -87,7 +87,7 @@ fn drain(
             admission,
             queued.payload_permit.take(),
         );
-        if sender.send(item).is_err() {
+        if sender.send_metered(item).is_err() {
             return false;
         }
         if admission == Admission::Enter

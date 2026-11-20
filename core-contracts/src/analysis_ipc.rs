@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 mod f03_request;
 mod job_progress;
+mod lane_status;
 mod recent_scope;
 mod scope_draft;
 mod space_query;
@@ -13,6 +14,9 @@ pub(crate) use f03_request::{
     deserialize_optional_f03_request_item_ref,
 };
 pub use job_progress::{AnalysisJobProgress, JOB_PROGRESS};
+pub use lane_status::{
+    MAX_LANE_ROOTS, MAX_LANES, SCAN_LANE_STATUS, ScanLane, ScanLaneStatus, ScanLaneWait,
+};
 pub use recent_scope::{
     RecentScopeList, RecentScopeListRequest, RecentScopeListRow, RecentScopeOpen,
     RecentScopeOpenRequest, RecentScopeOpenTarget, RecentScopeTargetState,

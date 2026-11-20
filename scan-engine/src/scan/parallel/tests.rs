@@ -467,6 +467,7 @@ fn roots_of_one_lane_take_turns_even_when_one_has_many_frames() {
 
 mod cadence;
 mod device;
+mod lane_status;
 mod lanes;
 mod panic_boundary;
 mod priority;

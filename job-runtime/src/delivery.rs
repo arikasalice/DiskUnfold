@@ -88,6 +88,11 @@ impl DeliveryContext<'_> {
                 self.events.publish_progress(*event);
                 cell.delivered();
             }
+            Delivery::LaneStatus(event, cell) => {
+                self.events.publish_lane_status(*event);
+                cell.in_flight
+                    .store(false, std::sync::atomic::Ordering::Release);
+            }
             Delivery::Terminal {
                 summary,
                 sequence,

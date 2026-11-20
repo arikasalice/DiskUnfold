@@ -6,10 +6,17 @@ use std::{
 };
 
 use du_core_contracts::{
-    Id, job::JobHistory, ports::Random, scan_observation::ScopeRootPort,
-    scope_observation_log::ScopeObservationLog, volume::VolumePort,
+    Id,
+    job::{HistoryChanged, JobHistory},
+    ports::Random,
+    scan_observation::ScopeRootPort,
+    scope_observation_log::ScopeObservationLog,
+    volume::VolumePort,
 };
-use du_job_runtime::{FlowLimits, JobClock, JobIdentity, JobRuntime};
+use du_job_runtime::{
+    FlowLimits, JobClock, JobEvent, JobEvents, JobIdentity, JobLaneStatusEvent, JobProgressEvent,
+    JobRuntime,
+};
 
 use super::{
     CompletedScanSource, DesktopEvents, RecentScopeAdmissions, ScanDiagnosticsFactory,
@@ -22,6 +29,34 @@ use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
+
+/// Preserves the sample terminal tap and sends lane status through the desktop scan relay.
+struct DesktopJobEvents {
+    sample: Arc<crate::sample::SampleEvents>,
+    scans: Arc<scan_completion::ScanEvents>,
+}
+
+impl JobEvents for DesktopJobEvents {
+    fn publish(&self, event: JobEvent) {
+        self.sample.publish(event);
+    }
+
+    fn publish_history_changed(&self, event: HistoryChanged) {
+        self.sample.publish_history_changed(event);
+    }
+
+    fn publish_progress(&self, event: JobProgressEvent) {
+        self.sample.publish_progress(event);
+    }
+
+    fn publish_lane_status(&self, event: JobLaneStatusEvent) {
+        self.scans.publish_lane_status(event);
+    }
+
+    fn retire_job(&self, id: &Id) {
+        self.sample.retire_job(id);
+    }
+}
 
 /// Registers the desktop analysis flow and returns its event source.
 ///
@@ -233,11 +268,15 @@ fn register_services_inner(
     let events = Arc::new(DesktopEvents::default());
     let scan_events = Arc::new(scan_completion::ScanEvents::new(events.clone()));
     let sample_events = Arc::new(crate::sample::SampleEvents::new(scan_events.clone()));
+    let runtime_events = Arc::new(DesktopJobEvents {
+        sample: sample_events.clone(),
+        scans: scan_events.clone(),
+    });
     let runtime = Arc::new(JobRuntime::new_with_limits(
         ids.clone(),
         clock.clone(),
         history,
-        sample_events.clone(),
+        runtime_events,
         FlowLimits {
             metadata_io: 16,
             queued_items: 64,

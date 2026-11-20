@@ -102,7 +102,7 @@ pub(super) fn publish_item(
         let source = timed.as_ref().ok_or(())?;
         services
             .sender
-            .send(Event::Item(
+            .send_metered(Event::Item(
                 frame.root_index,
                 path.to_vec(),
                 Box::new(source.clone()),
@@ -131,7 +131,7 @@ pub(super) fn publish_item(
     if let Some((item_path, permit)) = correlated_item {
         services
             .sender
-            .send(Event::CorrelatedItem(
+            .send_metered(Event::CorrelatedItem(
                 frame.root_index,
                 item_path,
                 Box::new(item_timed),
@@ -144,7 +144,7 @@ pub(super) fn publish_item(
         frame.correlated.evidence_failed();
         services
             .sender
-            .send(Event::Item(
+            .send_metered(Event::Item(
                 frame.root_index,
                 path.to_vec(),
                 Box::new(item_timed),

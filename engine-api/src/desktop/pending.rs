@@ -1,7 +1,7 @@
 use super::freshness_replay::LatestFreshness;
 use du_core_contracts::{
     ENVELOPE_VERSION, EventEnvelope, Timestamp,
-    analysis_ipc::{JOB_PROGRESS, JobResyncReason, JobResyncRequired},
+    analysis_ipc::{JOB_PROGRESS, JobResyncReason, JobResyncRequired, SCAN_LANE_STATUS},
 };
 use std::{
     collections::VecDeque,
@@ -68,8 +68,8 @@ impl Pending {
             *discarded = discarded.saturating_add(1);
             return;
         }
-        if event.topic == JOB_PROGRESS {
-            self.drop_superseded_progress(&event);
+        if matches!(event.topic.as_str(), JOB_PROGRESS | SCAN_LANE_STATUS) {
+            self.drop_superseded_current_value(&event);
         }
         if self.queue.len() + 1 >= EVENT_LIMIT {
             self.discarded_events = Some(self.queue.len() as u64 + 1);
@@ -87,19 +87,20 @@ impl Pending {
         self.queue.push_back(event);
     }
 
-    /// Keeps one unreleased `job.progress` per job in the current batch.
+    /// Keeps one unreleased progress or lane status value per job and topic.
     ///
     /// The newer value is appended behind any event of the same job queued
     /// after the older value, so per-job sequence order is preserved. Events
     /// already released for delivery are never replaced.
-    fn drop_superseded_progress(&mut self, event: &EventEnvelope) {
+    fn drop_superseded_current_value(&mut self, event: &EventEnvelope) {
         let Some(job) = event.job_ref.as_ref() else {
             return;
         };
         let released = self.ready_count.min(self.queue.len());
-        let previous = self.queue.iter().skip(released).position(|queued| {
-            queued.topic == JOB_PROGRESS && queued.job_ref.as_ref() == Some(job)
-        });
+        let previous =
+            self.queue.iter().skip(released).position(|queued| {
+                queued.topic == event.topic && queued.job_ref.as_ref() == Some(job)
+            });
         if let Some(offset) = previous {
             self.queue.remove(released + offset);
         }

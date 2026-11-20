@@ -23,6 +23,7 @@ use serde_json::json;
 
 use crate::api::{CallerCtx, Channel, Engine, EngineBuilder};
 
+mod lane_status;
 mod progress;
 
 struct NoRoots;
