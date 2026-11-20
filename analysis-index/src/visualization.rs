@@ -8,6 +8,7 @@ pub mod bar_projection;
 pub mod bundle;
 mod cancellable_sort;
 pub mod detail;
+pub mod filter;
 pub mod geometry;
 pub mod group_page;
 pub mod histogram;

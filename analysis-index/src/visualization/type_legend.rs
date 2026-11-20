@@ -5,10 +5,11 @@
 //! whose type cannot be decided takes [NO_CLASS]. The listed classes come in
 //! the fixed order of [LISTED]; the screen gives a fixed colour to each key.
 use crate::{
+    ResultVersion,
     file_type::{self, FileType, TABLE_REVISION},
     query::NameEncoding,
 };
-use du_core_contracts::result::ResultItemKind;
+use du_core_contracts::{PathEncoding, result::ResultItemKind};
 
 /// The color criterion this table serves.
 pub const CRITERION: &str = "type";
@@ -67,7 +68,34 @@ pub fn class_of(kind: ResultItemKind, name: &[u8], encoding: NameEncoding) -> &'
     }
 }
 
-fn key_of(kind: FileType) -> &'static str {
+/// The type of one file of a pinned result, read in the encoding of its observed
+/// root. A folder, a link, an item of unknown kind and a name that cannot be read
+/// have no type.
+///
+/// It runs over every file under a filtered scope, so it reads the item and its
+/// root by number and allocates nothing.
+pub fn file_type_of(version: &ResultVersion, item_no: u32) -> Option<FileType> {
+    let item = version.items.get(item_no as usize)?;
+    if item.kind != ResultItemKind::File {
+        return None;
+    }
+    let root = *version.root_indices.get(item_no as usize)?;
+    let encoding = match version.roots.get(root as usize)?.path.encoding {
+        PathEncoding::Unix => NameEncoding::Bytes,
+        PathEncoding::WindowsUtf16le => NameEncoding::WindowsUtf16Le,
+    };
+    file_type::classify(&item.name, encoding)
+}
+
+/// The type a listed type key names; the class of no type and the folder name none.
+pub fn type_of_key(key: &[u8]) -> Option<FileType> {
+    FileType::ALL
+        .into_iter()
+        .find(|kind| key_of(*kind).as_bytes() == key)
+}
+
+/// The legend key of a type.
+pub fn key_of(kind: FileType) -> &'static str {
     match kind {
         FileType::Document => "type.document",
         FileType::Audio => "type.audio",

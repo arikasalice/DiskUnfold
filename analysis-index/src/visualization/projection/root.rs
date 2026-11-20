@@ -5,6 +5,7 @@ use super::{
 };
 use crate::visualization::{
     self, detail,
+    filter::ItemFilter,
     geometry::{NoArea, valid_bounds},
     model_links::validate_model_links,
     ratio,
@@ -21,6 +22,7 @@ pub(super) fn build(
     source: Source<'_>,
     dispatcher: &Dispatcher,
     options: Options<'_>,
+    filter: Option<ItemFilter>,
     cancelled: &mut dyn FnMut() -> bool,
     validate_links: bool,
 ) -> Result<Model, Error> {
@@ -49,6 +51,7 @@ pub(super) fn build(
             min_area,
             slots: options.max_shapes,
             allow_group: options.group_tail,
+            filter,
         },
         cancelled,
     )?;
@@ -159,7 +162,7 @@ pub(super) fn build(
         scope: level.parent_value.clone(),
         drawn_bytes,
         grouped_bytes: 0,
-        filtered_bytes: 0,
+        filtered_bytes: level.filtered_bytes,
         drawn_lower_bound,
         grouped_lower_bound: false,
     };
@@ -214,6 +217,7 @@ pub(super) fn build(
         relationships,
         omissions,
         totals,
+        filter,
         detail: Detail {
             min_area,
             group_tail: options.group_tail,

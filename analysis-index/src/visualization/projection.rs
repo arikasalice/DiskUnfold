@@ -3,6 +3,7 @@
 //! This is an internal projection, not the public F06 response: callers must
 //! supply policy, provenance, model identity, paging and IPC contracts separately.
 use super::{
+    filter::ItemFilter,
     geometry::{NoArea, Rect},
     live_models::SizeRange,
     model_links::ModelLinkError,
@@ -125,7 +126,7 @@ pub struct RemainderCauses {
     /// The scope counts what siblings share once, so no sibling carries that share.
     pub unattributed: bool,
 }
-/// The four byte totals of this unfiltered single-parent projection.
+/// The four byte totals of this single-parent projection.
 ///
 /// They have one definition for every consumer:
 /// - scope is the original F03 aggregate of the parent, never derived from geometry;
@@ -134,7 +135,8 @@ pub struct RemainderCauses {
 ///   are never added again;
 /// - grouped adds the members of the navigation-root group, and nothing else. The
 ///   members of a nested group lie inside the folder that holds them;
-/// - filtered is zero because this projection applies no filter.
+/// - filtered adds what a filter removed from the attributed navigation-root siblings,
+///   and is zero without a filter. Drawn and grouped then hold only kept bytes.
 ///
 /// Drawn and grouped add disjoint sets of root siblings, so with exact values
 /// drawn + grouped + filtered never exceeds scope. What none of them holds,
@@ -171,6 +173,8 @@ pub struct Model {
     pub relationships: Vec<VizRelationship>,
     pub omissions: Vec<typed_layout::Omission>,
     pub totals: Totals,
+    /// The filter every level of the model applies; expanded folders apply it too.
+    pub filter: Option<ItemFilter>,
     pub detail: Detail,
 }
 
@@ -302,7 +306,7 @@ pub fn project(
     options: Options<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Model, Error> {
-    root::build(source, dispatcher, options, cancelled, true)
+    root::build(source, dispatcher, options, None, cancelled, true)
 }
 
 /// Builds an unpublished candidate whose links must be checked after adding branches.
@@ -312,7 +316,21 @@ pub fn project_deferred(
     options: Options<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Model, Error> {
-    root::build(source, dispatcher, options, cancelled, false)
+    root::build(source, dispatcher, options, None, cancelled, false)
+}
+
+/// Projects only what the filter keeps, as [project] does, or as [project_deferred]
+/// when deferred. The scope total stays the parent's original value; the filtered
+/// total says what the filter removed, and expanded folders apply it too.
+pub fn project_filtered(
+    source: Source<'_>,
+    dispatcher: &Dispatcher,
+    options: Options<'_>,
+    filter: Option<ItemFilter>,
+    deferred: bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Model, Error> {
+    root::build(source, dispatcher, options, filter, cancelled, !deferred)
 }
 
 mod gaps;

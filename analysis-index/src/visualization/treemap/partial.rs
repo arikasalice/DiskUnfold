@@ -9,9 +9,9 @@ use super::{
 };
 use crate::{
     ResultVersion,
-    visualization::{reference, root_ref, value},
+    visualization::{filter::ItemFilter, reference, root_ref, value},
 };
-use du_core_contracts::{ItemRef, SizeAmount, SizeBasis, SizeValue};
+use du_core_contracts::{ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
 
 /// An immediate child whose area cannot be established, with its original F03 value.
 ///
@@ -30,13 +30,18 @@ pub(crate) struct Unattributed {
 pub(crate) struct Partial {
     pub(crate) rows: Vec<AdmittedChild>,
     pub(crate) unattributed: Vec<Unattributed>,
+    /// The bytes the rows divide: the parent's own value, less what a filter removed.
     pub(crate) parent_bytes: u64,
+    /// Bytes of the files a filter removed from the attributed children; zero without one.
+    pub(crate) filtered_bytes: u64,
 }
 
 struct Entry {
     item_no: u32,
     raw: SizeValue,
     child: Option<AdmittedChild>,
+    /// Kept bytes and unread parts of the subtree, when it could be observed.
+    kept: Option<(u64, bool)>,
 }
 
 /// Admits each immediate child on its own evidence.
@@ -61,6 +66,25 @@ pub(crate) fn admit_partial_cancellable(
     basis: &SizeBasis,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Partial, AdmissionError> {
+    admit_filtered_cancellable(version, parent, basis, None, cancelled)
+}
+
+/// Admits each immediate child as [admit_partial_cancellable] does, then keeps only
+/// what the filter keeps.
+///
+/// Attribution is decided on the whole subtree, so a filter never makes a child
+/// provable or unprovable. An attributed child takes the kept bytes as its value, a
+/// lower bound when its value or its subtree is one; a child that keeps nothing is
+/// left out, and what the filter removed from attributed children is counted apart.
+/// An unattributed child that may hold a kept file stays without an area, with an
+/// unknown value, since its kept share is not provable either.
+pub(crate) fn admit_filtered_cancellable(
+    version: &ResultVersion,
+    parent: &ItemRef,
+    basis: &SizeBasis,
+    filter: Option<ItemFilter>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Partial, AdmissionError> {
     check(cancelled)?;
     let parent_no = root_ref(version, parent).map_err(|_| AdmissionError::InvalidParent)?;
     if gap_covers_parent(version, parent_no, cancelled)? {
@@ -83,12 +107,16 @@ pub(crate) fn admit_partial_cancellable(
             basis,
             &mut identities,
             allow_lower_bound,
+            filter,
             cancelled,
         ) {
             Ok(observed) => Some(observed),
             Err(AdmissionError::NoAttribution) => None,
             Err(other) => return Err(other),
         };
+        let kept = observed
+            .as_ref()
+            .map(|observed| (observed.kept, observed.unmeasured));
         let child_row = observed
             .filter(|observed| is_observed_value(&raw, basis, observed, allow_lower_bound))
             .map(|observed| AdmittedChild {
@@ -103,23 +131,45 @@ pub(crate) fn admit_partial_cancellable(
             item_no: child.item_no,
             raw,
             child: child_row,
+            kept,
         });
     }
     let mut rows = Vec::with_capacity(entries.len());
     let mut unattributed = Vec::new();
     let mut total = 0_u64;
+    let mut filtered_bytes = 0_u64;
     for entry in entries {
         check(cancelled)?;
         match entry.child {
-            Some(row) if !identities.conflicted.contains(&entry.item_no) => {
+            Some(mut row) if !identities.conflicted.contains(&entry.item_no) => {
                 total = total
                     .checked_add(row.bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
+                if filter.is_some() {
+                    let (kept, unmeasured) = entry.kept.ok_or(AdmissionError::NoAttribution)?;
+                    let removed = row
+                        .bytes
+                        .checked_sub(kept)
+                        .ok_or(AdmissionError::NoAttribution)?;
+                    filtered_bytes = filtered_bytes
+                        .checked_add(removed)
+                        .ok_or(AdmissionError::NoAttribution)?;
+                    if kept == 0 {
+                        continue;
+                    }
+                    row.child.value = kept_value(&row.child.value, kept, unmeasured);
+                    row.bytes = kept;
+                }
                 rows.push(row);
             }
+            _ if filter.is_some() && entry.kept.is_some_and(|(kept, _)| kept == 0) => {}
             _ => unattributed.push(Unattributed {
                 item: reference(version, entry.item_no),
-                value: entry.raw,
+                value: if filter.is_some() {
+                    unknown(entry.raw.basis)
+                } else {
+                    entry.raw
+                },
             }),
         }
     }
@@ -131,8 +181,34 @@ pub(crate) fn admit_partial_cancellable(
     Ok(Partial {
         rows,
         unattributed,
-        parent_bytes,
+        parent_bytes: parent_bytes
+            .checked_sub(filtered_bytes)
+            .ok_or(AdmissionError::NoAttribution)?,
+        filtered_bytes,
     })
+}
+
+/// The kept bytes of a child as a value in its basis, a lower bound when the child's
+/// value is one or its subtree has unread parts.
+fn kept_value(value: &SizeValue, kept: u64, unmeasured: bool) -> SizeValue {
+    let amount = if unmeasured || matches!(value.amount, SizeAmount::LowerBound { .. }) {
+        SizeAmount::LowerBound { bytes: kept.into() }
+    } else {
+        SizeAmount::Exact { bytes: kept.into() }
+    };
+    SizeValue {
+        basis: value.basis.clone(),
+        evidence: value.evidence.clone(),
+        amount,
+    }
+}
+
+fn unknown(basis: SizeBasis) -> SizeValue {
+    SizeValue {
+        basis,
+        evidence: SizeEvidence::Unknown,
+        amount: SizeAmount::Unknown,
+    }
 }
 
 // The F03 value of a sibling is what its subtree measured. Over a subtree with
@@ -175,10 +251,12 @@ mod tests {
         let with_gap = Observed {
             bytes: 20,
             unmeasured: true,
+            kept: 20,
         };
         let measured = Observed {
             bytes: 20,
             unmeasured: false,
+            kept: 20,
         };
         assert!(!is_observed_value(&exact, &basis, &with_gap, true));
         assert!(is_observed_value(&lower, &basis, &with_gap, true));
@@ -189,6 +267,7 @@ mod tests {
         let short = Observed {
             bytes: 19,
             unmeasured: true,
+            kept: 19,
         };
         assert!(!is_observed_value(&lower, &basis, &short, true));
         // Where a lower bound may not take part, it is never the observed value.

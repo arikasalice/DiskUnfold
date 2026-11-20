@@ -141,6 +141,7 @@ fn request(parent: &ItemRef, right: u32) -> Request<'_> {
         strategy: None,
         max_shapes: 10,
         other: None,
+        filter: None,
     }
 }
 

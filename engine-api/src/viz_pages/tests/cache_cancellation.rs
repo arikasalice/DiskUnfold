@@ -148,6 +148,7 @@ fn cancelled_during_cached_source_admission_preserves_existing_model() -> Result
             strategy: None,
             max_shapes: 10,
             other: None,
+            filter: None,
         }
     }
     let facts = |source: &crate::current_analysis::CurrentAnalysis| {

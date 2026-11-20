@@ -9,6 +9,7 @@ use crate::{
     ResultVersion,
     visualization::{
         detail::{self, Limits, Tail},
+        filter::ItemFilter,
         geometry::{NoArea, Rect},
         live_models::SizeRange,
         treemap::{self, AdmissionError, AdmittedChild, Unattributed},
@@ -36,6 +37,8 @@ pub(super) struct Request<'a> {
     pub slots: usize,
     /// Whether the tail may become a group rather than only being counted.
     pub allow_group: bool,
+    /// Files the level keeps; every file without one.
+    pub filter: Option<ItemFilter>,
 }
 
 /// The group shape of a level, with the evidence for its members.
@@ -65,6 +68,8 @@ pub(super) struct Level {
     pub group: Option<LevelGroup>,
     /// Tail rows that are neither grouped nor in a shape.
     pub omitted: usize,
+    /// Bytes the filter removed from the attributed children.
+    pub filtered_bytes: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -91,14 +96,16 @@ pub(super) fn build(
         min_area,
         slots,
         allow_group,
+        filter,
     } = request;
-    let partial = treemap::admit_partial_cancellable(version, parent, basis, cancelled)
+    let partial = treemap::admit_filtered_cancellable(version, parent, basis, filter, cancelled)
         .map_err(admission_error)?;
     let parent_value = value(version, parent.item_no, basis).map_err(|_| Error::InvalidSource)?;
     let treemap::Partial {
         rows,
         unattributed,
         parent_bytes,
+        filtered_bytes,
     } = partial;
     let positive = rows.partition_point(|row| row.bytes > 0);
     let weights: Vec<u64> = rows[..positive].iter().map(|row| row.bytes).collect();
@@ -143,6 +150,7 @@ pub(super) fn build(
         skipped: Vec::new(),
         group: None,
         omitted: 0,
+        filtered_bytes,
     };
     assign(
         level,
