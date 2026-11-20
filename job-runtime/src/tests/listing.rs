@@ -67,3 +67,28 @@ fn list_filters_and_returns_submission_order_with_current_snapshots()
     assert_eq!(terminal.summary.job_id, first);
     Ok(())
 }
+
+/// F24 #289: a row carries the first submitted scope root and the root count.
+#[test]
+fn list_rows_carry_the_first_scope_root_and_root_count() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = JobRuntime::new(
+        Arc::new(SequentialIdentity {
+            next: AtomicUsize::new(1),
+            fallback: Id::parse("00000000-0000-7000-8000-000000000001")?,
+        }),
+        Arc::new(Clock),
+        Arc::new(History::default()),
+        Arc::new(Events::default()),
+    )?;
+    runtime.register(descriptor())?;
+    created(runtime.submit(sample_submission(Arc::new(InstantBody))?)?)?;
+    let mut rooted = sample_submission(Arc::new(InstantBody))?;
+    rooted.scope_roots = vec!["/first/root".into(), "/second/root".into()];
+    created(runtime.submit(rooted)?)?;
+    let rows = runtime.list(None)?;
+    assert_eq!(rows[0].scope_first_root, None);
+    assert_eq!(rows[0].scope_root_count, 0);
+    assert_eq!(rows[1].scope_first_root.as_deref(), Some("/first/root"));
+    assert_eq!(rows[1].scope_root_count, 2);
+    Ok(())
+}

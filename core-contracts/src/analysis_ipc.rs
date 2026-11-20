@@ -269,6 +269,16 @@ pub struct AnalysisJobListRow {
     pub job_ref: Id,
     pub kind: String,
     pub scope_summary: String,
+    /// Display string of the first scope root captured at submission.
+    /// Omitted, together with `scope_root_count`, for a kind without scope roots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope_first_root: Option<String>,
+    /// Number of scope roots captured at submission (1 or more).
+    /// Omitted, together with `scope_first_root`, for a kind without scope roots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub scope_root_count: Option<u32>,
     pub state: crate::job::JobState,
     pub wait_reason: AnalysisJobWaitReason,
     pub priority: AnalysisJobPriority,

@@ -2,7 +2,8 @@
 export type StatusTone = "neutral" | "info" | "good" | "warning" | "danger";
 
 /** The glyph that carries a status without colour. */
-export type StatusShape = "dot" | "info" | "check" | "warning" | "cross";
+export type StatusShape =
+  "dot" | "info" | "check" | "warning" | "cross" | "clock";
 
 /**
  * One status presentation: a shape, a message key and a colour token.

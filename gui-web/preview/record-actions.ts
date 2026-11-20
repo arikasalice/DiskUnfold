@@ -60,6 +60,7 @@ const plannedActions: Record<SurfaceId, readonly PlannedAction[]> = {
   "scan-lanes": [],
   "date-picker": [],
   "history-list": [],
+  "job-center": [],
   summary: [],
   browse: [],
 };

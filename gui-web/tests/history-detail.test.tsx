@@ -328,7 +328,7 @@ test("#200: the list names the first root, and the detail lists every root or sa
   render(<HistoryPanel client={client(call)} onClose={() => {}} />);
   // Only the record with roots has the second line.
   expect(await screen.findAllByText("and 2 more")).toHaveLength(1);
-  expect(document.querySelectorAll(".du-history-target")).toHaveLength(1);
+  expect(document.querySelectorAll(".du-scope-target")).toHaveLength(1);
   const views = screen.getAllByRole("button", { name: /^View details:/ });
   fireEvent.click(views[0]!);
   expect(await screen.findByText("3 roots")).toBeDefined();

@@ -1658,3 +1658,45 @@ ui.sample.confirm_body
 ui.sample.confirm_files_safe
 ui.sample.cancel
 ui.sample.dismiss
+ui.job_center.tasks
+ui.job_center.header_name count:count
+ui.job_center.title
+ui.job_center.close
+ui.job_center.in_progress
+ui.job_center.recently_finished
+ui.job_center.empty_in_progress
+ui.job_center.load_failed
+ui.job_center.retry
+ui.job_center.loading
+ui.job_center.resyncing
+ui.job_center.state_running
+ui.job_center.state_queued
+ui.job_center.state_paused
+ui.job_center.checked_items count:count
+ui.job_center.checked_bytes count:count
+ui.job_center.progress_items count:count total:count
+ui.job_center.progress_bytes count:count total:count
+ui.job_center.waiting
+ui.job_center.wait_other_task
+ui.job_center.wait_io
+ui.job_center.wait_device
+ui.job_center.wait_backpressure
+ui.job_center.pause
+ui.job_center.resume
+ui.job_center.cancel
+ui.job_center.view
+ui.job_center.view_result
+ui.job_center.view_all_history
+ui.job_center.cancel_title kind:name
+ui.job_center.cancel_confirm
+ui.job_center.continue
+ui.job_center.pausing
+ui.job_center.resuming
+ui.job_center.canceling
+ui.job_center.control_unavailable_pause
+ui.job_center.control_unavailable_resume
+ui.job_center.control_unavailable_cancel
+ui.job_center.control_send_failed
+ui.job_center.toast_finished name:name
+ui.job_center.toast_failed name:name
+ui.job_center.toast_cancelled name:name

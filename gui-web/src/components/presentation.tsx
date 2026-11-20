@@ -6,6 +6,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleX,
+  Clock,
   Copy,
   FlaskConical,
   FolderOpen,
@@ -14,6 +15,8 @@ import {
   Info,
   Languages,
   Layers3,
+  Pause,
+  Play,
   RefreshCw,
   ScanLine,
   TriangleAlert,
@@ -43,6 +46,9 @@ const icons = {
   layers: Layers3,
   refresh: RefreshCw,
   scan: ScanLine,
+  pause: Pause,
+  resume: Play,
+  cancel: CircleX,
   success: CircleCheck,
   warning: TriangleAlert,
 };
@@ -55,6 +61,7 @@ const statusShapes = {
   check: CircleCheck,
   warning: TriangleAlert,
   cross: CircleX,
+  clock: Clock,
 } satisfies Record<StatusShape, typeof Circle>;
 
 /** Decorative icon. An action's accessible name always comes from its label. */
@@ -100,22 +107,37 @@ export function Heading({
   );
 }
 
+/** Text uses a paragraph by default; `inline` fits a label into a layout line. */
 export function Text({
   children,
   kind = "body",
   focusable = false,
+  inline = false,
+  className,
 }: {
   children: ReactNode;
   kind?: "body" | "muted" | "eyebrow" | "path";
   focusable?: boolean;
+  inline?: boolean;
+  className?: string;
 }) {
+  const Tag = inline ? "span" : "p";
   return (
-    <p
-      className={`du-text du-text--${kind}`}
+    <Tag
+      className={`du-text du-text--${kind}${className ? ` ${className}` : ""}`}
       tabIndex={focusable ? 0 : undefined}
     >
       {children}
-    </p>
+    </Tag>
+  );
+}
+
+/** A small, neutral count used as a decorative addition to an action label. */
+export function CountPill({ count }: { count: number }) {
+  return (
+    <span className="du-app-header__count" aria-hidden="true">
+      {count}
+    </span>
   );
 }
 
@@ -151,24 +173,28 @@ export function Moment({ moment, zone, note }: TimestampParts) {
  *
  * Pass the already localized text as `children` with a `tone`, or pass a
  * {@link StatusRow} whose message key names the status. The shape comes from
- * the status table, so the status is readable without colour.
+ * the status table, so the status is readable without colour. A
+ * presentation-specific shape can replace that default.
  */
 export function StatusBadge({
   children,
   tone = "neutral",
+  shape: shapeOverride,
   status,
   live = false,
   id,
 }: {
   children?: ReactNode;
   tone?: StatusTone;
+  /** Replaces the status shape for a presentation-specific distinction. */
+  shape?: StatusShape;
   status?: StatusRow;
   live?: boolean;
   /** Lets another element name itself with this badge. */
   id?: string;
 }) {
   const text = useLocaleText();
-  const shape = status?.shape ?? STATUS_TONES[tone].shape;
+  const shape = shapeOverride ?? status?.shape ?? STATUS_TONES[tone].shape;
   const Glyph = statusShapes[shape];
   const shown = status?.tone ?? tone;
   return (

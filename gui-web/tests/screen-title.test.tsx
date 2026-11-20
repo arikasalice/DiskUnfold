@@ -26,8 +26,9 @@ test("the main workspace names its screen in the window title", async () => {
   await waitFor(() =>
     expect(document.title).toBe("DiskUnfold \u2014 Analysis"),
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Tasks" }));
   fireEvent.click(
-    await screen.findByRole("button", { name: "Operation history" }),
+    screen.getByRole("button", { name: "View all task history" }),
   );
   await waitFor(() =>
     expect(document.title).toBe("DiskUnfold \u2014 Operation history"),

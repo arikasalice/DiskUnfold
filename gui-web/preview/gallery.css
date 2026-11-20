@@ -85,6 +85,31 @@
   border: 1px solid var(--du-border);
   border-radius: 6px;
 }
+
+.du-job-center-preview {
+  min-block-size: 100vh;
+  background: var(--du-page);
+}
+
+.du-job-center-preview__workspace {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-block-size: calc(100vh - 80px);
+  padding-block: 28px;
+}
+
+.du-job-center-preview__workspace .du-heading--2 {
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+.du-job-center-preview__placeholder {
+  min-block-size: 240px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+}
 /* The gallery shows every fixed item row at once; the product keeps its height limit. */
 .du-gallery .du-history-item-results .du-table-viewport {
   max-block-size: none;

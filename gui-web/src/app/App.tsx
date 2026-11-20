@@ -29,6 +29,8 @@ import { GroupsSurface } from "../features/groups/GroupsSurface";
 import { useGroupsEntry } from "../features/groups/use-groups-entry";
 import { HistoryPanel } from "../features/history/HistoryPanel";
 import { HistorySizeDisplay } from "../features/history/history-size";
+import { JobCenterEntry } from "../features/jobs/JobCenterEntry";
+import { useJobCenterParts } from "../features/jobs/JobCenter";
 import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
@@ -114,6 +116,7 @@ export function App({
   };
   const [connectionChecks, setConnectionChecks] = useState(0);
   const [history, setHistory] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const browse = useBrowseSelection();
   const [basisSelection, setBasisSelection] = useState<{
     version: string;
@@ -126,6 +129,7 @@ export function App({
   const { version: browseVersion, choice: browseChoice } = browse;
   const groups = useGroupsEntry(browseVersion);
   const browseTrigger = useRef<HTMLButtonElement>(null);
+  const tasksTrigger = useRef<HTMLButtonElement>(null);
   // Names the screen for the window title bar: operation history, folder browsing or analysis.
   useTitleBarContext(
     screenLabel(text, {
@@ -167,11 +171,10 @@ export function App({
     [client, browseVersion],
   );
   useEffect(() => () => browsePort?.dispose(), [browsePort]);
-  const opener = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
     if (!history && restoreFocus.current) {
-      opener.current?.focus();
+      tasksTrigger.current?.focus();
       restoreFocus.current = false;
     }
   }, [history]);
@@ -204,6 +207,36 @@ export function App({
     browseDisplay,
     visualization.opened,
   );
+  const jobCenter = useJobCenterParts({
+    client,
+    isOpen: tasksOpen,
+    trigger: tasksTrigger,
+    renderEntry: (count, onPress) => (
+      <JobCenterEntry
+        clientAvailable={client !== undefined}
+        historyOpen={history}
+        count={count}
+        expanded={tasksOpen}
+        trigger={tasksTrigger}
+        onPress={onPress}
+      />
+    ),
+    onOpenChange: setTasksOpen,
+    onOpenHistory: () => setHistory(true),
+    onOpenJob: (card) => {
+      if (card.row.kind === "scan.metadata") {
+        if (sampleOpen)
+          void flow.endSample().then((ended) => {
+            if (ended) flow.startRealAnalysis();
+          });
+        browse.set(undefined);
+        setVisualizationOpen(false);
+        setHistory(false);
+      } else {
+        setHistory(true);
+      }
+    },
+  });
   return (
     <main
       ref={frame}
@@ -256,16 +289,7 @@ export function App({
               visible={Boolean(analysisOpen)}
             />
           )}
-          {analysisOpen && (
-            <Action
-              variant="quiet"
-              icon="history"
-              ref={opener}
-              onPress={() => setHistory(true)}
-            >
-              {text("ui.app.history", "Operation history")}
-            </Action>
-          )}
+          {jobCenter.entry}
         </div>
       </header>
       <LocaleLoadNotice locale={locale} />
@@ -348,6 +372,7 @@ export function App({
         entry={groups}
         display={browseDisplay}
       />
+      {jobCenter.overlay}
       {client && history && (
         <HistorySizeDisplay.Provider value={browseDisplay}>
           <HistoryPanel

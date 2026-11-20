@@ -181,6 +181,8 @@ function fixture({
 } = {}) {
   const listeners = new Set<(event: EventEnvelope) => void>();
   const calls: { name: string; body: unknown }[] = [];
+  let initialCenterList = true;
+  let sharedJobList: Promise<AnalysisJobListRow[]> | undefined;
   const client: AnalysisClient = {
     call: (async (name: string, body: unknown) => {
       calls.push({ name, body });
@@ -237,8 +239,26 @@ function fixture({
             resultVersion: "result",
             reasonKey: null,
           });
-        case "job.list":
-          return listJobs?.() ?? [];
+        case "job.list": {
+          // The app-level Job Center starts before a scan exists. Return its empty baseline, then
+          // coalesce concurrent resync reads from the Job Center and scan watcher for this fixture.
+          if (initialCenterList) {
+            initialCenterList = false;
+            return [];
+          }
+          if (sharedJobList) return sharedJobList;
+          sharedJobList = Promise.resolve(listJobs?.() ?? []);
+          const current = sharedJobList;
+          void current.then(
+            () => {
+              if (sharedJobList === current) sharedJobList = undefined;
+            },
+            () => {
+              if (sharedJobList === current) sharedJobList = undefined;
+            },
+          );
+          return current;
+        }
         case "history.list":
           if (readHistory) return readHistory();
           throw new Error("History unavailable");
@@ -1656,7 +1676,10 @@ test("F21 F24: history and a pinned result recover separately after a shared del
   });
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
-  fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
+  fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "View all task history" }),
+  );
   // The list shows the operation and its end state; the engine's target text is not shown (#170).
   const operation = () =>
     screen

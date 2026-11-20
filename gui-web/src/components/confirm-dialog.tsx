@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { Action } from "./controls";
 import { EnterPolicyProvider, isImeProcessingKey } from "./ime-composition";
@@ -8,6 +8,7 @@ import "../theme/confirm-dialog.css";
 
 const textEntry =
   "input:not([type=checkbox], [type=radio], [type=button], [type=submit], [type=reset])";
+type ActionVariant = NonNullable<ComponentProps<typeof Action>["variant"]>;
 
 /**
  * Asks the user to confirm one consequential choice.
@@ -27,6 +28,8 @@ export function ConfirmDialog({
   children,
   confirmLabel,
   cancelLabel,
+  confirmVariant = "primary",
+  cancelVariant = "secondary",
   onConfirm,
   onCancel,
   isPending = false,
@@ -35,6 +38,10 @@ export function ConfirmDialog({
   children: ReactNode;
   confirmLabel: string;
   cancelLabel: string;
+  /** Button treatment for the confirmed action; defaults to primary. */
+  confirmVariant?: ActionVariant;
+  /** Button treatment for the safe cancel choice; defaults to secondary. */
+  cancelVariant?: ActionVariant;
   onConfirm: () => void;
   onCancel: () => void;
   isPending?: boolean;
@@ -72,22 +79,25 @@ export function ConfirmDialog({
               }
             }}
           >
-            <EnterPolicyProvider value="never">
-              <section className="du-inspection-dialog__body">
-                {children}
-              </section>
-            </EnterPolicyProvider>
+            {children != null && (
+              <EnterPolicyProvider value="never">
+                <section className="du-inspection-dialog__body">
+                  {children}
+                </section>
+              </EnterPolicyProvider>
+            )}
             <footer className="du-confirm-dialog__actions">
               <Action
                 ref={cancel}
                 autoFocus
+                variant={cancelVariant}
                 isDisabled={isPending}
                 onPress={onCancel}
               >
                 {cancelLabel}
               </Action>
               <Action
-                variant="primary"
+                variant={confirmVariant}
                 isDisabled={isPending}
                 onPress={onConfirm}
               >

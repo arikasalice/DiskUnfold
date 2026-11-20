@@ -363,6 +363,18 @@ function Wait-VisibleAction($actionName) {
     if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
   }
 }
+function Wait-TasksEntry {
+  $taskName = Get-UiName 'Tasks'
+  Wait-UI 'Tasks header action in view' {
+    $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object {
+        $name = $_.Current.Name
+        $_.Current.IsEnabled -and -not $_.Current.IsOffscreen -and
+          ($name -eq $taskName -or $name.StartsWith($taskName + ', '))
+      } |
+      Select-Object -First 1
+  }
+}
 # Inspect the UIA viewport before invoking a button, since Invoke can reach clipped controls.
 function Wait-ScopeActionsVisible {
   foreach ($name in @('Cancel selection', 'Review scope', 'Start analysis')) {
@@ -1128,7 +1140,8 @@ function Test-ReplacedScopeRoot {
 }
 # Read the real committed scan history and return to the same pinned analysis.
 function Test-OperationHistory {
-  Invoke-UI (Wait-VisibleAction 'Operation history')
+  Expand-UI (Wait-TasksEntry)
+  Invoke-UI (Wait-VisibleAction 'View all task history')
   $item = Wait-UI 'recorded disk analysis' {
     $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
       Where-Object { $_.Current.IsEnabled -and $_.Current.Name -like 'View details: Disk analysis,*' } |
@@ -2103,7 +2116,24 @@ function Test-CaptureHistory {
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
-  Invoke-UI (Wait-VisibleAction 'Operation history')
+  Expand-UI (Wait-TasksEntry)
+  $null = Wait-UI 'recently finished job section' {
+    Find-UI 'Recently finished' $textType
+  }
+  Save-SmokeCapture '08-job-center-recently-finished'
+  # F24 #289 scene 7 uses the gallery: the small smoke scan finishes before its header count can be captured.
+  Send-SmokeKey 0x1B
+  $focusedTaskEntry = Wait-UI 'job center Escape focus restoration' {
+    $focused = $ae::FocusedElement
+    $taskName = Get-UiName 'Tasks'
+    if (
+      $focused -and
+      ($focused.Current.Name -eq $taskName -or $focused.Current.Name.StartsWith($taskName + ', '))
+    ) { $focused }
+  }
+  "F24 #289 job center focus: $($focusedTaskEntry.Current.Name)"
+  Expand-UI (Wait-TasksEntry)
+  Invoke-UI (Wait-VisibleAction 'View all task history')
   # The row's "View details: <operation>, <time>" button. Its translated template cannot be looked
   # up by its English text (a shorter "{label}: {value}" template matches first), so the button is
   # found by the translated operation name between the colon and the time.
