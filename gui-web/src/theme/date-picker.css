@@ -37,10 +37,11 @@
   min-inline-size: 0;
   min-block-size: inherit;
   padding-inline: 12px;
+  padding-inline-end: 48px;
 }
 
 .du-date-picker__control[data-clearable] .du-date-picker__input {
-  padding-inline-end: 38px;
+  padding-inline-end: 88px;
 }
 
 .du-date-picker__segments {
@@ -87,6 +88,12 @@
   cursor: pointer;
 }
 
+.du-date-picker__input > .du-date-picker__button {
+  position: absolute;
+  inset-inline-end: 12px;
+  margin: 0;
+}
+
 .du-date-picker__button:hover:not([data-disabled]) {
   background: var(--du-hover-surface);
 }
@@ -98,7 +105,7 @@
 
 .du-date-picker__clear {
   position: absolute;
-  inset-inline-end: 80px;
+  inset-inline-end: 52px;
   margin: 0;
   color: var(--du-muted);
   font-size: 20px;
@@ -194,7 +201,7 @@
 
 .du-date-picker__day[data-today]::after {
   position: absolute;
-  inset-block-end: 2px;
+  inset-block-end: 3px;
   inset-inline-start: 50%;
   inline-size: 4px;
   block-size: 4px;
@@ -203,6 +210,11 @@
   box-shadow: 0 0 0 1px var(--du-surface);
   content: "";
   transform: translateX(-50%);
+}
+
+.du-date-picker__day[data-today][data-selected]::after {
+  background: var(--du-accent-text);
+  box-shadow: none;
 }
 
 .du-date-picker__day[data-focus-visible] {

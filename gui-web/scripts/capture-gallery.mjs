@@ -181,6 +181,29 @@ async function drawn(selector, count) {
   return cells();
 }
 
+/* In the page: wait for finite motion to finish, then paint two settled frames. */
+async function settleAnimations() {
+  const nextFrame = () => new Promise(requestAnimationFrame);
+  let quietFrames = 0;
+  for (;;) {
+    const running = document
+      .getAnimations()
+      .filter(
+        (animation) =>
+          animation.playState === "running" &&
+          Number.isFinite(animation.effect?.getComputedTiming().endTime),
+      );
+    if (running.length) {
+      quietFrames = 0;
+      await Promise.allSettled(running.map((animation) => animation.finished));
+      continue;
+    }
+    await nextFrame();
+    quietFrames++;
+    if (quietFrames === 2) return;
+  }
+}
+
 /* In the page: the point of the second location, which is cut in the middle. */
 function cutCell() {
   const cell = document.querySelectorAll(
@@ -272,6 +295,7 @@ async function openDatePickerCalendar(session) {
 
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false) {
+  await session.run(settleAnimations);
   const options = { format: "png" };
   if (!viewport) {
     const { cssContentSize } = await session.send("Page.getLayoutMetrics");
