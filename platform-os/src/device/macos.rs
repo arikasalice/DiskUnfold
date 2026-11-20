@@ -1,7 +1,7 @@
 //! macOS volume and IOKit media observations.
 use super::{
-    DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_DEVICE_NETWORK, OS_QUERY_FAILED, OS_UNSUPPORTED,
-    ProbedDeviceKind,
+    DeviceKind, DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_DEVICE_NETWORK, OS_QUERY_FAILED,
+    OS_UNSUPPORTED,
 };
 use std::{
     ffi::{CStr, CString, c_char, c_void},
@@ -75,36 +75,36 @@ pub fn probe_fd(fd: BorrowedFd<'_>) -> DeviceProbe {
     let mut stats = unsafe { std::mem::zeroed::<libc::statfs>() };
     // SAFETY: stats is writable and fd is an open descriptor supplied by the caller.
     if unsafe { libc::fstatfs(fd.as_raw_fd(), &mut stats) } != 0 {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
     if stats.f_flags & (libc::MNT_LOCAL as u32) == 0 {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_DEVICE_NETWORK));
+        return probe(DeviceKind::Unknown, None, Some(OS_DEVICE_NETWORK));
     }
 
     // SAFETY: fstatfs writes a NUL-terminated mount source into the fixed-size field.
     let source = unsafe { CStr::from_ptr(stats.f_mntfromname.as_ptr()) }.to_bytes();
     let Some(bsd_name) = source.strip_prefix(b"/dev/") else {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     };
     if !bsd_name.starts_with(b"disk")
         || bsd_name.is_empty()
         || !bsd_name.iter().all(u8::is_ascii_alphanumeric)
     {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     }
     let Ok(bsd_name) = CString::new(bsd_name) else {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     };
 
     // SAFETY: bsd_name is NUL-terminated; IOBSDNameMatching returns a matching dictionary.
     let matching = unsafe { IOBSDNameMatching(0, bsd_name.as_ptr()) };
     if matching.is_null() {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
     // SAFETY: the matching dictionary is consumed by IOServiceGetMatchingService.
     let service = unsafe { IOServiceGetMatchingService(0, matching) };
     if service == 0 {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
 
     inspect_media(service)
@@ -113,7 +113,7 @@ pub fn probe_fd(fd: BorrowedFd<'_>) -> DeviceProbe {
 fn inspect_media(service: IoService) -> DeviceProbe {
     let start_kind = match medium_kind(service) {
         Ok(kind) => kind,
-        Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+        Err(()) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
     };
     let mut current = IoObject(service);
     let mut candidate_disk = None;
@@ -125,7 +125,7 @@ fn inspect_media(service: IoService) -> DeviceProbe {
         }
         let candidate = match whole_disk(current.0) {
             Ok(candidate) => candidate,
-            Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+            Err(()) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
         };
         if let Some(candidate) = candidate {
             if candidate_disk
@@ -154,18 +154,18 @@ fn inspect_media(service: IoService) -> DeviceProbe {
         current = IoObject(parent);
     }
     if !chain_complete {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
     if ambiguous {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
     let Some((name, disk_kind)) = candidate_disk else {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     };
     resolved_probe(name, disk_kind, start_kind)
 }
 
-fn whole_disk(entry: IoService) -> Result<Option<(String, ProbedDeviceKind)>, ()> {
+fn whole_disk(entry: IoService) -> Result<Option<(String, DeviceKind)>, ()> {
     if !conforms(entry, IO_MEDIA_CLASS) {
         return Ok(None);
     }
@@ -176,13 +176,13 @@ fn whole_disk(entry: IoService) -> Result<Option<(String, ProbedDeviceKind)>, ()
         return Err(());
     };
     let kind = match medium_kind(entry)? {
-        Some(kind @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)) => kind,
-        None | Some(ProbedDeviceKind::Unknown) => ProbedDeviceKind::Unknown,
+        Some(kind @ (DeviceKind::Ssd | DeviceKind::Hdd)) => kind,
+        None | Some(DeviceKind::Unknown) => DeviceKind::Unknown,
     };
     Ok(Some((name, kind)))
 }
 
-fn inspect_apfs_container(scheme: IoService, start_kind: Option<ProbedDeviceKind>) -> DeviceProbe {
+fn inspect_apfs_container(scheme: IoService, start_kind: Option<DeviceKind>) -> DeviceProbe {
     let mut iterator = 0;
     // APFS exposes each physical store as a parent IOMedia of its container scheme.
     // SAFETY: iterator is writable and scheme is a retained registry object.
@@ -190,7 +190,7 @@ fn inspect_apfs_container(scheme: IoService, start_kind: Option<ProbedDeviceKind
         != 0
         || iterator == 0
     {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
     let iterator = IoObject(iterator);
     let mut stores = Vec::new();
@@ -203,30 +203,26 @@ fn inspect_apfs_container(scheme: IoService, start_kind: Option<ProbedDeviceKind
         if !conforms(store, IO_MEDIA_CLASS) {
             // SAFETY: IOIteratorNext returned an owned object.
             unsafe { IOObjectRelease(store) };
-            return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+            return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
         }
         stores.push(IoObject(store));
         if stores.len() > 1 {
-            return probe(
-                ProbedDeviceKind::Unknown,
-                None,
-                Some(OS_DEVICE_MULTIPLE_DISKS),
-            );
+            return probe(DeviceKind::Unknown, None, Some(OS_DEVICE_MULTIPLE_DISKS));
         }
     }
     let Some(store) = stores.into_iter().next() else {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     };
     let (name, disk_kind) = match physical_whole_disk(store) {
         Ok(Some(disk)) => disk,
         Ok(None) | Err(()) => {
-            return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+            return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
         }
     };
     resolved_probe(name, disk_kind, start_kind)
 }
 
-fn physical_whole_disk(mut current: IoObject) -> Result<Option<(String, ProbedDeviceKind)>, ()> {
+fn physical_whole_disk(mut current: IoObject) -> Result<Option<(String, DeviceKind)>, ()> {
     let mut chain_complete = false;
     for _ in 0..128 {
         if let Some(disk) = whole_disk(current.0)? {
@@ -254,21 +250,19 @@ fn conforms(entry: IoService, class_name: &CStr) -> bool {
 
 fn resolved_probe(
     name: String,
-    disk_kind: ProbedDeviceKind,
-    volume_kind: Option<ProbedDeviceKind>,
+    disk_kind: DeviceKind,
+    volume_kind: Option<DeviceKind>,
 ) -> DeviceProbe {
     let kind = match (volume_kind, disk_kind) {
-        (_, ProbedDeviceKind::Unknown) => ProbedDeviceKind::Unknown,
-        (Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)), disk)
-            if volume != disk =>
-        {
-            ProbedDeviceKind::Unknown
+        (_, DeviceKind::Unknown) => DeviceKind::Unknown,
+        (Some(volume @ (DeviceKind::Ssd | DeviceKind::Hdd)), disk) if volume != disk => {
+            DeviceKind::Unknown
         }
-        (Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)), _) => volume,
+        (Some(volume @ (DeviceKind::Ssd | DeviceKind::Hdd)), _) => volume,
         (_, disk) => disk,
     };
     let key = format!("macos:disk:{name}").into_bytes();
-    let reason = (kind == ProbedDeviceKind::Unknown).then_some(OS_QUERY_FAILED);
+    let reason = (kind == DeviceKind::Unknown).then_some(OS_QUERY_FAILED);
     probe(kind, Some(key), reason)
 }
 
@@ -332,7 +326,7 @@ fn property_string(entry: IoService, name: &str) -> Result<Option<String>, ()> {
     cf_string(value.0).map(Some)
 }
 
-fn medium_kind(entry: IoService) -> Result<Option<ProbedDeviceKind>, ()> {
+fn medium_kind(entry: IoService) -> Result<Option<DeviceKind>, ()> {
     let Some(dictionary) = property(
         entry,
         "Device Characteristics",
@@ -360,9 +354,9 @@ fn medium_kind(entry: IoService) -> Result<Option<ProbedDeviceKind>, ()> {
     }
     let medium = cf_string(value)?;
     Ok(Some(match medium.as_str() {
-        "Solid State" => ProbedDeviceKind::Ssd,
-        "Rotational" => ProbedDeviceKind::Hdd,
-        _ => ProbedDeviceKind::Unknown,
+        "Solid State" => DeviceKind::Ssd,
+        "Rotational" => DeviceKind::Hdd,
+        _ => DeviceKind::Unknown,
     }))
 }
 
@@ -390,7 +384,7 @@ fn cf_string(value: CfType) -> Result<String, ()> {
 }
 
 fn probe(
-    kind: ProbedDeviceKind,
+    kind: DeviceKind,
     disk_key: Option<Vec<u8>>,
     reason_key: Option<&'static str>,
 ) -> DeviceProbe {
@@ -410,10 +404,10 @@ mod tests {
     fn unknown_disk_kind_keeps_whole_disk_key() -> Result<(), Box<dyn Error>> {
         let result = resolved_probe(
             "disk0".to_owned(),
-            ProbedDeviceKind::Unknown,
-            Some(ProbedDeviceKind::Ssd),
+            DeviceKind::Unknown,
+            Some(DeviceKind::Ssd),
         );
-        if result.kind != ProbedDeviceKind::Unknown
+        if result.kind != DeviceKind::Unknown
             || result.disk_key.as_deref() != Some(b"macos:disk:disk0")
             || result.reason_key != Some(OS_QUERY_FAILED)
         {

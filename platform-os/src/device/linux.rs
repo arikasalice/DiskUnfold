@@ -1,7 +1,5 @@
 //! Linux sysfs-based storage device observations.
-use super::{
-    DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_QUERY_FAILED, OS_UNSUPPORTED, ProbedDeviceKind,
-};
+use super::{DeviceKind, DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_QUERY_FAILED, OS_UNSUPPORTED};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -25,15 +23,15 @@ where
     F: Fn(&Path) -> io::Result<PathBuf>,
 {
     if major == 0 {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     }
     let entry = sysfs.join("dev/block").join(format!("{major}:{minor}"));
     let device = match resolve(&entry) {
         Ok(path) => path,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+            return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
         }
-        Err(_) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+        Err(_) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
     };
 
     let mut current = device;
@@ -41,11 +39,11 @@ where
     for _ in 0..MAX_SLAVE_DEPTH {
         let whole = match whole_disk(&current) {
             Ok(path) => path,
-            Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+            Err(()) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
         };
         let slaves = match slave_entries(&whole) {
             Ok(entries) => entries,
-            Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+            Err(()) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
         };
         match slaves.as_slice() {
             [] => {
@@ -54,28 +52,24 @@ where
             }
             [slave] => match resolve(slave) {
                 Ok(device) => current = device,
-                Err(_) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+                Err(_) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
             },
             _ => {
-                return probe(
-                    ProbedDeviceKind::Unknown,
-                    None,
-                    Some(OS_DEVICE_MULTIPLE_DISKS),
-                );
+                return probe(DeviceKind::Unknown, None, Some(OS_DEVICE_MULTIPLE_DISKS));
             }
         }
     }
     let Some(whole) = physical_disk else {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     };
 
     let kind = match fs::read_to_string(whole.join("queue/rotational")) {
-        Ok(value) if value.trim() == "0" => ProbedDeviceKind::Ssd,
-        Ok(value) if value.trim() == "1" => ProbedDeviceKind::Hdd,
-        _ => ProbedDeviceKind::Unknown,
+        Ok(value) if value.trim() == "0" => DeviceKind::Ssd,
+        Ok(value) if value.trim() == "1" => DeviceKind::Hdd,
+        _ => DeviceKind::Unknown,
     };
     let disk_key = read_disk_key(&whole).ok();
-    let reason = if kind == ProbedDeviceKind::Unknown || disk_key.is_none() {
+    let reason = if kind == DeviceKind::Unknown || disk_key.is_none() {
         Some(OS_QUERY_FAILED)
     } else {
         None
@@ -110,7 +104,7 @@ fn read_disk_key(device: &Path) -> Result<Vec<u8>, ()> {
 }
 
 fn probe(
-    kind: ProbedDeviceKind,
+    kind: DeviceKind,
     disk_key: Option<Vec<u8>>,
     reason_key: Option<&'static str>,
 ) -> DeviceProbe {
@@ -188,7 +182,7 @@ mod tests {
 
     fn expect(
         probe: &DeviceProbe,
-        kind: ProbedDeviceKind,
+        kind: DeviceKind,
         disk_key: Option<&[u8]>,
         reason: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
@@ -208,7 +202,7 @@ mod tests {
         fixture.route(&route, &partition);
         expect(
             &fixture.probe(8, 1),
-            ProbedDeviceKind::Ssd,
+            DeviceKind::Ssd,
             Some(b"linux:blk:8:0"),
             None,
         )
@@ -222,7 +216,7 @@ mod tests {
         fixture.route(&fixture.root_route(8, 17), &partition);
         expect(
             &fixture.probe(8, 17),
-            ProbedDeviceKind::Hdd,
+            DeviceKind::Hdd,
             Some(b"linux:blk:8:16"),
             None,
         )
@@ -235,7 +229,7 @@ mod tests {
         fixture.route(&fixture.root_route(259, 0), &disk);
         expect(
             &fixture.probe(259, 0),
-            ProbedDeviceKind::Ssd,
+            DeviceKind::Ssd,
             Some(b"linux:blk:259:0"),
             None,
         )
@@ -256,7 +250,7 @@ mod tests {
         fixture.route(&second, &disk_b);
         expect(
             &fixture.probe(253, 0),
-            ProbedDeviceKind::Unknown,
+            DeviceKind::Unknown,
             None,
             Some(OS_DEVICE_MULTIPLE_DISKS),
         )
@@ -273,7 +267,7 @@ mod tests {
         fixture.route(&slave, &disk);
         expect(
             &fixture.probe(253, 1),
-            ProbedDeviceKind::Ssd,
+            DeviceKind::Ssd,
             Some(b"linux:blk:259:0"),
             None,
         )
@@ -295,7 +289,7 @@ mod tests {
         fixture.route(&crypt_slave, &partition);
         expect(
             &fixture.probe(253, 0),
-            ProbedDeviceKind::Hdd,
+            DeviceKind::Hdd,
             Some(b"linux:blk:8:0"),
             None,
         )
@@ -306,7 +300,7 @@ mod tests {
         let fixture = Fixture::new()?;
         expect(
             &fixture.probe(8, 99),
-            ProbedDeviceKind::Unknown,
+            DeviceKind::Unknown,
             None,
             Some(OS_UNSUPPORTED),
         )
@@ -320,7 +314,7 @@ mod tests {
         fixture.route(&fixture.root_route(8, 32), &disk);
         expect(
             &fixture.probe(8, 32),
-            ProbedDeviceKind::Unknown,
+            DeviceKind::Unknown,
             Some(b"linux:blk:8:32"),
             Some(OS_QUERY_FAILED),
         )
@@ -331,7 +325,7 @@ mod tests {
         let fixture = Fixture::new()?;
         expect(
             &probe_dev_in(&fixture.sysfs, 0, 42),
-            ProbedDeviceKind::Unknown,
+            DeviceKind::Unknown,
             None,
             Some(OS_UNSUPPORTED),
         )

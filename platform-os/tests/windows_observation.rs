@@ -3,6 +3,7 @@ use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{
     AnchoredDirectory, DirectoryObservations, ObservedKind, ScopeRootPort,
 };
+use du_core_contracts::volume::CapabilityState;
 use du_platform_os::windows_observation::{WindowsScopeRoots, open_verified};
 use std::{
     fs,
@@ -30,6 +31,33 @@ fn entries(
         }
         result.extend(batch);
     }
+}
+
+#[test]
+fn windows_scope_root_reports_device_probe() -> Result<(), Box<dyn std::error::Error>> {
+    let temporary = tempfile::tempdir()?;
+    let path: Vec<u8> = temporary
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let root = WindowsScopeRoots
+        .open_root(&path)
+        .map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+    let device = root.directory.device();
+    eprintln!("Windows scope-root device: {device:?}");
+    if device.kind_capability.state != CapabilityState::Supported {
+        return Err(std::io::Error::other("scope-root device kind was not detected").into());
+    }
+    if !device
+        .disk_key
+        .as_deref()
+        .is_some_and(|key| key.starts_with(b"win:disk:"))
+    {
+        return Err(std::io::Error::other("scope-root disk key was missing or malformed").into());
+    }
+    Ok(())
 }
 
 #[test]

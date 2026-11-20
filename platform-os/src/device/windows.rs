@@ -1,7 +1,7 @@
 //! Windows volume-device observations.
 use super::{
-    DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_DEVICE_NETWORK, OS_QUERY_FAILED, OS_UNSUPPORTED,
-    ProbedDeviceKind,
+    DeviceKind, DeviceProbe, OS_DEVICE_MULTIPLE_DISKS, OS_DEVICE_NETWORK, OS_QUERY_FAILED,
+    OS_UNSUPPORTED,
 };
 use std::{
     ffi::c_void,
@@ -33,10 +33,19 @@ use windows::{
 const ERROR_MORE_DATA: u32 = 234;
 const MAX_EXTENTS_BUFFER_BYTES: usize = 1024 * 1024;
 
+pub(crate) fn probe_volume_guid_bytes(guid_bytes: &[u8]) -> DeviceProbe {
+    let (pairs, tail) = guid_bytes.as_chunks::<2>();
+    if !tail.is_empty() {
+        return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
+    }
+    let guid: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
+    probe_volume_guid(&guid)
+}
+
 /// Probes the volume named by a NUL-free volume GUID path, such as `\\?\Volume{...}\`.
 pub fn probe_volume_guid(guid: &[u16]) -> DeviceProbe {
     if guid.is_empty() || guid.contains(&0) {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     }
 
     let mut volume_path = guid.to_vec();
@@ -46,7 +55,7 @@ pub fn probe_volume_guid(guid: &[u16]) -> DeviceProbe {
     volume_path.push(0);
     // SAFETY: volume_path is NUL-terminated and remains alive for this call.
     if unsafe { GetDriveTypeW(PCWSTR(volume_path.as_ptr())) } == DRIVE_REMOTE {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_DEVICE_NETWORK));
+        return probe(DeviceKind::Unknown, None, Some(OS_DEVICE_NETWORK));
     }
 
     volume_path.pop();
@@ -54,7 +63,7 @@ pub fn probe_volume_guid(guid: &[u16]) -> DeviceProbe {
         volume_path.pop();
     }
     if volume_path.is_empty() {
-        return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
+        return probe(DeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
     }
     volume_path.push(0);
     // SAFETY: the NUL-terminated name targets the volume device object, never a user file.
@@ -70,7 +79,7 @@ pub fn probe_volume_guid(guid: &[u16]) -> DeviceProbe {
         )
     } {
         Ok(handle) => handle,
-        Err(_) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+        Err(_) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
     };
     // SAFETY: CreateFileW returned an owned, live handle which File closes on drop.
     let file = unsafe { File::from_raw_handle(handle.0) };
@@ -79,19 +88,15 @@ pub fn probe_volume_guid(guid: &[u16]) -> DeviceProbe {
     match extents {
         Ok(Extents::One(disk_number)) => {
             let disk_key = format!("win:disk:{disk_number}").into_bytes();
-            let reason = (kind == ProbedDeviceKind::Unknown).then_some(OS_QUERY_FAILED);
+            let reason = (kind == DeviceKind::Unknown).then_some(OS_QUERY_FAILED);
             probe(kind, Some(disk_key), reason)
         }
-        Ok(Extents::Multiple) => probe(
-            ProbedDeviceKind::Unknown,
-            None,
-            Some(OS_DEVICE_MULTIPLE_DISKS),
-        ),
+        Ok(Extents::Multiple) => probe(DeviceKind::Unknown, None, Some(OS_DEVICE_MULTIPLE_DISKS)),
         Err(()) => probe(kind, None, Some(OS_QUERY_FAILED)),
     }
 }
 
-fn query_kind(file: &File) -> ProbedDeviceKind {
+fn query_kind(file: &File) -> DeviceKind {
     let query = STORAGE_PROPERTY_QUERY {
         PropertyId: StorageDeviceSeekPenaltyProperty,
         QueryType: PropertyStandardQuery,
@@ -113,11 +118,11 @@ fn query_kind(file: &File) -> ProbedDeviceKind {
         )
     };
     if result.is_err() || returned < size_of::<DEVICE_SEEK_PENALTY_DESCRIPTOR>() as u32 {
-        ProbedDeviceKind::Unknown
+        DeviceKind::Unknown
     } else if descriptor.IncursSeekPenalty {
-        ProbedDeviceKind::Hdd
+        DeviceKind::Hdd
     } else {
-        ProbedDeviceKind::Ssd
+        DeviceKind::Ssd
     }
 }
 
@@ -193,7 +198,7 @@ fn parse_extents(buffer: &[u64], returned: usize) -> Result<Extents, ()> {
 }
 
 fn probe(
-    kind: ProbedDeviceKind,
+    kind: DeviceKind,
     disk_key: Option<Vec<u8>>,
     reason_key: Option<&'static str>,
 ) -> DeviceProbe {
