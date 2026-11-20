@@ -204,8 +204,8 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
         VolumeTargetKind::NetworkMount => TargetKind::NetworkMount,
         VolumeTargetKind::FolderMount => TargetKind::FolderMount,
     });
-    let path = crate::scope::windows_path(&OsPath {
-        encoding: PathEncoding::WindowsUtf16le,
+    let path = crate::scope::native_path(&OsPath {
+        encoding: mount_path_encoding(),
         raw: PathBytes::from_bytes(&mount.mount_path),
         display: mount.display_path,
         lossy: false,
@@ -230,6 +230,17 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
         access: TargetAccess::Unknown,
         reason_key: None,
     })
+}
+
+/// The native encoding of the mount paths that this platform's volume adapter reports:
+/// UTF-16LE code units on Windows and raw bytes on macOS and Linux (#253). Reading the
+/// UTF-8 bytes of a macOS volume as UTF-16 showed its name as unrelated CJK characters.
+fn mount_path_encoding() -> PathEncoding {
+    if cfg!(windows) {
+        PathEncoding::WindowsUtf16le
+    } else {
+        PathEncoding::Unix
+    }
 }
 
 #[cfg(test)]
