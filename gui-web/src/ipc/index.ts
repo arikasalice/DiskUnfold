@@ -132,6 +132,7 @@ export type {
   AnalysisJobListRow,
   AnalysisJobProgress,
   AnalysisJobStatus,
+  AnalysisJobTerminal,
   ScanLane,
   ScanLaneStatus,
   ScanLaneWait,

@@ -439,10 +439,12 @@ test("history is a separate screen and closing returns focus", async () => {
     subscribe: () => () => {},
   } as unknown as AnalysisClient;
   render(<App analysis={client} />);
-  const open = screen.getByRole("button", { name: "Operation history" });
+  const open = screen.getByRole("button", { name: "Tasks" });
   open.focus();
-  fireEvent.keyDown(open, { key: "Enter", code: "Enter" });
-  fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
+  fireEvent.click(open);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "View all task history" }),
+  );
   await screen.findByText("No operations recorded yet.");
   // #216: the screen opens on its title, not on the action that leaves it.
   expect(document.activeElement).toBe(
@@ -451,7 +453,7 @@ test("history is a separate screen and closing returns focus", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   await waitFor(() =>
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Operation history" }),
+      screen.getByRole("button", { name: "Tasks" }),
     ),
   );
 });

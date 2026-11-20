@@ -14,6 +14,8 @@ import {
   Info,
   Languages,
   Layers3,
+  Pause,
+  Play,
   RefreshCw,
   ScanLine,
   TriangleAlert,
@@ -43,6 +45,9 @@ const icons = {
   layers: Layers3,
   refresh: RefreshCw,
   scan: ScanLine,
+  pause: Pause,
+  resume: Play,
+  cancel: CircleX,
   success: CircleCheck,
   warning: TriangleAlert,
 };
@@ -100,22 +105,37 @@ export function Heading({
   );
 }
 
+/** Text uses a paragraph by default; `inline` fits a label into a layout line. */
 export function Text({
   children,
   kind = "body",
   focusable = false,
+  inline = false,
+  className,
 }: {
   children: ReactNode;
   kind?: "body" | "muted" | "eyebrow" | "path";
   focusable?: boolean;
+  inline?: boolean;
+  className?: string;
 }) {
+  const Tag = inline ? "span" : "p";
   return (
-    <p
-      className={`du-text du-text--${kind}`}
+    <Tag
+      className={`du-text du-text--${kind}${className ? ` ${className}` : ""}`}
       tabIndex={focusable ? 0 : undefined}
     >
       {children}
-    </p>
+    </Tag>
+  );
+}
+
+/** A small, neutral count used as a decorative addition to an action label. */
+export function CountPill({ count }: { count: number }) {
+  return (
+    <span className="du-app-header__count" aria-hidden="true">
+      {count}
+    </span>
   );
 }
 

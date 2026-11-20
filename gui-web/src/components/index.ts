@@ -9,6 +9,7 @@ export {
 } from "./controls";
 export {
   BrandMark,
+  CountPill,
   Heading,
   Icon,
   LiveStatus,
