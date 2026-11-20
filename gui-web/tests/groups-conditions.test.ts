@@ -47,6 +47,27 @@ test("#267: on macOS and Linux a name is encoded as UTF-8 bytes like a typed pat
     expect(decodeNameOperand("_w", "bytes")).toBeUndefined();
     // The same operand reads by its own encoding, whatever the host is now.
     expect(decodeNameOperand("bQBwADQA", "windows_utf16le")).toBe("mp4");
+    // The editor takes only the host's own encoding; a Windows operand stays
+    // read-only so saving cannot re-encode it.
+    const bytesName: QueryCondition = {
+      kind: "predicate",
+      predicate: { kind: "name", op: "equal", encoding: "bytes", value: "YQ" },
+    };
+    expect(draftFromRule(ruleWith(bytesName), "iec", "k").readOnly).toBe(
+      undefined,
+    );
+    const windowsName: QueryCondition = {
+      kind: "predicate",
+      predicate: {
+        kind: "name",
+        op: "equal",
+        encoding: "windows_utf16le",
+        value: "YQA",
+      },
+    };
+    const draft = draftFromRule(ruleWith(windowsName), "iec", "k");
+    expect(draft.readOnly).toBe("unsupported");
+    expect(toRuleDraft(draft, "iec").condition).toBe(windowsName);
   } finally {
     delete host.webkit;
   }

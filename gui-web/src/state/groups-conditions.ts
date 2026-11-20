@@ -148,7 +148,12 @@ function rowFromPredicate(
   if (predicate.kind === "type")
     return { kind: "type", value: predicate.value };
   if (predicate.kind === "name") {
-    const text = decodeNameOperand(predicate.value, predicate.encoding);
+    // Only an operand in the host's own encoding is editable: saving re-encodes
+    // the text that way, so any other operand stays read-only and unchanged.
+    const text =
+      predicate.encoding === encodeNameOperand("").encoding
+        ? decodeNameOperand(predicate.value, predicate.encoding)
+        : undefined;
     return text === undefined
       ? undefined
       : { kind: "name", op: predicate.op, text };
