@@ -219,7 +219,7 @@ test("F01 FR8: lists records in server order, opens only the selected reference,
   ]);
   expect(screen.getByText("C:\\archive\\one\\cache")).toBeDefined();
   expect(screen.getByText("*.tmp")).toBeDefined();
-  expect(screen.getByText("Stay within each current volume")).toBeDefined();
+  expect(screen.getByText("Stay within each current drive")).toBeDefined();
   expect(screen.getByText("E:\\mount")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Use this scope" }));
   expect(onApply).toHaveBeenCalledWith(draft, review());
@@ -262,7 +262,7 @@ test("F01 FR8: refuses apply when review is null or any target is unresolved", a
   );
   fireEvent.click(screen.getByRole("button", { name: "Review scope 1" }));
   await screen.findByText("Location moved");
-  expect(screen.getByText("Current volume entry:")).toBeDefined();
+  expect(screen.getByText("Current drive entry:")).toBeDefined();
   expect(screen.getByText("C:\\")).toBeDefined();
   expect(
     screen.getByRole("button", { name: "Choose a path again" }),

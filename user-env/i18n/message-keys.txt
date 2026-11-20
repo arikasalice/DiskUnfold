@@ -485,6 +485,7 @@ ui.analysis.included_locations
 ui.analysis.none
 ui.analysis.volume_boundary
 ui.analysis.stay_within_current_volume
+ui.analysis.stay_within_current_volume.unix
 ui.analysis.include_mounted_volumes
 ui.analysis.current_path_status
 ui.analysis.recent_paths_access_unreviewed
@@ -492,6 +493,7 @@ ui.analysis.check_paths_again
 ui.analysis.recent_editor_scope_changed
 ui.analysis.recent_unresolved_paths count:count total:count
 ui.analysis.current_volume_entry
+ui.analysis.current_volume_entry.unix
 ui.analysis.replace_current_scope
 ui.analysis.replace_scope_confirmation
 ui.analysis.keep_editing
