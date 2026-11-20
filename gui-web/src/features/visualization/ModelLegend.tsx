@@ -1,6 +1,6 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { ChartLegend, Text } from "../../components";
+import { Action, ChartLegend, Text } from "../../components";
 import type { GeometryRendererProps, LegendEntry } from "../../components";
 import { hasClosedFolders, vizMessage } from "../../viz";
 import type { ModelResponse, VizText } from "../../viz";
@@ -55,6 +55,38 @@ export function useClassChoice(
     [selected, shapes],
   );
   return { selected, choose: setChosen, shapes: drawn };
+}
+
+/**
+ * The class chosen in the legend as a chip on the status line, "Type: Videos ×"
+ * (README 5): it stays in view when the legend is scrolled away, and pressing
+ * it lets go of the class. Nothing when no class is chosen.
+ */
+export function ClassChip({
+  entries,
+  selected,
+  onClear,
+  text,
+}: {
+  entries: readonly LegendEntry[];
+  selected: string | null;
+  onClear: () => void;
+  text: VizText;
+}) {
+  const entry = entries.find((candidate) => candidate.key === selected);
+  if (!entry) return null;
+  const label = vizMessage(text, "legendChip", {
+    criterion: text.message("colorType"),
+    name: entry.label,
+  });
+  return (
+    <Action
+      onPress={onClear}
+      aria-label={vizMessage(text, "legendChipClear", { name: label })}
+    >
+      {`${label} ×`}
+    </Action>
+  );
 }
 
 /** The legend of a model, under its colour criterion choice (F06 README 5, 44). */

@@ -427,11 +427,20 @@ const HEADER_PLACE = 18;
  * of a name (its extension) stays: "notes.bin" in 6 reads "no…bin" (F06 design
  * README section 7). A grapheme cluster is never split.
  */
+/** A shortened name that keeps fewer leading characters than this is not drawn. */
+const KEPT_HEAD = 3;
+
+/**
+ * The text shortened in the middle to `limit` characters, or "" when it would
+ * keep fewer than three of its first characters: "R…ME" cannot be recognised,
+ * so no label is better (F06 README 43, 44).
+ */
 function shorten(text: string, limit: number) {
   const characters = graphemes(text);
   if (characters.length <= limit) return text;
   const kept = Math.max(1, limit - 1);
   const tail = Math.ceil(kept / 2);
+  if (kept - tail < KEPT_HEAD) return "";
   return (
     characters.slice(0, kept - tail).join("") +
     "…" +
@@ -549,17 +558,29 @@ function rectangleLabel(
   const available = Math.min(end.x, width) - left;
   // The header band of a folder: 20 px high, 12 px text 4 px from the left, centred.
   if (shape.container)
-    return available < 70 || start.y < 0 ? null : (
-      <text className="du-geometry-header" x={left + 4} y={top + 10}>
-        {fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12)))}
-      </text>
-    );
+    return available < 70 || start.y < 0
+      ? null
+      : labelText(
+          "du-geometry-header",
+          left + 4,
+          top + 10,
+          fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12))),
+        );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const visible = fitLabel(shape, limit);
-  return (
-    <text className="du-geometry-label" x={left + 12} y={top + 24}>
-      {visible}
+  return labelText(
+    "du-geometry-label",
+    left + 12,
+    top + 24,
+    fitLabel(shape, limit),
+  );
+}
+
+/** A drawn label, or nothing for a label that could not be kept. */
+function labelText(className: string, x: number, y: number, label: string) {
+  return label === "" ? null : (
+    <text className={className} x={x} y={y}>
+      {label}
     </text>
   );
 }

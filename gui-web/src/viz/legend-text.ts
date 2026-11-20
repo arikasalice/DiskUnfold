@@ -1,5 +1,5 @@
 import type { LegendEntry } from "../components";
-import type { VizModel } from "../ipc";
+import type { VizModel, VizQuantity } from "../ipc";
 import { FOLDER_CLASS, coloredByClass, legendLook } from "./legend-style";
 import { legendClassName } from "./model-text";
 import type { VizText } from "./model-text";
@@ -33,9 +33,19 @@ export function legendEntries(model: VizModel, text: VizText): LegendEntry[] {
       key: entry.key,
       label: legendClassName(model, entry.key, text),
       count: text.quantity(entry.itemCount),
-      total: text.quantity(entry.total.quantity),
+      total: classTotal(entry.total.quantity, text),
       ...legendLook(entry.key, order),
     }));
+}
+
+/**
+ * A class total; a lower bound of nothing counted says it is unavailable
+ * rather than "at least 0" (#220).
+ */
+function classTotal(total: VizQuantity, text: VizText) {
+  return total.state === "lower_bound" && total.value === "0"
+    ? text.message("unavailableValue")
+    : text.quantity(total);
 }
 
 /**

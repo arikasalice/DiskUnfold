@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SegmentedChoice } from "../components";
+import { SegmentedChoice, Text } from "../components";
 import type { VizCatalog } from "../ipc";
 import { TYPE_CRITERION } from "../viz";
 import type { VisualizationViewRequest, VizText } from "../viz";
@@ -44,15 +44,19 @@ export function useLegendChoice(
     colorCriterion: criterion === TYPE_CRITERION ? TYPE_CRITERION : NONE,
     controls: {
       criterion: (
-        <SegmentedChoice
-          label={text.message("colorBy")}
-          value={criterion}
-          onChange={setCriterion}
-          options={[
-            { value: NONE, label: text.message("colorNone") },
-            { value: TYPE_CRITERION, label: text.message("colorType") },
-          ]}
-        />
+        // A visible name says what "None" turns off (README 44.1).
+        <>
+          <Text kind="muted">{text.message("colorBy")}</Text>
+          <SegmentedChoice
+            label={text.message("colorBy")}
+            value={criterion}
+            onChange={setCriterion}
+            options={[
+              { value: NONE, label: text.message("colorNone") },
+              { value: TYPE_CRITERION, label: text.message("colorType") },
+            ]}
+          />
+        </>
       ),
       patterns,
       onPatterns: setPatterns,

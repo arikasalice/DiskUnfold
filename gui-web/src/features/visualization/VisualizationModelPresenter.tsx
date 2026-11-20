@@ -28,7 +28,12 @@ import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
 import { useChartOffset } from "./chart-area";
-import { ModelLegend, useAutoPatterns, useClassChoice } from "./ModelLegend";
+import {
+  ClassChip,
+  ModelLegend,
+  useAutoPatterns,
+  useClassChoice,
+} from "./ModelLegend";
 import type { LegendControls } from "./ModelLegend";
 
 const defaultChartRenderer = createChartRenderers([
@@ -161,6 +166,12 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       <div ref={contextRef}>
         <div className="du-review-context">
           <ModelStatus frame={frame} text={text} />
+          <ClassChip
+            entries={entries}
+            selected={classes.selected}
+            onClear={() => classes.choose(null)}
+            text={text}
+          />
           {props.statusAction && (
             <div className="du-review-context__end">{props.statusAction}</div>
           )}

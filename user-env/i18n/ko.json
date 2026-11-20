@@ -921,6 +921,8 @@
     ["ui.visualization.colorType","유형",[]],
     ["ui.visualization.legendPatterns","무늬로 구분",[]],
     ["ui.visualization.legendPatternsForced","고대비에서는 항상 무늬로 구분합니다",[]],
+    ["ui.visualization.legendChip","{criterion}: {name}",[["criterion","criterion"],["name","name"]]],
+    ["ui.visualization.legendChipClear","{name} 선택 풀기",[["name","name"]]],
     ["ui.visualization.legendLess","분류 접기",[]],
     ["ui.visualization.legendFolderNote","폴더 안 항목은 펼치면 유형별로 보입니다",[]],
     ["ui.visualization.legendMore",{"kind":"plural","parameter":"count","variants":{"other":"분류 {count}개 더 보기"}},[["count","count"]]],

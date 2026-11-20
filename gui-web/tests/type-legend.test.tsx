@@ -152,6 +152,29 @@ test("F06 README 4.7: choosing a class in the legend fades the shapes of the oth
     container.querySelectorAll(".du-geometry-shape"),
   ).map((shape) => shape.hasAttribute("data-dimmed"));
   expect(dimmed).toEqual([true, false, true, true]);
+  // The choice shows as a chip on the status line, which lets go of it.
+  const chipName = `${say("colorType")}: ${say("legend.type.video")}`;
+  const chip = screen.getByRole("button", {
+    name: say("legendChipClear").replace("{name}", chipName),
+  });
+  expect(chip.textContent).toBe(`${chipName} ×`);
+  act(() => {
+    fireEvent.click(chip);
+  });
+  expect(container.querySelector(".du-geometry-shape[data-dimmed]")).toBeNull();
+});
+
+test("F06 README 44 (#220): a class total that counted nothing is unavailable, not at least zero", () => {
+  const input = typed();
+  input.frame.model.legend[2]!.total = {
+    quantity: { unit: "bytes", state: "lower_bound", value: "0" },
+    sourceSize: null,
+  };
+  presenter(input);
+  const legend = screen.getByRole("listbox", { name: say("legendTitle") });
+  const other = within(legend).getAllByRole("option")[2]!;
+  expect(other.textContent).toContain(say("unavailableValue"));
+  expect(other.textContent).not.toContain("0");
 });
 
 const catalog = (colorCriteria: string[]): VizCatalog => ({
