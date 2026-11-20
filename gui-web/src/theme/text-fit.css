@@ -62,6 +62,22 @@
   flex: none;
 }
 
+/* "…" and the tail are wider than the line: the head gives way to the "…"
+   that the tail starts with. */
+.du-middle[data-head-hidden] > .du-middle__head {
+  display: none;
+}
+
+/* Measures the tail's text in the same font; never seen or laid out in the line. */
+.du-middle__ruler {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+
 /* The copies of the text are not selectable, so a selection copies the path once. */
 .du-fit .du-visually-hidden,
 .du-fit__full {

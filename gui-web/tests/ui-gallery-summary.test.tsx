@@ -59,7 +59,7 @@ test("the gallery draws the history item results with the product's table and a 
     historyLocations.short,
     historyLocations.long,
   ]);
-  expect(heard).toHaveLength(3);
+  expect(heard).toHaveLength(4);
   expect(
     screen
       .getByRole("region", { name: "표 밖 단독 값" })

@@ -11,11 +11,16 @@ import type {
  * where the location cell can be seen. Never imported by the product entry.
  */
 
-/** The three locations the design asked for: short, cut in the middle, edge space. */
+/**
+ * The locations the design asked for: short, cut in the middle, edge space,
+ * and a file name longer than the cell at 700 px.
+ */
 export const historyLocations = {
-  short: "C:\\Users\\민서\\문서\\보고서.docx",
+  short: "C:\\Users\\민서\\보고서.docx",
   long: "C:\\Users\\민서\\문서\\프로젝트\\2026 상반기 사업 보고서\\최종 검토본 모음\\부록 자료와 원본 데이터\\설문 응답 정리본.xlsx",
   edge: "C:\\Users\\민서\\문서\\회의록.txt ",
+  longName:
+    "C:\\Users\\민서\\문서\\2026년 상반기 고객 설문 응답 원본 정리본.xlsx",
 };
 
 /** A value outside a table whose last component alone is wider than its line. */
@@ -46,6 +51,7 @@ const rows = [
   row("1", historyLocations.short, "completed", "48213"),
   row("2", historyLocations.long, "completed", "1048576"),
   row("3", historyLocations.edge, "skipped", "912"),
+  row("4", historyLocations.longName, "completed", "2097152"),
 ];
 
 /** Answers the item results read; nothing reaches an engine. */
@@ -60,9 +66,9 @@ export const historyClient: AnalysisClient = {
       (item) => !body.outcome || item.result?.outcome === body.outcome,
     );
     const page: HistoryItemsResponse = {
-      revision: { deleteGeneration: "0", maxRecordSeq: "3" },
+      revision: { deleteGeneration: "0", maxRecordSeq: "4" },
       rows: shown,
-      counts: { summary: "3", recorded: "3", unavailable: "0" },
+      counts: { summary: "4", recorded: "4", unavailable: "0" },
       completeness: "complete",
       missingReasons: [],
       nextCursor: null,

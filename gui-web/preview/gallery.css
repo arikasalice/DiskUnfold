@@ -78,3 +78,7 @@
   border: 1px solid var(--du-border);
   border-radius: 6px;
 }
+/* The gallery shows every fixed item row at once; the product keeps its height limit. */
+.du-gallery .du-history-item-results .du-table-viewport {
+  max-block-size: none;
+}

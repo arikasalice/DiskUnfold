@@ -125,11 +125,11 @@ async function page(port) {
   return { send, once, run, close: () => socket.close() };
 }
 
-/* In the page: waits for the three location cells, the fonts and two frames. */
+/* In the page: waits for the four location cells, the fonts and two frames. */
 async function drawn() {
   const cells = () =>
     document.querySelectorAll(".du-history-item-location").length;
-  for (let tries = 0; tries < 200 && cells() < 3; tries++)
+  for (let tries = 0; tries < 200 && cells() < 4; tries++)
     await new Promise((done) => setTimeout(done, 50));
   await document.fonts.ready;
   await new Promise((done) =>
@@ -168,7 +168,7 @@ async function open(session, base, theme, width) {
     url: base + "?surface=history&theme=" + theme,
   });
   await loaded;
-  if ((await session.run(drawn)) !== 3)
+  if ((await session.run(drawn)) !== 4)
     throw new Error("The history item results were not drawn");
 }
 

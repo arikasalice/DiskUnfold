@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { graphemes } from "./graphemes";
 import { isImeProcessingKey } from "./ime-composition";
+import { ELLIPSIS, drawnParts, isSeparator, useFittedLine } from "./line-fit";
 import { NAME_SPACE_MARK, pathNameEdges } from "./name-edges";
 import { NameText, hasPathSeparator } from "./name-text";
 import "../theme/text-fit.css";
@@ -13,10 +14,6 @@ const MIDDLE_TAIL_LIMIT = 16;
 const TAIL_NAME_LIMIT = 32;
 /** The tail also keeps the parent folder while it stays within this many characters. */
 const TAIL_FOLDER_BUDGET = 24;
-
-function isSeparator(unit: string | undefined): boolean {
-  return unit === "/" || unit === "\\";
-}
 
 /**
  * Where the tail of a path starts: at the separator before the last component,
@@ -266,27 +263,6 @@ export function splitForMiddleEllipsis(text: string): {
   };
 }
 
-/**
- * Splits the tail of a middle ellipsis into the part that may shrink and the
- * end that stays, so a last component wider than the line keeps its extension
- * (or its last characters) and loses characters in its middle instead.
- */
-function splitTailEnd(tail: string): { name: string; end: string } {
-  const units = graphemes(tail);
-  let component = units.length;
-  while (component > 0 && !isSeparator(units[component - 1])) component -= 1;
-  const dot = units.lastIndexOf(".");
-  const extension =
-    dot > component && units.length - dot <= 12 ? dot : undefined;
-  const start =
-    extension ??
-    units.length - Math.min(6, Math.floor((units.length - component) / 3));
-  return {
-    name: units.slice(0, start).join(""),
-    end: units.slice(start).join(""),
-  };
-}
-
 /** UTF-16 ranges of the edge white space of a path's last component. */
 function edgeRanges(text: string): [number, number][] {
   const { head, name } = pathNameEdges(text);
@@ -346,6 +322,9 @@ function marked(
  * With `cell`, for a table cell, a cut text takes no tab stop: the row's own
  * details give keyboard users the full value (F02 README #170).
  *
+ * When the tail alone is wider than the line, the head is hidden and the line
+ * reads "…" and the tail, with the name cut by whole characters.
+ *
  * The container takes its direction from the whole text (`dir="auto"`) and
  * both parts are bidi isolates that inherit it, so the two flex items stand in
  * the order of the unsplit text and a right-to-left name does not swap sides.
@@ -361,10 +340,14 @@ export function MiddleEllipsisText({
   const head = useRef<HTMLSpanElement>(null);
   const tail = useRef<HTMLSpanElement>(null);
   const tailName = useRef<HTMLSpanElement>(null);
+  const line = useRef<HTMLSpanElement>(null);
+  const ruler = useRef<HTMLSpanElement>(null);
   const refs = useRef([head, tail, tailName]).current;
-  const cut = useOverflow(refs, text);
+  const overflowing = useOverflow(refs, text);
   const parts = splitForMiddleEllipsis(text);
-  const tailParts = splitTailEnd(parts.tail);
+  const fitted = useFittedLine(line, ruler, text, parts.head, parts.tail);
+  const cut = overflowing || fitted !== undefined;
+  const drawn = drawnParts(parts.head, parts.tail, fitted);
   const ranges = edgeRanges(text);
   const path = hasPathSeparator(text);
   return (
@@ -376,22 +359,27 @@ export function MiddleEllipsisText({
       wholeCopy
       focusable={!cell}
     >
-      <span className="du-middle" dir="auto">
+      <span
+        ref={line}
+        className="du-middle"
+        dir="auto"
+        data-head-hidden={drawn.headHidden || undefined}
+      >
         <span ref={head} className="du-middle__head" aria-hidden>
-          {marked(parts.head, 0, ranges)}
+          {marked(drawn.head, 0, ranges)}
+          {drawn.headCut && ELLIPSIS}
         </span>
         <span ref={tail} className="du-middle__tail" aria-hidden>
+          {drawn.headHidden && ELLIPSIS}
           <span ref={tailName} className="du-middle__name">
-            {marked(tailParts.name, parts.head.length, ranges)}
+            {marked(drawn.name, drawn.nameOffset, ranges)}
+            {drawn.nameCut && ELLIPSIS}
           </span>
           <span className="du-middle__end">
-            {marked(
-              tailParts.end,
-              parts.head.length + tailParts.name.length,
-              ranges,
-            )}
+            {marked(drawn.end, drawn.endOffset, ranges)}
           </span>
         </span>
+        <span ref={ruler} className="du-middle__ruler" aria-hidden />
       </span>
       <span className="du-visually-hidden" dir="auto">
         <NameText name={text} path={path} />
