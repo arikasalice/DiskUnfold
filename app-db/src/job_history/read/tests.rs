@@ -17,11 +17,12 @@ fn reader(path: &Path) -> Result<AppDb, String> {
 
 fn append(db: &mut AppDb, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
-    let summary = JobSummary {
+    let mut summary = JobSummary {
         job_id: id.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,
@@ -31,6 +32,7 @@ fn append(db: &mut AppDb, n: u8, time: i64) -> Result<(), String> {
         finished_at_ms: time,
         correlation_id: id,
     };
+    summary.scope_roots.push(format!("/fixture/{n}"));
     assert_eq!(
         db.append_scan_history(&summary, time)?,
         HistoryAppend::Added
@@ -194,6 +196,7 @@ fn records_and_reads_duplicate_check_summary_but_rejects_other_scopes() -> TestR
         kind_id: "duplicate.check".into(),
         kind_version: 1,
         scope_summary: "duplicate.check".into(),
+        scope_roots: Vec::new(),
         state: JobState::Partial,
         counts: Default::default(),
         failure_reason_key: None,

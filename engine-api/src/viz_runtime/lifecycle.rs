@@ -263,6 +263,7 @@ impl Runtime {
                     body,
                     priority: JobPriority::Normal,
                     scope_summary: "visualization".into(),
+                    scope_roots: Vec::new(),
                     correlation_id: correlation,
                     sample: false,
                 },

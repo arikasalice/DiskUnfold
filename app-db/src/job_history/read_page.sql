@@ -8,7 +8,15 @@ WITH entries AS (
         record.completed_count, record.overwritten_count, record.failed_count,
         record.skipped_count, record.unprocessed_count,
         COALESCE(record.started_at_ms, started.started_at_ms) AS started_at_ms,
-        record.finished_at_ms, link.predecessor_job_id, link.relation_kind
+        record.finished_at_ms, link.predecessor_job_id, link.relation_kind,
+        (SELECT count(*) FROM job_runtime_job_scope_root AS roots
+           WHERE roots.job_id = link.job_id) AS scope_root_rows,
+        (SELECT min(root_seq) FROM job_runtime_job_scope_root AS roots
+           WHERE roots.job_id = link.job_id) AS scope_root_min_seq,
+        (SELECT max(root_seq) FROM job_runtime_job_scope_root AS roots
+           WHERE roots.job_id = link.job_id) AS scope_root_max_seq,
+        (SELECT location_text FROM job_runtime_job_scope_root AS roots
+           WHERE roots.job_id = link.job_id AND roots.root_seq = 0) AS scope_first_root
  FROM job_runtime_job_link AS link
  LEFT JOIN job_runtime_job_record AS record USING (job_id)
  LEFT JOIN job_runtime_job_interrupt AS interrupted USING (job_id)
@@ -21,7 +29,8 @@ WITH entries AS (
 )
 SELECT job_id, reckon_at_ms, record_seq, kind_id, kind_version, final_state, scope_summary,
        completed_count, overwritten_count, failed_count, skipped_count, unprocessed_count,
-       started_at_ms, finished_at_ms, predecessor_job_id, relation_kind
+       started_at_ms, finished_at_ms, predecessor_job_id, relation_kind,
+       scope_root_rows, scope_root_min_seq, scope_root_max_seq, scope_first_root
 FROM entries
 WHERE (json_array_length(?6, '$.kinds') = 0
        OR kind_id IN (SELECT value FROM json_each(?6, '$.kinds')))

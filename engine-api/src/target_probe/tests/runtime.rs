@@ -66,6 +66,7 @@ fn actual_runtime_reuses_single_permit_for_three_targets() -> Result<(), Box<dyn
         body: Arc::new(body),
         priority: JobPriority::Normal,
         scope_summary: String::new(),
+        scope_roots: Vec::new(),
         correlation_id: fixture.next_id(),
         sample: false,
     })?;
@@ -131,6 +132,7 @@ fn actual_runtime_timeout_retains_permit_and_suppresses_late_result()
         body: Arc::new(body),
         priority: JobPriority::Normal,
         scope_summary: String::new(),
+        scope_roots: Vec::new(),
         correlation_id: fixture.next_id(),
         sample: false,
     })?;
@@ -195,6 +197,7 @@ fn actual_runtime_foreign_permit_saturation_ends_with_reason()
         body: Arc::new(body),
         priority: JobPriority::Normal,
         scope_summary: String::new(),
+        scope_roots: Vec::new(),
         correlation_id: fixture.next_id(),
         sample: false,
     };

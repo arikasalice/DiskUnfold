@@ -25,6 +25,34 @@ impl JobEvents for Collector {
     }
 }
 
+#[test]
+fn terminal_summary_keeps_the_submission_scope_roots() -> Result<(), Box<dyn std::error::Error>> {
+    let events = Arc::new(Collector::default());
+    let runtime = JobRuntime::new(
+        Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+        Arc::new(Clock),
+        Arc::new(History::default()),
+        events.clone(),
+    )?;
+    runtime.register(descriptor())?;
+    let mut submission = sample_submission(Arc::new(InstantBody))?;
+    submission.scope_roots = vec!["/display/root".into()];
+    created(runtime.submit(submission)?)?;
+    runtime.run_next()?;
+    runtime.flush()?;
+
+    let observed = events.0.lock().map_err(|_| "events poisoned")?;
+    let summary = observed
+        .iter()
+        .find_map(|event| match event {
+            Delivered::Job(JobEvent::Finished { summary, .. }) => Some(summary),
+            _ => None,
+        })
+        .ok_or("terminal summary missing")?;
+    assert_eq!(summary.scope_roots, vec!["/display/root".to_owned()]);
+    Ok(())
+}
+
 struct ReceiptStore {
     result: Result<HistoryAppendOutcome, String>,
     calls: AtomicUsize,
@@ -145,6 +173,7 @@ fn legacy_store_returns_no_receipt() -> Result<(), Box<dyn std::error::Error>> {
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "summary".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,

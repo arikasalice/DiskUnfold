@@ -45,11 +45,12 @@ fn observation(job: u8) -> ScopeObservation {
 }
 
 fn scan_summary(job: u8) -> JobSummary {
-    JobSummary {
+    let mut summary = JobSummary {
         job_id: Id::from_v7_bytes([job; 16]),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,
@@ -58,7 +59,9 @@ fn scan_summary(job: u8) -> JobSummary {
         started_at_ms: Some(100),
         finished_at_ms: 200,
         correlation_id: Id::from_v7_bytes([job; 16]),
-    }
+    };
+    summary.scope_roots.push(format!("/fixture/{job}"));
+    summary
 }
 
 #[test]

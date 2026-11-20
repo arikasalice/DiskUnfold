@@ -764,7 +764,15 @@ export type HistoryListCounts = {
  * progress value the job reported.
  */
 completed: string, overwritten: string, failed: string, skipped: string, unprocessed: string, };
-export type HistoryListSummary = { kindId: string, kindVersion: number, scopeSummary: string | null, state: HistoryEndState, counts: HistoryListCounts | null, startedAtMs: number | null, finishedAtMs: number | null, predecessorJobRef: Id | null, relation: HistoryRelation | null, sessionRestoreAvailable: boolean | null, };
+export type HistoryListSummary = { kindId: string, kindVersion: number, scopeSummary: string | null,
+/**
+ * Omitted when roots were not recorded (an older record or a kind without scope roots).
+ */
+scopeFirstRoot?: string,
+/**
+ * Omitted when roots were not recorded (an older record or a kind without scope roots).
+ */
+scopeRootCount?: number, state: HistoryEndState, counts: HistoryListCounts | null, startedAtMs: number | null, finishedAtMs: number | null, predecessorJobRef: Id | null, relation: HistoryRelation | null, sessionRestoreAvailable: boolean | null, };
 export type HistoryListRow = { jobRef: Id | null, summary: HistoryListSummary | null,
 /**
  * Empty when complete. Each entry is a published omission reason.
@@ -785,7 +793,11 @@ export type HistoryEffectValue = {
 value: string, unit: string, uncertainty: string, };
 export type HistoryEffects = { estimated: HistoryEffectValue | null, executed: HistoryEffectValue | null, confirmed: HistoryEffectValue | null, };
 export type HistoryDetailCompleteness = "complete" | "partial";
-export type HistoryDetail = { summary: HistoryListSummary | null, workflow: HistoryWorkflow, followUps: Array<HistoryFollowUp> | null, effects: HistoryEffects, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, };
+export type HistoryDetail = { summary: HistoryListSummary | null,
+/**
+ * Ordered root display strings. Omitted when roots were not recorded (an older record or a kind without scope roots).
+ */
+scopeRoots?: Array<string>, workflow: HistoryWorkflow, followUps: Array<HistoryFollowUp> | null, effects: HistoryEffects, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, };
 export type HistoryItemOutcome = "completed" | "overwritten" | "skipped" | "failed" | "unprocessed";
 export type HistoryItemsRequest = { jobRef: Id, outcome: HistoryItemOutcome | null, cursor: string | null, count: number | null, };
 export type HistoryDisplacedItem = { name: string | null, originalLocationDisplay: string | null, trashedAtMs: number | null,

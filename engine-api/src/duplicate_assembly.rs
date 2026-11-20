@@ -187,6 +187,7 @@ pub fn submit<P: DuplicateContentPort + Send + 'static>(
         body: prepared.body,
         priority: request.priority,
         scope_summary: "duplicate.check".into(),
+        scope_roots: Vec::new(),
         correlation_id: request.correlation,
         sample: false,
     };

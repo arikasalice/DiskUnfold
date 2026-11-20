@@ -85,6 +85,7 @@ fn real_runtime_isolates_slow_subscriber_and_rejoins_at_snapshot()
         body: Arc::new(LaneStatusBody(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {

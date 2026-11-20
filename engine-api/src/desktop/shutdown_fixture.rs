@@ -172,6 +172,7 @@ impl RunningChangeJob {
                 }),
                 priority: JobPriority::Normal,
                 scope_summary: "shutdown fixture".into(),
+                scope_roots: Vec::new(),
                 correlation_id: correlation,
                 sample: false,
             })

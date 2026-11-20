@@ -116,6 +116,20 @@ impl AppDb {
                 Err("history.record_failed".into())
             };
         }
+        for (root_seq, location_text) in summary.scope_roots.iter().take(100).enumerate() {
+            tx.execute(
+                "INSERT INTO job_runtime_job_scope_root
+                     (job_id, root_seq, location_text, created_at_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    prepared.job_id.as_slice(),
+                    i64::try_from(root_seq).map_err(|_| "history.record_failed")?,
+                    location_text,
+                    now_ms,
+                ],
+            )
+            .map_err(map_error)?;
+        }
         let (generation, sequence): (i64, i64) = tx
             .query_row(
                 "UPDATE job_runtime_history_state
@@ -199,10 +213,11 @@ impl Prepared {
             &summary.kind_id,
             summary.kind_version,
             &summary.scope_summary,
-        ) || !summary
-            .failure_reason_key
-            .as_deref()
-            .is_none_or(|reason| reason == "support.internal_error")
+        ) || !valid_scope_roots(summary)
+            || !summary
+                .failure_reason_key
+                .as_deref()
+                .is_none_or(|reason| reason == "support.internal_error")
             || !summary
                 .unprocessed_summary
                 .as_deref()
@@ -249,16 +264,42 @@ fn valid_record_scope(kind_id: &str, kind_version: u32, scope: &str) -> bool {
     }
 }
 
+fn valid_scope_roots(summary: &JobSummary) -> bool {
+    if !summary
+        .scope_roots
+        .iter()
+        .all(|root| !root.is_empty() && root.chars().count() <= 32_768)
+    {
+        return false;
+    }
+    match (summary.kind_id.as_str(), summary.kind_version) {
+        ("scan.metadata", 1) => scope_root_count(&summary.scope_summary).is_some_and(|count| {
+            if count <= 100 {
+                usize::try_from(count).is_ok_and(|count| summary.scope_roots.len() == count)
+            } else {
+                summary.scope_roots.len() >= 100
+            }
+        }),
+        ("duplicate.check", 1) => summary.scope_roots.is_empty(),
+        _ => false,
+    }
+}
+
 fn valid_scope(value: &str) -> bool {
+    scope_root_count(value).is_some()
+}
+
+fn scope_root_count(value: &str) -> Option<u32> {
     if value == "metadata: 1 root" {
-        return true;
+        return Some(1);
     }
     value
         .strip_prefix("metadata: ")
         .and_then(|s| s.strip_suffix(" roots"))
-        .is_some_and(|n| {
+        .and_then(|n| {
             n.parse::<u32>()
-                .is_ok_and(|value| value > 1 && value.to_string() == n)
+                .ok()
+                .filter(|count| *count > 1 && count.to_string() == n)
         })
 }
 

@@ -71,6 +71,7 @@ fn delivery_backlog_returns_busy_from_registered_browse_open()
             body: Arc::new(CancelledBody),
             priority: JobPriority::Normal,
             scope_summary: "diagnostic".into(),
+            scope_roots: Vec::new(),
             correlation_id: Ids.next_id(),
             sample: false,
         })? {
@@ -88,6 +89,7 @@ fn delivery_backlog_returns_busy_from_registered_browse_open()
         body: Arc::new(CancelledBody),
         priority: JobPriority::Normal,
         scope_summary: "diagnostic".into(),
+        scope_roots: Vec::new(),
         correlation_id: Ids.next_id(),
         sample: false,
     });

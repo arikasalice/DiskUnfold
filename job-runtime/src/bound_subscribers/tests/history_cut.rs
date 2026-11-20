@@ -106,6 +106,7 @@ fn run_history_case(succeeds: bool) -> Result<(), Box<dyn std::error::Error>> {
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {
@@ -226,6 +227,7 @@ fn blocked_downstream_cannot_make_pending_terminal_look_committed()
         body: Arc::new(Body(tx)),
         priority: crate::JobPriority::Normal,
         scope_summary: "scope".into(),
+        scope_roots: Vec::new(),
         correlation_id: Identity(AtomicUsize::new(42)).next_id(),
         sample: false,
     })? {

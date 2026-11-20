@@ -1,5 +1,6 @@
 //! Upgrading a representative version-six database adds the table and changes nothing else.
 
+use super::super::SCOPE_OBSERVATION_SCHEMA_VERSION;
 use super::*;
 use crate::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
 use rusqlite::{Connection, types::Value};
@@ -72,6 +73,15 @@ fn version_six_data_is_unchanged_and_the_new_table_starts_empty() -> TestResult 
     assert_eq!(
         migration::apply_next(&path, &backup, &HISTORY_DEFINITIONS)
             .map_err(|e| format!("{e:?}"))?,
+        SCOPE_OBSERVATION_SCHEMA_VERSION
+    );
+    assert_eq!(
+        migration::apply_next(
+            &path,
+            &dir.path().join("before-scope-roots.db"),
+            &HISTORY_DEFINITIONS
+        )
+        .map_err(|e| format!("{e:?}"))?,
         HISTORY_SCHEMA_VERSION
     );
     let upgraded = Connection::open(&path)?;
@@ -84,16 +94,23 @@ fn version_six_data_is_unchanged_and_the_new_table_starts_empty() -> TestResult 
         (table.as_str(), rows.len()),
         ("analysis_index_scope_observation", 0)
     );
-    after.retain(|(name, _)| name != "analysis_index_scope_observation");
+    assert!(
+        after
+            .iter()
+            .any(|(name, rows)| { name == "job_runtime_job_scope_root" && rows.is_empty() })
+    );
+    after.retain(|(name, _)| {
+        name != "analysis_index_scope_observation" && name != "job_runtime_job_scope_root"
+    });
     assert_eq!(after, before);
     let version: u32 = upgraded.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    assert_eq!(version, 7);
+    assert_eq!(version, HISTORY_SCHEMA_VERSION);
     let ledger: i64 = upgraded.query_row(
         "SELECT max(migration_no) FROM app_db_schema_meta",
         [],
         |row| row.get(0),
     )?;
-    assert_eq!(ledger, 7);
+    assert_eq!(ledger as u32, HISTORY_SCHEMA_VERSION);
     // The pre-upgrade backup is a complete version-six copy without the table.
     let old = Connection::open(&backup)?;
     let old_tables: i64 = old.query_row(

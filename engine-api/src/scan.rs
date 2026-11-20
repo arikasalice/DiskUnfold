@@ -301,6 +301,11 @@ impl UseCase for StartScan {
             .bind_current_analysis(&scope_fingerprint, self.ids.next_id())
             .map_err(|_| internal())?;
         let root_count = verified.roots.len();
+        let scope_roots = verified
+            .roots
+            .iter()
+            .map(|root| crate::display_path::os_path(root.canonical_path.clone()).display)
+            .collect();
         let mut job = MetadataScan::new_roots(
             verified.roots,
             self.store.clone(),
@@ -338,6 +343,7 @@ impl UseCase for StartScan {
             } else {
                 format!("metadata: {root_count} roots")
             },
+            scope_roots,
             correlation_id: caller.correlation_id.clone(),
             sample: false,
         };

@@ -165,6 +165,7 @@ fn other_bound_job_kinds_do_not_expose_scan_result() -> Result<(), Box<dyn std::
             body: Arc::new(Other),
             priority: JobPriority::Normal,
             scope_summary: "other".into(),
+            scope_roots: Vec::new(),
             correlation_id: scope.clone(),
             sample: false,
         },

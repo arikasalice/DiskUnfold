@@ -98,6 +98,7 @@ fn project_entry(entry: db::Entry) -> Result<Entry<HistoryListRow>, ReadError> {
         Some(row) => {
             let predecessor_job_ref = row.predecessor_job_id.and_then(history_id);
             if row.scope_summary.is_none()
+                || row.scope_roots_unavailable
                 || (row.predecessor_job_id.is_some() && predecessor_job_ref.is_none())
             {
                 missing_reasons.push("read_failed".into());
@@ -136,6 +137,8 @@ fn project_summary(row: db::Summary, predecessor_job_ref: Option<Id>) -> History
         kind_id: row.kind_id,
         kind_version: row.kind_version,
         scope_summary: row.scope_summary,
+        scope_first_root: row.scope_first_root,
+        scope_root_count: row.scope_root_count,
         state: row.state,
         counts: row.counts.map(|counts| HistoryListCounts {
             completed: counts.completed.to_string(),

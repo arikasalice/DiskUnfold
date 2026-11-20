@@ -180,6 +180,7 @@ fn submission() -> Submission {
         body: Arc::new(Fixture),
         priority: JobPriority::Normal,
         scope_summary: String::new(),
+        scope_roots: Vec::new(),
         correlation_id: Fixture.next_id(),
         sample: false,
     }

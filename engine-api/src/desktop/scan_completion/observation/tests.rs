@@ -95,6 +95,7 @@ fn summary(
         kind_id: kind.into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state,
         counts: Default::default(),
         failure_reason_key: None,

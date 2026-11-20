@@ -11,11 +11,12 @@ use serde_json::json;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn summary() -> JobSummary {
-    JobSummary {
+    let mut summary = JobSummary {
         job_id: Id::from_v7_bytes([1; 16]),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,
@@ -24,7 +25,9 @@ fn summary() -> JobSummary {
         started_at_ms: Some(100),
         finished_at_ms: 200,
         correlation_id: Id::from_v7_bytes([3; 16]),
-    }
+    };
+    summary.scope_roots.push("/fixture/shared".into());
+    summary
 }
 
 fn database(path: &std::path::Path) -> Result<SharedDatabase, Box<dyn std::error::Error>> {

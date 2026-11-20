@@ -363,6 +363,7 @@ fn the_job_runs_to_done_in_the_runtime_without_history() -> TestResult {
         body: Arc::new(run.job),
         priority: JobPriority::Normal,
         scope_summary: "sample".into(),
+        scope_roots: Vec::new(),
         correlation_id: id(3),
         sample: true,
     })?;

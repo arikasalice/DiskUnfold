@@ -113,6 +113,8 @@ pub struct JobSummary {
     pub kind_id: String,
     pub kind_version: u32,
     pub scope_summary: String,
+    /// Root display strings captured when the job was submitted, when applicable.
+    pub scope_roots: Vec<String>,
     pub state: JobState,
     pub counts: JobCounts,
     pub failure_reason_key: Option<String>,

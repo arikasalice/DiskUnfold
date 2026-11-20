@@ -11,11 +11,12 @@ fn fixture() -> Result<Fixture, Box<dyn std::error::Error>> {
     let path = dir.path().join("items.db");
     let mut writer = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let id = Id::from_v7_bytes([1; 16]);
-    let summary = JobSummary {
+    let mut summary = JobSummary {
         job_id: id.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,
@@ -25,6 +26,7 @@ fn fixture() -> Result<Fixture, Box<dyn std::error::Error>> {
         finished_at_ms: 2,
         correlation_id: id.clone(),
     };
+    summary.scope_roots.push("/fixture/items".into());
     writer.append_scan_history(&summary, 3)?;
     let reader = AppDb::open_read_only(&path).map_err(|e| format!("{e:?}"))?;
     Ok((dir, writer, reader, id))

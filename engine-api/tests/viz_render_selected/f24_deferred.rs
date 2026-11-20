@@ -106,6 +106,7 @@ fn committed_eviction_stays_alive_until_f24_gate_releases() -> Result<(), String
                 body: Arc::new(Body),
                 priority: JobPriority::Normal,
                 scope_summary: "test".into(),
+                scope_roots: Vec::new(),
                 correlation_id: id(6),
                 sample: false,
             },

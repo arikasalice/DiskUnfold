@@ -66,6 +66,8 @@ pub struct Successor {
 pub struct Detail {
     /// Terminal record, when stored and readable.
     pub summary: Part<Summary>,
+    /// Ordered display strings for a recorded scan root list.
+    pub scope_roots: Part<Vec<String>>,
     /// Start record, when stored and readable.
     pub start: Part<Start>,
     /// Time an interrupted job was detected, when recorded.
@@ -133,8 +135,10 @@ impl AppDb {
             }) => Part::Unavailable,
             _ => Part::Absent,
         };
+        let terminal_summary = summary(&tx, &job_id);
         let result = Detail {
-            summary: summary(&tx, &job_id),
+            scope_roots: scope_roots(&tx, &job_id, &terminal_summary),
+            summary: terminal_summary,
             start: start(&tx, &job_id),
             interrupted_at_ms: part(
                 tx.query_row(
@@ -166,13 +170,58 @@ fn summary(tx: &Transaction<'_>, id: &[u8; 16]) -> Part<Summary> {
         tx.query_row(
             "SELECT job_id, 0, 0, kind_id, kind_version, final_state, scope_summary,
                 completed_count, overwritten_count, failed_count, skipped_count, unprocessed_count,
-                started_at_ms, finished_at_ms, NULL, NULL
+                started_at_ms, finished_at_ms, NULL, NULL,
+                (SELECT count(*) FROM job_runtime_job_scope_root AS roots WHERE roots.job_id=?1),
+                (SELECT min(root_seq) FROM job_runtime_job_scope_root AS roots WHERE roots.job_id=?1),
+                (SELECT max(root_seq) FROM job_runtime_job_scope_root AS roots WHERE roots.job_id=?1),
+                (SELECT location_text FROM job_runtime_job_scope_root AS roots
+                 WHERE roots.job_id=?1 AND roots.root_seq=0)
          FROM job_runtime_job_record WHERE job_id=?1",
             [id.as_slice()],
             read_summary,
         )
         .optional(),
     )
+}
+
+fn scope_roots(tx: &Transaction<'_>, id: &[u8; 16], summary: &Part<Summary>) -> Part<Vec<String>> {
+    let result = (|| {
+        let mut statement = tx.prepare(
+            "SELECT root_seq, location_text FROM job_runtime_job_scope_root
+             WHERE job_id=?1 ORDER BY root_seq",
+        )?;
+        let rows = statement.query_map([id.as_slice()], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+    })();
+    let rows = match result {
+        Ok(rows) if rows.is_empty() => return Part::Absent,
+        Ok(rows) => rows,
+        Err(_) => return Part::Unavailable,
+    };
+    let Some(summary) = (match summary {
+        Part::Present(summary) if !summary.scope_roots_unavailable => Some(summary),
+        _ => None,
+    }) else {
+        return Part::Unavailable;
+    };
+    let Some(root_count) = summary.scope_root_count else {
+        return Part::Unavailable;
+    };
+    let Ok(expected_rows) = usize::try_from(root_count.min(100)) else {
+        return Part::Unavailable;
+    };
+    if rows.len() != expected_rows
+        || rows.iter().enumerate().any(|(index, (sequence, text))| {
+            i64::try_from(index).ok() != Some(*sequence)
+                || text.is_empty()
+                || text.chars().count() > 32_768
+        })
+    {
+        return Part::Unavailable;
+    }
+    Part::Present(rows.into_iter().map(|(_, text)| text).collect())
 }
 
 fn start(tx: &Transaction<'_>, id: &[u8; 16]) -> Part<Start> {

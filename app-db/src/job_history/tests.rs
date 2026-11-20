@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, Barrier},
 };
 
+mod scope_roots;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn id(n: u8) -> Id {
@@ -14,11 +16,12 @@ fn id(n: u8) -> Id {
 }
 
 fn summary(n: u8) -> JobSummary {
-    JobSummary {
+    let mut summary = JobSummary {
         job_id: id(n),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts {
             completed: 10,
@@ -30,7 +33,9 @@ fn summary(n: u8) -> JobSummary {
         started_at_ms: Some(100),
         finished_at_ms: 200,
         correlation_id: id(91),
-    }
+    };
+    summary.scope_roots.push(format!("/fixture/{n}"));
+    summary
 }
 
 fn installed(path: &Path) -> Result<AppDb, Box<dyn std::error::Error>> {
@@ -63,6 +68,12 @@ fn persists_summary_link_and_sequence_without_rewriting_on_retry() -> TestResult
 
     let db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(counts(&db)?, (1, 1, 1));
+    let root_rows: i64 = db.connection.query_row(
+        "SELECT count(*) FROM job_runtime_job_scope_root",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(root_rows, 1);
     let summary_row = db.connection.query_row(
         "SELECT completed_count, scope_summary, finished_at_ms, created_at_ms
          FROM job_runtime_job_record",
@@ -128,6 +139,12 @@ fn rejects_raw_fields_nonterminal_and_unregistered_scan_versions() -> TestResult
             Err("history.record_failed".into())
         );
     }
+    let mut mismatch = summary(8);
+    mismatch.scope_roots.clear();
+    assert_eq!(
+        db.append_scan_history(&mismatch, 250),
+        Err("history.record_failed".into())
+    );
     assert_eq!(counts(&db)?, (0, 0, 0));
     Ok(())
 }

@@ -109,6 +109,7 @@ fn cancellation_waits_for_body_and_history_failure_keeps_terminal_event()
         }),
         priority: JobPriority::Normal,
         scope_summary: "summary".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::parse("00000000-0000-7000-8000-000000000999")?,
         sample: false,
     };
@@ -182,6 +183,7 @@ fn sample_submission(body: Arc<dyn JobBody>) -> Result<Submission, String> {
         body,
         priority: JobPriority::Normal,
         scope_summary: "summary".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::parse("00000000-0000-7000-8000-000000000999")?,
         sample: false,
     })

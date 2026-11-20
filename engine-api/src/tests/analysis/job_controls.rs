@@ -97,6 +97,7 @@ fn job_commands_report_the_committed_state_and_reject_unknown_references()
         body: Arc::new(JobFixture(result.clone())),
         priority: du_job_runtime::JobPriority::Normal,
         scope_summary: "fixture".into(),
+        scope_roots: Vec::new(),
         correlation_id: job.clone(),
         sample: false,
     })?;

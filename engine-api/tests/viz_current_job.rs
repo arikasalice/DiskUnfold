@@ -68,6 +68,7 @@ fn submission(kind: &str) -> Submission {
         body: Arc::new(Body),
         priority: JobPriority::Normal,
         scope_summary: "fixture".into(),
+        scope_roots: Vec::new(),
         correlation_id: id(5),
         sample: false,
     }

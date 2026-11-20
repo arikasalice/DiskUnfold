@@ -37,6 +37,12 @@ pub struct Summary {
     pub state: EndState,
     /// Only a registered, validated path-free summary is returned.
     pub scope_summary: Option<String>,
+    /// First root's display text, when recorded and readable.
+    pub scope_first_root: Option<String>,
+    /// Original root count from a valid scan summary, when roots were recorded.
+    pub scope_root_count: Option<u32>,
+    /// Root rows exist but do not match the recorded scan scope.
+    pub scope_roots_unavailable: bool,
     pub counts: Option<du_core_contracts::job::JobCounts>,
     pub started_at_ms: Option<i64>,
     pub finished_at_ms: Option<i64>,
@@ -210,12 +216,41 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
         .map(Relation::try_from)
         .transpose()
         .map_err(|()| rusqlite::Error::InvalidQuery)?;
+    let scope_summary =
+        scope.filter(|scope| super::valid_record_scope(&kind_id, kind_version, scope));
+    let stored_root_rows: i64 = row.get(16)?;
+    let (scope_first_root, scope_root_count, scope_roots_unavailable) = if stored_root_rows == 0 {
+        (None, None, false)
+    } else {
+        let first_root: Option<String> = row.get(19)?;
+        let minimum: Option<i64> = row.get(17)?;
+        let maximum: Option<i64> = row.get(18)?;
+        let original_count = if kind_id == "scan.metadata" && kind_version == 1 {
+            scope_summary.as_deref().and_then(super::scope_root_count)
+        } else {
+            None
+        };
+        let expected_rows = original_count.map(|count| i64::from(count.min(100)));
+        let valid_sequences = minimum == Some(0) && maximum == Some(stored_root_rows - 1);
+        if expected_rows == Some(stored_root_rows)
+            && valid_sequences
+            && first_root
+                .as_ref()
+                .is_some_and(|root| !root.is_empty() && root.chars().count() <= 32_768)
+        {
+            (first_root, original_count, false)
+        } else {
+            (None, None, true)
+        }
+    };
     Ok(Summary {
-        scope_summary: scope
-            .filter(|scope| super::valid_record_scope(&kind_id, kind_version, scope)),
+        scope_summary,
         kind_id,
         kind_version,
         state,
+        scope_first_root,
+        scope_root_count,
+        scope_roots_unavailable,
         counts,
         started_at_ms: row.get(12)?,
         finished_at_ms: row.get(13)?,

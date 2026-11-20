@@ -345,6 +345,7 @@ impl SampleSessions {
             body,
             priority: JobPriority::Normal,
             scope_summary: "sample".into(),
+            scope_roots: Vec::new(),
             correlation_id: correlation_id.clone(),
             sample: true,
         };

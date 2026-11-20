@@ -23,15 +23,17 @@ mod many_roots;
 mod measurement;
 mod scan_cancellation;
 mod scope_replacement;
+mod scope_roots;
 mod visualization;
 
 fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
     let id = Id::from_v7_bytes([n; 16]);
-    let result = database.history(|| 400).append(&JobSummary {
+    let mut summary = JobSummary {
         job_id: id.clone(),
         kind_id: "scan.metadata".into(),
         kind_version: 1,
         scope_summary: "metadata: 1 root".into(),
+        scope_roots: Vec::new(),
         state: JobState::Done,
         counts: Default::default(),
         failure_reason_key: None,
@@ -40,7 +42,9 @@ fn append(database: &SharedDatabase, n: u8, time: i64) -> Result<(), String> {
         started_at_ms: Some(time - 1),
         finished_at_ms: time,
         correlation_id: id,
-    })?;
+    };
+    summary.scope_roots.push(format!("C:\\fixture\\{n}"));
+    let result = database.history(|| 400).append(&summary)?;
     assert_eq!(result, HistoryAppend::Added);
     Ok(())
 }
@@ -155,12 +159,15 @@ fn assert_complete_detail(
     assert_eq!(complete.completeness, HistoryDetailCompleteness::Complete);
     let summary = complete.summary.ok_or("missing original summary")?;
     assert_eq!(summary.scope_summary.as_deref(), Some("metadata: 1 root"));
+    assert_eq!(summary.scope_first_root.as_deref(), Some(r"C:\fixture\1"));
+    assert_eq!(summary.scope_root_count, Some(1));
     assert_eq!(summary.state, HistoryEndState::Done);
     assert_eq!(
         summary.counts.ok_or("missing recorded counts")?.completed,
         "0"
     );
     assert_eq!(complete.effects.confirmed, None);
+    assert_eq!(complete.scope_roots, Some(vec![r"C:\fixture\1".to_owned()]));
     assert_eq!(complete.workflow.plan_versions, Some(vec![]));
     let follow_ups = complete.follow_ups.ok_or("missing follow-up list")?;
     assert_eq!(follow_ups.len(), 1);
@@ -424,6 +431,8 @@ fn registered_ipc_reads_sqlite_and_authenticates_the_next_page()
     assert_eq!(first.rows[0].job_ref, Some(Id::from_v7_bytes([2; 16])));
     let summary = first.rows[0].summary.as_ref().ok_or("no summary")?;
     assert_eq!(summary.scope_summary.as_deref(), Some("metadata: 1 root"));
+    assert_eq!(summary.scope_first_root.as_deref(), Some(r"C:\fixture\2"));
+    assert_eq!(summary.scope_root_count, Some(1));
     assert_eq!(summary.session_restore_available, Some(false));
     let cursor = first.next_cursor.ok_or("no cursor")?;
 
