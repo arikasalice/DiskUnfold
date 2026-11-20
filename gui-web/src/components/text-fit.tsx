@@ -113,7 +113,30 @@ function CutTextFrame({
   const [dismissed, setDismissed] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const frame = useRef<HTMLSpanElement>(null);
+  const [anchor, setAnchor] = useState<CSSProperties>();
   const shown = cut && (hovered || focused) && !dismissed;
+
+  // A table cell clips what overflows it, so there the full text is placed
+  // against the window, under the cell, and follows it while the page scrolls.
+  const place = () => {
+    const box = frame.current?.getBoundingClientRect();
+    if (box)
+      setAnchor({
+        "--du-fit-top": box.bottom + "px",
+        "--du-fit-left": box.left + "px",
+      } as CSSProperties);
+  };
+  const placing = cut && !focusable && hovered;
+  useEffect(() => {
+    if (!placing) return;
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [placing]);
 
   // A pointer-opened aid has no focus to receive Escape, so it listens on the
   // window while it is shown and takes the key before a dialog sees it.
@@ -130,11 +153,15 @@ function CutTextFrame({
 
   return (
     <span
+      ref={frame}
       className={`du-fit ${className}${focusable ? "" : " du-fit--cell"}`}
       tabIndex={cut && focusable ? 0 : undefined}
       role={cut && focusable ? "note" : undefined}
       data-dismissed={dismissed || undefined}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => {
+        setHovered(true);
+        if (!focusable) place();
+      }}
       onMouseLeave={() => {
         setHovered(false);
         if (!focused) setDismissed(false);
@@ -172,7 +199,12 @@ function CutTextFrame({
     >
       {children}
       {cut && (
-        <span className="du-fit__full" dir="auto" aria-hidden>
+        <span
+          className="du-fit__full"
+          dir="auto"
+          aria-hidden
+          style={focusable ? undefined : anchor}
+        >
           {full}
         </span>
       )}

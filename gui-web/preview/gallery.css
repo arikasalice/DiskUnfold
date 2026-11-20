@@ -66,3 +66,15 @@
     gap: 8px;
   }
 }
+.du-gallery-standalone {
+  display: grid;
+  gap: 6px;
+  margin-block-start: 16px;
+}
+/* A narrow line, so the last component alone is wider than it. */
+.du-gallery-standalone__value {
+  max-inline-size: 240px;
+  padding: 6px 8px;
+  border: 1px solid var(--du-border);
+  border-radius: 6px;
+}

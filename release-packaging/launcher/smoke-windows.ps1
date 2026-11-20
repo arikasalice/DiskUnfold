@@ -31,6 +31,8 @@ param(
   [switch]$CaptureProgress,
   # Capture the treemap on the unique physical size basis, which NTFS can count (#149).
   [switch]$CaptureUniquePhysical,
+  # Capture the operation list of the operation history after one analysis (#170).
+  [switch]$CaptureHistory,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1784,6 +1786,24 @@ function Test-CaptureTour {
   $null = Wait-UI 'support entry without the dot' { Find-UI 'Support information' $button }
   "Capture tour: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# F02 #170: the operation list of the operation history, with the Operation column that no longer
+# shows the engine's target text under the operation name. The names are found through the bundle
+# of the display language, as the capture profile is not switched to English.
+function Test-CaptureHistory {
+  Set-Scope $scanRoot
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
+  Invoke-UI (Wait-VisibleAction 'Operation history')
+  $details = (Get-UiName 'View details: NAME, TIME').Replace('NAME', (Get-UiName 'Disk analysis')).Replace('TIME', '*')
+  $null = Wait-UI 'recorded disk analysis' {
+    $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+      Where-Object { $_.Current.IsEnabled -and $_.Current.Name -like $details } |
+      Select-Object -First 1
+  }
+  Save-SmokeCapture '01-operation-history'
+  "History capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 # Best effort: a scope over the synchronous limit (200,000 files) classifies as a job, which
 # shows "Classifying…". The job may finish before it is seen, so a miss is only a warning.
 function Test-VirtualGroupsProgress {
@@ -1990,7 +2010,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2001,6 +2021,7 @@ function Test-VirtualGroups {
   if ($CaptureTreemapLink) { Test-CaptureTreemapLink }
   if ($CaptureProgress) { Test-CaptureProgress }
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
+  if ($CaptureHistory) { Test-CaptureHistory }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }

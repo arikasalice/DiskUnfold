@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Gallery } from "../preview/Gallery";
+import { historyLocations } from "../preview/history-items-fixture";
 
 afterEach(() => {
   cleanup();
@@ -42,4 +43,26 @@ test("the gallery shows the product's result summary with each state of the excl
   });
   expect(exclusions()).toEqual([]);
   expect(screen.getByText("확인 불가")).toBeDefined();
+});
+
+test("the gallery draws the history item results with the product's table and a value outside it", async () => {
+  const { container } = render(<Gallery />);
+  fireEvent.change(screen.getByLabelText("검토할 화면"), {
+    target: { value: "history" },
+  });
+  await screen.findByText("기록된 위치");
+  const heard = Array.from(
+    container.querySelectorAll(".du-history-item-location .du-visually-hidden"),
+    (copy) => copy.textContent,
+  );
+  expect(heard.slice(0, 2)).toEqual([
+    historyLocations.short,
+    historyLocations.long,
+  ]);
+  expect(heard).toHaveLength(3);
+  expect(
+    screen
+      .getByRole("region", { name: "표 밖 단독 값" })
+      .querySelector(".du-middle"),
+  ).not.toBeNull();
 });

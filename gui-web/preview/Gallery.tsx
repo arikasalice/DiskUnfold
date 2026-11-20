@@ -35,6 +35,7 @@ import type { SurfaceId } from "./surface-fixtures";
 import { FixtureChart, FixtureDetails, FixtureRecords } from "./GalleryContent";
 import type { SelectedRecord } from "./GalleryContent";
 import { ResultSummaryPreview } from "./ResultSummaryPreview";
+import { HistoryItemsPreview } from "./HistoryItemsPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -244,6 +245,8 @@ export function Gallery() {
         >
           {surface === "summary" ? (
             <ResultSummaryPreview />
+          ) : surface === "history" ? (
+            <HistoryItemsPreview />
           ) : (
             <>
               {primary}

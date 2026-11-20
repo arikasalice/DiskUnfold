@@ -110,8 +110,12 @@
 }
 
 /* In a table cell the full text waits for the pointer to rest for 0.3 s. It
-   stays laid out, hidden, so the delayed change of visibility can run. */
+   stays laid out, hidden, so the delayed change of visibility can run. The
+   cell clips what overflows it, so the text is placed against the window. */
 .du-fit--cell > .du-fit__full {
+  position: fixed;
+  inset-block-start: var(--du-fit-top, 0);
+  left: var(--du-fit-left, 0);
   display: block;
   visibility: hidden;
 }

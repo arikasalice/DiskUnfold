@@ -198,11 +198,11 @@ test.each([
   },
 );
 
-test("distinguishes an empty filter from an unavailable summary", async () => {
+test("an empty list says that no item results were recorded, apart from an empty filter", async () => {
   const empty = { ...page("unused"), rows: [] };
   const call = vi.fn().mockResolvedValue(empty);
   render(<HistoryItems client={client(call)} jobRef="job" />);
-  await screen.findByText(/summary count is unavailable/);
+  await screen.findByText("This task didn't record results for each item.");
   fireEvent.change(screen.getByLabelText("Outcome"), {
     target: { value: "failed" },
   });
