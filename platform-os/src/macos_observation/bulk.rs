@@ -14,6 +14,11 @@ use libc::{
 use std::os::fd::{AsRawFd, BorrowedFd};
 
 /// Bytes offered to one bulk call; it returns as many whole records as fit.
+///
+/// A buffer lives only for one read: the parsed records own their data, so a
+/// directory that waits between reads holds no buffer. Buffers in use stay
+/// within the reads in progress, one per collector worker, so at most
+/// `MAX_WORKERS` (64) times 64 KiB, 4 MiB, however many directories are open.
 pub(super) const BUFFER_BYTES: usize = 64 * 1024;
 
 // <sys/attr.h> and <sys/stat.h> values that libc 0.2.191 does not export.
@@ -127,6 +132,16 @@ pub(super) fn allocation_error() -> PortError {
         reason_key: "os.query_failed".into(),
         os_code: None,
     }
+}
+
+/// A zeroed reply buffer for one read, or an error when memory is short.
+pub(super) fn reply_buffer() -> Result<Vec<u8>, PortError> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(BUFFER_BYTES)
+        .map_err(|_| allocation_error())?;
+    buffer.resize(BUFFER_BYTES, 0);
+    Ok(buffer)
 }
 
 pub(super) fn try_copy_bytes(bytes: &[u8]) -> Result<Vec<u8>, PortError> {

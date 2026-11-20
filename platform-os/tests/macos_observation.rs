@@ -1,5 +1,7 @@
 #![cfg(target_os = "macos")]
 //! macOS observation adapter checks on isolated temporary fixtures.
+mod machine;
+
 use du_core_contracts::{
     Timestamp,
     ports::PortErrorKind,
@@ -377,12 +379,12 @@ fn missing_system_layout() -> Option<&'static str> {
 }
 
 /// Uses the read-only system volume layout of macOS 10.15 and later; a runner
-/// whose disks are laid out otherwise prints the reason and skips the checks.
+/// whose disks are laid out otherwise prints the reason and skips the checks
+/// (on CI the skip fails).
 #[test]
 fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> TestResult {
     if let Some(reason) = missing_system_layout() {
-        eprintln!("skipped: {reason}");
-        return Ok(());
+        return machine::skip(reason);
     }
     let mut system = open(Path::new("/"))?;
     assert_eq!(system.directory.ancestor_file_ids(), Some(&[][..]));
