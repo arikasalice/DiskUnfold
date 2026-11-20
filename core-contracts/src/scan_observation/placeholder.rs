@@ -7,6 +7,8 @@ pub enum PlaceholderObservation {
     WindowsNoRecallDataFlags,
     /// The macOS metadata reported `SF_DATALESS`: the content is not on this device, and
     /// macOS reports no separate local occupancy, so the allocation is unknown.
+    /// The adapter reports it only for a file with `SF_DATALESS` set, so its absence is
+    /// not evidence that the content is local.
     MacDataless,
 }
 
