@@ -4,7 +4,7 @@ use crate::{settings::StartupSettings, shared_database::SharedDatabase};
 use du_app_db::AppDb;
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, EventEnvelope, Id, ResultEnvelope,
-    settings::SettingsChanges,
+    settings::{SettingsChanges, SettingsStore},
     startup::{
         FullDiskAccessStatus, PrivacySettingsOpenOutcome, StartupCapabilitiesPort,
         StartupDialogOutcome, WebViewAvailability,
@@ -273,6 +273,57 @@ fn a_settings_review_taken_before_the_write_is_stale() -> TestResult {
     assert_eq!(
         service.apply(revision, &changes, reviewed, commit),
         Err(SettingsError::StaleVersion)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_revision_moved_by_another_writer_is_read_again_before_the_write() -> TestResult {
+    let fixture = fixture()?;
+    // Another writer of the store, as another process would be, remembers a
+    // Support information state and moves the stored revision first.
+    let mut other = AppDb::open_gui(&fixture.path).map_err(|error| format!("{error:?}"))?;
+    let base = other.load().map_err(|error| format!("{error:?}"))?.revision;
+    let moved = other
+        .commit(
+            base,
+            &SettingsChanges::from([(REVIEW_SEEN.to_owned(), Some(json!("grade:limited")))]),
+            SettingsCommit {
+                source: SettingsSource::Screen,
+                timestamp_ms: 2,
+            },
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    drop(other);
+
+    let reply = set(
+        &fixture,
+        json!({"kind": "notice_dismissed", "stateKey": "grade:pass"}),
+    )?;
+    assert!(reply.error.is_none(), "{reply:?}");
+    assert_eq!(
+        stored(&fixture, NOTICE_DISMISSED),
+        Some(json!("grade:pass"))
+    );
+    // The state the other writer stored is read too, and reaches the session.
+    assert_eq!(stored(&fixture, REVIEW_SEEN), Some(json!("grade:limited")));
+    assert_eq!(
+        fixture.session.memories(),
+        StartupMemories {
+            notice_dismissed: Some("grade:pass".into()),
+            review_seen: Some("grade:limited".into()),
+        }
+    );
+    // The event names the revision the write was made on, the moved one.
+    let events = settings_events(&fixture.events)?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].body["previousSettingsRevision"],
+        json!(moved.to_string())
+    );
+    assert_eq!(
+        events[0].body["settingsRevision"],
+        json!((moved + 1).to_string())
     );
     Ok(())
 }

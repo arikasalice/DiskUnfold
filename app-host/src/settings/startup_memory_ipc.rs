@@ -3,10 +3,20 @@
 //! The command remembers one state key in a hidden setting with one settings
 //! commit, as the screen would, and publishes `settings.changed`. It is not
 //! allowed while the app is closing; losing a dismissal at quit is accepted.
+//!
+//! Every writer in this app reads the revision and commits under the one
+//! settings lock, so a `StaleVersion` here means another writer of the store
+//! (another process) moved the stored revision. The command reads the store
+//! again, gives the session the startup states it read, and writes once more
+//! on the new revision; a second conflict answers `db.busy`, which the GUI may
+//! retry. Any other path that changes a `startup.*` value (an F14 import or
+//! reset) must also call `StartupAccessSession::load_memories`.
 use std::sync::Arc;
 
 use du_core_contracts::{
-    settings::{SettingsChanges, SettingsCommit, SettingsSource, SettingsStoreError},
+    settings::{
+        SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsSource, SettingsStoreError,
+    },
     settings_events::{
         SettingsApplyTiming, SettingsChangeSource, SettingsChangedBody, SettingsChangedKey,
     },
@@ -37,6 +47,14 @@ fn key(kind: StartupMemoryKind) -> &'static str {
     }
 }
 
+/// The remembered states as stored in `snapshot`.
+fn memories(snapshot: &SettingsSnapshot) -> StartupMemories {
+    StartupMemories {
+        notice_dismissed: remembered(snapshot, NOTICE_DISMISSED),
+        review_seen: remembered(snapshot, REVIEW_SEEN),
+    }
+}
+
 impl StartupSettings {
     /// Loads the remembered states into `session` and registers the GUI write.
     pub(crate) fn register_startup_memory(
@@ -46,10 +64,7 @@ impl StartupSettings {
         session: Arc<StartupAccessSession>,
     ) {
         if let Ok(service) = self.service.lock() {
-            session.load_memories(StartupMemories {
-                notice_dismissed: remembered(service.snapshot(), NOTICE_DISMISSED),
-                review_seen: remembered(service.snapshot(), REVIEW_SEEN),
-            });
+            session.load_memories(memories(service.snapshot()));
         }
         builder.register(SetStartupMemory {
             settings: self,
@@ -89,9 +104,12 @@ impl UseCase for SetStartupMemory {
             .service
             .lock()
             .map_err(|_| EngineError::new("support.internal_error", vec![]))?;
-        // A revision that moved between the read and the commit is read again once.
         let written = match write(&mut service, key, &request.state_key) {
-            Err(SettingsError::StaleVersion) => write(&mut service, key, &request.state_key),
+            Err(SettingsError::StaleVersion) => {
+                service.reload().map_err(settings_error)?;
+                self.session.load_memories(memories(service.snapshot()));
+                write(&mut service, key, &request.state_key)
+            }
             other => other,
         }
         .map_err(settings_error)?;
@@ -149,7 +167,9 @@ fn write(
 
 fn settings_error(error: SettingsError) -> EngineError {
     match error {
-        SettingsError::Store(SettingsStoreError::Busy) => EngineError::new("db.busy", vec![]),
+        SettingsError::Store(SettingsStoreError::Busy) | SettingsError::StaleVersion => {
+            EngineError::new("db.busy", vec![])
+        }
         SettingsError::InvalidValue => EngineError::new("command.body_invalid", vec![]),
         _ => EngineError::new("support.internal_error", vec![]),
     }
