@@ -188,19 +188,27 @@ test("F02 FR3.HD1.gui-web.DD1: changing the filter drops the previous cursor and
 test.each([
   [
     "STALE_VERSION",
+    "result.requery_required",
+    "These issues belong to a result that has been replaced. Reopen them with the new result.",
+    "Reopen with the new result",
+  ],
+  [
+    "STALE_VERSION",
+    "cursor.stale",
     "These issues belong to a result that has been replaced. Reopen them with the new result.",
     "Reopen with the new result",
   ],
   [
     "NOT_FOUND",
+    "ref.unavailable",
     "The result for these issues is no longer available. Reopen the latest result.",
     "Reopen the latest result",
   ],
 ] as const)(
-  "F02 IF-05: %s offers to reopen the latest result without switching automatically",
-  async (code, message, action) => {
+  "F02 FR4.HD1.app-host.DD2: %s (%s) offers the matching recovery without retrying automatically",
+  async (code, reason, message, action) => {
     const { client, requests } = issuesClient(async () => {
-      throw new AnalysisError(code, "result.requery_required");
+      throw new AnalysisError(code, reason);
     });
     const reopen = vi.fn();
     render(
@@ -208,13 +216,13 @@ test.each([
     );
     openIssues();
     await screen.findByText(message);
-    expect(screen.queryByText("result.requery_required")).toBeNull();
+    expect(screen.queryByText(reason)).toBeNull();
+    expect(requests).toEqual([{ resultVersion: "v1" }]);
     expect(reopen).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: action }));
     expect(reopen).toHaveBeenCalledTimes(1);
-    await screen.findByText(message);
-    // Reopening never asks again for the version that was just refused.
     expect(requests).toEqual([{ resultVersion: "v1" }]);
+    // Only the user action may switch the requested result version.
   },
 );
 

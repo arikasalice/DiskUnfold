@@ -131,7 +131,7 @@ function withPages(
   };
 }
 
-/** The list after a read failed; a replacement refused as replaced is dropped. */
+/** Keeps displayed rows and exposes recovery when a page read is refused. */
 function withProblem(
   previous: ListState,
   plan: ReadPlan,
@@ -139,9 +139,7 @@ function withProblem(
 ): ListState {
   if (!plan.replace)
     return { ...previous, pending: false, problem, failedCursor: plan.cursor };
-  return problem === "stale_version"
-    ? { ...previous, pending: false }
-    : { ...previous, pending: false, problem, replaceFailed: true };
+  return { ...previous, pending: false, problem, replaceFailed: true };
 }
 
 /**
@@ -151,13 +149,13 @@ function withProblem(
  * When only the result version changes, the rows already shown stay until
  * the same number of rows has been read from the new version; then all of
  * them are replaced at once, so the list never empties and never mixes rows
- * from two results. A replacement refused because the version was replaced
- * again is dropped quietly; the next version starts another one.
+ * from two results. A refused replacement keeps the old rows and offers
+ * recovery; it is not retried until a new result version arrives.
  *
  * "Load more" never appends to rows of an older result. While such rows are
  * shown it runs the replacement first, or joins the one in flight, and reads
  * the next page of the new result after it. A page still being read when the
- * result changes is owed the same way. The request survives a dropped
+ * result changes is owed the same way. The request survives a refused
  * replacement and ends with the filter or a failed one.
  *
  * A response is applied only while its version, filter and request order

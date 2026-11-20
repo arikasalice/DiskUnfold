@@ -27,7 +27,7 @@ pub(super) fn start(key: &[u8; 32], request: &ScanFailuresRequest) -> Result<usi
         return Err(invalid());
     }
     if payload[..16] != version(request)? {
-        return Err(EngineError::reason("result.requery_required"));
+        return Err(EngineError::reason("cursor.stale"));
     }
     if payload[16] != filter(request.kind) {
         return Err(invalid());
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(start(&[7; 32], &request), Err(invalid()));
         assert_eq!(
             start(&key, &request),
-            Err(EngineError::reason("result.requery_required"))
+            Err(EngineError::reason("cursor.stale"))
         );
         if let Some(token) = request.cursor.as_mut() {
             token.push('=');

@@ -62,6 +62,7 @@ function issues(
   reply: (request: ScanFailuresRequest, index: number) => Reply | undefined,
 ) {
   const requests: ScanFailuresRequest[] = [];
+  const reopen = vi.fn();
   const client = {
     call: (async (name: string, body: ScanFailuresRequest) => {
       if (name !== "scan.failures") throw new Error("Unexpected " + name);
@@ -84,7 +85,7 @@ function issues(
       <ScanIssues
         client={client}
         resultVersion={version}
-        onReopenLatest={vi.fn()}
+        onReopenLatest={reopen}
       />
     </Profiler>
   );
@@ -92,6 +93,7 @@ function issues(
   fireEvent.click(screen.getByRole("button", { name: "View scan issues" }));
   return {
     requests,
+    reopen,
     show: (version: string) => view.rerender(element(version)),
     unmount: view.unmount,
     /** Requests for `version`, as the cursors they carried. */
@@ -106,10 +108,12 @@ function issues(
 
 function deferred() {
   let resolve: (value: ScanFailures) => void = () => {};
-  const promise = new Promise<ScanFailures>((settle) => {
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<ScanFailures>((settle, fail) => {
     resolve = settle;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 const stale = () =>
@@ -130,48 +134,58 @@ async function loadRows(count: number) {
   }
 }
 
-test("F02 FR3.HD1.gui-web.DD1: Load more after a dropped replacement replaces the rows before it reads further", async () => {
-  let refuse = true;
-  const list = issues(4, ({ resultVersion }) => {
-    if (resultVersion !== "v2" || !refuse) return undefined;
-    refuse = false;
-    return Promise.reject(stale());
-  });
-  await loadRows(2);
-  // The replacing read is refused: v2 was replaced before it was admitted.
-  list.show("v2");
-  await waitFor(() => expect(list.asked("v2")).toEqual([null]));
-  await act(async () => {});
-  expect(shown()).toEqual(["v1-0", "v1-1"]);
-  expect(reading()).toBeNull();
-
-  fireEvent.click(loadMore());
-  await screen.findByText("v2-2");
-  expect(shown()).toEqual(["v2-0", "v2-1", "v2-2"]);
-  // No request carried the older result's cursor.
-  expect(list.asked("v2")).toEqual([null, null, "v2@1", "v2@2"]);
-  expect(list.mixed()).toEqual([]);
-  expect(screen.getByText("Showing 3 of 4 issues")).toBeDefined();
-});
-
-test("F02 FR3.HD1.gui-web.DD1: Load more whose replacement is refused again keeps the rows and reads on with the next result", async () => {
+test("F02 FR4.HD1.app-host.DD2: a stale replacement offers recovery without retrying automatically", async () => {
   const list = issues(4, ({ resultVersion }) =>
     resultVersion === "v2" ? Promise.reject(stale()) : undefined,
   );
   await loadRows(2);
   list.show("v2");
-  await waitFor(() => expect(list.asked("v2")).toEqual([null]));
-  await act(async () => {});
-
-  fireEvent.click(loadMore());
-  expect(reading()).not.toBeNull();
-  await waitFor(() => expect(list.asked("v2")).toEqual([null, null]));
+  const reopen = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "Reopen with the new result",
+  });
   await act(async () => {});
   expect(shown()).toEqual(["v1-0", "v1-1"]);
   expect(reading()).toBeNull();
-  expect(screen.queryByRole("alert")).toBeNull();
-  expect(loadMore().disabled).toBe(false);
+  expect(list.asked("v2")).toEqual([null]);
+  expect(list.reopen).not.toHaveBeenCalled();
 
+  fireEvent.click(reopen);
+  expect(list.reopen).toHaveBeenCalledTimes(1);
+  expect(list.asked("v2")).toEqual([null]);
+  list.show("v3");
+  await screen.findByText("v3-1");
+  expect(shown()).toEqual(["v3-0", "v3-1"]);
+  fireEvent.click(loadMore());
+  await screen.findByText("v3-2");
+  expect(list.asked("v3")).toEqual([null, "v3@1", "v3@2"]);
+  expect(shown()).toEqual(["v3-0", "v3-1", "v3-2"]);
+  expect(list.mixed()).toEqual([]);
+  expect(screen.getByText("Showing 3 of 4 issues")).toBeDefined();
+});
+
+test("F02 FR4.HD1.app-host.DD2: Load more owed during a stale replacement continues only after reopening latest", async () => {
+  const replacement = deferred();
+  const list = issues(4, ({ resultVersion }) =>
+    resultVersion === "v2" ? replacement.promise : undefined,
+  );
+  await loadRows(2);
+  list.show("v2");
+  await waitFor(() => expect(list.asked("v2")).toEqual([null]));
+
+  fireEvent.click(loadMore());
+  expect(list.asked("v2")).toEqual([null]);
+  await act(async () => replacement.reject(stale()));
+  const reopen = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "Reopen with the new result",
+  });
+  expect(shown()).toEqual(["v1-0", "v1-1"]);
+  expect(reading()).toBeNull();
+  expect(list.asked("v2")).toEqual([null]);
+  expect(list.reopen).not.toHaveBeenCalled();
+
+  fireEvent.click(reopen);
+  expect(list.reopen).toHaveBeenCalledTimes(1);
+  expect(list.asked("v2")).toEqual([null]);
   list.show("v3");
   await screen.findByText("v3-2");
   expect(shown()).toEqual(["v3-0", "v3-1", "v3-2"]);
@@ -238,7 +252,7 @@ test("F02 FR3.HD1.gui-web.DD1: a filter change stops the pages of the read it re
   expect(shown()).toEqual(["v2-0"]);
 });
 
-test("F02 FR3.HD1.gui-web.DD1: a Load more page that arrives after its result was replaced is ignored and leaves nothing pending", async () => {
+test("F02 FR4.HD1.app-host.DD2: a late page after a stale replacement is ignored until the user reopens latest", async () => {
   const more = deferred();
   let refuse = true;
   const list = issues(4, ({ resultVersion }, index) => {
@@ -253,13 +267,17 @@ test("F02 FR3.HD1.gui-web.DD1: a Load more page that arrives after its result wa
   // The result changes during the read; its replacement is refused in turn.
   list.show("v2");
   await waitFor(() => expect(list.asked("v2")).toEqual([null]));
-  await act(async () => {});
+  const reopen = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "Reopen with the new result",
+  });
   await act(async () => more.resolve(page("v1", 1, 4)));
   expect(shown()).toEqual(["v1-0"]);
   expect(reading()).toBeNull();
-  expect(loadMore().disabled).toBe(false);
+  expect(list.asked("v2")).toEqual([null]);
+  expect(list.reopen).not.toHaveBeenCalled();
 
-  // The page the user asked for is read from the result that arrives next.
+  fireEvent.click(reopen);
+  expect(list.reopen).toHaveBeenCalledTimes(1);
   list.show("v3");
   await screen.findByText("v3-1");
   expect(shown()).toEqual(["v3-0", "v3-1"]);
