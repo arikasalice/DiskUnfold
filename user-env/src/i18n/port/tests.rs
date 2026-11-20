@@ -17,7 +17,8 @@ use super::{LocaleFormatSettings, RegistryMessagePort};
 use crate::i18n::{BundleResource, Registry, embedded};
 
 const PLURAL_KEY: &str = "ui.history.records_shown";
-const PATH_KEY: &str = "ui.history.view_details_aria";
+/// A message with two name parameters.
+const NAMES_KEY: &str = "ui.history.view_details_aria";
 
 fn settings() -> LocaleFormatSettings {
     LocaleFormatSettings {
@@ -189,23 +190,14 @@ fn unregistered_language_uses_english_and_marks_fallback() -> Result<(), String>
 fn missing_or_mismatched_parameter_renders_unknown_value() -> Result<(), String> {
     let port = port(None)?;
     let name = ("name", Value::Name("report.txt"));
-    let time = ("time", Value::Name("today"));
 
-    let missing = render(&port, "ko", PATH_KEY, &[name, time]);
-    assert_eq!(missing.text, "상세 보기: report.txt, today, 알 수 없는 값");
+    let missing = render(&port, "ko", NAMES_KEY, &[name]);
+    assert_eq!(missing.text, "상세 보기: report.txt, 알 수 없는 값");
     assert!(missing.unknown_parameter);
     assert_eq!(missing.marker, None);
 
-    let mismatched = render(
-        &port,
-        "en",
-        PATH_KEY,
-        &[name, time, ("target", Value::Name("/data/a"))],
-    );
-    assert_eq!(
-        mismatched.text,
-        "View details: report.txt, today, Unknown value"
-    );
+    let mismatched = render(&port, "en", NAMES_KEY, &[name, ("time", Value::Count(3))]);
+    assert_eq!(mismatched.text, "View details: report.txt, Unknown value");
     assert!(mismatched.unknown_parameter);
 
     let wrong_count = render(&port, "en", PLURAL_KEY, &[("count", Value::Name("many"))]);
@@ -219,21 +211,18 @@ fn missing_or_mismatched_parameter_renders_unknown_value() -> Result<(), String>
 }
 
 #[test]
-fn path_and_name_values_are_inserted_without_change() -> Result<(), String> {
+fn name_values_are_inserted_without_change() -> Result<(), String> {
     let port = port(None)?;
+    // A name may look like a path or a template; it is inserted as it is.
     let path = r#"C:\Users\홍길동\{target}\a "b" {{x}}.txt"#;
     let name = "  report {1}  .txt ";
     let rendered = render(
         &port,
         "ko",
-        PATH_KEY,
-        &[
-            ("name", Value::Name(name)),
-            ("time", Value::Name("방금")),
-            ("target", Value::Path(path)),
-        ],
+        NAMES_KEY,
+        &[("name", Value::Name(name)), ("time", Value::Name(path))],
     );
-    assert_eq!(rendered.text, format!("상세 보기: {name}, 방금, {path}"));
+    assert_eq!(rendered.text, format!("상세 보기: {name}, {path}"));
     assert!(!rendered.unknown_parameter);
     assert_eq!(rendered.marker, None);
     Ok(())

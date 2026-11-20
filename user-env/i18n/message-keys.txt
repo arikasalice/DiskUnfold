@@ -519,6 +519,7 @@ ui.history.item_result_unavailable
 ui.history.item_results
 ui.history.items_changed_restart_page
 ui.history.items_load_failed
+ui.history.items_not_recorded
 ui.history.job_type
 ui.history.kind_disk_analysis
 ui.history.kind_duplicate_check
@@ -532,8 +533,6 @@ ui.history.loading_operation_details
 ui.history.name
 ui.history.no_additional_notes
 ui.history.no_follow_ups
-ui.history.no_item_records
-ui.history.no_item_records_no_summary
 ui.history.no_items_match
 ui.history.no_matches
 ui.history.no_plan_lineage
@@ -541,11 +540,11 @@ ui.history.no_restore_information
 ui.history.notes
 ui.history.observed_size
 ui.history.observed_size_notes
+ui.history.operation
 ui.history.operation_details
 ui.history.operation_details_load_failed
 ui.history.operation_history
 ui.history.operation_information_unavailable
-ui.history.operation_recorded_target
 ui.history.operation_summary
 ui.history.operation_summary_unavailable
 ui.history.operation_type_code
@@ -600,7 +599,7 @@ ui.history.time_unavailable
 ui.history.unavailable
 ui.history.unavailable_count
 ui.history.view
-ui.history.view_details_aria name:name time:name target:path
+ui.history.view_details_aria name:name time:name
 ui.history.view_item
 ui.history.view_previous_record
 ui.history.view_record

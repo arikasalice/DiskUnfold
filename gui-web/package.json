@@ -10,6 +10,7 @@
   "scripts": {
     "preview:ui": "vite --config preview/vite.config.ts",
     "build:preview": "vite build --config preview/vite.config.ts",
+    "capture:history-gallery": "node scripts/capture-history-gallery.mjs",
     "build": "vite build",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch && npm run locale:check",
     "locale:check": "node scripts/check-locale.mjs",

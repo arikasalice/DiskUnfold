@@ -4,6 +4,7 @@ import {
   DataTable,
   DetailDisclosure,
   Heading,
+  MiddleEllipsisText,
   NameText,
   Notice,
   Progress,
@@ -196,9 +197,7 @@ function ItemPages({
               />
             </div>
           )}
-          {page.rows.length === 0 && (
-            <EmptyItems outcome={outcome} summary={page.counts.summary} />
-          )}
+          {page.rows.length === 0 && <EmptyItems outcome={outcome} />}
           {page.nextCursor && (
             <Action onPress={more} isDisabled={pending}>
               {text("ui.history.load_more_items", "Load more items")}
@@ -223,13 +222,7 @@ function ItemPages({
     </div>
   );
 }
-function EmptyItems({
-  outcome,
-  summary,
-}: {
-  outcome: HistoryItemOutcome | null;
-  summary: string | null;
-}) {
+function EmptyItems({ outcome }: { outcome: HistoryItemOutcome | null }) {
   const text = useLocaleText();
   if (outcome !== null)
     return (
@@ -240,17 +233,14 @@ function EmptyItems({
         )}
       </Text>
     );
+  // F02 README #170: the app does not record item results yet, so an empty
+  // list says so instead of reading as an operation without items (#204).
   return (
     <Text>
-      {summary === null
-        ? text(
-            "ui.history.no_item_records_no_summary",
-            "No item records were returned; the summary count is unavailable.",
-          )
-        : text(
-            "ui.history.no_item_records",
-            "No recorded items were returned.",
-          )}
+      {text(
+        "ui.history.items_not_recorded",
+        "This task didn't record results for each item.",
+      )}
     </Text>
   );
 }
@@ -411,12 +401,10 @@ function cells(
   const flags = itemFlags(result, text);
   const size = observedSize(result, text);
   return [
-    <div
-      className="du-history-item-location"
-      key="location"
-      title={result.locationDisplay}
-    >
-      <Text>{result.locationDisplay}</Text>
+    // F02 README #170: the end of the path stays; the full path is read by
+    // screen readers, shown to a resting pointer and given by "View".
+    <div className="du-history-item-location" key="location">
+      <MiddleEllipsisText text={result.locationDisplay} cell />
     </div>,
     filters.find((filter) => filter.value === result.outcome)?.label ??
       text("ui.history.outcome_unavailable", "Outcome unavailable"),

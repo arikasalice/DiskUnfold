@@ -25,6 +25,9 @@
     { "name": "unique-physical", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureUniquePhysical"] },
     { "name": "unique-physical-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureUniquePhysical"] },
     { "name": "unique-physical-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureUniquePhysical"] },
+    { "name": "history", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureHistory"] },
+    { "name": "history-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureHistory"] },
+    { "name": "history-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureHistory"] },
     { "name": "virtual-groups", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroups"] },
     { "name": "virtual-groups-sample", "windowSize": "1280x800", "arguments": ["-VerifyVirtualGroupsSample"] }
   ]
