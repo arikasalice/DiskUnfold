@@ -18,10 +18,12 @@ mod app_location;
 mod asset_digest;
 mod environment_rows;
 mod host_observations;
+mod memories;
 mod resource_integrity;
 mod temporary_files;
 
 pub(super) use environment_rows::{capability_observation, support_matrix_observation};
+pub(crate) use memories::StartupMemories;
 pub(super) use resource_integrity::resource_integrity_observation;
 pub(super) use temporary_files::host_temporary_files_observation;
 
@@ -36,6 +38,11 @@ pub(super) struct StartupAccessSession {
     /// The startup report registered with the engine, kept so the host can still
     /// answer `app.startup_status` after the engine has been released.
     report: OnceLock<StartupStatus>,
+    /// The remembered startup states (#195), as last loaded from the settings or
+    /// written by `app.startup_memory_set`. Both answers of `app.startup_status`
+    /// read them when they answer, never from the report registered at startup;
+    /// holding the settings here would keep the database open past shutdown.
+    memories: RwLock<StartupMemories>,
 }
 
 impl StartupAccessSession {
@@ -47,15 +54,23 @@ impl StartupAccessSession {
             admission: Mutex::new(()),
             access: RwLock::new(access),
             report: OnceLock::new(),
+            memories: RwLock::new(StartupMemories::default()),
         }
     }
 
     /// The registered startup report with the current access observation, or
     /// `None` before the report was registered. Needs no engine.
     pub(super) fn current_status(&self) -> Option<StartupStatus> {
-        self.report
-            .get()
-            .map(|report| with_access(report.clone(), self.current()))
+        self.report.get().map(|report| self.answer(report.clone()))
+    }
+
+    /// A registered report with the current access observation and memories.
+    fn answer(&self, report: StartupStatus) -> StartupStatus {
+        let mut status = with_access(report, self.current());
+        let memories = self.memories();
+        status.notice_dismissed = memories.notice_dismissed;
+        status.review_seen = memories.review_seen;
+        status
     }
 
     /// Serializes IF-20 session updates with synchronous analysis admission.
@@ -308,6 +323,8 @@ pub fn status(
         access,
         analysis_allowed: access != StartupAccessState::Denied,
         app_location: app_location::app_location(),
+        notice_dismissed: None,
+        review_seen: None,
     })
 }
 
@@ -405,7 +422,7 @@ impl UseCase for StartupStatusQuery {
     }
 
     fn execute(&self, _: Self::Request, _: &CallerCtx) -> Result<Self::Response, EngineError> {
-        Ok(with_access(self.report.clone(), self.access.current()))
+        Ok(self.access.answer(self.report.clone()))
     }
 }
 

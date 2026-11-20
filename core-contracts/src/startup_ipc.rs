@@ -151,6 +151,20 @@ pub struct StartupStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub app_location: Option<StartupAppLocation>,
+    /// The startup notice state key the user dismissed, when one is remembered.
+    ///
+    /// Omitted when nothing is remembered. Read when the status is answered, so it
+    /// follows the latest `app.startup_memory_set`, also while the app is closing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub notice_dismissed: Option<String>,
+    /// The state key of the Support information the user has seen, when remembered.
+    ///
+    /// Omitted when nothing is remembered. Read when the status is answered, so it
+    /// follows the latest `app.startup_memory_set`, also while the app is closing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub review_seen: Option<String>,
 }
 
 /// Where the running application bundle sits relative to the application folders.
@@ -195,6 +209,49 @@ pub struct StartupAccessResponse {
     pub analysis_allowed: bool,
     /// Whether the operating system privacy settings screen was opened.
     pub settings_opened: bool,
+}
+
+/// Characters a startup state key may use (F15): `[a-z0-9_.:|]`. Composite keys
+/// join row names in name order with `|`; the order is not checked.
+pub const STARTUP_STATE_KEY_CHARSET: &str = "abcdefghijklmnopqrstuvwxyz0123456789_.:|";
+
+/// The longest startup state key, in bytes. The empty key clears a memory.
+pub const STARTUP_STATE_KEY_MAX_BYTES: usize = 200;
+
+/// Which startup memory a write updates.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum StartupMemoryKind {
+    /// The startup notice the user dismissed.
+    NoticeDismissed,
+    /// The Support information the user has seen.
+    ReviewSeen,
+}
+
+/// Remembers one startup state key across launches; the empty string clears it.
+///
+/// The host checks `state_key` against [`STARTUP_STATE_KEY_CHARSET`] and
+/// [`STARTUP_STATE_KEY_MAX_BYTES`] before it writes.
+#[derive(Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartupMemorySetRequest {
+    /// The memory to update.
+    pub kind: StartupMemoryKind,
+    /// The state key to remember.
+    pub state_key: String,
+}
+
+/// The stored value after an `app.startup_memory_set` write.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct StartupMemorySetResponse {
+    /// The memory that was updated.
+    pub kind: StartupMemoryKind,
+    /// The stored state key; empty when nothing is remembered.
+    pub state_key: String,
 }
 
 #[cfg(test)]
@@ -251,5 +308,41 @@ mod tests {
             serde_json::to_value(StartupCheckOutcome::Unknown)
                 .is_ok_and(|value| value == json!("unknown"))
         );
+    }
+
+    #[test]
+    fn memory_requests_reject_unknown_kinds_and_fields() {
+        let request = serde_json::from_value::<StartupMemorySetRequest>(json!({
+            "kind": "review_seen", "stateKey": "grade:limited"
+        }));
+        assert!(
+            request.is_ok_and(|request| request.kind == StartupMemoryKind::ReviewSeen
+                && request.state_key == "grade:limited")
+        );
+        for body in [
+            json!({"kind": "future", "stateKey": ""}),
+            json!({"kind": "review_seen", "stateKey": "", "extra": 1}),
+            json!({"kind": "review_seen"}),
+        ] {
+            assert!(serde_json::from_value::<StartupMemorySetRequest>(body).is_err());
+        }
+    }
+
+    #[test]
+    fn remembered_states_are_omitted_when_absent() -> Result<(), serde_json::Error> {
+        let status = StartupStatus {
+            grade: StartupGrade::Pass,
+            checks: Vec::new(),
+            first_run: false,
+            access: StartupAccessState::NotApplicable,
+            analysis_allowed: true,
+            app_location: None,
+            notice_dismissed: None,
+            review_seen: Some("grade:limited".into()),
+        };
+        let value = serde_json::to_value(&status)?;
+        assert!(value.get("noticeDismissed").is_none());
+        assert_eq!(value["reviewSeen"], json!("grade:limited"));
+        Ok(())
     }
 }

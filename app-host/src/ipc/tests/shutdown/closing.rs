@@ -102,6 +102,48 @@ fn startup_status_before_the_report_exists_is_a_typed_closing_refusal()
     Ok(())
 }
 
+// #195: while closing, the status still reads the remembered states when it
+// answers, and a write is refused with the closing reason.
+#[test]
+fn startup_memories_are_read_while_closing_and_not_written()
+-> Result<(), Box<dyn std::error::Error>> {
+    use du_core_contracts::startup_ipc::StartupMemoryKind;
+    let access = Arc::new(granted_access());
+    let report = crate::startup_checks::status(false, access.current(), &[])
+        .map_err(|error| format!("{error:?}"))?;
+    let mut builder = EngineBuilder::default();
+    crate::startup_checks::register(&mut builder, report, access.clone());
+    let slot: EngineSlot = std::sync::Mutex::new(Some(Arc::new(builder.build()?)));
+    let shutdown = controller(FakePorts::default());
+    access.remember(StartupMemoryKind::ReviewSeen, Some("grade:limited".into()));
+    let before = ask(&slot, &shutdown, &access, "app.startup_status", json!({}))?;
+    assert_eq!(before["body"]["reviewSeen"], "grade:limited");
+    assert!(before["body"].get("noticeDismissed").is_none());
+
+    ask(
+        &slot,
+        &shutdown,
+        &access,
+        "app.quit",
+        json!({"mode":"normal"}),
+    )?;
+    slot.lock().map_err(|_| "engine lock")?.take();
+    let during = ask(&slot, &shutdown, &access, "app.startup_status", json!({}))?;
+    assert_eq!(during["body"]["reviewSeen"], "grade:limited");
+    access.remember(StartupMemoryKind::ReviewSeen, None);
+    let cleared = ask(&slot, &shutdown, &access, "app.startup_status", json!({}))?;
+    assert!(cleared["body"].get("reviewSeen").is_none());
+    let write = ask(
+        &slot,
+        &shutdown,
+        &access,
+        "app.startup_memory_set",
+        json!({"kind":"review_seen","stateKey":"grade:pass"}),
+    )?;
+    assert_eq!(write["error"]["reasonKey"], "startup.shutting_down");
+    Ok(())
+}
+
 #[test]
 fn a_job_shutdown_race_reads_as_permanent_closing_only_once_the_app_is_closing()
 -> Result<(), Box<dyn std::error::Error>> {

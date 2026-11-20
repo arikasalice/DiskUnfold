@@ -42,6 +42,7 @@ pub fn builtin_descriptors_with_size_rules(
         .chain(crate::scope::descriptors())
         .chain(crate::space::descriptors())
         .chain([crate::space::aggregation_rule_descriptor(size_rule_ids)])
+        .chain(crate::startup_memory::descriptors())
         .collect())
 }
 

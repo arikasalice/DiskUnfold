@@ -14,6 +14,7 @@ pub mod scope;
 pub mod settings;
 pub mod space;
 pub mod space_format;
+pub mod startup_memory;
 pub mod visualization_settings;
 
 fn accepts(kind: &ValueKind, value: &Value) -> bool {
@@ -23,6 +24,9 @@ fn accepts(kind: &ValueKind, value: &Value) -> bool {
             value.as_i64().is_some_and(|v| (*min..=*max).contains(&v))
         }
         ValueKind::Choice(values) => values.contains(value),
+        ValueKind::Text { max_bytes, charset } => value.as_str().is_some_and(|text| {
+            text.len() <= *max_bytes && text.chars().all(|c| charset.contains(c))
+        }),
     }
 }
 

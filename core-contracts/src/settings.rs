@@ -135,8 +135,17 @@ pub struct SettingDescriptor {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SettingValueKind {
     Boolean,
-    Integer { min: i64, max: i64 },
+    Integer {
+        min: i64,
+        max: i64,
+    },
     Choice(Vec<Value>),
+    /// A string of at most `max_bytes` bytes made only of the ASCII characters
+    /// listed in `charset`; the empty string is allowed.
+    Text {
+        max_bytes: usize,
+        charset: &'static str,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -102,7 +102,21 @@ analysisAllowed: boolean,
  * Omitted when unknown. Full Disk Access cannot be granted usefully to an app that
  * runs from `elsewhere`, so the screen asks the user to move it first.
  */
-appLocation?: StartupAppLocation, };
+appLocation?: StartupAppLocation,
+/**
+ * The startup notice state key the user dismissed, when one is remembered.
+ *
+ * Omitted when nothing is remembered. Read when the status is answered, so it
+ * follows the latest `app.startup_memory_set`, also while the app is closing.
+ */
+noticeDismissed?: string,
+/**
+ * The state key of the Support information the user has seen, when remembered.
+ *
+ * Omitted when nothing is remembered. Read when the status is answered, so it
+ * follows the latest `app.startup_memory_set`, also while the app is closing.
+ */
+reviewSeen?: string, };
 export type StartupAccessAction = "open_privacy_settings" | "recheck";
 export type StartupAppLocation = "applications" | "elsewhere";
 export type StartupAccessRequest = {
@@ -123,6 +137,25 @@ analysisAllowed: boolean,
  * Whether the operating system privacy settings screen was opened.
  */
 settingsOpened: boolean, };
+export type StartupMemoryKind = "notice_dismissed" | "review_seen";
+export type StartupMemorySetRequest = {
+/**
+ * The memory to update.
+ */
+kind: StartupMemoryKind,
+/**
+ * The state key to remember.
+ */
+stateKey: string, };
+export type StartupMemorySetResponse = {
+/**
+ * The memory that was updated.
+ */
+kind: StartupMemoryKind,
+/**
+ * The stored state key; empty when nothing is remembered.
+ */
+stateKey: string, };
 export type InstallForm = "msi" | "portable" | "msix" | "dmg" | "deb" | "tar_gz" | "unknown";
 export type NoticeKind = "LICENSE" | "THIRD-PARTY-NOTICES";
 export type ProductInfoRequest = Record<symbol, never>;
