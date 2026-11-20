@@ -8,6 +8,7 @@
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder]
+//   npm run capture:browse-gallery -- [output folder] notice
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -38,7 +39,7 @@ const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
-const shots =
+const galleryShots =
   surface === "scan-lanes"
     ? [
         { name: "light-1280", theme: "light", width: 1280 },
@@ -51,6 +52,13 @@ const shots =
         { name: "dark-1280", theme: "dark", width: 1280 },
         { name: "light-700", theme: "light", width: 700 },
       ];
+const noticeOnly = surface === "browse" && process.argv[4] === "notice";
+const shots = noticeOnly
+  ? [
+      { name: "notice-light-1280", theme: "light", width: 1280 },
+      { name: "notice-light-700", theme: "light", width: 700 },
+    ]
+  : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -279,7 +287,14 @@ try {
   const session = await page(port);
   await session.send("Page.enable");
   for (const shot of shots) {
-    await open(session, base, shot.theme, shot.width);
+    await open(
+      session,
+      base,
+      shot.theme,
+      shot.width,
+      undefined,
+      noticeOnly ? "&notice=1" : "",
+    );
     if (surface === "scan-lanes") await saveLanes(session, shot.name);
     else await save(session, shot.name);
   }
@@ -306,7 +321,7 @@ try {
     await open(session, base, "light", 1280, "one-lane");
     await saveLanes(session, "light-1280-one-lane");
   }
-  if (surface === "browse") {
+  if (surface === "browse" && !noticeOnly) {
     await open(session, base, "light", 1280, undefined, "&notice=1");
     await save(session, "notice-light-1280");
   }

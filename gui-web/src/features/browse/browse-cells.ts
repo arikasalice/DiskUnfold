@@ -131,7 +131,7 @@ export function browseNotice(
   unexplainedLowerBounds: readonly string[],
   dedupCapacityLowerBound: boolean,
   text: LocaleText,
-): string | undefined {
+): string[] | undefined {
   const lines: string[] = [];
   if (incomplete)
     lines.push(text("ui.browse.results_incomplete", "Results are incomplete."));
@@ -160,5 +160,5 @@ export function browseNotice(
         "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
       ),
     );
-  return lines.length > 0 ? lines.join(" ") : undefined;
+  return lines.length > 0 ? lines : undefined;
 }

@@ -42,8 +42,21 @@ import {
   PrioritySlot,
 } from "./PrioritySlot";
 
-function ResultsNotice({ message }: { message: string | undefined }) {
-  return message ? <Notice>{message}</Notice> : null;
+function ResultsNotice({ lines }: { lines: string[] | undefined }) {
+  if (!lines?.length) return null;
+  return (
+    <Notice>
+      {lines.length === 1 ? (
+        lines[0]
+      ) : (
+        <div className="du-browse-results__notice-lines">
+          {lines.map((line, index) => (
+            <Text key={index}>{line}</Text>
+          ))}
+        </div>
+      )}
+    </Notice>
+  );
 }
 
 /**
@@ -269,7 +282,7 @@ export function BrowseResults({
   });
   return (
     <div className="du-browse-results">
-      <ResultsNotice message={notice} />
+      <ResultsNotice lines={notice} />
       <div className="du-browse-controls">
         <SelectionAnalyzeFirst
           pages={pages}

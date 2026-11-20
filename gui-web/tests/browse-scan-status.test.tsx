@@ -212,13 +212,32 @@ test.each([
     "This result doesn't record whether folders were read completely, so some sizes and counts are minimums.",
   ],
 ])("lower-bound notice for %s", (key, expected) => {
-  expect(browseNotice(false, [key], false, text)).toBe(expected);
+  expect(browseNotice(false, [key], false, text)).toEqual([expected]);
 });
 
-test("the lower-bound notice combines with the incomplete-results sentence", () => {
-  expect(browseNotice(true, ["scan.evidence_not_recorded"], false, text)).toBe(
-    "Results are incomplete. This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
-  );
+test("the browse notice keeps two reasons on separate lines in order", () => {
+  expect(
+    browseNotice(false, ["scan.evidence_not_recorded"], true, text),
+  ).toEqual([
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
+});
+
+test("the browse notice puts the incomplete headline before both reasons", () => {
+  expect(
+    browseNotice(true, ["scan.evidence_not_recorded"], true, text),
+  ).toEqual([
+    "Results are incomplete.",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
+});
+
+test("the browse notice shows only the headline for an incomplete result", () => {
+  expect(browseNotice(true, [], false, text)).toEqual([
+    "Results are incomplete.",
+  ]);
 });
 
 function spaceTotal(sizes: SpaceTotal["sizes"]): SpaceTotal {
@@ -263,9 +282,9 @@ test.each(["allocated", "unique_physical"] as const)(
     expect(hasDedupCapacityLowerBound(limited)).toBe(true);
     expect(
       browseNotice(false, [], hasDedupCapacityLowerBound(limited), text),
-    ).toBe(
+    ).toEqual([
       "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
-    );
+    ]);
     expect(hasDedupCapacityLowerBound(exact)).toBe(false);
     expect(hasDedupCapacityLowerBound(unexplained)).toBe(false);
   },
@@ -376,7 +395,7 @@ test("a response without the boundary has no scan status column", async () => {
   ).toBeNull();
 });
 
-test("the browse notice combines page and result-level lower-bound reasons", async () => {
+test("the browse notice uses one region with a separate line for each sentence", async () => {
   const response = opened([row(1, {})]);
   response.page.completeness = "partial";
   response.page.unexplainedLowerBound = "scan.evidence_not_recorded";
@@ -386,10 +405,22 @@ test("the browse notice combines page and result-level lower-bound reasons", asy
       spaceTotal([totalSize("allocated", true, ["space.dedup_capacity"])]),
     );
   show(response, readTotal);
+  await screen.findByText(
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  );
+  const headline = await screen.findByText("Results are incomplete.");
+  const notice = headline.closest(".du-notice");
+  const lines = notice?.querySelector(".du-browse-results__notice-lines");
+  expect(notice?.getAttribute("role")).toBe("status");
   expect(
-    await screen.findByText(
-      "Results are incomplete. This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values. There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
-    ),
-  ).toBeDefined();
+    document.querySelectorAll('.du-browse-results > [role="status"]'),
+  ).toHaveLength(1);
+  expect(
+    Array.from(lines?.children ?? []).map((line) => line.textContent),
+  ).toEqual([
+    "Results are incomplete.",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
   expect(readTotal).toHaveBeenCalledWith(id);
 });
