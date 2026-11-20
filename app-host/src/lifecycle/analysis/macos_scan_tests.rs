@@ -22,6 +22,7 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+mod image;
 mod mount;
 
 fn draft(path: &Path) -> Value {

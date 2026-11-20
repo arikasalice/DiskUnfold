@@ -1,49 +1,10 @@
 //! A disk image attached inside the scope: listed outside the boundary, never
 //! entered, and the result stays complete. Totals are compared with `lstat`.
+use super::image::{attach, skip};
 use super::*;
 use crate::lifecycle::analysis::ipc_calls::amount;
 use du_core_contracts::{SizeBasis, result::ResultCompleteness, scan_failures::ScanFailureKind};
-use std::{os::unix::fs::MetadataExt, process::Command};
-
-/// An attached image; dropping it detaches the image.
-struct Attached(std::path::PathBuf);
-
-impl Drop for Attached {
-    fn drop(&mut self) {
-        let _ = Command::new("hdiutil")
-            .args(["detach", "-force", "-quiet"])
-            .arg(&self.0)
-            .status();
-    }
-}
-
-fn run(command: &mut Command) -> Result<(), String> {
-    match command.output() {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(output) => Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-fn attach(image: &Path, mount: &Path) -> Result<Attached, String> {
-    run(Command::new("hdiutil")
-        .args([
-            "create", "-quiet", "-size", "8m", "-fs", "APFS", "-volname", "DUScan",
-        ])
-        .arg(image))?;
-    fs::create_dir(mount).map_err(|e| e.to_string())?;
-    run(Command::new("hdiutil")
-        .args([
-            "attach",
-            "-quiet",
-            "-nobrowse",
-            "-noautoopen",
-            "-mountpoint",
-        ])
-        .arg(mount)
-        .arg(image))?;
-    Ok(Attached(mount.to_path_buf()))
-}
+use std::os::unix::fs::MetadataExt;
 
 /// Entries, logical bytes and allocated bytes below `path`, never crossing `skip`.
 fn walk(path: &Path, skip: &Path) -> Result<(u64, u64, u64), std::io::Error> {
@@ -74,11 +35,10 @@ fn a_mounted_image_is_outside_the_boundary_in_a_complete_result() -> TestResult 
     fs::write(base.join("sub").join("b.bin"), vec![2u8; 23])?;
     fs::write(base.join("sub").join("deep").join("c.bin"), vec![3u8; 7])?;
     let mount = base.join("mnt");
-    let attached = match attach(&temp.path().join("image.dmg"), &mount) {
+    let attached = match attach(&temp.path().join("image.dmg"), &mount, "APFS", "8m") {
         Ok(attached) => attached,
         Err(reason) => {
-            eprintln!("skipped: no disk image could be attached: {reason}");
-            return Ok(());
+            return skip(&format!("no disk image could be attached: {reason}"));
         }
     };
     fs::write(mount.join("inside.bin"), vec![9u8; 50])?;

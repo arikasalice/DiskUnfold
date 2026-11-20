@@ -4,6 +4,7 @@
 //! `hdiutil` attaches an image without privileges. A runner without it, or
 //! one that refuses the attach, prints the reason and skips the checks; on CI
 //! the skip fails.
+mod disk_image;
 mod machine;
 
 use du_core_contracts::scan_observation::{
@@ -13,57 +14,10 @@ use du_platform_os::macos_observation::MacScopeRoots;
 use std::{
     fs,
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
-    path::{Path, PathBuf},
-    process::Command,
+    path::Path,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-/// An attached image; dropping it detaches the image.
-struct Attached {
-    mount: PathBuf,
-}
-
-impl Drop for Attached {
-    fn drop(&mut self) {
-        let _ = Command::new("hdiutil")
-            .args(["detach", "-force", "-quiet"])
-            .arg(&self.mount)
-            .status();
-    }
-}
-
-fn run(command: &mut Command) -> Result<(), String> {
-    match command.output() {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(output) => Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-/// Creates an 8 MiB APFS image in `work` and attaches it at `mount`.
-fn attach(work: &Path, mount: &Path) -> Result<Attached, String> {
-    let image = work.join("image.dmg");
-    run(Command::new("hdiutil")
-        .args([
-            "create", "-quiet", "-size", "8m", "-fs", "APFS", "-volname", "DUMount",
-        ])
-        .arg(&image))?;
-    fs::create_dir(mount).map_err(|e| e.to_string())?;
-    run(Command::new("hdiutil")
-        .args([
-            "attach",
-            "-quiet",
-            "-nobrowse",
-            "-noautoopen",
-            "-mountpoint",
-        ])
-        .arg(mount)
-        .arg(&image))?;
-    Ok(Attached {
-        mount: mount.to_path_buf(),
-    })
-}
 
 fn open(path: &Path) -> Result<OpenedScopeRoot, String> {
     MacScopeRoots
@@ -88,7 +42,7 @@ fn a_mount_point_is_listed_with_the_covered_identity_and_never_entered() -> Test
     let base = fs::canonicalize(work.path())?.join("scope");
     fs::create_dir(&base)?;
     let mount = base.join("mnt");
-    let attached = match attach(work.path(), &mount) {
+    let attached = match disk_image::attach(&work.path().join("image.dmg"), &mount, "APFS", "8m") {
         Ok(attached) => attached,
         Err(reason) => {
             return machine::skip(&format!("no disk image could be attached: {reason}"));
