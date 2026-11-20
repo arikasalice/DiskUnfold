@@ -20,7 +20,11 @@ import "./startup-status.css";
  * is the way to the details (design F15 README 1.6). Dismissing it remembers
  * the state key and hands focus to the screen title. The permission-only
  * screen replaces `children` when the host reports that analysis entry is
- * not allowed. A status read that fails shows nothing.
+ * not allowed. A status read that fails shows nothing. While mounted, the gate
+ * stores the remembered state keys through `app.startup_memory_set`; a failed
+ * write keeps the key for this run and is tried again when the status is read
+ * next (after "Open Settings", on returning to the window, or at the next
+ * launch).
  *
  * The live status region is mounted before the status is read, so the notice
  * text and the result of "Open Settings" are announced as changes. When the
@@ -40,6 +44,16 @@ export function StartupGate({
   const [feedback, setFeedback] = useState<string>();
   const [pending, setPending] = useState(false);
   const line = useRef<HTMLDivElement>(null);
+
+  useEffect(
+    () =>
+      startupMemory.connect((kind, stateKey) => {
+        client
+          .call("app.startup_memory_set", { kind, stateKey })
+          .catch(() => undefined);
+      }),
+    [client],
+  );
 
   useEffect(() => {
     let current = true;
