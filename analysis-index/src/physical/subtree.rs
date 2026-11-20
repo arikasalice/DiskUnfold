@@ -76,7 +76,7 @@ fn repeated_identities(
 /// Computes the totals of every item from the evidence of its subtree.
 pub(crate) fn apply(
     items: &[ResultItem],
-    observations: Option<&[Option<Arc<SpaceObservation>>]>,
+    evidence: FileEvidence<'_>,
     boundary: &[u32],
     completeness: ResultCompleteness,
     proven: Option<&ProvenFolders>,
@@ -84,7 +84,7 @@ pub(crate) fn apply(
     output: &mut [SpaceAggregate],
 ) {
     let source = |index| ProvenFolders::source(proven, index, completeness);
-    let Some(observations) = observations else {
+    let Some(observations) = evidence.observations else {
         apply_unobserved(items, boundary, &source, limit, output);
         return;
     };
@@ -95,9 +95,11 @@ pub(crate) fn apply(
         let index = item.item_no as usize;
         let observed =
             (!is_structure(item.kind)).then(|| Observed::read(observations[index].as_deref()));
+        let placeholder = local_unknown(evidence.placeholders, index);
         let tabled = repeated[index];
         if let Some(mut sum) = sums[index].take() {
             if let Some(observed) = &observed {
+                sum.note_placeholder(observed, placeholder);
                 let _ = sum.record(observed, tabled);
             }
             sum.finish(source(index), &mut output[index]);
@@ -114,15 +116,17 @@ pub(crate) fn apply(
         // file to conflict with, so its totals need no table.
         let mut own = Physical::with_limit(limit);
         if let Some(observed) = &observed {
+            own.note_placeholder(observed, placeholder);
             let _ = own.record(observed, false);
         }
         own.finish(source(index), &mut output[index]);
         // A file outside the boundary keeps its own totals and adds nothing above it.
         let counts_above = boundary.binary_search(&item.item_no).is_err();
         if let (Some(parent), Some(observed), true) = (item.parent, &observed, counts_above) {
-            let _ = sums[parent as usize]
-                .get_or_insert_with(|| Box::new(Physical::with_limit(limit)))
-                .record(observed, tabled);
+            let sum =
+                sums[parent as usize].get_or_insert_with(|| Box::new(Physical::with_limit(limit)));
+            sum.note_placeholder(observed, placeholder);
+            let _ = sum.record(observed, tabled);
         }
     }
 }

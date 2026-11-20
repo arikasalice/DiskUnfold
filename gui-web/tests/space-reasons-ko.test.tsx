@@ -58,6 +58,10 @@ const itemReasons = [
   ["space.identity_unsupported", "ui.analysis.space_identity_unsupported"],
   ["space.out_of_range_links", "ui.analysis.space_out_of_range_links"],
   ["space.shared_reported", "ui.analysis.space_shared_reported"],
+  [
+    "space.placeholder_local_unknown",
+    "ui.analysis.space_placeholder_local_unknown",
+  ],
 ] as const;
 const limitReasons = [
   ["space.data_insufficient", "ui.analysis.space_data_insufficient"],

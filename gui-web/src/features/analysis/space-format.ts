@@ -76,6 +76,13 @@ const spaceReasonMessages = new Map<string, Message>([
       "The file system reported shared space",
     ],
   ],
+  [
+    "space.placeholder_local_unknown",
+    [
+      "ui.analysis.space_placeholder_local_unknown",
+      "This is a cloud placeholder, and the space it uses on this device was not reported",
+    ],
+  ],
 ]);
 
 /** The message of each reason that only limits a measurement. */
@@ -177,6 +184,7 @@ export type SizeWait = "running" | "paused";
 const lastingUnknownReasons = new Set([
   "space.aggregation_overflow",
   "space.dedup_capacity",
+  "space.placeholder_local_unknown",
 ]);
 
 /**

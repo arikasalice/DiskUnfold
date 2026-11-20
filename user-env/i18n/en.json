@@ -410,6 +410,7 @@
     ["ui.analysis.space_item_observed_at","Item observed at",[]],
     ["ui.analysis.space_capabilities","Space capabilities",[]],
     ["ui.analysis.space_none_reported","None reported",[]],
+    ["ui.analysis.space_placeholder_local_unknown","This is a cloud placeholder, and the space it uses on this device was not reported",[]],
     ["ui.analysis.space_placeholder_residency","Placeholder residency",[]],
     ["ui.analysis.space_details_mismatch","The space details do not match this item.",[]],
     ["ui.analysis.space_open_latest","Open the latest result to see its space details.",[]],

@@ -393,6 +393,7 @@ ui.analysis.space_separate_from_allocation
 ui.analysis.space_item_observed_at
 ui.analysis.space_capabilities
 ui.analysis.space_none_reported
+ui.analysis.space_placeholder_local_unknown
 ui.analysis.space_placeholder_residency
 ui.analysis.space_details_mismatch
 ui.analysis.space_open_latest
