@@ -1904,7 +1904,15 @@ function Test-CaptureTypeLegend([switch]$More) {
   Select-SmokeRadio $videos
   "Legend class chosen: '$($videos.Current.Name)'"
   Save-SmokeCapture '03-legend-videos'
-  Select-SmokeRadio $videos
+  # Choosing an item again does not let go of it; the chip on the status line does.
+  $buttonType = [Windows.Automation.ControlType]::Button
+  $chip = Wait-UI 'the class chip' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)) |
+      Where-Object { $_.Current.Name -like "*$videosName*" }) | Select-Object -First 1
+  }
+  "Class chip: '$($chip.Current.Name)'"
+  Invoke-UI $chip
+  Start-Sleep -Milliseconds 600
   $patterns = Wait-UI 'Use patterns' { Find-UI 'Use patterns' $null }
   # "Use patterns" is a toggle button: UI Automation offers it the Toggle pattern, not Invoke.
   $toggle = $null
