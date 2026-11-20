@@ -336,12 +336,7 @@ export function BrowseVisualizationView({
     assembly,
     selection,
   );
-  const axis = useHistogramAxis(
-    formats.format,
-    catalog,
-    assembly?.request,
-    vizText,
-  );
+  const axis = useHistogramAxis(formats.format, catalog, assembly, vizText);
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });

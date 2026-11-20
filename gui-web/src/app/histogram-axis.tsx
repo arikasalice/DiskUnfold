@@ -19,11 +19,11 @@ const SIZE = "size";
 export function useHistogramAxis(
   format: string,
   catalog: VizCatalog | undefined,
-  ownerRequest: VisualizationViewRequest | undefined,
+  owner: { request: Pick<VisualizationViewRequest, "measure"> } | undefined,
   text: VizText,
 ) {
   const [axis, setAxis] = useState(COUNT);
-  const ownerMeasure = ownerRequest?.measure ?? SIZE;
+  const ownerMeasure = owner?.request.measure ?? SIZE;
   if (format !== "histogram" || !catalog?.measures.includes(COUNT))
     return { measure: ownerMeasure, control: undefined };
   return {
