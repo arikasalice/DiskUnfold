@@ -17,13 +17,60 @@ import type { GroupRule, QueryCondition } from "../src/ipc";
 import { ARCHIVE, MOVIES, ruleset } from "./groups-fixtures";
 
 test("F36 FR3: a name is encoded as base64url UTF-16LE and decoded back, including non-BMP text", () => {
-  expect(encodeNameOperand("mp4")).toBe("bQBwADQA");
+  expect(encodeNameOperand("mp4")).toEqual({
+    encoding: "windows_utf16le",
+    value: "bQBwADQA",
+  });
   for (const name of ["mp4", "영상 파일", "a_b-c", "\u{1F600}x"]) {
-    expect(decodeNameOperand(encodeNameOperand(name))).toBe(name);
+    const { encoding, value } = encodeNameOperand(name);
+    expect(decodeNameOperand(value, encoding)).toBe(name);
   }
-  expect(decodeNameOperand("not base64!")).toBeUndefined();
+  expect(decodeNameOperand("not base64!", "windows_utf16le")).toBeUndefined();
   // An odd number of bytes is not UTF-16.
-  expect(decodeNameOperand("bQBw")).toBeUndefined();
+  expect(decodeNameOperand("bQBw", "windows_utf16le")).toBeUndefined();
+});
+
+test("#267: on macOS and Linux a name is encoded as UTF-8 bytes like a typed path", () => {
+  const host = window as unknown as { webkit?: unknown };
+  host.webkit = { messageHandlers: { diskunfold: { postMessage() {} } } };
+  try {
+    expect(encodeNameOperand("mp4")).toEqual({
+      encoding: "bytes",
+      value: "bXA0",
+    });
+    for (const name of ["mp4", "영상 파일", "a_b-c", "\u{1F600}x"]) {
+      const { encoding, value } = encodeNameOperand(name);
+      expect(encoding).toBe("bytes");
+      expect(decodeNameOperand(value, encoding)).toBe(name);
+    }
+    // A byte that is not UTF-8 is shown as bytes, not guessed.
+    expect(decodeNameOperand("_w", "bytes")).toBeUndefined();
+    // The same operand reads by its own encoding, whatever the host is now.
+    expect(decodeNameOperand("bQBwADQA", "windows_utf16le")).toBe("mp4");
+    // The editor takes only the host's own encoding; a Windows operand stays
+    // read-only so saving cannot re-encode it.
+    const bytesName: QueryCondition = {
+      kind: "predicate",
+      predicate: { kind: "name", op: "equal", encoding: "bytes", value: "YQ" },
+    };
+    expect(draftFromRule(ruleWith(bytesName), "iec", "k").readOnly).toBe(
+      undefined,
+    );
+    const windowsName: QueryCondition = {
+      kind: "predicate",
+      predicate: {
+        kind: "name",
+        op: "equal",
+        encoding: "windows_utf16le",
+        value: "YQA",
+      },
+    };
+    const draft = draftFromRule(ruleWith(windowsName), "iec", "k");
+    expect(draft.readOnly).toBe("unsupported");
+    expect(toRuleDraft(draft, "iec").condition).toBe(windowsName);
+  } finally {
+    delete host.webkit;
+  }
 });
 
 test("F36 FR3: a size amount must be a whole number of bytes after its unit", () => {

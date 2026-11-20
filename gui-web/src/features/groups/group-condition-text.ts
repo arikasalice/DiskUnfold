@@ -63,9 +63,8 @@ function predicateSummary(
     return text("ui.groups.cond_name_summary", "Name {op} \u201c{text}\u201d", {
       op: nameOpLabel(predicate.op, text).toLowerCase(),
       text:
-        (predicate.encoding === "windows_utf16le"
-          ? decodeNameOperand(predicate.value)
-          : undefined) ?? text("ui.groups.cond_binary", "(bytes)"),
+        decodeNameOperand(predicate.value, predicate.encoding) ??
+        text("ui.groups.cond_binary", "(bytes)"),
     });
   const unit = sizeUnits(system)[0]?.symbol ?? "B";
   return text("ui.groups.cond_size_summary", "{basis} {op} {size}", {

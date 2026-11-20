@@ -1,4 +1,5 @@
-import { SIZE_UNIT_RULES, windowsPath } from "../ipc";
+import { SIZE_UNIT_RULES, nativePath, unixPath, windowsPath } from "../ipc";
+import type { QueryNameEncoding } from "../ipc";
 import type {
   GroupRule,
   GroupRuleDraft,
@@ -58,24 +59,45 @@ export type RuleProblem =
 
 const U64_MAX = 18_446_744_073_709_551_615n;
 
-/** Encodes a name operand with the Windows UTF-16LE path encoding. */
-export function encodeNameOperand(name: string): string {
-  return windowsPath(name).raw;
+/**
+ * Encodes a name operand the way the host stores names (#267): UTF-16LE on
+ * Windows, the name's UTF-8 bytes ("bytes") on macOS and Linux, as typed
+ * paths are (#259).
+ */
+export function encodeNameOperand(name: string): {
+  encoding: QueryNameEncoding;
+  value: string;
+} {
+  const path = nativePath(name);
+  return {
+    encoding: path.encoding === "unix" ? "bytes" : "windows_utf16le",
+    value: path.raw,
+  };
 }
 
-/** Decodes a UTF-16LE name operand; undefined when it is not valid text. */
-export function decodeNameOperand(raw: string): string | undefined {
+/**
+ * Decodes a name operand in its stored encoding; undefined when it is not
+ * valid text in that encoding, so the screen shows it as bytes.
+ */
+export function decodeNameOperand(
+  raw: string,
+  encoding: QueryNameEncoding,
+): string | undefined {
   try {
     const binary = atob(raw.replaceAll("-", "+").replaceAll("_", "/"));
-    if (binary.length % 2 !== 0) return undefined;
     let text = "";
-    for (let index = 0; index < binary.length; index += 2)
-      text += String.fromCharCode(
-        binary.charCodeAt(index) | (binary.charCodeAt(index + 1) << 8),
-      );
-    return encodeNameOperand(text) === raw.replace(/=+$/, "")
-      ? text
-      : undefined;
+    if (encoding === "windows_utf16le") {
+      if (binary.length % 2 !== 0) return undefined;
+      for (let index = 0; index < binary.length; index += 2)
+        text += String.fromCharCode(
+          binary.charCodeAt(index) | (binary.charCodeAt(index + 1) << 8),
+        );
+    } else {
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    }
+    const again = encoding === "bytes" ? unixPath(text) : windowsPath(text);
+    return again.raw === raw.replace(/=+$/, "") ? text : undefined;
   } catch {
     return undefined;
   }
@@ -126,9 +148,11 @@ function rowFromPredicate(
   if (predicate.kind === "type")
     return { kind: "type", value: predicate.value };
   if (predicate.kind === "name") {
+    // Only an operand in the host's own encoding is editable: saving re-encodes
+    // the text that way, so any other operand stays read-only and unchanged.
     const text =
-      predicate.encoding === "windows_utf16le"
-        ? decodeNameOperand(predicate.value)
+      predicate.encoding === encodeNameOperand("").encoding
+        ? decodeNameOperand(predicate.value, predicate.encoding)
         : undefined;
     return text === undefined
       ? undefined
@@ -208,8 +232,7 @@ function predicateFromRow(
     return {
       kind: "name",
       op: row.op,
-      encoding: "windows_utf16le",
-      value: encodeNameOperand(row.text),
+      ...encodeNameOperand(row.text),
     };
   return {
     kind: "size",
