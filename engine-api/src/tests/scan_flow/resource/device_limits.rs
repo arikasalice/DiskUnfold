@@ -184,12 +184,17 @@ fn query_failed_device_remains_unknown_and_scan_completes() -> TestResult {
         )?
         .body,
     )?;
+    // Lane status is batched and dropped after the job ends, so read it while the
+    // fixture still holds the root's read, then let the scan finish.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        let event = harness.lane_status.recv_timeout(remaining)?;
+        if event.job_id == receipt.job_ref {
+            break event;
+        }
+    };
     complete_start(&harness, receipt, 1)?;
-    let status = harness
-        .lane_status
-        .try_iter()
-        .last()
-        .ok_or("lane status was not reported")?;
     let lane = status.status.lanes.first().ok_or("lane status was empty")?;
     assert_eq!(lane.device_kind, DeviceKind::Unknown);
     assert_eq!(lane.device_kind_source, DeviceKindSource::Unknown);
