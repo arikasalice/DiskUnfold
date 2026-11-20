@@ -54,7 +54,8 @@ struct Status {
 
 impl UseCase for Status {
     const NAME: &'static str = "job.status";
-    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    // A command-line process runs its own engine, so it sees only its own jobs (#222).
+    const CHANNELS: &'static [Channel] = &[Channel::Gui, Channel::Cli];
     type Request = AnalysisJobRequest;
     type Response = AnalysisJobStatus;
 
@@ -107,7 +108,7 @@ struct Cancel(Arc<JobRuntime>);
 
 impl UseCase for Cancel {
     const NAME: &'static str = "job.cancel";
-    const CHANNELS: &'static [Channel] = &[Channel::Gui];
+    const CHANNELS: &'static [Channel] = &[Channel::Gui, Channel::Cli];
     type Request = AnalysisJobRequest;
     type Response = AnalysisJobControl;
 

@@ -188,6 +188,28 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-cli",
+    "name": "serde",
+    "version": "1.0.229",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Decode the engine responses the scan command reads"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-cli",
+    "name": "tempfile",
+    "version": "3.27.0",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "test",
+    "distributed": false,
+    "reason": "Isolate scan command fixtures from user data"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-core-contracts",
     "name": "base64",
     "version": "0.23.1",
@@ -360,7 +382,7 @@
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
     "distributed": true,
-    "reason": "Resolve the real user's home directory on macOS with getpwuid_r for the Full Disk Access probe"
+    "reason": "Resolve the real user's home directory on macOS with getpwuid_r for the Full Disk Access probe, and count command-line interrupts with sigaction on Linux and macOS"
   },
   {
     "ecosystem": "cargo",

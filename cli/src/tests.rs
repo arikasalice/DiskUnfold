@@ -261,16 +261,17 @@ fn not_provided_command_does_not_open_an_isolated_corrupt_settings_database() ->
 fn settings_warning_is_localized_for_invalid_saved_locale_or_read_failure() -> Result<(), String> {
     let registry = embedded::register(&[]).map_err(|_| "embedded bundles register")?;
 
-    for (language, expected_warning, unsupported) in [
+    // The scan of a path that does not exist ends with a usage error explained in the language.
+    for (language, expected_warning, unusable) in [
         (
             "en",
             "Saved settings are unavailable. Using a fallback language.",
-            "DiskUnfold: unsupported arguments. See --help.",
+            "A path cannot be analyzed.",
         ),
         (
             "ko",
             "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다.",
-            "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.",
+            "분석할 수 없는 경로가 있습니다.",
         ),
     ] {
         let bundle = registry
@@ -307,17 +308,23 @@ fn settings_warning_is_localized_for_invalid_saved_locale_or_read_failure() -> R
 
             assert_eq!(exit, ExitCode::from(2), "{language} {stored_read:?}");
             assert!(stdout.is_empty(), "{language} {stored_read:?}");
-            let expected_stderr = match stored_read {
-                StoredRead::Missing => format!("{unsupported}\n"),
-                StoredRead::Failed | StoredRead::UnsupportedLanguage => {
-                    format!("{expected_warning}\n{unsupported}\n")
-                }
-            };
-            assert_eq!(
-                stderr,
-                expected_stderr.as_bytes(),
-                "{language} {stored_read:?}"
+            let text = String::from_utf8_lossy(&stderr);
+            let mut lines = text.lines();
+            if !matches!(stored_read, StoredRead::Missing) {
+                assert_eq!(
+                    lines.next(),
+                    Some(expected_warning),
+                    "{language} {stored_read:?}"
+                );
+            }
+            let error = lines.next().unwrap_or_default();
+            assert!(
+                error.starts_with("DiskUnfold: ")
+                    && error.contains(unusable)
+                    && error.ends_with(" [INVALID_ARGUMENT]"),
+                "{language} {stored_read:?}: {text}"
             );
+            assert_eq!(lines.next(), None, "{language} {stored_read:?}: {text}");
         }
     }
     Ok(())
