@@ -7,6 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const MAX_SLAVE_DEPTH: usize = 8;
+
 /// Probes the device numbers obtained from an open root directory's metadata.
 #[cfg(target_os = "linux")]
 pub fn probe_dev(major: u32, minor: u32) -> DeviceProbe {
@@ -29,37 +31,42 @@ where
     let device = match resolve(&entry) {
         Ok(path) => path,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return probe(ProbedDeviceKind::Unknown, None, None);
+            return probe(ProbedDeviceKind::Unknown, None, Some(OS_UNSUPPORTED));
         }
         Err(_) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
     };
 
-    let whole = match whole_disk(&device) {
-        Ok(path) => path,
-        Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
-    };
-    let slaves = match slave_entries(&whole) {
-        Ok(entries) => entries,
-        Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
-    };
-    let whole = match slaves.as_slice() {
-        [] => whole,
-        [slave] => {
-            let Ok(slave_device) = resolve(slave) else {
-                return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
-            };
-            match whole_disk(&slave_device) {
-                Ok(path) => path,
-                Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+    let mut current = device;
+    let mut physical_disk = None;
+    for _ in 0..MAX_SLAVE_DEPTH {
+        let whole = match whole_disk(&current) {
+            Ok(path) => path,
+            Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+        };
+        let slaves = match slave_entries(&whole) {
+            Ok(entries) => entries,
+            Err(()) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+        };
+        match slaves.as_slice() {
+            [] => {
+                physical_disk = Some(whole);
+                break;
+            }
+            [slave] => match resolve(slave) {
+                Ok(device) => current = device,
+                Err(_) => return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
+            },
+            _ => {
+                return probe(
+                    ProbedDeviceKind::Unknown,
+                    None,
+                    Some(OS_DEVICE_MULTIPLE_DISKS),
+                );
             }
         }
-        _ => {
-            return probe(
-                ProbedDeviceKind::Unknown,
-                None,
-                Some(OS_DEVICE_MULTIPLE_DISKS),
-            );
-        }
+    }
+    let Some(whole) = physical_disk else {
+        return probe(ProbedDeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     };
 
     let kind = match fs::read_to_string(whole.join("queue/rotational")) {
@@ -273,9 +280,36 @@ mod tests {
     }
 
     #[test]
-    fn missing_sysfs_device_is_unknown_without_a_key() -> Result<(), Box<dyn Error>> {
+    fn stacked_dm_devices_follow_partition_to_rotational_hdd() -> Result<(), Box<dyn Error>> {
+        let mut fixture = Fixture::new()?;
+        let lvm = fixture.device("dm-lvm", "253:0", None)?;
+        let crypt = fixture.device("dm-crypt", "253:1", None)?;
+        let disk = fixture.device("sda", "8:0", Some("1\n"))?;
+        let partition = fixture.partition("sda2", "8:2", &disk)?;
+        let lvm_slave = lvm.join("slaves/dm-crypt");
+        let crypt_slave = crypt.join("slaves/sda2");
+        fs::create_dir_all(&lvm_slave)?;
+        fs::create_dir_all(&crypt_slave)?;
+        fixture.route(&fixture.root_route(253, 0), &lvm);
+        fixture.route(&lvm_slave, &crypt);
+        fixture.route(&crypt_slave, &partition);
+        expect(
+            &fixture.probe(253, 0),
+            ProbedDeviceKind::Hdd,
+            Some(b"linux:blk:8:0"),
+            None,
+        )
+    }
+
+    #[test]
+    fn missing_sysfs_device_is_unsupported() -> Result<(), Box<dyn Error>> {
         let fixture = Fixture::new()?;
-        expect(&fixture.probe(8, 99), ProbedDeviceKind::Unknown, None, None)
+        expect(
+            &fixture.probe(8, 99),
+            ProbedDeviceKind::Unknown,
+            None,
+            Some(OS_UNSUPPORTED),
+        )
     }
 
     #[test]

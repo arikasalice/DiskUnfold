@@ -175,8 +175,9 @@ fn whole_disk(entry: IoService) -> Result<Option<(String, ProbedDeviceKind)>, ()
     let Some(name) = property_string(entry, "BSD Name")? else {
         return Err(());
     };
-    let Some(kind @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)) = medium_kind(entry)? else {
-        return Ok(None);
+    let kind = match medium_kind(entry)? {
+        Some(kind @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)) => kind,
+        None | Some(ProbedDeviceKind::Unknown) => ProbedDeviceKind::Unknown,
     };
     Ok(Some((name, kind)))
 }
@@ -256,12 +257,15 @@ fn resolved_probe(
     disk_kind: ProbedDeviceKind,
     volume_kind: Option<ProbedDeviceKind>,
 ) -> DeviceProbe {
-    let kind = match volume_kind {
-        Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)) if volume != disk_kind => {
+    let kind = match (volume_kind, disk_kind) {
+        (_, ProbedDeviceKind::Unknown) => ProbedDeviceKind::Unknown,
+        (Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)), disk)
+            if volume != disk =>
+        {
             ProbedDeviceKind::Unknown
         }
-        Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)) => volume,
-        _ => disk_kind,
+        (Some(volume @ (ProbedDeviceKind::Ssd | ProbedDeviceKind::Hdd)), _) => volume,
+        (_, disk) => disk,
     };
     let key = format!("macos:disk:{name}").into_bytes();
     let reason = (kind == ProbedDeviceKind::Unknown).then_some(OS_QUERY_FAILED);
@@ -401,6 +405,22 @@ fn probe(
 mod tests {
     use super::*;
     use std::{error::Error, fs::File, io, os::fd::AsFd};
+
+    #[test]
+    fn unknown_disk_kind_keeps_whole_disk_key() -> Result<(), Box<dyn Error>> {
+        let result = resolved_probe(
+            "disk0".to_owned(),
+            ProbedDeviceKind::Unknown,
+            Some(ProbedDeviceKind::Ssd),
+        );
+        if result.kind != ProbedDeviceKind::Unknown
+            || result.disk_key.as_deref() != Some(b"macos:disk:disk0")
+            || result.reason_key != Some(OS_QUERY_FAILED)
+        {
+            return Err(io::Error::other("unknown kind did not retain the disk key").into());
+        }
+        Ok(())
+    }
 
     #[test]
     fn macos_open_root_device_smoke() -> Result<(), Box<dyn Error>> {
