@@ -46,6 +46,7 @@ pub fn builtin_descriptors_with_size_rules(
         .chain(crate::space::descriptors())
         .chain([crate::space::aggregation_rule_descriptor(size_rule_ids)])
         .chain(crate::startup_memory::descriptors())
+        .chain(crate::history_retention::descriptors())
         .collect())
 }
 
@@ -229,6 +230,17 @@ impl<S: SettingsStore> SettingsService<S> {
         &self.snapshot
     }
 
+    /// Reads the history retention policy from this validated settings snapshot.
+    pub fn history_retention_policy(
+        &self,
+    ) -> du_core_contracts::history_retention_ipc::HistoryRetentionPolicy {
+        crate::history_retention::policy(
+            &self.snapshot,
+            &self.restore_status.invalid_keys,
+            self.restore_status.failure_reason.is_some(),
+        )
+    }
+
     /// Reads the stored settings again, after a commit answered `StaleVersion`
     /// because another writer of the store (another process) moved its revision.
     ///
@@ -392,14 +404,14 @@ impl<S: SettingsStore> SettingsService<S> {
                 .descriptors
                 .get(key)
                 .ok_or(SettingsError::UnknownKey)?;
-            if !descriptor.editable {
-                return Err(SettingsError::NotEditable);
-            }
             if value
                 .as_ref()
                 .is_some_and(|value| !crate::accepts(&descriptor.kind, value))
             {
                 return Err(SettingsError::InvalidValue);
+            }
+            if !descriptor.editable {
+                return Err(SettingsError::NotEditable);
             }
         }
         if (changes.contains_key(crate::space::SIZE_UNIT_SYSTEM)

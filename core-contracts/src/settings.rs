@@ -139,6 +139,10 @@ pub enum SettingValueKind {
         min: i64,
         max: i64,
     },
+    OptionalInteger {
+        min: i64,
+        max: i64,
+    },
     Choice(Vec<Value>),
     /// A string of at most `max_bytes` bytes made only of the ASCII characters
     /// listed in `charset`; the empty string is allowed.

@@ -833,6 +833,28 @@ export type HistoryItemsResponse = { revision: HistoryListRevision, rows: Array<
  * unknown and fall back to `counts.summary`: null means not recorded.
  */
 itemRecording?: HistoryItemRecording, completeness: HistoryDetailCompleteness, missingReasons: Array<string>, nextCursor: string | null, };
+export type HistoryRetentionGetRequest = Record<symbol, never>;
+export type HistoryRetentionPolicy = {
+/**
+ * Whether automatic retention is enabled.
+ */
+enabled: boolean,
+/**
+ * The user-specified age limit, omitted when no override is stored.
+ */
+specifiedDays?: number,
+/**
+ * Built-in suggestion, which is never stored as a setting.
+ */
+suggestedDays: number,
+/**
+ * Lowercase hexadecimal digest that identifies this policy and its read state.
+ */
+policyFingerprint: string,
+/**
+ * Stable reason key when the stored policy could not be trusted.
+ */
+unavailableReason?: string, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;

@@ -124,6 +124,8 @@ fn run_app(
     } = state;
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    du_engine_api::history::retention::register(&mut builder, settings.history_retention_policy());
     crate::product_ipc::register(
         &mut builder,
         crate::product_ipc::ProductServices::system(product),

@@ -2,6 +2,7 @@
 
 pub mod detail;
 pub mod items;
+pub mod retention;
 
 pub use du_core_contracts::history_ipc::HistoryListFilter as Filter;
 use du_core_contracts::{
