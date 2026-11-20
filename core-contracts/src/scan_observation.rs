@@ -472,7 +472,8 @@ pub struct MetadataObservation {
     pub modified_at: Option<Timestamp>,
     /// Native value from the same verified metadata handle, when available.
     pub native_modified_at: Option<NativeModifiedTime>,
-    /// OS-reported allocation for the observed file, or `None` when unverified.
+    /// OS-reported allocation, or `None` when unverified. macOS counts every fork, Windows
+    /// the default data stream only (compressed size if compressed or sparse), Linux st_blocks.
     pub allocated: Option<u64>,
     /// OS-reported total hard-link count, or `None` when unverified.
     /// This does not establish whether physical extents are shared.
