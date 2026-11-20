@@ -177,6 +177,9 @@ function Initialize-UiNames([string]$language) {
     if (-not $target.Contains($key)) { continue }
     $source = $english[$key]
     if ($source -match '\{\w+\}') {
+      # A message made only of placeholders, such as a bare "{count}", would match every name and
+      # rewrite it; it names nothing the smoke looks up, so it is not a template.
+      if (($source -replace '\{\w+\}', '').Trim() -eq '') { continue }
       try {
         $pattern = '^' + ([regex]::Escape($source) -replace '\\\{(\w+)\}', '(?<$1>.+?)') + '$'
         $script:UiTemplates += [pscustomobject]@{ Pattern = [regex]::new($pattern); Result = $target[$key] }

@@ -20,6 +20,7 @@ import type {
   AnalysisJobStatus,
   JobState,
   ScanControl,
+  ScanLaneStatus,
   ScanProblem,
   ScanStart,
   SpaceTotal,
@@ -28,12 +29,7 @@ import type {
 export type { ScanControl } from "../ipc";
 export { isRunning } from "./scan-job-rules";
 
-/**
- * Follows the results a scan publishes and keeps its newest one in the view.
- * Later publications, including the final one, replace the shown totals at
- * the shared reflect cadence; only a version whose read failed waits for
- * "Show latest result".
- */
+/** Follows a scan's result publications and its latest progress values. */
 export function useScanResult(
   client: AnalysisClient,
   receipt: ScanStart | null,
@@ -42,6 +38,10 @@ export function useScanResult(
   const [progress, setProgress] = useState<{
     jobRef: string;
     value: AnalysisJobProgress;
+  }>();
+  const [laneStatus, setLaneStatus] = useState<{
+    jobRef: string;
+    value: ScanLaneStatus;
   }>();
   const [total, setTotal] = useState<{ jobRef: string; value: SpaceTotal }>();
   const [latest, setLatest] = useState<{ jobRef: string; version: string }>();
@@ -95,7 +95,6 @@ export function useScanResult(
     let hiddenWork = false;
     const cadence = createReflectCadence();
 
-    /** Stops automatic reads of a version; the user may still select it. */
     function reject(version: string) {
       rejected = version;
       setStalled({ jobRef: scanJob, version });
@@ -192,7 +191,6 @@ export function useScanResult(
           failure instanceof AnalysisError &&
           (failure.code === "STALE_VERSION" || failure.code === "NOT_FOUND")
         ) {
-          // A partial result can be superseded before its first read is admitted.
           staleFailure = failure;
           queued = true;
           queuedResult = true;
@@ -306,7 +304,6 @@ export function useScanResult(
       }
     }
 
-    /** Reads a newer publication at the reflect cadence; the first result and an explicit selection at once. */
     function readWhenDue(version: string) {
       if (displayed && !displayLatest && cadence.remaining() > 0) {
         cadence.defer(() => {
@@ -382,7 +379,6 @@ export function useScanResult(
 
     function scheduleStatusRead(resultOnly = false) {
       scheduledResult ||= resultOnly;
-      // A hidden window renders no frames; catch up when it becomes visible.
       if (documentHidden()) {
         hiddenWork = true;
         return;
@@ -437,9 +433,13 @@ export function useScanResult(
         }
       },
       receiveProgress,
+      (value) => setLaneStatus({ jobRef: scanJob, value }),
+      () =>
+        setLaneStatus((current) =>
+          current?.jobRef === scanJob ? undefined : current,
+        ),
     );
     const unsubscribe = client.subscribe((event) => {
-      // Values held before a resynchronization are not drawn.
       if (event.topic === "job.resync_required") queuedProgress = undefined;
       if (
         event.topic === "job.resync_required" ||
@@ -477,6 +477,7 @@ export function useScanResult(
     status: currentStatus,
     /** The latest ordered job.progress value while the scan is running. */
     progress: runningValue(progress, jobRef, currentStatus),
+    laneStatus: runningValue(laneStatus, jobRef, currentStatus),
     /** The scan's newest published result version, which may not be displayed yet. */
     currentVersion: latestVersion,
     ...controlsForJob(jobRef, currentStatus, unavailable, control),

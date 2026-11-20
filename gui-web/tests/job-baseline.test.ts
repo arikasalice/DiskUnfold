@@ -3,6 +3,7 @@ import type {
   AnalysisClient,
   AnalysisJobListRow,
   EventEnvelope,
+  ScanLaneStatus,
 } from "../src/ipc";
 import { watchJobBaseline } from "../src/state/job-baseline";
 
@@ -43,6 +44,29 @@ const event = (topic: string, sequence = 0): EventEnvelope => ({
   body: { sequence },
 });
 
+function laneStatus(sequence: number): ScanLaneStatus {
+  return {
+    sequence,
+    lanes: [
+      {
+        laneIndex: 0,
+        rootIndexes: [0],
+        inFlight: 1,
+        limit: 2,
+        waitReason: "none",
+        waitConfirmed: true,
+        remainingDirectories: "5",
+        failures: "0",
+      },
+    ],
+    observedAt: "1970-01-01T00:00:00Z",
+  };
+}
+
+function laneEvent(sequence: number): EventEnvelope {
+  return { ...event("scan.lane_status", sequence), body: laneStatus(sequence) };
+}
+
 function fixture() {
   const requests: Deferred[] = [];
   let listener: ((event: EventEnvelope) => void) | undefined;
@@ -72,10 +96,22 @@ function fixture() {
   } as unknown as AnalysisClient;
   const changed = vi.fn();
   const failed = vi.fn();
-  const gate = watchJobBaseline(client, "job", changed, failed);
+  const laneStatusChanged = vi.fn();
+  const laneStatusCleared = vi.fn();
+  const gate = watchJobBaseline(
+    client,
+    "job",
+    changed,
+    failed,
+    undefined,
+    laneStatusChanged,
+    laneStatusCleared,
+  );
   return {
     actions,
     changed,
+    laneStatusChanged,
+    laneStatusCleared,
     failed,
     gate,
     requests,
@@ -99,6 +135,52 @@ test("subscribes before baseline and applies only newer events through terminal"
   f.send(event("job.state_changed", 8));
   expect(f.gate.sequence()).toBe(6);
   expect(f.changed).toHaveBeenCalledTimes(1);
+  f.gate.dispose();
+});
+
+test("lane status applies only sequences newer than its baseline and last value", async () => {
+  const f = fixture();
+  f.requests[0]?.resolve([row(5)]);
+  await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+
+  f.send(laneEvent(5));
+  f.send(laneEvent(6));
+  f.send(laneEvent(6));
+  f.send(laneEvent(7));
+
+  expect(
+    f.laneStatusChanged.mock.calls.map(([value]) => value.sequence),
+  ).toEqual([6, 7]);
+  expect(f.gate.sequence()).toBe(7);
+  f.gate.dispose();
+});
+
+test("lane status is discarded after job.finished", async () => {
+  const f = fixture();
+  f.requests[0]?.resolve([row(2)]);
+  await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+  f.send(laneEvent(3));
+  f.send(event("job.finished", 4));
+  f.send(laneEvent(5));
+  expect(f.laneStatusChanged).toHaveBeenCalledTimes(1);
+  f.gate.dispose();
+});
+
+test("resync clears the shown lane state and ignores values at or before its new baseline", async () => {
+  const f = fixture();
+  f.requests[0]?.resolve([row(2)]);
+  await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+  f.send(laneEvent(3));
+  f.send(event("job.resync_required"));
+  f.send(laneEvent(4));
+  expect(f.laneStatusCleared).toHaveBeenCalledTimes(2);
+  f.requests[1]?.resolve([row(5)]);
+  await vi.waitFor(() => expect(f.gate.ready()).toBe(true));
+  f.send(laneEvent(5));
+  expect(f.laneStatusChanged).toHaveBeenCalledTimes(1);
+  f.send(laneEvent(6));
+  expect(f.laneStatusChanged).toHaveBeenCalledTimes(2);
+  expect(f.laneStatusChanged.mock.calls.at(-1)?.[0].sequence).toBe(6);
   f.gate.dispose();
 });
 

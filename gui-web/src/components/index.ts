@@ -20,6 +20,7 @@ export {
   StatusBadge,
   Text,
   Unbroken,
+  withProgressEllipsis,
 } from "./presentation";
 
 export { Breadcrumbs } from "./breadcrumbs";

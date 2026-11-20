@@ -242,6 +242,10 @@ export function Notice({
   );
 }
 
+export function withProgressEllipsis(label: string): string {
+  return label.replace(/…$/u, "") + "…";
+}
+
 /**
  * An operation without a confirmed total is indeterminate and claims no
  * percentage. A confirmed total draws a determinate bar. A paused operation
@@ -296,7 +300,7 @@ export function Progress({
     <ProgressBar aria-label={label} isIndeterminate className="du-progress">
       {showLabel && (
         <span className="du-progress__label" aria-hidden>
-          {label.replace(/…$/u, "")}…
+          {withProgressEllipsis(label)}
         </span>
       )}
       <div className="du-progress__track" aria-hidden>

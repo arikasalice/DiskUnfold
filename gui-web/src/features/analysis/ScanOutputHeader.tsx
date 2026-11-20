@@ -10,8 +10,14 @@ import {
   StatusBadge,
   Text,
 } from "../../components";
-import type { AnalysisJobProgress, JobState, SpaceTotal } from "../../ipc";
+import type {
+  AnalysisJobProgress,
+  JobState,
+  OsPath,
+  SpaceTotal,
+} from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
+import { ScanLaneProgress } from "./ScanLaneProgress";
 
 /** How the shown values relate to a scan that is still in progress. */
 type LiveResult = "updating" | "so_far";
@@ -79,6 +85,42 @@ function useOverdue(awaited: string | undefined, delay: number): boolean {
   return awaited !== undefined && overdue === awaited;
 }
 
+function progressLabel(
+  state: JobState | undefined,
+  cancelling: boolean,
+  text: LocaleText,
+) {
+  if (cancelling)
+    return text("ui.analysis.waiting_cancel", "Waiting for cancellation");
+  if (state === "queued")
+    return text(
+      "ui.analysis.waiting_scan_start",
+      "Waiting for the scan to start",
+    );
+  return text("ui.analysis.scanning_folder", "Scanning folder");
+}
+
+function progressPaused(state: JobState | undefined, cancelling: boolean) {
+  return !cancelling && state === "paused";
+}
+
+function LaneProgressLine({
+  scan,
+  roots,
+}: {
+  scan: ReturnType<typeof useScanResult>;
+  roots: readonly OsPath[];
+}) {
+  if (!scan.status?.jobRef || !scan.laneStatus) return null;
+  return (
+    <ScanLaneProgress
+      jobRef={scan.status.jobRef}
+      status={scan.laneStatus}
+      roots={roots}
+    />
+  );
+}
+
 /** Heads the scan output with its status, result version, controls and progress. */
 export function ScanOutputHeader({
   scan,
@@ -89,8 +131,10 @@ export function ScanOutputHeader({
   holding,
   awaitingTotals,
   actions,
+  roots,
 }: {
   scan: ReturnType<typeof useScanResult>;
+  roots: readonly OsPath[];
   /** The totals the summary shows, which may be held during a text selection. */
   total: SpaceTotal | undefined;
   versionSummary: Ref<HTMLDivElement>;
@@ -140,23 +184,15 @@ export function ScanOutputHeader({
       {running && (
         <div className="du-scan-progress">
           <Progress
-            label={
-              cancelling
-                ? text("ui.analysis.waiting_cancel", "Waiting for cancellation")
-                : scan.status?.state === "queued"
-                  ? text(
-                      "ui.analysis.waiting_scan_start",
-                      "Waiting for the scan to start",
-                    )
-                  : text("ui.analysis.scanning_folder", "Scanning folder")
-            }
-            paused={!cancelling && scan.status?.state === "paused"}
+            label={progressLabel(scan.status?.state, cancelling, text)}
+            paused={progressPaused(scan.status?.state, cancelling)}
             {...determinateProgress(scan.progress)}
           />
           {/* Not a live region: a running count would be read on every frame. */}
           {scan.progress && (
             <Text kind="muted">{progressText(scan.progress, text)}</Text>
           )}
+          <LaneProgressLine scan={scan} roots={roots} />
         </div>
       )}
       {awaitingTotals && (

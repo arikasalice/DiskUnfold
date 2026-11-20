@@ -9,7 +9,7 @@ export function DetailDisclosure({
   children,
   defaultExpanded = false,
 }: {
-  title: string;
+  title: ReactNode;
   children: ReactNode;
   defaultExpanded?: boolean;
 }) {

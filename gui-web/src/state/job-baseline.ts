@@ -2,6 +2,8 @@ import type {
   AnalysisClient,
   AnalysisJobProgress,
   EventEnvelope,
+  ScanLane,
+  ScanLaneStatus,
 } from "../ipc";
 
 const MAX_PENDING = 1024;
@@ -12,6 +14,7 @@ type Update = {
   sequence: number;
   terminal: boolean;
   progress?: AnalysisJobProgress;
+  laneStatus?: ScanLaneStatus;
 };
 
 function count(value: unknown): value is number {
@@ -31,14 +34,69 @@ function progressBody(body: object): AnalysisJobProgress | undefined {
   return value as AnalysisJobProgress;
 }
 
+function decimal(value: unknown): value is string {
+  return typeof value === "string" && /^\d+$/u.test(value);
+}
+
+/** Reads a lane-status body; unknown wait reasons remain valid contract values. */
+function laneStatusBody(body: object): ScanLaneStatus | undefined {
+  const value = body as Partial<ScanLaneStatus>;
+  if (
+    !count(value.sequence) ||
+    value.sequence < 1 ||
+    !Array.isArray(value.lanes) ||
+    typeof value.observedAt !== "string" ||
+    (value.laneCount !== undefined && !decimal(value.laneCount))
+  )
+    return undefined;
+  const laneIsValid = (candidate: unknown): candidate is ScanLane => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const lane = candidate as Partial<ScanLane>;
+    return (
+      count(lane.laneIndex) &&
+      Array.isArray(lane.rootIndexes) &&
+      lane.rootIndexes.every(count) &&
+      (lane.rootCount === undefined || decimal(lane.rootCount)) &&
+      count(lane.inFlight) &&
+      count(lane.limit) &&
+      lane.limit > 0 &&
+      typeof lane.waitReason === "string" &&
+      typeof lane.waitConfirmed === "boolean" &&
+      decimal(lane.remainingDirectories) &&
+      decimal(lane.failures)
+    );
+  };
+  return value.lanes.every(laneIsValid) ? (value as ScanLaneStatus) : undefined;
+}
+
+function updateBody(topic: string, body: unknown): Update | undefined {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("sequence" in body) ||
+    typeof body.sequence !== "number" ||
+    !Number.isSafeInteger(body.sequence) ||
+    body.sequence < 1
+  )
+    return undefined;
+  const progress = topic === "job.progress" ? progressBody(body) : undefined;
+  const laneStatus =
+    topic === "scan.lane_status" ? laneStatusBody(body) : undefined;
+  if (topic === "scan.lane_status" && !laneStatus) return undefined;
+  return {
+    sequence: body.sequence,
+    terminal: topic === "job.finished",
+    ...(progress ? { progress } : {}),
+    ...(laneStatus ? { laneStatus } : {}),
+  };
+}
+
 /**
  * Maintains one active job's list baseline and orders later job notifications.
  *
- * A well-formed job.progress body goes to `progressed` and does not ask for a
- * status read. Other ordered notifications, including a malformed progress
- * body, call `changed`. Values at or below the delivered sequence, after the
- * terminal event, or held across a resynchronization at or below the new
- * baseline are discarded.
+ * Progress is delivered without a status read. Lane values use their own
+ * sequence, are cleared on resync, and must follow the new baseline. Terminal
+ * and stale ordered notifications are discarded.
  */
 export function watchJobBaseline(
   client: AnalysisClient,
@@ -46,11 +104,14 @@ export function watchJobBaseline(
   changed: () => void,
   failed: (reason: unknown) => void,
   progressed?: (progress: AnalysisJobProgress) => void,
+  laneStatusChanged?: (status: ScanLaneStatus) => void,
+  laneStatusCleared?: () => void,
 ) {
   let alive = true;
   let epoch = 0;
   let ready = false;
   let sequence = -1;
+  let laneSequence = -1;
   let terminal = false;
   let pending: Update[] = [];
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -73,6 +134,8 @@ export function watchJobBaseline(
     const request = ++epoch;
     ready = false;
     pending = [];
+    laneSequence = -1;
+    laneStatusCleared?.();
     if (timeout !== undefined) clearTimeout(timeout);
     if (retry !== undefined) clearTimeout(retry);
     timeout = setTimeout(() => {
@@ -88,16 +151,27 @@ export function watchJobBaseline(
           if (timeout !== undefined) clearTimeout(timeout);
           timeout = undefined;
           sequence = cut;
+          laneSequence = cut;
           terminal = ended;
           pending.sort((left, right) => left.sequence - right.sequence);
           let progress: AnalysisJobProgress | undefined;
-          for (const update of pending)
-            if (accept(update) && update.progress) progress = update.progress;
+          let laneStatus: ScanLaneStatus | undefined;
+          for (const update of pending) {
+            if (update.laneStatus) {
+              if (!terminal && update.sequence > laneSequence) {
+                laneSequence = update.sequence;
+                sequence = Math.max(sequence, update.sequence);
+                laneStatus = update.laneStatus;
+              }
+            } else if (accept(update) && update.progress)
+              progress = update.progress;
+          }
           pending = [];
           ready = true;
           retryDelay = INITIAL_RETRY_MS;
           changed();
           if (progress && !terminal) progressed?.(progress);
+          if (laneStatus && !terminal) laneStatusChanged?.(laneStatus);
         };
         const confirm = () => {
           void client
@@ -151,6 +225,22 @@ export function watchJobBaseline(
     failed(reason);
   }
 
+  function buffer(update: Update) {
+    if (pending.length >= MAX_PENDING) {
+      restart();
+      return;
+    }
+    pending.push(update);
+  }
+
+  function applyLaneStatus(update: Update) {
+    const value = update.laneStatus;
+    if (!value || terminal || update.sequence <= laneSequence) return;
+    laneSequence = update.sequence;
+    sequence = Math.max(sequence, update.sequence);
+    laneStatusChanged?.(value);
+  }
+
   function receive(event: EventEnvelope) {
     if (event.topic === "job.resync_required") {
       restart();
@@ -158,37 +248,23 @@ export function watchJobBaseline(
     }
     if (
       event.jobRef !== jobRef ||
-      !["job.state_changed", "job.progress", "job.finished"].includes(
-        event.topic,
-      )
+      ![
+        "job.state_changed",
+        "job.progress",
+        "job.finished",
+        "scan.lane_status",
+      ].includes(event.topic)
     )
       return;
-    const body = event.body;
-    if (
-      !body ||
-      typeof body !== "object" ||
-      !("sequence" in body) ||
-      typeof body.sequence !== "number" ||
-      !Number.isSafeInteger(body.sequence) ||
-      body.sequence < 1
-    ) {
+    if (event.topic === "scan.lane_status" && terminal) return;
+    const update = updateBody(event.topic, event.body);
+    if (!update) {
       restart();
       return;
     }
-    const progress =
-      event.topic === "job.progress" ? progressBody(body) : undefined;
-    const update: Update = {
-      sequence: body.sequence,
-      terminal: event.topic === "job.finished",
-      ...(progress ? { progress } : {}),
-    };
-    if (!ready) {
-      if (pending.length >= MAX_PENDING) {
-        restart();
-        return;
-      }
-      pending.push(update);
-    } else if (accept(update)) deliver(update);
+    if (!ready) buffer(update);
+    else if (update.laneStatus) applyLaneStatus(update);
+    else if (accept(update)) deliver(update);
   }
 
   const unsubscribe = client.subscribe(receive);

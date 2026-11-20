@@ -11,6 +11,7 @@
   {
     "feature": "F02",
     "title": "병렬 메타데이터 스캔",
+    "reviewScenes": ["scan-lanes"],
     "primarySurface": "workspace",
     "sourceDldRevision": 90,
     "sourceStatus": "published",

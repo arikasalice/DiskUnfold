@@ -82,6 +82,7 @@ function Header({
       holding={holding}
       awaitingTotals={false}
       actions={null}
+      roots={[]}
     />
   );
 }
