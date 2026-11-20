@@ -19,6 +19,8 @@ const NAME_BAND = 24;
 const CHAR = 7;
 /** The widest histogram column; a few bins do not stretch across the chart. */
 const MAX_COLUMN = 96;
+/** The tallest histogram, so the bin names stay in view below the columns. */
+const MAX_HISTOGRAM = 320;
 
 type Shape = GeometryRendererProps["shapes"][number];
 
@@ -150,7 +152,7 @@ export function BarRenderer(props: GeometryRendererProps) {
  */
 export function HistogramRenderer(props: GeometryRendererProps) {
   const width = Math.round(props.width);
-  const height = Math.round(props.height);
+  const height = Math.min(Math.round(props.height), MAX_HISTOGRAM);
   const bins = props.shapes.flatMap((shape) => {
     const part = share(shape, props.viewport);
     return part === null ? [] : [{ shape, part }];
@@ -209,6 +211,7 @@ export function HistogramRenderer(props: GeometryRendererProps) {
   return (
     <GeometryRenderer
       {...props}
+      height={height}
       viewport={fullView}
       shapes={shapes}
       decorations={decorations}
