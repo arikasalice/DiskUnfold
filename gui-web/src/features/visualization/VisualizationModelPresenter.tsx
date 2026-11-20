@@ -1,5 +1,11 @@
 import { useMemo, useRef } from "react";
-import { createChartRenderers, Notice, Progress } from "../../components";
+import {
+  BarRenderer,
+  createChartRenderers,
+  HistogramRenderer,
+  Notice,
+  Progress,
+} from "../../components";
 import type {
   ItemRef,
   VizRenderRequest,
@@ -16,7 +22,10 @@ import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
 import { useChartOffset } from "./chart-area";
 
-const defaultChartRenderer = createChartRenderers([]);
+const defaultChartRenderer = createChartRenderers([
+  ["bar", BarRenderer],
+  ["histogram", HistogramRenderer],
+]);
 type ModelViewProps = {
   resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;
   frame: ModelResponse;

@@ -74,6 +74,8 @@ export type GeometryRendererProps = {
   onFocusTargetMissing?: () => void;
   onFocusAvailability?: (available: boolean) => void;
   fallback: Fallback;
+  /** Text drawn over the shapes in chart pixels, such as the names and values of a bar chart. */
+  decorations?: ReactNode;
 };
 
 function isPoint(value: DisplayPoint): boolean {
@@ -731,6 +733,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                 </g>
               );
             })}
+            {props.decorations}
           </g>
         </svg>
         <div

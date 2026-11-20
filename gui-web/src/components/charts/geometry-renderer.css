@@ -119,3 +119,29 @@
   stroke: var(--du-accent-text);
   stroke-width: 2;
 }
+/* Bar chart and histogram text (F06 README 12). */
+.du-geometry-bar-name,
+.du-geometry-bar-value,
+.du-geometry-bin-name,
+.du-geometry-bin-value {
+  fill: var(--du-text);
+  stroke: none;
+  font-size: 12px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.du-geometry-bin-name,
+.du-geometry-bin-value {
+  text-anchor: middle;
+}
+
+.du-geometry-bin-value {
+  dominant-baseline: auto;
+}
+
+.du-geometry-baseline {
+  stroke: var(--du-muted);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
