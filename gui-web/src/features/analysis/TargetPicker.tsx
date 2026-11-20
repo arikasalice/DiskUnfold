@@ -12,7 +12,7 @@ import {
   Progress,
   Text,
 } from "../../components";
-import { windowsPath } from "../../ipc";
+import { nativePath } from "../../ipc";
 import type { OsPath } from "../../ipc";
 import type { useTargets } from "../../state/analysis-targets";
 import { useRegionalFormat } from "../../i18n/regional-format";
@@ -84,7 +84,7 @@ export function TargetPicker({
       isDisabled={disabled}
       onCompositionChange={onPathCompositionChange}
       value={selected[0]?.display ?? ""}
-      onChange={(path) => choose(path ? windowsPath(path) : undefined)}
+      onChange={(path) => choose(path ? nativePath(path) : undefined)}
     />
   );
   const drivePicker = (
@@ -144,7 +144,7 @@ export function TargetPicker({
                 onCompositionChange={onPathCompositionChange}
                 value={path?.display ?? ""}
                 onChange={(value) =>
-                  choose(value ? windowsPath(value) : undefined, index + 1)
+                  choose(value ? nativePath(value) : undefined, index + 1)
                 }
               />
               <Action isDisabled={disabled} onPress={() => remove(index + 1)}>

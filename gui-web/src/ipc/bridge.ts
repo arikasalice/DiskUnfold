@@ -164,6 +164,19 @@ export function hasDesktopAnalysisBridge(): boolean {
   return hasDesktopLocaleBridge();
 }
 
+/**
+ * The native path encoding of the host (#253). The macOS and Linux hosts answer through
+ * the WebKit message handler and open paths as raw bytes; WebView2 on Windows has no such
+ * handler and opens UTF-16 code units. Without a host, Windows is assumed as before.
+ */
+export function hostPathEncoding(): "windows_utf16le" | "unix" {
+  const host = window as NativeWindow;
+  return typeof host.webkit?.messageHandlers?.diskunfold?.postMessage ===
+    "function"
+    ? "unix"
+    : "windows_utf16le";
+}
+
 /** Reports the capability of the current desktop composition. */
 export function hasRecentScopes(): boolean {
   return (
