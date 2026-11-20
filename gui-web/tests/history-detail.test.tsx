@@ -289,3 +289,45 @@ test("returns focus to the list control when refreshed history is empty", async 
     ),
   );
 });
+
+test("#200: the list names the first root, and the detail lists every root or says none was recorded", async () => {
+  const roots = ["C:\\Users\\민서\\Videos", "D:\\Photos", "E:\\Archive"];
+  const rooted: HistoryListRow = {
+    ...row("rooted"),
+    summary: {
+      ...row("rooted").summary!,
+      scopeFirstRoot: roots[0]!,
+      scopeRootCount: 3,
+    },
+  };
+  const older = row("older");
+  const call = vi.fn((name: string, body: { jobRef?: string }) =>
+    Promise.resolve(
+      name === "history.list"
+        ? { ...page, rows: [rooted, older] }
+        : {
+            ...detail,
+            summary: (body.jobRef === "rooted" ? rooted : older).summary,
+            ...(body.jobRef === "rooted" ? { scopeRoots: roots } : {}),
+            completeness: "complete",
+            missingReasons: [],
+          },
+    ),
+  );
+  render(<HistoryPanel client={client(call)} onClose={() => {}} />);
+  // Only the record with roots has the second line.
+  expect(await screen.findAllByText("and 2 more")).toHaveLength(1);
+  expect(document.querySelectorAll(".du-history-target")).toHaveLength(1);
+  const views = screen.getAllByRole("button", { name: /^View details:/ });
+  fireEvent.click(views[0]!);
+  expect(await screen.findByText("3 roots")).toBeDefined();
+  const list = document.querySelector(".du-history-roots__list")!;
+  expect(within(list as HTMLElement).getAllByRole("listitem")).toHaveLength(3);
+  expect(list.textContent).toContain("Photos");
+  fireEvent.click(screen.getByRole("button", { name: "Back to history" }));
+  fireEvent.click(
+    (await screen.findAllByRole("button", { name: /^View details:/ }))[1]!,
+  );
+  expect(await screen.findByText("Not recorded")).toBeDefined();
+  expect(screen.getByText("Recorded target")).toBeDefined();
+});

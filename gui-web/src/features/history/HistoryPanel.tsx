@@ -6,6 +6,7 @@ import {
   DetailDisclosure,
   Heading,
   LiveStatus,
+  MiddleEllipsisText,
   Notice,
   Progress,
   SelectField,
@@ -362,10 +363,9 @@ function rowCells(
       ? fullStateLabel
       : undefined);
   return [
-    // F02 README #170: the recorded target is a fixed engine summary, not a
-    // path, so it is not shown until the scope roots are recorded.
     <div className="du-history-operation" key="operation">
       <Text>{name}</Text>
+      <ScopeTarget summary={summary} text={text} />
     </div>,
     <div key="status" title={statusTitle}>
       <StatusBadge tone={stateTone(state)}>
@@ -398,4 +398,33 @@ function rowCells(
       <Text kind="muted">{text("ui.history.unavailable", "Unavailable")}</Text>
     ),
   ];
+}
+
+/**
+ * #200: the scope the operation covered, as its first root with the middle of
+ * the path cut and "and n more" for the other roots. Nothing is drawn when the
+ * roots were not recorded (an older record or a kind without roots).
+ */
+function ScopeTarget({
+  summary,
+  text,
+}: {
+  summary: HistoryListRow["summary"];
+  text: ReturnType<typeof useLocaleText>;
+}) {
+  const first = summary?.scopeFirstRoot;
+  if (!first) return null;
+  const more = Math.max(0, (summary.scopeRootCount ?? 1) - 1);
+  return (
+    <div className="du-history-target">
+      <MiddleEllipsisText text={first} cell />
+      {more > 0 && (
+        <Text kind="muted">
+          {text("ui.history.roots_more", "and {count} more", {
+            count: BigInt(more),
+          })}
+        </Text>
+      )}
+    </div>
+  );
 }

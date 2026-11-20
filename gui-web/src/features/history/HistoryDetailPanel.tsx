@@ -2,6 +2,7 @@ import {
   Action,
   DetailDisclosure,
   Heading,
+  NameText,
   Notice,
   Progress,
   Readout,
@@ -118,12 +119,18 @@ function OperationSummary({ detail }: { detail: HistoryDetail }) {
           <Readout
             label={text("ui.history.recorded_operation", "Recorded operation")}
             rows={[
-              {
-                label: text("ui.history.recorded_target", "Recorded target"),
-                value:
-                  summary.scopeSummary ??
-                  text("ui.history.unavailable", "Unavailable"),
-              },
+              // #200: only kinds with scope roots have a target row.
+              ...(summary.kindId === "scan.metadata"
+                ? [
+                    {
+                      label: text(
+                        "ui.history.recorded_target",
+                        "Recorded target",
+                      ),
+                      value: <ScopeRoots detail={detail} />,
+                    },
+                  ]
+                : []),
               {
                 label: text("ui.history.finished", "Finished"),
                 value: displayTime(summary.finishedAtMs),
@@ -405,4 +412,45 @@ function effect(
   return value === null
     ? text("ui.history.unavailable", "Unavailable")
     : value.value + " " + value.unit + " · " + value.uncertainty;
+}
+
+/**
+ * #200: every recorded root on its own line, in full, breaking after path
+ * separators. A record kept before roots were recorded says so in muted text;
+ * roots beyond the 100 kept are counted.
+ */
+function ScopeRoots({ detail }: { detail: HistoryDetail }) {
+  const text = useLocaleText();
+  const roots = detail.scopeRoots;
+  if (!roots)
+    return (
+      <Text kind="muted">
+        {text("ui.history.not_recorded", "Not recorded")}
+      </Text>
+    );
+  const total = detail.summary?.scopeRootCount ?? roots.length;
+  const more = total - roots.length;
+  return (
+    <div className="du-history-roots">
+      <Text kind="muted">
+        {text("ui.history.root_count", "{count} roots", {
+          count: BigInt(total),
+        })}
+      </Text>
+      <div className="du-history-roots__list" role="list">
+        {roots.map((root, index) => (
+          <div key={index} role="listitem">
+            <NameText name={root} path />
+          </div>
+        ))}
+      </div>
+      {more > 0 && (
+        <Text kind="muted">
+          {text("ui.history.roots_more", "and {count} more", {
+            count: BigInt(more),
+          })}
+        </Text>
+      )}
+    </div>
+  );
 }

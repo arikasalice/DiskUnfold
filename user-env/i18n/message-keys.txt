@@ -585,6 +585,7 @@ ui.history.no_items_match
 ui.history.no_matches
 ui.history.no_plan_lineage
 ui.history.no_restore_information
+ui.history.not_recorded
 ui.history.notes
 ui.history.observed_size
 ui.history.observed_size_notes
@@ -626,6 +627,8 @@ ui.history.result_counts
 ui.history.result_counts_unavailable
 ui.history.retry
 ui.history.review_needed
+ui.history.root_count count:count
+ui.history.roots_more count:count
 ui.history.session_information
 ui.history.size_at_least size:name
 ui.history.size_unknown
