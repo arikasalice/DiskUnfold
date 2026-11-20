@@ -96,11 +96,16 @@ fn unique_physical_render(assembled: &Assembled, revision: &Id) -> Result<Value,
 /// The browse listing of the scope root, after any browse job: the header total and, for
 /// each row, its name, size and scan state flags.
 fn browse_root(assembled: &Assembled, revision: &Id) -> Result<Value, Failure> {
+    let region = ok(
+        &assembled.engine,
+        "query.region.open",
+        json!({"kind": "browse_list"}),
+    )?["regionRef"]
+        .clone();
     let request = |seq: u32| {
         json!({
-            "regionRef": Id::from_v7_bytes([7; 16]), "viewKind": "list", "requestSeq": seq,
-            "resultVersion": revision, "location": {"resultVersion": revision, "itemNo": 0},
-            "pageSize": 200,
+            "regionRef": region, "viewKind": "list", "requestSeq": seq,
+            "resultVersion": revision, "pageSize": 200,
         })
     };
     let mut answer = ok(&assembled.engine, "browse.open", request(1))?;
