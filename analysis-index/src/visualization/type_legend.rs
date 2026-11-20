@@ -25,8 +25,9 @@ pub struct Class {
     pub label_key: &'static str,
 }
 
-/// The listed classes in legend order: the table's types, the two names that
-/// have no listed type, then the items without a class.
+/// The listed classes in legend order (F06 design README 44.3): the named types,
+/// the other types, names without an extension, then the items whose type is
+/// unavailable.
 pub const LISTED: [Class; 9] = [
     class("type.document", "ui.visualization.legend.type.document"),
     class("type.audio", "ui.visualization.legend.type.audio"),
@@ -38,14 +39,14 @@ pub const LISTED: [Class; 9] = [
     class("type.video", "ui.visualization.legend.type.video"),
     class("type.archive", "ui.visualization.legend.type.archive"),
     class(
-        "type.no_extension",
-        "ui.visualization.legend.type.no_extension",
-    ),
-    class(
         "type.unclassified",
         "ui.visualization.legend.type.unclassified",
     ),
-    class(NO_CLASS, "ui.visualization.legend.unclassified"),
+    class(
+        "type.no_extension",
+        "ui.visualization.legend.type.no_extension",
+    ),
+    class(NO_CLASS, "ui.visualization.legend.type.unavailable"),
 ];
 
 const fn class(key: &'static str, label_key: &'static str) -> Class {

@@ -46,8 +46,8 @@ fn the_legend_lists_every_type_once_in_order_and_never_the_folder() {
             "type.installer_image",
             "type.video",
             "type.archive",
-            "type.no_extension",
             "type.unclassified",
+            "type.no_extension",
             "unclassified",
         ]
     );

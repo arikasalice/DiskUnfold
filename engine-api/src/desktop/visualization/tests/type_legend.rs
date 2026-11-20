@@ -71,8 +71,8 @@ fn the_type_criterion_classes_files_by_type_and_leaves_folders_out_of_the_legend
             "type.document",
             "type.audio",
             "type.installer_image",
-            "type.no_extension",
             "type.unclassified",
+            "type.no_extension",
         ]
         .map(|key| json!(key))
     );
