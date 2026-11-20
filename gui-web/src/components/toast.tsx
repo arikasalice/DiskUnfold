@@ -6,6 +6,11 @@ import "../theme/toast.css";
 
 /** How long a short notice stays (F06 README 35). */
 export const TOAST_DURATION = 5000;
+/**
+ * How long a failure stays. It may arrive while the user moves through a list,
+ * so keys do not hide it (F02 README, PR #194 review).
+ */
+export const TOAST_ERROR_DURATION = 8000;
 const FADE = 150;
 /** Its distance from the bottom of the window, as in toast.css. */
 const BOTTOM = 24;
@@ -17,6 +22,9 @@ const BOTTOM = 24;
  * its time. It moves to the top when it would cover the focused element. It is
  * hidden from assistive technology: the caller says the same words once in its
  * own status region (F06 README 35).
+ *
+ * A failure (`icon` `error`) stays eight seconds and keys do not hide it; a
+ * newer notice still takes its place.
  *
  * The words and `icon` are kept from the moment it shows, so a caller may drop
  * its message before the notice has gone. `icon` tells an outcome by shape.
@@ -50,10 +58,13 @@ export function Toast({
     clearTimeout(timer.current);
     setShown({ message, icon });
     setPhase("shown");
-    timer.current = setTimeout(leave, TOAST_DURATION);
+    timer.current = setTimeout(
+      leave,
+      icon === "error" ? TOAST_ERROR_DURATION : TOAST_DURATION,
+    );
   }, [version, message, icon]);
   useEffect(() => {
-    if (phase !== "shown") return;
+    if (phase !== "shown" || shown.icon === "error") return;
     // The next key hides it; a key that brings the same notice again keeps it
     // (the new version arrives in the same turn and wins).
     let pending: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +79,7 @@ export function Toast({
       window.removeEventListener("keydown", onKey, true);
       clearTimeout(pending);
     };
-  }, [phase, version]);
+  }, [phase, version, shown.icon]);
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
     if (phase !== "shown" || !box.current) return;
