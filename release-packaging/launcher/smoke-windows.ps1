@@ -1795,7 +1795,10 @@ function Test-CaptureHistory {
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
   $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType }
   Invoke-UI (Wait-VisibleAction 'Operation history')
-  $details = (Get-UiName 'View details: NAME, TIME').Replace('NAME', (Get-UiName 'Disk analysis')).Replace('TIME', '*')
+  # The row's "View details: <operation>, <time>" button. Its translated template cannot be looked
+  # up by its English text (a shorter "{label}: {value}" template matches first), so the button is
+  # found by the translated operation name between the colon and the time.
+  $details = '*: ' + (Get-UiName 'Disk analysis') + ', *'
   $null = Wait-UI 'recorded disk analysis' {
     $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
       Where-Object { $_.Current.IsEnabled -and $_.Current.Name -like $details } |
