@@ -14,6 +14,13 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+fn assert_resource_fields(lane: &serde_json::Value) {
+    assert_eq!(lane["mode"], json!("quiet"));
+    assert_eq!(lane["permit"], json!(16));
+    assert_eq!(lane["strategy"]["id"], json!("resource.static"));
+    assert_eq!(lane["strategy"]["version"], json!(1));
+}
+
 fn next_event(desktop: &DesktopEvents) -> Result<EventEnvelope, Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -124,10 +131,7 @@ fn the_desktop_relay_sorts_and_caps_lane_status_with_decimal_counts() -> TestRes
     assert_eq!(lanes.len(), 64);
     assert_eq!(lanes[0]["laneIndex"], json!(0));
     assert_eq!(lanes[63]["laneIndex"], json!(63));
-    assert_eq!(lanes[0]["mode"], json!("quiet"));
-    assert_eq!(lanes[0]["permit"], json!(16));
-    assert_eq!(lanes[0]["strategy"]["id"], json!("resource.static"));
-    assert_eq!(lanes[0]["strategy"]["version"], json!(1));
+    assert_resource_fields(&lanes[0]);
     assert_eq!(lanes[0]["rootCount"], json!("65"));
     let roots = lanes[0]["rootIndexes"].as_array().ok_or("root indexes")?;
     assert_eq!(roots.len(), 64);

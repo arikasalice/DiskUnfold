@@ -56,6 +56,20 @@ fn start(
     )?)
 }
 
+fn update_resource(
+    harness: &ScanHarness,
+    channel: Channel,
+    body: serde_json::Value,
+) -> Result<ResultEnvelope, Box<dyn std::error::Error>> {
+    Ok(call(
+        &harness.engine,
+        "scan.set_resource",
+        channel,
+        ENVELOPE_VERSION,
+        body,
+    )?)
+}
+
 #[test]
 fn scan_start_validates_before_job_registration_and_duplicates_keep_first_condition()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -133,6 +147,127 @@ fn scan_start_validates_before_job_registration_and_duplicates_keep_first_condit
     Ok(())
 }
 
+fn assert_resource_updates(
+    harness: &ScanHarness,
+    draft: &serde_json::Value,
+    fingerprint: &str,
+    job_ref: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let repeated = update_resource(
+        harness,
+        Channel::Gui,
+        json!({ "jobRef": job_ref, "resourceMode": "quiet", "userLimit": 2 }),
+    )?;
+    assert!(repeated.error.is_none());
+    assert_eq!(repeated.body["outcome"], "no_effect");
+    assert_eq!(repeated.body["lanes"][0]["effectiveLimit"], 2);
+    assert_eq!(repeated.body["lanes"][0]["permit"], 16);
+    assert_eq!(repeated.body["appliesFrom"], "next_assignment");
+
+    for user_limit in [0, 17] {
+        let invalid = update_resource(
+            harness,
+            Channel::Gui,
+            json!({
+                "jobRef": job_ref,
+                "resourceMode": "fast",
+                "userLimit": user_limit
+            }),
+        )?;
+        assert_eq!(
+            invalid
+                .error
+                .ok_or("invalid limit was accepted")?
+                .reason_key,
+            "scan.resource_limit_invalid"
+        );
+    }
+
+    let raised = update_resource(
+        harness,
+        Channel::Gui,
+        json!({ "jobRef": job_ref, "resourceMode": "fast", "userLimit": 4 }),
+    )?;
+    assert!(raised.error.is_none());
+    assert_eq!(raised.body["outcome"], "accepted");
+    assert_eq!(raised.body["lanes"][0]["effectiveLimit"], 4);
+
+    let replaced = update_resource(
+        harness,
+        Channel::Gui,
+        json!({ "jobRef": job_ref, "resourceMode": "quiet" }),
+    )?;
+    assert!(replaced.error.is_none());
+    assert_eq!(replaced.body["outcome"], "accepted");
+    assert_eq!(replaced.body["lanes"][0]["effectiveLimit"], 2);
+
+    let duplicate: ScanStart = serde_json::from_value(
+        start(
+            harness,
+            draft,
+            fingerprint,
+            Some(json!({ "resourceMode": "fast", "userLimit": 1 })),
+        )?
+        .body,
+    )?;
+    assert!(duplicate.existing);
+    let current = duplicate.collection.ok_or("missing current condition")?;
+    assert_eq!(
+        current.resource_mode,
+        du_core_contracts::analysis_ipc::ScanResourceMode::Quiet
+    );
+    assert_eq!(
+        current.user_limit, None,
+        "omission must clear the old limit"
+    );
+    Ok(())
+}
+
+fn assert_resource_target_and_channel_errors(
+    harness: &ScanHarness,
+    job_ref: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let missing = update_resource(
+        harness,
+        Channel::Gui,
+        json!({ "jobRef": Id::from_v7_bytes([0x77; 16]), "resourceMode": "auto" }),
+    )?;
+    assert_eq!(
+        missing.error.ok_or("unknown job was accepted")?.reason_key,
+        "job.not_found"
+    );
+    let cli = update_resource(
+        harness,
+        Channel::Cli,
+        json!({ "jobRef": job_ref, "resourceMode": "auto" }),
+    )?;
+    assert_eq!(
+        cli.error.ok_or("CLI control was accepted")?.reason_key,
+        "command.not_provided"
+    );
+    Ok(())
+}
+
+fn finish_resource_scan(
+    harness: &ScanHarness,
+    job_ref: &Id,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(release) = &harness.priority_visit_release {
+        release.send(())?;
+    }
+    harness.release.send(())?;
+    let (summary, _) = scan_finished(&harness.terminal)?;
+    assert_eq!(summary.job_id, *job_ref);
+    let terminal = update_resource(
+        harness,
+        Channel::Gui,
+        json!({ "jobRef": job_ref, "resourceMode": "auto" }),
+    )?;
+    assert!(terminal.error.is_none(), "{:?}", terminal.error);
+    assert_eq!(terminal.body["outcome"], "already_terminal");
+    Ok(())
+}
+
 #[test]
 fn scan_set_resource_replaces_limits_reports_lanes_and_enforces_gui_ownership()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -160,112 +295,9 @@ fn scan_set_resource_replaces_limits_reports_lanes_and_enforces_gui_ownership()
                 harness.roots.reads.load(Ordering::Acquire)
             )
         })?;
-
-    let update = |channel, body| {
-        call(
-            &harness.engine,
-            "scan.set_resource",
-            channel,
-            ENVELOPE_VERSION,
-            body,
-        )
-    };
     let job_ref = started.job_ref.clone();
-    let repeated = update(
-        Channel::Gui,
-        json!({ "jobRef": job_ref, "resourceMode": "quiet", "userLimit": 2 }),
-    )?;
-    assert!(repeated.error.is_none());
-    assert_eq!(repeated.body["outcome"], "no_effect");
-    assert_eq!(repeated.body["lanes"][0]["effectiveLimit"], 2);
-    assert_eq!(repeated.body["lanes"][0]["permit"], 16);
-    assert_eq!(repeated.body["appliesFrom"], "next_assignment");
-
-    for user_limit in [0, 17] {
-        let invalid = update(
-            Channel::Gui,
-            json!({
-                "jobRef": job_ref,
-                "resourceMode": "fast",
-                "userLimit": user_limit
-            }),
-        )?;
-        assert_eq!(
-            invalid
-                .error
-                .ok_or("invalid limit was accepted")?
-                .reason_key,
-            "scan.resource_limit_invalid"
-        );
-    }
-
-    let raised = update(
-        Channel::Gui,
-        json!({ "jobRef": job_ref, "resourceMode": "fast", "userLimit": 4 }),
-    )?;
-    assert!(raised.error.is_none());
-    assert_eq!(raised.body["outcome"], "accepted");
-    assert_eq!(raised.body["lanes"][0]["effectiveLimit"], 4);
-
-    let replaced = update(
-        Channel::Gui,
-        json!({ "jobRef": job_ref, "resourceMode": "quiet" }),
-    )?;
-    assert!(replaced.error.is_none());
-    assert_eq!(replaced.body["outcome"], "accepted");
-    assert_eq!(replaced.body["lanes"][0]["effectiveLimit"], 2);
-
-    let duplicate: ScanStart = serde_json::from_value(
-        start(
-            &harness,
-            &draft,
-            &review.review_fingerprint,
-            Some(json!({ "resourceMode": "fast", "userLimit": 1 })),
-        )?
-        .body,
-    )?;
-    assert!(duplicate.existing);
-    let current = duplicate.collection.ok_or("missing current condition")?;
-    assert_eq!(
-        current.resource_mode,
-        du_core_contracts::analysis_ipc::ScanResourceMode::Quiet
-    );
-    assert_eq!(
-        current.user_limit, None,
-        "omission must clear the old limit"
-    );
-
-    let missing = update(
-        Channel::Gui,
-        json!({
-            "jobRef": Id::from_v7_bytes([0x77; 16]),
-            "resourceMode": "auto"
-        }),
-    )?;
-    assert_eq!(
-        missing.error.ok_or("unknown job was accepted")?.reason_key,
-        "job.not_found"
-    );
-    let cli = update(
-        Channel::Cli,
-        json!({ "jobRef": job_ref, "resourceMode": "auto" }),
-    )?;
-    assert_eq!(
-        cli.error.ok_or("CLI control was accepted")?.reason_key,
-        "command.not_provided"
-    );
-
-    if let Some(release) = &harness.priority_visit_release {
-        release.send(())?;
-    }
-    harness.release.send(())?;
-    let (summary, _) = scan_finished(&harness.terminal)?;
-    assert_eq!(summary.job_id, started.job_ref);
-    let terminal = update(
-        Channel::Gui,
-        json!({ "jobRef": job_ref, "resourceMode": "auto" }),
-    )?;
-    assert!(terminal.error.is_none(), "{:?}", terminal.error);
-    assert_eq!(terminal.body["outcome"], "already_terminal");
+    assert_resource_updates(&harness, &draft, &review.review_fingerprint, &job_ref)?;
+    assert_resource_target_and_channel_errors(&harness, &job_ref)?;
+    finish_resource_scan(&harness, &started.job_ref)?;
     Ok(())
 }
