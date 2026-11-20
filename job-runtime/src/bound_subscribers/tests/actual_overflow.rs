@@ -1,6 +1,7 @@
 use super::*;
 use crate::JobLaneStatusEvent;
 use du_core_contracts::job::{LaneReport, LaneStatusReport, LaneWait};
+use du_core_contracts::scan_observation::{DeviceKind, DeviceKindSource};
 use std::sync::Mutex;
 
 #[derive(Default)]
@@ -30,8 +31,11 @@ impl JobBody for LaneStatusBody {
                 root_indexes: vec![0],
                 in_flight: 1,
                 limit: 2,
+                device_kind: DeviceKind::Unknown,
+                device_kind_source: DeviceKindSource::Unknown,
                 mode: None,
                 permit: None,
+                share: None,
                 strategy: None,
                 priority_area: None,
                 remaining_prioritized_directories: None,

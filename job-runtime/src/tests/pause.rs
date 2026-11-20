@@ -83,6 +83,7 @@ fn setup_with_resource(
 }
 
 mod content;
+mod device_wait;
 mod wait;
 
 #[test]

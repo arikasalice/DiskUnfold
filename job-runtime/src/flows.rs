@@ -3,8 +3,8 @@ use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, ProgressC
 use du_core_contracts::{
     Id, Timestamp,
     job::{
-        Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobProgress, JobState,
-        LaneStatusReport, ResourceClass,
+        Checkpoint, DeviceSeat, DiskSeat, JobContext, JobCounts, JobFlow, JobFlowError,
+        JobProgress, JobState, LaneStatusReport, ResourceClass,
     },
 };
 use std::sync::{
@@ -137,6 +137,65 @@ impl JobContext for Context {
                     limits.waiters.fetch_sub(1, Ordering::Release);
                 }
                 result => return result,
+            }
+        }
+    }
+
+    fn try_device_seat(&self, disk: &DiskSeat) -> Result<Option<DeviceSeat>, JobFlowError> {
+        let table = self
+            .table
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        let job = table.jobs.get(&self.id).ok_or(JobFlowError::Closed)?;
+        if self.cancellation.0.load(Ordering::Acquire) {
+            return Err(JobFlowError::Cancelled);
+        }
+        let state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        if state.sealed || job.flows_aborted || job.state.is_terminal() {
+            return Err(JobFlowError::Closed);
+        }
+        if matches!(job.state, JobState::PauseRequested | JobState::Paused) {
+            return Err(JobFlowError::Busy);
+        }
+        if job.state != JobState::Running {
+            return Err(JobFlowError::Closed);
+        }
+        let metadata = job
+            .descriptor
+            .resource_classes
+            .contains(&ResourceClass::MetadataIo);
+        if !metadata {
+            return Err(JobFlowError::UnsupportedResource);
+        }
+        let seat = self.services.limits.try_device_seat(disk)?;
+        drop(state);
+        drop(table);
+        Ok(seat)
+    }
+
+    fn wait_device_seat(&self, disk: &DiskSeat) -> Result<DeviceSeat, JobFlowError> {
+        let limits = &self.services.limits;
+        let mut guard = limits
+            .wait_lock
+            .lock()
+            .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+        loop {
+            match self.try_device_seat(disk)? {
+                Some(seat) => return Ok(seat),
+                None => {
+                    #[cfg(test)]
+                    limits.waiters.fetch_add(1, Ordering::Release);
+                    guard = limits
+                        .wait_changed
+                        .wait(guard)
+                        .map_err(|_| JobFlowError::DeliveryUnavailable)?;
+                    #[cfg(test)]
+                    limits.waiters.fetch_sub(1, Ordering::AcqRel);
+                }
             }
         }
     }

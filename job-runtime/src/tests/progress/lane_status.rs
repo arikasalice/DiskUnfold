@@ -1,15 +1,18 @@
 use super::*;
 use du_core_contracts::job::{LaneReport, LaneStatusReport, LaneWait};
 
-fn lane_status(remaining_directories: u64) -> LaneStatusReport {
+pub(super) fn lane_status(remaining_directories: u64) -> LaneStatusReport {
     LaneStatusReport {
         lanes: vec![LaneReport {
             lane_index: 0,
             root_indexes: vec![0],
             in_flight: 1,
             limit: 2,
+            device_kind: du_core_contracts::scan_observation::DeviceKind::Unknown,
+            device_kind_source: du_core_contracts::scan_observation::DeviceKindSource::Unknown,
             mode: None,
             permit: None,
+            share: None,
             strategy: None,
             priority_area: None,
             remaining_prioritized_directories: None,
