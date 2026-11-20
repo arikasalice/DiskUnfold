@@ -137,7 +137,7 @@ function reviewRows(scope: ScopeDraft, text: LocaleText) {
       value:
         scope.boundary === "include_selected"
           ? text("ui.analysis.selected_mounts", "Selected mounts")
-          : text("ui.analysis.current_volume", "Current volume"),
+          : text("ui.analysis.current_volume", "Current drive"),
     },
   ];
   if (scope.includedMounts.length > 0) {

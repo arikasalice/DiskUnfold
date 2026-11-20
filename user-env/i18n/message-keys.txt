@@ -384,6 +384,7 @@ ui.analysis.included_paths
 ui.analysis.boundary
 ui.analysis.selected_mounts
 ui.analysis.current_volume
+ui.analysis.current_volume.unix
 ui.analysis.included_mounts
 ui.analysis.exclusions
 ui.analysis.exclusions_more count:count
