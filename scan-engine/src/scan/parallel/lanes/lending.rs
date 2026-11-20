@@ -115,16 +115,20 @@ impl Queue {
         }
         let root = self.priority.as_ref().map(|region| region.root_index);
         if let Some(lane) = self.lanes.seats[seat].lane {
-            let marked = self.lanes.marked_lane(root);
-            let lane = self.lanes.lend_or_return(seat, lane, marked);
-            if let Some(taken) = self.lanes.claim_in(seat, lane) {
-                return Some(taken);
+            if self.lanes.lanes[lane].members > self.lanes.lanes[lane].limit() {
+                self.lanes.leave(seat);
+            } else {
+                let marked = self.lanes.marked_lane(root);
+                let lane = self.lanes.lend_or_return(seat, lane, marked);
+                if let Some(taken) = self.lanes.claim_in(seat, lane) {
+                    return Some(taken);
+                }
+                #[cfg(test)]
+                if root.and_then(|root| self.lanes.lane_of(root)) == Some(lane) {
+                    self.lanes.moves.emptied += 1;
+                }
+                self.lanes.leave(seat);
             }
-            #[cfg(test)]
-            if root.and_then(|root| self.lanes.lane_of(root)) == Some(lane) {
-                self.lanes.moves.emptied += 1;
-            }
-            self.lanes.leave(seat);
         }
         let lane = self
             .lanes

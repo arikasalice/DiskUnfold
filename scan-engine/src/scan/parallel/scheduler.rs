@@ -50,7 +50,7 @@ pub(super) fn create_with_budget(
     let options = LaneOptions {
         capacity: lane_capacity(),
         track_peak: diagnostics.is_some(),
-        track_paths: control.is_some(),
+        track_paths: control.is_some_and(ScanControlSession::tracks_priority),
     };
     let queue = queue_for(roots, &boundaries, &devices, options)?;
     let meters = lane_meter::LaneMeters::new(queue.lanes.lanes.len());
