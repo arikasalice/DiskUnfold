@@ -52,15 +52,7 @@ pub(super) fn response(
                     .as_ref()
                     .map(|value| value.evaluation)
                 {
-                    Some(crate::required_data::Evaluation::Unavailable(reason)) => {
-                        basis_reason::refine(
-                            reason,
-                            admitted.source.version(),
-                            &admitted.request.aggregate_scope_ref,
-                            &admitted.request.size_basis,
-                        )
-                        .key()
-                    }
+                    Some(crate::required_data::Evaluation::Unavailable(reason)) => reason.key(),
                     Some(crate::required_data::Evaluation::Available) | None => {
                         fallback_reason(*reason)
                     }

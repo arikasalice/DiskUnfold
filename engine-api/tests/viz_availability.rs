@@ -135,6 +135,7 @@ fn known_facts() -> FactValues {
         comparison: Evidence::Absent,
         histogram_bins: Evidence::Known(()),
         attribution: Evidence::Absent,
+        basis_not_counted: false,
     }
 }
 

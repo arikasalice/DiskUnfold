@@ -109,6 +109,7 @@ impl EvidenceProducer for Producer {
                 Evidence::Unknown
             },
             attribution: Evidence::Unknown,
+            basis_not_counted: false,
         }))
     }
     fn source_policy_facts(
