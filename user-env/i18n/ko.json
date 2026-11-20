@@ -409,7 +409,7 @@
     ["ui.analysis.full_path","전체 경로",[]],
     ["ui.analysis.dismiss_copy_result","복사 결과 닫기",[]],
     ["ui.analysis.space_aux_not_included","보조 데이터가 수집되지 않았습니다.",[]],
-    ["ui.analysis.space_dedup_capacity","파일 식별 한도에 도달했습니다.",[]],
+    ["ui.analysis.space_dedup_capacity","같은 내용을 공유할 수 있는 파일이 너무 많아 일부 파일을 크기에 넣지 못했습니다. 할당 크기와 중복 없는 실제 크기는 최소값입니다.",[]],
     ["ui.analysis.space_sharing_not_collected","공유 관련 증거가 수집되지 않았습니다.",[]],
     ["ui.analysis.space_sharing_unknown","공유 여부를 확인할 수 없습니다.",[]],
     ["ui.analysis.space_identity_unsupported","파일 식별을 확인할 수 없습니다.",[]],

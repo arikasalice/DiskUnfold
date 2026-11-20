@@ -42,7 +42,10 @@ const spaceReasonMessages = new Map<string, Message>([
   ],
   [
     "space.dedup_capacity",
-    ["ui.analysis.space_dedup_capacity", "The file identity limit was reached"],
+    [
+      "ui.analysis.space_dedup_capacity",
+      "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+    ],
   ],
   [
     "space.sharing_not_collected",

@@ -409,7 +409,7 @@
     ["ui.analysis.full_path","Full path",[]],
     ["ui.analysis.dismiss_copy_result","Dismiss copy result",[]],
     ["ui.analysis.space_aux_not_included","Auxiliary data was not collected",[]],
-    ["ui.analysis.space_dedup_capacity","The file identity limit was reached",[]],
+    ["ui.analysis.space_dedup_capacity","There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",[]],
     ["ui.analysis.space_sharing_not_collected","Sharing evidence was not collected",[]],
     ["ui.analysis.space_sharing_unknown","Sharing could not be verified",[]],
     ["ui.analysis.space_identity_unsupported","File identity could not be verified",[]],
