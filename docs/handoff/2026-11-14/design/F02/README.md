@@ -1511,13 +1511,14 @@ F03 기록: #221과 #139 뒤로 다 읽은 폴더의 크기는 정확한 값이 
 
 | 사유 키 | 값 | 설명 줄 |
 | --- | --- | --- |
-| os.attribute_unsupported | 이 파일 시스템에서 제공하지 않음 / Not provided by this file system | 없음. 값이 이미 이유다 |
+| os.attribute_unsupported | 이 항목에는 제공되지 않음 / Not provided for this item | 없음. 값이 이미 이유다 |
 | os.query_failed | 확인 불가 / Unavailable | 파일 시스템에서 이 값을 읽지 못했습니다. 다시 분석하면 확인될 수 있습니다. / The file system didn't return this value. It may be available if you analyze again. |
 | scan.boundary_other_volume | 확인 불가 / Unavailable | 다른 드라이브에 있어 이 분석에 포함하지 않았습니다. / This is on another drive, so it wasn't included in this analysis. |
 | space.placeholder_local_unknown | 기존 문구 그대로 | 기존 문구 그대로 |
 | 그 밖의 키, 키 없음 | 이 스캔에서 확인 불가 (지금 그대로) | 없음 |
 
-- 「제공하지 않음」은 문제가 아니라 사실이다. 그래서 「확인 불가」로 쓰지 않는다. 그렇게 쓰면 사용자가 고칠 것이 있다고 여긴다.
+- 「제공되지 않음」은 문제가 아니라 사실이다. 그래서 「확인 불가」로 쓰지 않는다. 그렇게 쓰면 사용자가 고칠 것이 있다고 여긴다.
+- 처음에는 「이 파일 시스템에서 제공하지 않음」으로 정했지만 F02의 지적으로 바꿨다(같은 날). 이 키는 파일 시스템 전체의 사실(statx나 macOS 일괄 조회에 그 칸이 없음)에도 쓰이고, 그 항목만의 사실(NTFS 암호화 파일의 할당 크기, 기록되지 않은 수정 시각)에도 쓰인다. 「이 항목에는」이 두 경우를 함께 덮는다. 키를 나누지 않는다.
 - 다른 드라이브 문구는 스캔 문제 사유 「다른 드라이브에 있어 포함하지 않음」과 같은 말을 쓴다.
 - 캡처는 필요 없다. 키와 문구의 대응을 시험으로 받는다.
 
