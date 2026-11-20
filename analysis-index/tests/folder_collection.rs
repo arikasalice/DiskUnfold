@@ -14,17 +14,20 @@ use folder_support::{
 };
 
 #[test]
-fn unmarked_folders_of_a_sealed_complete_version_are_unknown() -> Result<(), String> {
+fn unmarked_folders_of_a_sealed_complete_scan_are_not_boundaries() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = forest(&sink, 1, 2)?;
     dirs(&mut build, 0, &[&["a"], &["a", "b"]])?;
     let version = build
         .seal(id(2), ResultCompleteness::Complete)
         .map_err(err)?;
-    assert_eq!(state(&version, 0, &[])?, UNPROVEN);
-    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
-    assert_eq!(state(&version, 0, &["a", "b"])?, UNPROVEN);
-    assert_eq!(state(&version, 1, &[])?, UNPROVEN);
+    // #217, F03 DLD FR5.HD1: a Complete seal of a real scan is completion evidence for every
+    // folder, so an unmarked folder was entered and read.
+    let read = bounded(FolderBoundary::NoBoundary);
+    assert_eq!(state(&version, 0, &[])?, read);
+    assert_eq!(state(&version, 0, &["a"])?, read);
+    assert_eq!(state(&version, 0, &["a", "b"])?, read);
+    assert_eq!(state(&version, 1, &[])?, read);
     Ok(())
 }
 

@@ -292,6 +292,66 @@ fn a_gap_lowers_its_folder_and_ancestors_even_with_ended_attempts() -> Test {
     Ok(())
 }
 
+/// #217: a folder whose own pinned attempts all ended was entered and is not a boundary,
+/// in any version state. A pending, cancelled or rejected attempt proves nothing.
+#[test]
+fn a_folder_whose_attempts_ended_is_not_a_boundary() -> Test {
+    use crate::folder_collection::{
+        FolderBoundary, FolderCollection, REASON_DATA_INSUFFICIENT, REASON_IN_PROGRESS,
+        Unenumerated,
+    };
+    let read = FolderCollection::Folder {
+        unenumerated: Unenumerated::No,
+        boundary: FolderBoundary::NoBoundary,
+    };
+    for (case, root_read, sub_read) in [
+        (Case::AllEnded, true, true),
+        (Case::SubPending, true, false),
+        (Case::SubCancelled, true, false),
+        (Case::ParentSkipsSubTerminal, false, true),
+    ] {
+        for state in [
+            ResultCompleteness::Missing,
+            ResultCompleteness::Cancelled,
+            ResultCompleteness::Partial,
+        ] {
+            let sink = IngestSink::default();
+            let mut build = tree(&sink, case)?;
+            let version = if state == ResultCompleteness::Partial {
+                build.publish_partial(id(2)?).map_err(e)?
+            } else {
+                build.seal(id(2)?, state).map_err(e)?
+            };
+            let reason = if state == ResultCompleteness::Partial {
+                REASON_IN_PROGRESS
+            } else {
+                REASON_DATA_INSUFFICIENT
+            };
+            let unknown = FolderCollection::Folder {
+                unenumerated: Unenumerated::Unknown { reason_key: reason },
+                boundary: FolderBoundary::Unknown { reason_key: reason },
+            };
+            let sub = version
+                .items
+                .iter()
+                .find(|item| item.name == b"sub")
+                .ok_or("missing sub")?
+                .item_no;
+            for (item_no, entered) in [(0, root_read), (sub, sub_read)] {
+                let answer = version
+                    .folder_collection(&du_core_contracts::ItemRef {
+                        result_version: version.version_id.clone(),
+                        item_no,
+                    })
+                    .map_err(e)?;
+                let expected = if entered { read } else { unknown };
+                assert_eq!(answer, expected, "{state:?} item {item_no}");
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn discarded_evidence_and_a_complete_version_promote_nothing_new() -> Test {
     let sink = IngestSink::default();

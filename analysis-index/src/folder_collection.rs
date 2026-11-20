@@ -18,10 +18,19 @@
 //! 4. The folder has a `scan.boundary_other_volume` issue ([`BOUNDARY_OTHER_VOLUME`]) or a
 //!    `scan.revisit_blocked` issue ([`BOUNDARY_ALREADY_COUNTED`]): the boundary is that
 //!    kind and unenumerated is No. With both issues the other-volume boundary is reported.
-//! 5. A publication that is not the sealed one of its build is Unknown with
+//! 5. The folder was entered and read to its end: unenumerated is No and the boundary is
+//!    [`FolderBoundary::NoBoundary`]. Two kinds of evidence prove it:
+//!    - the sealed version of a real `Scan` origin whose completeness is `Complete`. Such
+//!      a seal is produced only without cancellation or collection failure, and it is
+//!      completion evidence for every folder (F03 DLD FR5.HD1.app-host.DD1). A folder
+//!      without a gap, unread mark or boundary issue there was entered. An incremental
+//!      replacement records no gaps or issues of its base, so it never uses this rule;
+//!    - every pinned attempt for the folder ended (`EndedUnproven`), in any publication.
+//!      Attempts of a replacement build are not used.
+//! 6. A publication that is not the sealed one of its build is Unknown with
 //!    [`REASON_IN_PROGRESS`].
-//! 6. Otherwise both are Unknown with [`REASON_DATA_INSUFFICIENT`]. A sealed result
-//!    alone does not prove that a particular folder was enumerated.
+//! 7. Otherwise both are Unknown with [`REASON_DATA_INSUFFICIENT`]. A seal that is not
+//!    `Complete` does not prove that a particular folder was enumerated.
 //!
 //! Rules 2 to 4 are exclusive, so a folder is never both unenumerated and bounded.
 //!
@@ -44,10 +53,11 @@ pub use crate::folder_marks::{UnreadFolderCounts, UnreadReason};
 use crate::{QueryError, ResultVersion, result_read::ensure_directory};
 use du_core_contracts::{
     ItemRef,
-    result::{ResultItem, ResultItemKind},
+    result::{ResultCompleteness, ResultItem, ResultItemKind},
 };
 
 use crate::folder_marks::BoundaryKind;
+use crate::origin::ResultOrigin;
 
 /// Reason key reported while the scan that produced the publication has not finished.
 pub const REASON_IN_PROGRESS: &str = "scan.in_progress";
@@ -203,6 +213,8 @@ impl ResultVersion {
             )
         } else if let Some(kind) = self.folder_marks.boundary(item.item_no) {
             (Unenumerated::No, boundary_of(kind))
+        } else if self.entered(item.item_no) {
+            (Unenumerated::No, FolderBoundary::NoBoundary)
         } else if !self.folder_marks.sealed() {
             return unknown(REASON_IN_PROGRESS);
         } else {
@@ -212,6 +224,14 @@ impl ResultVersion {
             unenumerated,
             boundary,
         }
+    }
+
+    /// Whether an unmarked folder of a real scan was entered and read (rule 5).
+    fn entered(&self, item_no: u32) -> bool {
+        let complete_scan = self.origin == ResultOrigin::Scan
+            && self.folder_marks.sealed()
+            && self.completeness == ResultCompleteness::Complete;
+        complete_scan || self.folder_marks.ended(item_no)
     }
 
     /// The reason the folder's entries were not read: the first gap recorded for exactly
