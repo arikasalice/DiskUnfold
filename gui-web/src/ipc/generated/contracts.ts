@@ -1165,6 +1165,54 @@ waitReason: AnalysisJobWaitReason,
  * UTC time at which the runtime observed this value.
  */
 observedAt: Timestamp, };
+export type ScanLaneWait = "io_wait" | "backpressure" | "device_cap" | "none";
+export type ScanLane = {
+/**
+ * Fixed for the lifetime of the job.
+ */
+laneIndex: number,
+/**
+ * The first [`MAX_LANE_ROOTS`] scope root indexes of the lane, ascending.
+ */
+rootIndexes: Array<number>,
+/**
+ * All root indexes of the lane as a decimal string; present only when
+ * `root_indexes` was cut.
+ */
+rootCount?: string,
+/**
+ * OS calls of the lane in flight (u32).
+ */
+inFlight: number,
+/**
+ * The lane's effective worker limit (u32, at least 1; 0 is never sent).
+ */
+limit: number,
+/**
+ * The wait cause; not to be used when `wait_confirmed` is false.
+ */
+waitReason: ScanLaneWait, waitConfirmed: boolean,
+/**
+ * Directories known to the lane and not read to their end, decimal.
+ */
+remainingDirectories: string,
+/**
+ * Failures recorded for the lane's roots so far, decimal.
+ */
+failures: string, };
+export type ScanLaneStatus = { sequence: number,
+/**
+ * The first [`MAX_LANES`] lanes by index.
+ */
+lanes: Array<ScanLane>,
+/**
+ * All lanes as a decimal string; present only when `lanes` was cut.
+ */
+laneCount?: string,
+/**
+ * UTC time at which the runtime observed this value.
+ */
+observedAt: Timestamp, };
 export type ScanResult = { lineageId: Id, sequence: number, resultVersion?: Id, };
 export type AnalysisJobTerminal = { state: JobState,
 /**
