@@ -80,6 +80,22 @@ impl MacDirectory {
             ancestors,
         }
     }
+
+    /// A failure on this directory, reported as a disconnection when its own verified
+    /// descriptor no longer answers. After a forced eject macOS answers reads below the
+    /// volume with `EBADF`, `ENOTDIR` or `ENOENT`, which alone do not tell a removed
+    /// volume from a changed entry; the descriptor does. Any other failure is kept.
+    pub(super) fn after_failure(&self, error: PortError) -> PortError {
+        if error.reason_key == "scan.disconnected" {
+            return error;
+        }
+        match rustix::fs::fstat(&self.fd) {
+            Err(code) if errors::revoked(Some(code.raw_os_error())) => {
+                errors::disconnected(error.os_code)
+            }
+            _ => error,
+        }
+    }
 }
 
 impl AnchoredDirectory for MacDirectory {
@@ -93,7 +109,8 @@ impl AnchoredDirectory for MacDirectory {
             return Err(errors::invalid());
         }
         let name = scope::component(&entry.name)?;
-        let (fd, stat) = scope::open_directory(self.fd.as_fd(), &name)?;
+        let (fd, stat) = scope::open_directory(self.fd.as_fd(), &name)
+            .map_err(|error| self.after_failure(error))?;
         if scope::device(&stat) != self.device || stat.st_ino != meta.inode {
             return Err(errors::changed());
         }
