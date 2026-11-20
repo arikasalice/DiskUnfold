@@ -15,7 +15,31 @@
 /* A row's own disclosure draws no line of its own: the table rows already
    separate the lanes, so a second line would sit off the row border. */
 .du-scan-lanes .du-table-cell .du-detail-disclosure {
+  --du-scan-lane-marker-size: 1.5rem;
+  --du-scan-lane-content-inset: 4px;
   border-block-start: 0;
+}
+
+.du-scan-lanes .du-table-cell .du-detail-disclosure > .du-action {
+  display: grid;
+  grid-template-columns: var(--du-scan-lane-marker-size) minmax(0, 1fr);
+  gap: 0;
+  padding-inline-start: calc(var(--du-scan-lane-content-inset) - 1px);
+}
+
+.du-scan-lanes
+  .du-table-cell
+  .du-detail-disclosure
+  > .du-action
+  > span[aria-hidden="true"] {
+  inline-size: var(--du-scan-lane-marker-size);
+  text-align: center;
+}
+
+.du-scan-lanes .du-table-cell .du-detail-disclosure__content {
+  padding-inline-start: calc(
+    var(--du-scan-lane-marker-size) + var(--du-scan-lane-content-inset)
+  );
 }
 
 /* A header that wraps at narrow widths grows instead of overflowing its row. */
@@ -67,7 +91,7 @@
 }
 
 .du-scan-lane__path {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-inline-size: 0;
 }
 
