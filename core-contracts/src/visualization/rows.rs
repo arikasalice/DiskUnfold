@@ -1,5 +1,7 @@
 //! Shared F06 row and positional-page wire contracts.
+use super::item_kind::{VizItemKind, optional_known};
 use super::quantity::VizQuantity;
+pub use super::ratio::VizRatio;
 use crate::{
     Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, result::ResultCompleteness,
 };
@@ -9,40 +11,6 @@ use std::collections::HashSet;
 /// Maximum rows in one positional visualization page.
 pub const MAX_PAGE_COUNT: u32 = 1000;
 
-/// Canonical signed decimal ratio, with at most 20 fractional digits.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS), ts(type = "string"))]
-#[serde(transparent)]
-pub struct VizRatio(String);
-impl VizRatio {
-    pub fn parse(value: &str) -> Result<Self, &'static str> {
-        let unsigned = value.strip_prefix('-').unwrap_or(value);
-        let mut parts = unsigned.split('.');
-        let integer = parts.next().unwrap_or("");
-        let fractional = parts.next();
-        let valid_integer = !integer.is_empty()
-            && integer.bytes().all(|b| b.is_ascii_digit())
-            && (integer == "0" || !integer.starts_with('0'));
-        let valid_fraction = fractional.is_none_or(|f| {
-            !f.is_empty()
-                && f.len() <= 20
-                && f.bytes().all(|b| b.is_ascii_digit())
-                && !f.ends_with('0')
-        });
-        if !valid_integer || !valid_fraction || parts.next().is_some() || value == "-0" {
-            return Err("invalid canonical ratio");
-        }
-        Ok(Self(value.to_owned()))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-impl<'de> Deserialize<'de> for VizRatio {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Self::parse(&String::deserialize(d)?).map_err(D::Error::custom)
-    }
-}
 /// Published denominator choices.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -126,6 +94,11 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub member_count: Option<VizQuantity>,
+    /// Kind of the referenced item, on item rows only; omitted when unknown. See
+    /// [`VizItemKind`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub item_kind: Option<VizItemKind>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +120,8 @@ struct RowWire {
     label_key: Option<String>,
     #[serde(default, deserialize_with = "optional_present")]
     member_count: Option<VizQuantity>,
+    #[serde(default, deserialize_with = "optional_known")]
+    item_kind: Option<VizItemKind>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -180,6 +155,9 @@ impl VizRow {
                 return Err("member count is not a count of items");
             }
         }
+        if self.item_kind.is_some() && self.item_ref.is_none() {
+            return Err("item kind on a group row");
+        }
         Ok(())
     }
     /// Checks the item revision only; group membership requires the pinned model.
@@ -210,6 +188,7 @@ impl<'de> Deserialize<'de> for VizRow {
             display_flags: w.display_flags,
             label_key: w.label_key,
             member_count: w.member_count,
+            item_kind: w.item_kind,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)

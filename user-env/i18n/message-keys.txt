@@ -783,6 +783,7 @@ ui.visualization.evidenceCompleteness
 ui.visualization.evidenceFreshness
 ui.visualization.evidenceOrigin
 ui.visualization.evidenceStatus
+ui.visualization.fileDetailUnavailable
 ui.visualization.filteredOutTotal
 ui.visualization.flagLowerBound
 ui.visualization.flagOtherGroup

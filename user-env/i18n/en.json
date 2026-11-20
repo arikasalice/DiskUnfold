@@ -800,6 +800,7 @@
     ["ui.visualization.evidenceFreshness","Freshness",[]],
     ["ui.visualization.evidenceOrigin","Origin",[]],
     ["ui.visualization.evidenceStatus","Result status",[]],
+    ["ui.visualization.fileDetailUnavailable","File details are not available here yet.",[]],
     ["ui.visualization.filteredOutTotal","Filtered out total",[]],
     ["ui.visualization.flagLowerBound","Lower bound",[]],
     ["ui.visualization.flagOtherGroup","Combined items",[]],

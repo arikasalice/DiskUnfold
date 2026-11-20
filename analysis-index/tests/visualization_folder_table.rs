@@ -43,6 +43,7 @@ fn row(version: &Id, name: &str) -> Result<VizRow, String> {
         display_flags: vec![],
         label_key: None,
         member_count: None,
+        item_kind: None,
     })
 }
 

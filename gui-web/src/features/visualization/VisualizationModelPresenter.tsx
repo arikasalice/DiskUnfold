@@ -5,6 +5,7 @@ import type {
   VizRenderRequest,
   VizRow,
   VizRowsRequest,
+  VizShape,
 } from "../../ipc";
 import { adaptVizModel, selectionKey } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
@@ -40,11 +41,14 @@ type ModelViewProps = {
   onFocusTargetMissing?: () => void;
   onFocusMoved?: () => void;
   onFocusAvailability?: (available: boolean) => void;
-  /** Enter on a shape (README 8, 34); `container` for an expanded folder. */
+  /**
+   * Enter on a shape (README 8, 34). `kind` is the item kind the engine
+   * supplied, or "folder" for an expanded folder; undefined when unknown.
+   */
   onActivate?: (
     selection: VizSelection,
     shapeRef: string,
-    container: boolean,
+    kind: VizShape["itemKind"],
   ) => void;
   onClearSelection?: () => void;
   onPage?: (request: VizRowsRequest) => void;
@@ -212,7 +216,10 @@ function keyboardCallbacks(
     onActivate: (rowRef: string, shapeRef: string, container: boolean) => {
       if (!eventShape(adapted, shapeRef, rowRef)) return;
       const target = adapted.targetsByShape.get(shapeRef);
-      if (target) props.onActivate?.(target, shapeRef, container);
+      const kind =
+        adapted.kindsByShape.get(shapeRef) ??
+        (container ? "folder" : undefined);
+      if (target) props.onActivate?.(target, shapeRef, kind);
     },
   };
 }

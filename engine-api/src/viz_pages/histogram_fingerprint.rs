@@ -202,6 +202,7 @@ mod tests {
             display_flags: vec![],
             label_key: None,
             member_count: None,
+            item_kind: None,
         };
         let groups = HashMap::from([(
             "g".into(),

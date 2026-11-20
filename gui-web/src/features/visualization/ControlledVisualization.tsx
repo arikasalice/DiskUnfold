@@ -148,7 +148,7 @@ export function ControlledVisualization({
           }}
           onFocusAvailability={setGraphTargets}
           onClearSelection={() => controller.select(null)}
-          onActivate={(selection, shapeRef, container) => {
+          onActivate={(selection, shapeRef, kind) => {
             if (selection.kind === "group") {
               selectVisualizationGroup(
                 selection,
@@ -165,7 +165,11 @@ export function ControlledVisualization({
             } else
               announce(
                 text.message(
-                  container ? "folderExpandUnavailable" : "itemOpenUnavailable",
+                  kind === "folder"
+                    ? "folderExpandUnavailable"
+                    : kind === "file"
+                      ? "fileDetailUnavailable"
+                      : "itemOpenUnavailable",
                 ),
               );
           }}

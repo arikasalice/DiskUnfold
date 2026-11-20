@@ -87,6 +87,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
             )
             .ok_or(Error::InvalidModel)?,
         ),
+        item_kind: None,
     };
     Ok((
         row,

@@ -8,8 +8,9 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::ResultVersionRead,
+    result::{ResultItem, ResultVersionRead},
     visualization::{
+        item_kind::VizItemKind,
         quantity::VizQuantity,
         rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow},
     },
@@ -173,13 +174,7 @@ pub(super) fn project_fallback(
             .remove(&item.item_no)
             .ok_or(Error::MissingClassification)?;
         let size = original_size(&version, item.item_no, basis).ok_or(Error::SourceMismatch)?;
-        rows.push(make_row(
-            &version,
-            &item.name,
-            size,
-            presentation,
-            &denominator,
-        )?);
+        rows.push(make_row(&version, item, size, presentation, &denominator)?);
     }
     if cancelled() {
         return Err(Error::Cancelled);
@@ -251,7 +246,7 @@ fn project_row(
     {
         return Err(Error::SourceMismatch);
     }
-    let projected = make_row(version, &item.name, &row.size, presentation, denominator)?;
+    let projected = make_row(version, item, &row.size, presentation, denominator)?;
     if row.ratio.as_deref() != projected.ratio.as_ref().map(VizRatio::as_str) {
         return Err(Error::InvalidRatio);
     }
@@ -260,7 +255,7 @@ fn project_row(
 
 fn make_row(
     version: &ResultVersion,
-    name: &[u8],
+    item: &ResultItem,
     size: &SizeValue,
     presentation: RowPresentation,
     denominator: &VizDenominator,
@@ -269,7 +264,7 @@ fn make_row(
         .observed_root_for(&presentation.item)
         .map_err(|_| Error::MissingDisplayName)?;
     let display_name =
-        display_path::name(&root.path.encoding, name).ok_or(Error::MissingDisplayName)?;
+        display_path::name(&root.path.encoding, &item.name).ok_or(Error::MissingDisplayName)?;
     let numerator = quantity(size)?;
     let ratio = ratio::calculate(&numerator, &denominator.value)
         .as_deref()
@@ -288,6 +283,7 @@ fn make_row(
         display_flags: presentation.display_flags,
         label_key: None,
         member_count: None,
+        item_kind: VizItemKind::from_result(item.kind),
     };
     projected
         .validate_revision(version.version_id())

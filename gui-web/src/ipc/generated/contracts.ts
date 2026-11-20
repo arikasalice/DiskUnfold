@@ -837,6 +837,7 @@ remainder?: VizTotal,
 remainderReasonKeys?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy, };
 export type VizMatchKey = { "state": "present", value: CorrespondenceKey, } | { "state": "unknown", reasonKey: string, } | { "state": "not_applicable", };
+export type VizItemKind = "file" | "folder" | "other";
 export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, matchKey: VizMatchKey, geometry: VizGeometry, size: SizeValue, quantity?: VizQuantity, legendClassKey: string, displayFlags: Array<string>, shapeRef?: string, parentShapeRef?: string | null, visibleDepth?: number, rootBranchRef?: ItemRef | null,
 /**
  * Number of members of a group shape, in items.
@@ -847,7 +848,12 @@ export type VizShape = { itemRef: ItemRef | null, groupRef: string | null, match
  * `viz.group_rows`. A lower bound or an unknown count is never replaced by zero. The
  * field is omitted rather than null, and a model without it is valid.
  */
-memberCount?: VizQuantity, };
+memberCount?: VizQuantity,
+/**
+ * Kind of the referenced item, on item shapes only; omitted when unknown. See
+ * [`VizItemKind`].
+ */
+itemKind?: VizItemKind, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
@@ -918,7 +924,12 @@ labelKey?: string,
  * is reported as such and is never replaced by zero. The field is omitted rather
  * than null, and a response without it is valid.
  */
-memberCount?: VizQuantity, };
+memberCount?: VizQuantity,
+/**
+ * Kind of the referenced item, on item rows only; omitted when unknown. See
+ * [`VizItemKind`].
+ */
+itemKind?: VizItemKind, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

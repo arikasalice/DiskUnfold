@@ -4,6 +4,7 @@ use du_core_contracts::{
     SizeAmount, SizeValue,
     browse_page_ipc::{QueryStrategy, ResultOrigin},
     visualization::{
+        item_kind::VizItemKind,
         model::*,
         quantity::{VizAmount, VizQuantity},
         render::VizRenderNonModelResponse,
@@ -109,6 +110,12 @@ fn fallback_reason(reason: crate::viz_pages::render::FallbackReason) -> &'static
         NoAttribution => "viz.unavailable.no_attribution",
     }
 }
+/// Kind of a pinned result item for its shape; an item the version lacks has none.
+fn kind_of(admitted: &Admitted, item_no: u32) -> Option<VizItemKind> {
+    let items = admitted.source.version().items();
+    let item = items.get(item_no as usize)?;
+    VizItemKind::from_result(item.kind)
+}
 pub(super) fn build_model(
     admitted: &Admitted,
     rendered: &crate::viz_pages::render::Rendered,
@@ -139,6 +146,7 @@ pub(super) fn build_model(
             visible_depth: hierarchy.then_some(shape.meta.visible_depth),
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
             member_count: None,
+            item_kind: kind_of(admitted, row.item.item_no),
         });
     }
     for shape in &projection.descendants {
@@ -160,6 +168,7 @@ pub(super) fn build_model(
             visible_depth: Some(shape.meta.visible_depth),
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
             member_count: None,
+            item_kind: kind_of(admitted, shape.item.item_no),
         });
     }
     for group in &projection.detail.groups {
@@ -188,6 +197,7 @@ pub(super) fn build_model(
             visible_depth: Some(group.meta.visible_depth),
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
             member_count: Some(quantity("items", group.members.len() as u64)?),
+            item_kind: None,
         });
     }
     let mut classes = std::collections::BTreeMap::<String, (u64, u64, bool)>::new();
@@ -421,6 +431,7 @@ mod tests {
             visible_depth: None,
             root_branch_ref: None,
             member_count: count,
+            item_kind: None,
         })
     }
 
