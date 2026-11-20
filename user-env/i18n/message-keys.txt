@@ -24,6 +24,7 @@ cli.scan.failed
 cli.scan.skipped
 cli.scan.result_version
 cli.scan.path_unusable
+cli.scan.path_through_link link:name suggestion:name target:name
 cli.product.version
 cli.product.build_kind
 cli.product.build_official

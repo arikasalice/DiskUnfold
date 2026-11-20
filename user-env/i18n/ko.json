@@ -41,6 +41,7 @@
     ["cli.scan.skipped", "건너뛴 항목", []],
     ["cli.scan.result_version", "결과 판", []],
     ["cli.scan.path_unusable", "분석할 수 없는 경로가 있습니다. 경로가 있는지, 열 수 있는 폴더인지, 바르게 적었는지 확인하세요.", []],
+    ["cli.scan.path_through_link", "{link}은 {target}로 가는 링크이고, 스캔은 링크를 따라가지 않습니다. 대신 {suggestion}을 스캔하세요.", [["link", "name"], ["target", "name"], ["suggestion", "name"]]],
     ["cli.product.version", "버전", []],
     ["cli.product.build_kind", "빌드 종류", []],
     ["cli.product.build_official", "정식 릴리스 빌드", []],

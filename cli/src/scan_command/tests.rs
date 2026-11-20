@@ -162,3 +162,50 @@ fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
     assert_ne!(exit, ExitCode::SUCCESS, "{errors}");
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn a_path_through_a_symbolic_link_explains_the_resolved_scan_path()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let folder = tempfile::tempdir()?;
+    let base = fs::canonicalize(folder.path())?;
+    let target = base.join("real");
+    fs::create_dir_all(target.join("x"))?;
+    let link = base.join("link");
+    symlink(&target, &link)?;
+    let root = link.join("x");
+    let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let message = Messages::new(&registry, "en");
+    let scan = scan(&[&root.to_string_lossy()])?;
+    let engine = engine()?;
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+
+    let exit = run(
+        &engine,
+        &scan,
+        scan.format(),
+        &message,
+        &mut stdout,
+        &mut stderr,
+    );
+
+    let errors = String::from_utf8_lossy(&stderr);
+    assert_eq!(exit, ExitCode::from(2), "{errors}");
+    assert!(stdout.is_empty());
+    assert!(errors.contains("path.unresolvable"), "{errors}");
+    assert!(
+        errors.contains(&link.to_string_lossy().to_string()),
+        "{errors}"
+    );
+    assert!(
+        errors.contains(&target.to_string_lossy().to_string()),
+        "{errors}"
+    );
+    assert!(
+        errors.contains(&root.to_string_lossy().to_string()),
+        "{errors}"
+    );
+    Ok(())
+}

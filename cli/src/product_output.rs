@@ -2,6 +2,7 @@
 
 use std::io::{self, Write};
 
+use du_core_contracts::locale_bundle::LocaleMessageValue;
 use du_core_contracts::product_support::{
     BuildKind, EmbeddedProductInfo, ProductBuildInfo, ProductNotices, SecuritySupportKind,
     SupportCapabilityState, SupportCombination, SupportCpu, SupportMatrix, SupportOsFamily,
@@ -23,6 +24,16 @@ impl<'a> Messages<'a> {
 
     pub(crate) fn resolve(&self, key: &str) -> Option<String> {
         self.registry.resolve_plain_text(self.language, key)
+    }
+
+    pub(crate) fn render_names(&self, key: &str, values: &[(&str, &str)]) -> String {
+        let values = values
+            .iter()
+            .map(|(name, value)| (*name, LocaleMessageValue::Name(value)))
+            .collect();
+        self.registry
+            .render_text(self.language, key, &values, |_| None)
+            .text
     }
 }
 
