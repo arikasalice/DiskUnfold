@@ -417,3 +417,65 @@ fn extended_paths_win32_would_read_differently_keep_the_prefix() -> Result<(), S
     }
     Ok(())
 }
+
+/// FR2.HD1 stage 2 (#239): an attribute the scan could not observe names its reason;
+/// without a recorded reason the detail keeps the general keys.
+#[test]
+fn detail_names_why_an_attribute_was_not_observed() -> Result<(), String> {
+    use du_analysis_index::ObservedAttribute;
+    use du_core_contracts::scan_observation::attribute_reason;
+    let sink = IngestSink::default();
+    let version = id(2)?;
+    let mut build = sink
+        .open_forest(id(1)?, vec![root(PathEncoding::Unix, b"/r")])
+        .map_err(|e| format!("{e:?}"))?;
+    build
+        .add_directory_at(0, vec![])
+        .map_err(|e| format!("{e:?}"))?;
+    for name in [b"cloud".as_slice(), b"plain".as_slice()] {
+        build
+            .add_file_at(
+                0,
+                Observation {
+                    path: vec![name.to_vec()],
+                    size: None,
+                },
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let cloud = [b"cloud".to_vec()];
+    for (attribute, reason) in [
+        (ObservedAttribute::Allocated, attribute_reason::PLACEHOLDER),
+        (ObservedAttribute::ModifiedAt, attribute_reason::UNSUPPORTED),
+    ] {
+        build
+            .set_attribute_unknown(0, &cloud, attribute, reason)
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    build
+        .seal(version.clone(), ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut builder = EngineBuilder::default();
+    register(&mut builder, sink);
+    let engine = builder.build().map_err(|e| e.to_string())?;
+    // Items are numbered by name: the root, "cloud", then "plain".
+    let cloud = call_detail(&engine, &version, &version, 1)?.body;
+    assert_eq!(
+        cloud["allocatedSize"],
+        json!({"state": "unknown", "reasonKey": "space.placeholder_local_unknown"})
+    );
+    assert_eq!(
+        cloud["modifiedAt"],
+        json!({"state": "unknown", "reasonKey": "os.attribute_unsupported"})
+    );
+    let plain = call_detail(&engine, &version, &version, 2)?.body;
+    assert_eq!(
+        plain["allocatedSize"],
+        json!({"state": "unknown", "reasonKey": "space.data_insufficient"})
+    );
+    assert_eq!(
+        plain["modifiedAt"],
+        json!({"state": "unknown", "reasonKey": "ref.unavailable"})
+    );
+    Ok(())
+}

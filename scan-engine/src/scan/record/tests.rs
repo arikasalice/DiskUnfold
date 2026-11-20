@@ -1,6 +1,10 @@
 use super::*;
 use du_analysis_index::IngestSink;
-use du_core_contracts::Id;
+use du_core_contracts::{
+    Id,
+    result::ResultCompleteness,
+    scan_observation::{ObservedValue, attribute_reason},
+};
 
 fn build() -> Result<BuildHandle, String> {
     let id = Id::parse("018f0000-0000-7000-8000-000000000001").map_err(|e| format!("{e:?}"))?;
@@ -90,4 +94,61 @@ fn a_second_mark_of_one_folder_stops_debug_builds() {
     let mut ranges = FailedRanges::new(vec![false]);
     ranges.unread(0, &[]);
     ranges.unread(0, &[]);
+}
+
+/// FR2.HD1 stage 2 (#239): a recorded entry keeps why each attribute is unknown.
+#[test]
+fn a_recorded_file_keeps_the_reason_of_each_unknown_attribute() -> Result<(), String> {
+    let mut build = build()?;
+    build
+        .add_directory_at(0, Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    let entry = ObservedEntry {
+        name: b"f".to_vec(),
+        enumerated_inode: 7,
+        enumerated_kind: ObservedKind::File,
+        metadata: Ok(MetadataObservation {
+            kind: ObservedKind::File,
+            device: 1,
+            inode: 7,
+            size: Ok(3),
+            modified_at: ObservedValue::Unknown(attribute_reason::QUERY_FAILED),
+            native_modified_at: None,
+            allocated: ObservedValue::Unknown(attribute_reason::PLACEHOLDER),
+            link_count: ObservedValue::Known(1),
+            space_identity: ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+        }),
+    };
+    let mut counts = JobCounts::default();
+    let path = [b"f".to_vec()];
+    record_at(
+        &mut build,
+        0,
+        &entry,
+        &path,
+        &mut counts,
+        None,
+        SharingEvidence::None,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let id = Id::parse("018f0000-0000-7000-8000-000000000002").map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let reason = |attribute| version.attribute_unknown_reason(1, attribute);
+    assert_eq!(
+        reason(ObservedAttribute::ModifiedAt),
+        Some(attribute_reason::QUERY_FAILED)
+    );
+    assert_eq!(
+        reason(ObservedAttribute::Allocated),
+        Some(attribute_reason::PLACEHOLDER)
+    );
+    assert_eq!(reason(ObservedAttribute::LinkCount), None);
+    assert_eq!(
+        reason(ObservedAttribute::SpaceIdentity),
+        Some(attribute_reason::UNSUPPORTED)
+    );
+    assert_eq!(version.attribute_reason_bytes(), 15);
+    Ok(())
 }
