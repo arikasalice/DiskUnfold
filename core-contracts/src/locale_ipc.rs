@@ -198,7 +198,7 @@ impl<'de> Deserialize<'de> for LocaleProfile {
         #[serde(rename_all = "camelCase")]
         struct Wire {
             display_language: String,
-            #[serde(default)]
+            #[serde(default, deserialize_with = "optional_present")]
             os_family: Option<SupportOsFamily>,
             language_source: LocaleLanguageSource,
             date_format: LocaleDateFormat,

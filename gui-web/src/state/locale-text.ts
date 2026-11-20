@@ -19,13 +19,11 @@ function localizedKey(
   key: string,
   osFamily: OsFamily,
 ) {
-  const specific =
-    osFamily === "macos" || osFamily === "linux"
-      ? `${key}.${osFamily}`
-      : undefined;
+  // Only macOS and Linux read variants; "unknown" uses the base key, like an omitted family.
+  const unix = osFamily === "macos" || osFamily === "linux";
   return [
-    specific,
-    osFamily !== "windows" ? `${key}.unix` : undefined,
+    unix ? `${key}.${osFamily}` : undefined,
+    unix ? `${key}.unix` : undefined,
     key,
   ].find(
     (candidate) =>

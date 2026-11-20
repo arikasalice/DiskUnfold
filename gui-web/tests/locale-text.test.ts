@@ -30,6 +30,11 @@ test("Windows and older hosts use base message keys", () => {
   expect(textFor(undefined)("ui.analysis.path_example_first", "")).toBe(
     expected,
   );
+  // An unknown family is treated like an omitted one, without the Unix variant.
+  expect(textFor("unknown")("ui.analysis.path_example_first", "")).toBe(
+    expected,
+  );
+  expect(textFor("unknown")("ui.analysis.drives", "")).toBe("Drives");
 });
 
 test("macOS and Linux prefer their variant, then the shared Unix variant", () => {
