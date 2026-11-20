@@ -279,7 +279,6 @@ fn f15_notice_and_support_commands_accept_only_published_arguments() {
         vec!["--format", "json", "--version"],
         vec!["--format", "text", "--help"],
         vec!["--format", "text", "notices", "LICENSE"],
-        vec!["--format", "text", "scan", "root"],
     ] {
         assert!(
             matches!(
@@ -360,4 +359,22 @@ fn fr1_preserves_non_unicode_windows_paths() -> Result<(), String> {
     };
     assert_eq!(scan.roots, [root]);
     Ok(())
+}
+
+#[test]
+fn a_scan_takes_the_format_of_its_summary() {
+    for (input, expected) in [
+        (vec!["scan", "root"], OutputFormat::Text),
+        (vec!["--format", "json", "scan", "root"], OutputFormat::Json),
+        (vec!["scan", "--format", "text", "root"], OutputFormat::Text),
+    ] {
+        let format = match parsed(&input) {
+            Some(Arguments {
+                command: Command::Scan(scan),
+                ..
+            }) => Some(scan.format()),
+            _ => None,
+        };
+        assert_eq!(format, Some(expected), "{input:?}");
+    }
 }

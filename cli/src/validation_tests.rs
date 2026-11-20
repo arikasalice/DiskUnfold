@@ -26,14 +26,21 @@ fn valid_scan_keeps_the_normal_settings_read_warning() {
     assert_eq!(stored_reads, 1);
     assert_eq!(os_reads, 1);
     assert!(stdout.is_empty());
+    let text = String::from_utf8_lossy(&stderr);
+    let mut lines = text.lines();
     assert_eq!(
-        stderr,
-        concat!(
-            "저장된 설정을 사용할 수 없어 대체 언어를 사용합니다.\n",
-            "DiskUnfold: 지원하지 않는 인자입니다. --help를 확인하세요.\n"
-        )
-        .as_bytes()
+        lines.next(),
+        Some("저장된 설정을 사용할 수 없어 대체 언어를 사용합니다.")
     );
+    // The two paths after the option end do not exist: a usage error, in Korean.
+    let error = lines.next().unwrap_or_default();
+    assert!(
+        error.starts_with("DiskUnfold: ")
+            && error.contains("분석할 수 없는 경로가 있습니다.")
+            && error.ends_with(" [INVALID_ARGUMENT]"),
+        "{text}"
+    );
+    assert_eq!(lines.next(), None, "{text}");
 }
 
 #[test]

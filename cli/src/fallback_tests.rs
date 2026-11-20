@@ -367,12 +367,12 @@ fn stored_language_does_not_change_json_bytes_but_changes_text() -> Result<(), S
     }
     assert_ne!(scan_lines[0], scan_lines[1]);
     assert!(
-        scan_lines[0].contains("지원하지 않는 인자"),
+        scan_lines[0].contains("분석할 수 없는 경로가 있습니다"),
         "{}",
         scan_lines[0]
     );
     assert!(
-        scan_lines[1].contains("unsupported arguments"),
+        scan_lines[1].contains("A path cannot be analyzed"),
         "{}",
         scan_lines[1]
     );

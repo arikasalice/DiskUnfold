@@ -22,8 +22,11 @@ use du_user_env::{
 
 mod args;
 mod diagnostics;
+mod exit_code;
 mod machine_output;
+mod outbound;
 mod product_output;
+mod scan_command;
 mod startup_locale;
 
 use diagnostics::{write_error_line, write_stderr_line};
@@ -319,10 +322,8 @@ fn run_command<W: Write, E: Write>(
                 }
             }
         }
-        // Scan admission is parsed, but execution awaits the engine and policy composition.
         // The access check precedes any job, so a confirmed denial never creates one.
         args::Command::Scan(scan) => {
-            drop(scan);
             if ports.access.full_disk_access_status() == FullDiskAccessStatus::Denied {
                 // One line: reason key, localized explanation, English error code.
                 let text = message
@@ -336,7 +337,11 @@ fn run_command<W: Write, E: Write>(
                 );
                 return ExitCode::from(EXIT_USAGE);
             }
-            return write_unsupported(stderr, message.resolve("cli.help.unsupported"));
+            let Ok(engine) = scan_command::engine() else {
+                write_error_line(stderr, "support.internal_error", &ErrorCode::Internal, None);
+                return ExitCode::from(EXIT_FAILURE);
+            };
+            return scan_command::run(&engine, &scan, scan.format(), &message, stdout, stderr);
         }
         args::Command::NotProvided | args::Command::Unsupported => {
             return write_unsupported(stderr, message.resolve("cli.help.unsupported"));

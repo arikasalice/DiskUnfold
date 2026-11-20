@@ -5,15 +5,16 @@ pub(crate) enum Command {
     Version,
     Notices(NoticeDocument),
     Support(OutputFormat),
-    /// A syntactically admitted scan; execution awaits engine and policy composition.
+    /// A syntactically admitted scan, run by the scan command.
     Scan(Scan),
     /// Maps to F39 FR6's `command.not_provided` state; no machine output is wired yet.
     NotProvided,
     Unsupported,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum OutputFormat {
+    #[default]
     Text,
     Json,
 }
@@ -39,6 +40,24 @@ pub(crate) struct Scan {
     roots: Vec<OsString>,
     excludes: Vec<OsString>,
     device: Option<Device>,
+    format: OutputFormat,
+}
+
+impl Scan {
+    /// The path arguments, as the platform gave them.
+    pub(crate) fn roots(&self) -> &[OsString] {
+        &self.roots
+    }
+
+    /// The `--exclude` values.
+    pub(crate) fn excludes(&self) -> &[OsString] {
+        &self.excludes
+    }
+
+    /// The format of the result summary on stdout.
+    pub(crate) fn format(&self) -> OutputFormat {
+        self.format
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -82,9 +101,8 @@ pub(crate) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Option<Arg
     }
     let command = match state.command {
         Some(CommandBuilder::NotProvided) => Command::NotProvided,
-        Some(CommandBuilder::Scan(scan))
-            if !state.invalid && state.format.is_none() && !scan.roots.is_empty() =>
-        {
+        Some(CommandBuilder::Scan(mut scan)) if !state.invalid && !scan.roots.is_empty() => {
+            scan.format = state.format.unwrap_or_default();
             Command::Scan(scan)
         }
         Some(CommandBuilder::Help)
