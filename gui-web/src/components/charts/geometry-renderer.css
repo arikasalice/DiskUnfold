@@ -213,6 +213,16 @@
     opacity: 1;
   }
 
+  /* Every class fills with Canvas and is told apart by its pattern and its edge
+     (README 4.9); place 1 has no pattern, so its edge and name carry it. */
+  .du-geometry .du-geometry-shape[data-tone] {
+    fill: Canvas;
+  }
+
+  .du-geometry .du-geometry-shape[data-tone] .du-geometry-label {
+    fill: CanvasText;
+  }
+
   .du-chart-pattern .du-pattern-mark--fill {
     fill: CanvasText;
   }
