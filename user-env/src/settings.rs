@@ -42,6 +42,7 @@ pub fn builtin_descriptors_with_size_rules(
         .chain(crate::scope::descriptors())
         .chain(crate::space::descriptors())
         .chain([crate::space::aggregation_rule_descriptor(size_rule_ids)])
+        .chain(crate::startup_memory::descriptors())
         .collect())
 }
 
@@ -223,6 +224,31 @@ impl<S: SettingsStore> SettingsService<S> {
 
     pub fn snapshot(&self) -> &SettingsSnapshot {
         &self.snapshot
+    }
+
+    /// Reads the stored settings again, after a commit answered `StaleVersion`
+    /// because another writer of the store (another process) moved its revision.
+    ///
+    /// The snapshot is replaced only when the stored schema is this one and every
+    /// known value is accepted; unknown keys are kept, as `restore` keeps them.
+    /// The startup restore report is not changed.
+    pub fn reload(&mut self) -> Result<(), SettingsError> {
+        let snapshot = self.store.load().map_err(SettingsError::Store)?;
+        if snapshot.schema_version > SETTINGS_SCHEMA_VERSION {
+            return Err(SettingsError::SchemaNewer);
+        }
+        if snapshot.schema_version != SETTINGS_SCHEMA_VERSION {
+            return Err(SettingsError::SchemaUnsupported);
+        }
+        for (key, value) in &snapshot.values {
+            if let Some(descriptor) = self.registry.descriptors.get(key)
+                && !crate::accepts(&descriptor.kind, value)
+            {
+                return Err(SettingsError::InvalidStoredValue);
+            }
+        }
+        self.snapshot = snapshot;
+        Ok(())
     }
 
     /// Returns the effective display unit settings without rewriting stored values.

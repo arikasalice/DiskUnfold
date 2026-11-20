@@ -296,15 +296,23 @@ fn setting_presentations_cover_descriptors_in_both_bundles()
     let registry = register(&[]).map_err(|e| format!("{e:?}"))?;
     let descriptors =
         crate::settings::builtin_descriptors(&["en", "ko"]).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(descriptors.len(), 13);
+    assert_eq!(descriptors.len(), 15);
     validate_setting_presentation(&registry, descriptors.clone()).map_err(|e| format!("{e:?}"))?;
-    // The hidden size rule setting has no wording, so only the other twelve are checked.
+    // The hidden size rule and startup memory settings have no wording, so only the
+    // other twelve are checked.
     let hidden: Vec<_> = descriptors
         .iter()
         .filter(|descriptor| descriptor.presentation.hidden)
         .map(|descriptor| descriptor.key.as_str())
         .collect();
-    assert_eq!(hidden, ["space.aggregation_rule"]);
+    assert_eq!(
+        hidden,
+        [
+            "space.aggregation_rule",
+            "startup.notice_dismissed",
+            "startup.review_seen"
+        ]
+    );
     let descriptors: Vec<_> = descriptors
         .into_iter()
         .filter(|descriptor| !descriptor.presentation.hidden)

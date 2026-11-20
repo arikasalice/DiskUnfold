@@ -159,6 +159,10 @@ fn run_app(
         #[cfg(windows)]
         recent,
     )?;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    settings
+        .clone()
+        .register_startup_memory(&mut builder, events.clone(), startup_access.clone());
     #[cfg(any(windows, target_os = "linux"))]
     {
         let inventory = locale.clone();

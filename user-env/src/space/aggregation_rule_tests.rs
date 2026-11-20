@@ -85,7 +85,14 @@ fn builtin_catalog_declares_the_setting_but_no_listing_shows_it() -> TestResult 
         .filter(|descriptor| descriptor.presentation.hidden)
         .map(|descriptor| descriptor.key.as_str())
         .collect();
-    assert_eq!(hidden, [AGGREGATION_RULE]);
+    assert_eq!(
+        hidden,
+        [
+            AGGREGATION_RULE,
+            crate::startup_memory::NOTICE_DISMISSED,
+            crate::startup_memory::REVIEW_SEEN
+        ]
+    );
 
     let registry = Registry::new(descriptors).map_err(|error| format!("{error:?}"))?;
     let snapshot = SettingsSnapshot {

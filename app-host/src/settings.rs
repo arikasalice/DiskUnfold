@@ -24,6 +24,7 @@ mod locale_ipc;
 #[cfg(windows)]
 mod restore_ipc;
 mod size_rule;
+mod startup_memory_ipc;
 pub(super) use locale_ipc::LocaleRuntime;
 
 /// Owns the restored service and immutable startup report for the desktop lifetime.

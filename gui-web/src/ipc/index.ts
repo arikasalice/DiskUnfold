@@ -87,6 +87,8 @@ import type {
   StartupAccessResponse,
   StartupStatus,
   StartupStatusRequest,
+  StartupMemorySetRequest,
+  StartupMemorySetResponse,
   ScopeReview,
   ScopeReviewRequest,
   SpaceDetail,
@@ -249,6 +251,9 @@ export type {
   StartupStatusRequest,
   StartupStatus,
   StartupAccessRequest,
+  StartupMemoryKind,
+  StartupMemorySetRequest,
+  StartupMemorySetResponse,
   BuildKind,
   ExecutableDigestRequest,
   ExecutableDigestResponse,
@@ -339,6 +344,7 @@ type Commands = {
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
   "app.startup_status": [StartupStatusRequest, StartupStatus];
   "app.startup_access": [StartupAccessRequest, StartupAccessResponse];
+  "app.startup_memory_set": [StartupMemorySetRequest, StartupMemorySetResponse];
   "app.quit": [AppQuitRequest, AppQuitResponse];
   "app.product_info": [ProductInfoRequest, ProductInfo];
   "app.notices": [NoticesRequest, NoticesResponse];
