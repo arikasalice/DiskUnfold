@@ -18,12 +18,15 @@ const IO_REGISTRY_RECURSIVE_PARENTS: u32 =
     IO_REGISTRY_ITERATE_RECURSIVELY | IO_REGISTRY_ITERATE_PARENTS;
 const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const IO_SERVICE_PLANE: &CStr = c"IOService";
+/// kIOReturnNoDevice (iokit_common_err(0x2c0)); IOKitLib returns it when an entry has no parent.
+const IO_RETURN_NO_DEVICE: i32 = 0xE000_02C0_u32 as i32;
 const IO_MEDIA_CLASS: &CStr = c"IOMedia";
 const APFS_CONTAINER_SCHEME_CLASS: &CStr = c"AppleAPFSContainerScheme";
 
 #[link(name = "IOKit", kind = "framework")]
 unsafe extern "C" {
-    fn IOBSDNameMatching(master_port: u32, bsd_name: *const c_char) -> *mut c_void;
+    // IOKit/IOKitLib.h: IOBSDNameMatching(mach_port_t, uint32_t options, const char *).
+    fn IOBSDNameMatching(main_port: u32, options: u32, bsd_name: *const c_char) -> *mut c_void;
     fn IOServiceGetMatchingService(master_port: u32, matching: *mut c_void) -> IoService;
     fn IORegistryEntrySearchCFProperty(
         entry: IoService,
@@ -43,7 +46,7 @@ unsafe extern "C" {
         iterator: *mut IoService,
     ) -> i32;
     fn IOIteratorNext(iterator: IoService) -> IoService;
-    fn IOObjectConformsTo(object: IoService, class_name: *const c_char) -> u32;
+    fn IOObjectConformsTo(object: IoService, class_name: *const c_char) -> i32;
     fn IOObjectRelease(object: IoService) -> i32;
 }
 
@@ -97,7 +100,7 @@ pub fn probe_fd(fd: BorrowedFd<'_>) -> DeviceProbe {
     };
 
     // SAFETY: bsd_name is NUL-terminated; IOBSDNameMatching returns a matching dictionary.
-    let matching = unsafe { IOBSDNameMatching(0, bsd_name.as_ptr()) };
+    let matching = unsafe { IOBSDNameMatching(0, 0, bsd_name.as_ptr()) };
     if matching.is_null() {
         return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
     }
@@ -138,20 +141,14 @@ fn inspect_media(service: IoService) -> DeviceProbe {
             }
         }
 
-        let mut parent = 0;
-        // SAFETY: the output pointer is writable; a successful result transfers a retained parent.
-        if unsafe {
-            IORegistryEntryGetParentEntry(current.0, IO_SERVICE_PLANE.as_ptr(), &mut parent)
-        } != 0
-        {
-            chain_complete = true;
-            break;
+        match parent_of(current.0) {
+            Ok(Some(parent)) => current = parent,
+            Ok(None) => {
+                chain_complete = true;
+                break;
+            }
+            Err(()) => return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED)),
         }
-        if parent == 0 {
-            chain_complete = true;
-            break;
-        }
-        current = IoObject(parent);
     }
     if !chain_complete {
         return probe(DeviceKind::Unknown, None, Some(OS_QUERY_FAILED));
@@ -228,19 +225,28 @@ fn physical_whole_disk(mut current: IoObject) -> Result<Option<(String, DeviceKi
         if let Some(disk) = whole_disk(current.0)? {
             return Ok(Some(disk));
         }
-        let mut parent = 0;
-        // SAFETY: the output pointer is writable; a successful result transfers a retained parent.
-        if unsafe {
-            IORegistryEntryGetParentEntry(current.0, IO_SERVICE_PLANE.as_ptr(), &mut parent)
-        } != 0
-            || parent == 0
-        {
-            chain_complete = true;
-            break;
+        match parent_of(current.0)? {
+            Some(parent) => current = parent,
+            None => {
+                chain_complete = true;
+                break;
+            }
         }
-        current = IoObject(parent);
     }
     if chain_complete { Ok(None) } else { Err(()) }
+}
+
+/// The first parent in the service plane; `None` only at the top of the plane.
+fn parent_of(entry: IoService) -> Result<Option<IoObject>, ()> {
+    let mut parent = 0;
+    // SAFETY: the output pointer is writable; a successful result transfers a retained parent.
+    let result =
+        unsafe { IORegistryEntryGetParentEntry(entry, IO_SERVICE_PLANE.as_ptr(), &mut parent) };
+    match result {
+        0 if parent != 0 => Ok(Some(IoObject(parent))),
+        0 | IO_RETURN_NO_DEVICE => Ok(None),
+        _ => Err(()),
+    }
 }
 
 fn conforms(entry: IoService, class_name: &CStr) -> bool {
