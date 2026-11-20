@@ -819,6 +819,8 @@ ui.browse.unavailable_while_opening
 ui.browse.unknown_items count:count
 ui.browse.up
 ui.visualization.actions
+ui.visualization.axisChoice
+ui.visualization.axisTitleSize
 ui.visualization.backToVisualization
 ui.visualization.back_to_folders
 ui.visualization.badgeCancelled
@@ -826,6 +828,7 @@ ui.visualization.badgeMissing
 ui.visualization.badgePartial
 ui.visualization.bar
 ui.visualization.basisNotCounted
+ui.visualization.binItems count:count
 ui.visualization.byteCount count:size
 ui.visualization.cancelled
 ui.visualization.catalog_failed
@@ -897,6 +900,7 @@ ui.visualization.loadingMembers
 ui.visualization.loadingNewer
 ui.visualization.lowerBound value:size
 ui.visualization.measure
+ui.visualization.measureCount
 ui.visualization.measureSize
 ui.visualization.measuredEvidence
 ui.visualization.measurementBasisTotals
@@ -950,6 +954,8 @@ ui.visualization.revisionStale
 ui.visualization.revisionUnverified
 ui.visualization.rowNotes
 ui.visualization.rowRange start:count end:count total:count
+ui.visualization.rangesOnePage count:count
+ui.visualization.rowsBySizeRange
 ui.visualization.rowsFailed
 ui.visualization.rowsFromGraph
 ui.visualization.rowsNotRetrieved
@@ -1014,6 +1020,7 @@ ui.visualization.value
 ui.visualization.viewGroupMembers
 ui.visualization.viewMembers
 ui.visualization.viewMembersOf name:name
+ui.visualization.viewRangeItems
 ui.visualization.waterfall
 ui.visualization.working
 ui.analysis.target_or_result_changed

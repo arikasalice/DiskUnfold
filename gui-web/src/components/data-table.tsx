@@ -19,6 +19,7 @@ export function DataTable<Row>({
   getRowLabel,
   flat = false,
   rowHeight: fixedRowHeight,
+  hiddenHeaders,
 }: {
   label: string;
   columns: string[];
@@ -40,6 +41,8 @@ export function DataTable<Row>({
   flat?: boolean;
   /** The height of one row in px; defaults to the density's. */
   rowHeight?: number;
+  /** Headers kept for assistive technology only, such as a column of row actions. */
+  hiddenHeaders?: readonly string[];
 }) {
   const text = useLocaleText();
   const [scrollTop, setScrollTop] = useState(0);
@@ -93,7 +96,11 @@ export function DataTable<Row>({
           <tr aria-rowindex={1}>
             {columns.map((column) => (
               <th scope="col" key={column}>
-                <div>{column}</div>
+                {hiddenHeaders?.includes(column) ? (
+                  <span className="du-visually-hidden">{column}</span>
+                ) : (
+                  <div>{column}</div>
+                )}
               </th>
             ))}
           </tr>

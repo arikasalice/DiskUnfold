@@ -63,10 +63,13 @@ export type { SegmentedOption } from "./segmented-choice";
 
 export { createChartRenderers } from "./charts/chart-renderers";
 export { GeometryRenderer } from "./charts/geometry-renderer";
+export { BarRenderer, HistogramRenderer } from "./charts/ranked-renderers";
 export type {
   DisplayGeometry,
   DisplayPoint,
   GeometryRendererProps,
+  HistogramRange,
+  InertOption,
 } from "./charts/geometry-renderer";
 
 export { ActionFeedback } from "./action-feedback";

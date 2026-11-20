@@ -115,8 +115,16 @@ export function shapeLabels(
   // Every shape is named alike: name, value, share of the scope, its flags
   // (F06 README 10, 35); no internal marks such as class or origin.
   // Without its row the share is unknown and is left out (README 35).
+  // A histogram interval says its item count and its size whichever axis is
+  // drawn, so changing the axis does not change its name (README 43).
+  const binCount =
+    model.representation.format === "histogram" ? shape.memberCount : undefined;
   const accessibleLabel = [
-    row ? placed : `${name}, ${value}`,
+    binCount
+      ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
+      : row
+        ? placed
+        : `${name}, ${value}`,
     ...shape.displayFlags.map(text.key),
   ].join(", ");
   return {
@@ -179,4 +187,13 @@ export function rowRatioText(
   return row.ratio && exact
     ? (text.ratio?.(row.ratio) ?? row.ratio)
     : text.message("unavailableValue");
+}
+
+/** "6 items" for an interval's exact item count; any other count as its quantity. */
+export function binItems(count: VizQuantity, text: VizText) {
+  return count.unit === "items" &&
+    count.state === "exact" &&
+    /^[0-9]+$/.test(count.value)
+    ? text.message("binItems", { count: count.value })
+    : text.quantity(count);
 }

@@ -66,15 +66,13 @@ export function ModelRows({
   /** Opens the section when it first shows; the rows are what a reader came for. */
   expanded?: boolean;
 }) {
-  const rowTitle = title ?? text.message("rowsFromGraph");
+  const rowTitle = title ?? defaultTitle(model, text);
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const { rows } = response;
   const next = request.start + rows.length;
   const paged = request.start > 0 || next < response.totalCount;
-  const hasOpenableGroups =
-    onOpenGroup !== undefined &&
-    rows.some((row) => row.groupRef !== null && row.itemRef === null);
+  const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
   const showClassification = rows.some(
     (row) => !UNCLASSIFIED.has(row.legendClassKey),
   );
@@ -113,10 +111,11 @@ export function ModelRows({
           {
             header: text.message("actions"),
             cell: (row: VizRow) =>
-              row.groupRef !== null && row.itemRef === null && onOpenGroup ? (
+              openable(row) && onOpenGroup ? (
                 <OpenGroup
                   row={row}
                   name={nameOf(row)}
+                  label={openLabel(model, text)}
                   text={text}
                   onOpenGroup={onOpenGroup}
                   returnTarget={() =>
@@ -186,12 +185,14 @@ export function ModelRows({
             {vizMessage(text, "ratioDenominator", { value: sharedDenominator })}
           </Text>
         )}
-        <Text>{pageWords(page, paged, text)}</Text>
+        <Text>{pageWords(page, paged, text, model)}</Text>
         <DataTable
           label={rowTitle}
           density="compact"
           flat
           rowHeight={ROW_HEIGHT}
+          // The action column holds only buttons; its header would read as a value.
+          hiddenHeaders={[text.message("actions")]}
           columns={columns.map(({ header }) => header)}
           rows={rows}
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
@@ -223,14 +224,54 @@ export function ModelRows({
   );
 }
 
+/**
+ * A group row whose items can be opened. An empty histogram interval has
+ * nothing to open, so it gets no button (README 43).
+ */
+function openable(row: VizRow) {
+  return (
+    row.groupRef !== null &&
+    row.itemRef === null &&
+    !(row.memberCount?.state === "exact" && row.memberCount.value === "0")
+  );
+}
+
+/** A histogram interval is a size range, not a combined group (README 43). */
+function openLabel(model: VizModel | undefined, text: VizText) {
+  return text.message(
+    model?.representation.format === "histogram"
+      ? "viewRangeItems"
+      : "viewMembers",
+  );
+}
+
+/** A histogram lists size ranges, so its table says so (README 43). */
+function defaultTitle(model: VizModel | undefined, text: VizText) {
+  return text.message(
+    model?.representation.format === "histogram"
+      ? "rowsBySizeRange"
+      : "rowsFromGraph",
+  );
+}
+
 /** The line above the table: how many items, or which of them this page shows. */
-function pageWords(page: ModelRowsPage, paged: boolean, text: VizText) {
+function pageWords(
+  page: ModelRowsPage,
+  paged: boolean,
+  text: VizText,
+  model: VizModel | undefined,
+) {
   const { request, response } = page;
   if (response.rows.length === 0) return text.message("noRowsInPage");
   if (!paged)
-    return vizMessage(text, "rowsOnePage", {
-      count: String(response.totalCount),
-    });
+    // A histogram's rows are size ranges; counting them as items would read as the scope's item count.
+    return vizMessage(
+      text,
+      model?.representation.format === "histogram"
+        ? "rangesOnePage"
+        : "rowsOnePage",
+      { count: String(response.totalCount) },
+    );
   return vizMessage(text, "rowRange", {
     start: String(request.start + 1),
     end: String(request.start + response.rows.length),
@@ -242,12 +283,14 @@ function pageWords(page: ModelRowsPage, paged: boolean, text: VizText) {
 function OpenGroup({
   row,
   name,
+  label,
   text,
   onOpenGroup,
   returnTarget,
 }: {
   row: VizRow;
   name: string;
+  label: string;
   text: VizText;
   onOpenGroup: NonNullable<Parameters<typeof ModelRows>[0]["onOpenGroup"]>;
   returnTarget: () => HTMLElement | null;
@@ -268,7 +311,7 @@ function OpenGroup({
       }}
       aria-label={vizMessage(text, "viewMembersOf", { name })}
     >
-      {text.message("viewMembers")}
+      {label}
     </Action>
   );
 }

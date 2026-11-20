@@ -33,6 +33,7 @@ export function VisualizationSession({
   backAction,
   formatAction,
   onAvailableFormats,
+  statusAction,
 }: {
   client: AnalysisClient;
   request: VisualizationViewRequest;
@@ -47,6 +48,8 @@ export function VisualizationSession({
   backAction?: Parameters<typeof ControlledVisualization>[0]["backAction"];
   formatAction?: Parameters<typeof ControlledVisualization>[0]["formatAction"];
   onAvailableFormats?: (formats: readonly string[]) => void;
+  /** A control at the end of the chart's status line, such as the histogram axis. */
+  statusAction?: Parameters<typeof ControlledVisualization>[0]["statusAction"];
 }) {
   const localizedText = useLocalizedVizText(text);
   const [session, setSession] = useState<Session | null>(null);
@@ -177,6 +180,7 @@ export function VisualizationSession({
           {...(backAction ? { backAction } : {})}
           {...(formatAction ? { formatAction } : {})}
           {...(onAvailableFormats ? { onAvailableFormats } : {})}
+          {...(statusAction ? { statusAction } : {})}
         />
       </>
     );

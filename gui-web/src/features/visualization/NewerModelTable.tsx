@@ -133,7 +133,7 @@ export function SeparateModelTable({
           {state.tablePage && (
             <ModelRows
               page={state.tablePage}
-              title={text.message(alone ? "rowsFromGraph" : "newerTitle")}
+              {...(alone ? {} : { title: text.message("newerTitle") })}
               model={table.model}
               text={text}
               onPage={(request) => {

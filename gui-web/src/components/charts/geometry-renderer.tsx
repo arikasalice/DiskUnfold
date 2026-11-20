@@ -74,6 +74,39 @@ export type GeometryRendererProps = {
   onFocusTargetMissing?: () => void;
   onFocusAvailability?: (available: boolean) => void;
   fallback: Fallback;
+  /** Text drawn over the shapes in chart pixels, such as the names and values of a bar chart. */
+  decorations?: ReactNode;
+  /**
+   * "ranked" fills shapes with the first chart colour and leaves their inner labels
+   * out; the caller draws names and values beside them (bar chart, histogram).
+   */
+  variant?: "ranked";
+  /**
+   * Every interval of a histogram in model order, shape or not; the histogram
+   * keeps the place and name of an empty one (F06 README 43).
+   */
+  ranges?: readonly HistogramRange[] | undefined;
+  /**
+   * Places named for assistive technology that hold no shape, such as an empty
+   * histogram interval: listed with the shapes but neither focused nor chosen.
+   */
+  inertOptions?: readonly InertOption[];
+};
+
+/** One histogram interval as the table names it. */
+export type HistogramRange = {
+  /** The row reference its shape carries when it has one. */
+  rowRef: string;
+  name: string;
+  value: string;
+  accessibleLabel: string;
+};
+
+/** A named place in chart pixels without a shape. */
+export type InertOption = {
+  key: string;
+  label: string;
+  box: { left: number; top: number; right: number; bottom: number };
 };
 
 function isPoint(value: DisplayPoint): boolean {
@@ -681,6 +714,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         <svg
           ref={svg}
           className="du-geometry"
+          data-variant={props.variant}
           aria-hidden="true"
           focusable="false"
           width={width}
@@ -725,12 +759,14 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
-                  {rectangleLabel(shape, viewport, width, height, grid)}
+                  {props.variant !== "ranked" &&
+                    rectangleLabel(shape, viewport, width, height, grid)}
                   {selected &&
                     selectionCheck(shape, viewport, width, height, grid)}
                 </g>
               );
             })}
+            {props.decorations}
           </g>
         </svg>
         <div
@@ -789,6 +825,22 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               onClick={({ currentTarget }) => {
                 currentTarget.focus({ preventScroll: true });
                 props.onSelect(shape.rowRef, shape.shapeRef);
+              }}
+            />
+          ))}
+          {props.inertOptions?.map(({ key, label, box }) => (
+            <div
+              key={`inert:${key}`}
+              className="du-geometry-target"
+              role="option"
+              aria-disabled="true"
+              aria-selected={false}
+              aria-label={label}
+              style={{
+                left: box.left,
+                top: box.top,
+                width: box.right - box.left,
+                height: box.bottom - box.top,
               }}
             />
           ))}

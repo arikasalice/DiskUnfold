@@ -1,5 +1,13 @@
 import { useMemo, useRef } from "react";
-import { createChartRenderers, Notice, Progress } from "../../components";
+import type { ReactNode } from "react";
+import {
+  BarRenderer,
+  createChartRenderers,
+  HistogramRenderer,
+  Notice,
+  Progress,
+  Text,
+} from "../../components";
 import type {
   ItemRef,
   VizRenderRequest,
@@ -7,7 +15,7 @@ import type {
   VizRowsRequest,
   VizShape,
 } from "../../ipc";
-import { adaptVizModel, selectionKey } from "../../viz";
+import { adaptVizModel, histogramRanges, selectionKey } from "../../viz";
 import type { ModelResponse, ModelRowsPage, VizSelection } from "../../viz";
 import { ModelEvidence, shapeLabels } from "../../viz";
 import type { VizText } from "../../viz";
@@ -16,7 +24,10 @@ import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
 import { useChartOffset } from "./chart-area";
 
-const defaultChartRenderer = createChartRenderers([]);
+const defaultChartRenderer = createChartRenderers([
+  ["bar", BarRenderer],
+  ["histogram", HistogramRenderer],
+]);
 type ModelViewProps = {
   resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;
   frame: ModelResponse;
@@ -61,6 +72,8 @@ type ModelViewProps = {
   ) => void;
   returnTargetRef?: { current: HTMLElement | null } | undefined;
   rowsReturnTargetRef?: { current: HTMLElement | null } | undefined;
+  /** A control at the end of the status line (F06 README 43: the histogram axis). */
+  statusAction?: ReactNode;
   text: VizText;
 };
 
@@ -87,6 +100,11 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         folderRows,
       ),
     [frame, page, text, folderRows],
+  );
+  // The histogram keeps the place of an empty interval, named by its row (README 43).
+  const ranges = useMemo(
+    () => histogramRanges(frame.model, adapted.rows, text),
+    [frame.model, adapted.rows, text],
   );
   const rowsContent =
     adapted.rowsMatch && page ? (
@@ -123,8 +141,24 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
       className="du-review-stack"
       aria-label={text.message("storageVisualization")}
     >
-      <div ref={contextRef} className="du-review-context">
-        <ModelStatus frame={frame} text={text} />
+      <div ref={contextRef}>
+        <div className="du-review-context">
+          <ModelStatus frame={frame} text={text} />
+          {props.statusAction && (
+            <div className="du-review-context__end">{props.statusAction}</div>
+          )}
+        </div>
+        {frame.model.representation.format === "histogram" && (
+          <div className="du-chart-axis-title">
+            <Text kind="muted">
+              {text.message(
+                frame.model.representation.measure === "count"
+                  ? "measureCount"
+                  : "axisTitleSize",
+              )}
+            </Text>
+          </div>
+        )}
       </div>
       <div ref={chartBox}>
         <ChartRenderer
@@ -139,6 +173,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           viewport={view.visibleWindow}
           shapes={adapted.shapes}
           relations={adapted.relations}
+          ranges={ranges}
           selectedRowRef={selected ? selectionKey(selected, frame) : null}
           focusedRowRef={
             props.focus && props.focus.resultVersion === frame.resultRevision

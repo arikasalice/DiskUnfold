@@ -32,6 +32,8 @@ param(
   [switch]$CaptureProgress,
   # Capture the treemap on the unique physical size basis, which NTFS can count (#149).
   [switch]$CaptureUniquePhysical,
+  # Capture a histogram with an empty interval between two drawn ones, on both axes (F06 README 43).
+  [switch]$CaptureHistogramGaps,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1559,6 +1561,24 @@ function Test-CaptureTreemap {
     "Format $($step[0]): selected as '$($radio.Current.Name)'"
     Save-SmokeCapture $step[1]
   }
+  # F06 README 43: the histogram opens on the item count; its vertical axis switches to size.
+  # "Size" names more than one English text, so the size radio is taken as the group's second.
+  $axisName = Get-UiName 'Vertical axis'
+  $axis = Wait-UI 'Vertical axis' {
+    $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $axisName))
+  }
+  $axisRadios = @($axis.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)))
+  if ($axisRadios.Count -ne 2) { throw "The vertical axis has $($axisRadios.Count) options, not two" }
+  "Histogram axis on entry: $(@($axisRadios | ForEach-Object { $_.Current.Name }) -join ' | ')"
+  $sizeAxis = $axisRadios[1]
+  $pattern = $null
+  $sizeAxis.SetFocus()
+  if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $sizeAxis }
+  Start-Sleep -Milliseconds 2000
+  if (Find-UI 'The chart could not be loaded.' $null) { throw 'The size axis request was refused' }
+  "Histogram axis: '$($sizeAxis.Current.Name)' selected"
+  Save-SmokeCapture '11-histogram-size'
 }
 # README 31 review captures: a progress row is short-lived, so it is captured the moment it shows.
 # $name is an English progress label, or '*' for the first progress bar of any name. Not seeing it in
@@ -1806,6 +1826,65 @@ function Test-CaptureUniquePhysical {
   } 60
   Save-SmokeCapture '01-unique-physical-treemap'
   "Unique physical treemap: left and right drawn; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# F06 README 43: a histogram keeps the place, name and zero value of an empty interval between
+# drawn ones. Small files fill 1 KiB–1 MiB and one 1 GiB file fills 1 GiB–1 TiB, so 1 MiB–1 GiB is
+# empty on the item count and on the size axis. SetLength allocates the large file without writing it.
+function Test-CaptureHistogramGaps {
+  $scope = Join-Path $root 'histogram-gaps-scope'
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  foreach ($index in 1..4) { [IO.File]::WriteAllBytes((Join-Path $scope "small-$index.bin"), [byte[]]::new(4KB)) }
+  $large = [IO.File]::Create((Join-Path $scope 'large.bin'))
+  try { $large.SetLength(1GB) } finally { $large.Dispose() }
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'large.bin' { Find-UI 'large.bin' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $radioType = [Windows.Automation.ControlType]::RadioButton
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)
+  $wanted = Get-UiName 'Histogram'
+  $radio = Wait-UI 'Histogram format' {
+    $window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$wanted*" } | Select-Object -First 1
+  }
+  $pattern = $null
+  $radio.SetFocus()
+  if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $radio }
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  $emptyName = { @($window.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like '1 MiB*1 GiB, *' }) | Select-Object -First 1 }
+  $empty = Wait-UI 'the empty 1 MiB–1 GiB interval' $emptyName 60
+  "Empty interval on the item count axis: '$($empty.Current.Name)' enabled=$($empty.Current.IsEnabled)"
+  Save-SmokeCapture '01-histogram-gaps-count'
+  # The table below the chart: an empty interval has no open button, one with items opens them
+  # as a range. The last interval's button brings the rows into the window.
+  $buttonType = [Windows.Automation.ControlType]::Button
+  $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)
+  $openButton = { param($range) @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -like "*$range*" }) | Select-Object -First 1 }
+  $openLast = Wait-UI 'the open button of the 1 GiB interval' { & $openButton '1 GiB*1 TiB' }
+  $openEmpty = & $openButton '1 MiB*1 GiB'
+  "Open buttons: 1 GiB–1 TiB shows '$($openLast.Current.Name)'; empty 1 MiB–1 GiB has one: $($null -ne $openEmpty)"
+  Save-SmokeCapture '03-histogram-gaps-count-table' -Prepare { $null = Show-InWindow $openLast }
+  $axisName = Get-UiName 'Vertical axis'
+  $axis = Wait-UI 'Vertical axis' {
+    $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $axisName))
+  }
+  # "Size" names more than one English text, so the size radio is taken as the group's second.
+  $sizeAxis = @($axis.FindAll($scopeTree, $radioCondition))[1]
+  $null = Show-InWindow $sizeAxis
+  $sizeAxis.SetFocus()
+  if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $sizeAxis }
+  Start-Sleep -Milliseconds 2000
+  if (Find-UI 'The chart could not be loaded.' $null) { throw 'The size axis request was refused' }
+  $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
+  "Empty interval on the size axis: '$($empty.Current.Name)'"
+  Save-SmokeCapture '02-histogram-gaps-size'
+  $openLast = Wait-UI 'the open button on the size axis' { & $openButton '1 GiB*1 TiB' }
+  Save-SmokeCapture '04-histogram-gaps-size-table' -Prepare { $null = Show-InWindow $openLast }
+  "Histogram gaps capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # F05 #133: the "Scan status" column of the browse table. A child folder the scan may not list reads
 # "Contents not read" with a lower-bound size; a folder read normally and a file stay blank. The
@@ -2161,7 +2240,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2172,6 +2251,7 @@ function Test-VirtualGroups {
   if ($CaptureTreemapLink) { Test-CaptureTreemapLink }
   if ($CaptureProgress) { Test-CaptureProgress }
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
+  if ($CaptureHistogramGaps) { Test-CaptureHistogramGaps }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {
