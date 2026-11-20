@@ -403,8 +403,9 @@ test("history is a separate screen and closing returns focus", async () => {
   fireEvent.keyDown(open, { key: "Enter", code: "Enter" });
   fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
   await screen.findByText("No operations recorded yet.");
+  // #216: the screen opens on its title, not on the action that leaves it.
   expect(document.activeElement).toBe(
-    screen.getByRole("button", { name: "Back to analysis" }),
+    screen.getByRole("heading", { name: "Operation history" }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   await waitFor(() =>

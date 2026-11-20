@@ -115,6 +115,10 @@
   overscroll-behavior: contain;
   scroll-padding-block-start: 36px;
   scrollbar-gutter: stable;
+  /* #216: the head band also covers the gutter kept for the scroll bar. */
+  background-image: linear-gradient(var(--du-subtle), var(--du-subtle));
+  background-repeat: no-repeat;
+  background-size: 100% 36px;
 }
 
 .du-history-shell .du-data-table th {
@@ -148,6 +152,10 @@
 .du-history-operation {
   min-inline-size: 0;
   max-inline-size: 100%;
+}
+
+.du-history-time {
+  white-space: nowrap;
 }
 
 .du-history-operation .du-text--body {
@@ -325,6 +333,7 @@
 @media (max-height: 15rem) {
   .du-history-table .du-table-viewport {
     scroll-padding-block: 6px;
+    background-image: none;
   }
 
   .du-history-table .du-data-table th {

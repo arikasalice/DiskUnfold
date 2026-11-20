@@ -80,9 +80,15 @@ export function HistoryPanel({
   const [selected, setSelected] = useState<string>();
   const opener = useRef<HTMLElement | null>(null);
   const openerLabel = useRef<string | null>(null);
-  const back = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const restore = useRef(false);
+
+  // #216: the screen opens on its title, as other screens do, so the next
+  // Enter does not leave the screen.
+  useEffect(() => {
+    title.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     if (selected || !restore.current) return;
@@ -95,8 +101,8 @@ export function HistoryPanel({
     else
       (
         list.current?.querySelector<HTMLElement>(".du-table-viewport") ??
-        back.current
-      )?.focus();
+        title.current
+      )?.focus({ preventScroll: true });
     restore.current = false;
   }, [selected]);
 
@@ -124,16 +130,10 @@ export function HistoryPanel({
     >
       <div ref={list} className="du-history-screen" hidden={Boolean(selected)}>
         <header className="du-history-header">
-          <Heading level={2}>
+          <Heading level={2} ref={title} programmaticFocus>
             {text("ui.history.operation_history", "Operation history")}
           </Heading>
-          <Action
-            variant="quiet"
-            icon="back"
-            ref={back}
-            autoFocus
-            onPress={onClose}
-          >
+          <Action variant="quiet" icon="back" onPress={onClose}>
             {text("ui.history.back_to_analysis", "Back to analysis")}
           </Action>
         </header>
@@ -306,7 +306,7 @@ function HistoryPages({
               text("ui.history.finished", "Finished"),
               text("ui.history.details", "Details"),
             ]}
-            columnWidths={[212, 106, 116, 72]}
+            columnWidths={[212, 106, 152, 64]}
             density="compact"
             totalRows={hasMore ? -1 : shown}
             rows={page.rows}
@@ -373,7 +373,10 @@ function rowCells(
         <Text kind="muted">{text("ui.history.incomplete", "Incomplete")}</Text>
       )}
     </div>,
-    time,
+    // #216: a finish time never wraps; the details column gives up the room.
+    <div className="du-history-time" key="time">
+      {time}
+    </div>,
     jobRef ? (
       <Action
         key="open"
