@@ -47,7 +47,7 @@ impl MacDirectory {
             Ok(records) => records,
             Err(error) => {
                 self.finish();
-                return Err(error);
+                return Err(self.after_failure(error));
             }
         };
         if records.is_empty() {
@@ -109,7 +109,7 @@ impl MacDirectory {
         inode: u64,
     ) -> Result<MetadataObservation, PortError> {
         if let Some(code) = record.error.filter(|&code| code != 0) {
-            return Err(errors::errno(code.cast_signed()));
+            return Err(self.after_failure(errors::errno(code.cast_signed())));
         }
         let device = record.device.ok_or_else(errors::unavailable)?;
         if device != self.device || *kind == ObservedKind::MountPoint {
@@ -167,6 +167,7 @@ impl MacDirectory {
             }
             Err(error) => {
                 self.finish();
+                let error = self.after_failure(error);
                 self.correlated_stream_error = Some(error.clone());
                 Err(error)
             }

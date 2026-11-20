@@ -70,6 +70,23 @@ pub(crate) fn invalid() -> PortError {
     }
 }
 
+/// The volume is gone: its device was removed or force-ejected.
+pub(crate) fn disconnected(os_code: Option<i32>) -> PortError {
+    PortError {
+        kind: PortErrorKind::Io,
+        reason_key: "scan.disconnected".into(),
+        os_code,
+    }
+}
+
+/// Whether the verified descriptor itself no longer answers. A force-ejected volume
+/// revokes its open descriptors, which then report `EBADF`; a removed device reports
+/// `ENXIO` or `ENODEV`. A descriptor this adapter still owns is never closed, so
+/// `EBADF` on it means the volume went away (#225).
+pub(crate) fn revoked(code: Option<i32>) -> bool {
+    matches!(code, Some(libc::EBADF | libc::ENXIO | libc::ENODEV))
+}
+
 pub(super) fn changed() -> PortError {
     PortError {
         kind: PortErrorKind::IdentityChanged,
