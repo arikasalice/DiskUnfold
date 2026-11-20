@@ -80,6 +80,53 @@ function visibleFrames(
     return [graph];
   return [graph, table];
 }
+/**
+ * The same result and folder drawn as another format keeps an item selection
+ * that has no shape there; switching back shows it again (F06 README 3, #241).
+ * Another folder, result or an ambiguous match still loses it.
+ */
+function keptAcrossFormats(
+  selection: VizSelection | null,
+  previous: ModelResponse | undefined,
+  next: ModelResponse,
+): VizSelection | null {
+  if (
+    selection?.kind !== "item" ||
+    !previous ||
+    selection.resultRevision !== next.resultRevision ||
+    previous.model.representation.format === next.model.representation.format ||
+    !sameItem(previous.model.aggregateScopeRef, next.model.aggregateScopeRef) ||
+    next.model.shapes.some((shape) =>
+      sameItem(shape.itemRef, selection.itemRef),
+    )
+  )
+    return null;
+  return selection;
+}
+
+/** The selection carried onto a model that will be displayed, and whether it was kept as is. */
+function carrySelection(
+  selection: VizSelection | null,
+  previous: ModelResponse | undefined,
+  next: ModelResponse,
+  evidence: readonly Reconciled[],
+) {
+  const transferred = transferSelection(selection, next, evidence);
+  if (transferred) return { selection: transferred, kept: false };
+  const kept = keptAcrossFormats(selection, previous, next);
+  return { selection: kept, kept: kept !== null };
+}
+
+/** A kept selection keeps the evidence it had; a carried one is read from the new model. */
+function evidenceAfter(
+  carried: { selection: VizSelection | null; kept: boolean },
+  previous: SelectionEvidence | null,
+  next: ModelResponse,
+): SelectionEvidence | null {
+  if (carried.kept) return previous;
+  return carried.selection && selectionEvidence(carried.selection, next, null);
+}
+
 function selectionEvidence(
   selection: VizSelection,
   frame: ModelResponse,
@@ -289,9 +336,15 @@ export class VisualizationController {
     const canDisplay = this.port.canDisplay(response);
     const oldSelection = this.state.selection;
     const previousEvidence = this.selectedEvidence;
-    const selection = canDisplay
-      ? transferSelection(oldSelection, response, evidence)
-      : oldSelection;
+    const carried = canDisplay
+      ? carrySelection(
+          oldSelection,
+          this.state.graph?.frame,
+          response,
+          evidence,
+        )
+      : { selection: oldSelection, kept: false };
+    const selection = carried.selection;
     const selectionLost = Boolean(canDisplay && oldSelection && !selection);
     const oldFocus = this.state.focus;
     const canTransferFocus =
@@ -329,9 +382,11 @@ export class VisualizationController {
     this.rowsSeq++;
     this.rowsOwner++;
     if (canDisplay)
-      this.selectedEvidence = selection
-        ? selectionEvidence(selection, response, null)
-        : null;
+      this.selectedEvidence = evidenceAfter(
+        carried,
+        previousEvidence,
+        response,
+      );
     return {
       graph,
       table: response,

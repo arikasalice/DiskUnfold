@@ -824,3 +824,85 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
     expect(missing).toEqual([]);
   });
 });
+
+test("F06 FR2.HD1.gui-web.DD1, FR16.HD1.gui-web.DD1: the format strip switches the chart and leads from an unavailable one to a chart that can be drawn (#227)", async () => {
+  const renders: VizRenderRequest[] = [];
+  const { client } = desktop("en", {
+    render: (request) => {
+      renders.push(request);
+      if (request.format !== "histogram") return frameFor(request);
+      return {
+        kind: "unavailable",
+        requestSeq: request.requestSeq,
+        resultRevision: request.resultRevision ?? "result",
+        observedAt: null,
+        completeness: "complete",
+        reasonKey: "viz.unavailable.no_item_sizes",
+        availableFormats: ["treemap", "bar"],
+        fallback: null,
+      } satisfies VizRenderResponse;
+    },
+  });
+  const label = (key: string) => realLocales.en.text(key, "");
+  render(<DesktopLocale client={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+  fireEvent.click(
+    screen.getByRole("button", { name: label("ui.analysis.review") }),
+  );
+  const start = await screen.findByRole<HTMLButtonElement>("button", {
+    name: label("ui.analysis.start"),
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  fireEvent.click(
+    await screen.findByRole("button", { name: label("ui.analysis.browse") }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: label("ui.visualization.show_space_distribution"),
+    }),
+  );
+  const strip = await screen.findByRole("radiogroup", {
+    name: label("ui.visualization.formatChoice"),
+  });
+  const option = (name: string) =>
+    within(strip).getByRole<HTMLInputElement>("radio", { name });
+  // Catalog order, the owner's format chosen, no marks before anything is known.
+  expect(within(strip).getAllByRole("radio")).toHaveLength(3);
+  expect(option(label("ui.visualization.treemap")).checked).toBe(true);
+  await screen.findByRole("listbox", { name: "Space distribution" });
+  const first = renders.at(-1)!;
+  expect(first.format).toBe("treemap");
+
+  fireEvent.click(option(label("ui.visualization.histogram")));
+  await screen.findByText(
+    label("ui.visualization.unavailableTitleNoItemSizes"),
+  );
+  const switched = renders.at(-1)!;
+  // The scope, basis and denominator stay; a format other than the treemap asks for one level.
+  expect(switched).toMatchObject({
+    format: "histogram",
+    depthLimit: 1,
+    aggregateScopeRef: first.aggregateScopeRef,
+    navigationScopeRef: first.navigationScopeRef,
+    sizeBasis: first.sizeBasis,
+    denominatorBasis: first.denominatorBasis,
+    colorCriterion: first.colorCriterion,
+  });
+  // What the engine can draw is now known: the histogram is marked, the others are not.
+  const noData = label("ui.visualization.formatNoData");
+  const histogram = label("ui.visualization.histogram");
+  expect(option(`${histogram}, ${noData}`).checked).toBe(true);
+  expect(option(label("ui.visualization.bar"))).toBeTruthy();
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: label("ui.visualization.viewAsTreemap"),
+    }),
+  );
+  await waitFor(() => expect(renders.at(-1)!.format).toBe("treemap"));
+  expect(renders.at(-1)!.depthLimit).toBe(first.depthLimit);
+  const treemap = option(label("ui.visualization.treemap"));
+  expect(treemap.checked).toBe(true);
+  await waitFor(() => expect(document.activeElement).toBe(treemap));
+});

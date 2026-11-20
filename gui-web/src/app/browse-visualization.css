@@ -32,8 +32,14 @@
 
 .du-visualization-title {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   padding-block: 10px 8px;
+}
+
+/* The format strip scrolls inside its line instead of widening the page. */
+.du-visualization-title > * {
+  min-inline-size: 0;
 }
 
 /* The title is the same size as the one of the folder list. */

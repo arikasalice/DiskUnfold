@@ -337,7 +337,7 @@ export function App({
         open={visualizationOpen}
         selection={visualization.selection}
         assembly={visualization.assembly}
-        onClose={visualizationFocus.close}
+        catalog={visualization.catalog}
       />
       <GroupsSurface
         client={client}

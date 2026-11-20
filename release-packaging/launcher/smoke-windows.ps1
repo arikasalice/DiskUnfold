@@ -1507,6 +1507,24 @@ function Test-CaptureTreemap {
   Start-Sleep -Milliseconds 500
   "Focus after closing the combined items: $(& $focusName)"
   Save-SmokeCapture '08-group-closed'
+  # #227: the format strip switches the chart. A format may carry a "No data" mark after its
+  # name, so the radio is found by the start of its name.
+  $radioType = [Windows.Automation.ControlType]::RadioButton
+  foreach ($step in @(@('Bar chart', '09-format-bar'), @('Histogram', '10-format-histogram'))) {
+    $wanted = Get-UiName $step[0]
+    $radio = Wait-UI "$($step[0]) format" {
+      $window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)) |
+        Where-Object { $_.Current.Name -like "$wanted*" } | Select-Object -First 1
+    }
+    $pattern = $null
+    $radio.SetFocus()
+    if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+    else { Invoke-UI $radio }
+    Start-Sleep -Milliseconds 2000
+    if (Find-UI 'The chart could not be loaded.' $null) { throw "The $($step[0]) request was refused" }
+    "Format $($step[0]): selected as '$($radio.Current.Name)'"
+    Save-SmokeCapture $step[1]
+  }
 }
 # README 31 review captures: a progress row is short-lived, so it is captured the moment it shows.
 # $name is an English progress label, or '*' for the first progress bar of any name. Not seeing it in

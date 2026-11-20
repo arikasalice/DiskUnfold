@@ -57,6 +57,8 @@ export type { ItemAction } from "./item-actions";
 export { ReviewField, ReviewCheck } from "./review-field";
 export { Tabs } from "./tabs";
 export type { TabsItem } from "./tabs";
+export { SegmentedChoice } from "./segmented-choice";
+export type { SegmentedOption } from "./segmented-choice";
 
 export { createChartRenderers } from "./charts/chart-renderers";
 export { GeometryRenderer } from "./charts/geometry-renderer";
