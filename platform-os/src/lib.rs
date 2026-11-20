@@ -7,6 +7,9 @@ pub mod entropy;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod install_form;
+#[cfg(any(windows, unix))]
+#[allow(unsafe_code)]
+pub mod interrupt;
 #[cfg(target_os = "linux")]
 pub mod linux_instance_lock;
 #[cfg(target_os = "linux")]
