@@ -15,6 +15,7 @@ import type { VizCatalog } from "../src/ipc";
 import { createProductionVizText, visualizationMessage } from "../src/viz";
 import type { VizText } from "../src/viz";
 import { legendLook } from "../src/viz/legend-style";
+import { ChartLegend } from "../src/components/charts/chart-legend";
 
 afterEach(cleanup);
 
@@ -198,4 +199,43 @@ test("F06 README 44.1: choosing None keeps the choice and its control", () => {
   hook.rerender();
   expect(hook.result.current.colorCriterion).toBe("none");
   expect(hook.result.current.controls).toBeDefined();
+});
+
+test("F06 README 44.3: in high contrast the pattern switch shows on, cannot be changed and says why", () => {
+  render(
+    <ChartLegend
+      label="Legend"
+      criterion={null}
+      patternsLabel="Use patterns"
+      patterns={false}
+      patternsForced="Patterns are always on in high contrast"
+      onPatterns={() => {}}
+      entries={[
+        {
+          key: "type.document",
+          label: "Documents",
+          count: "1",
+          total: "1 B",
+          tone: "1",
+          pattern: null,
+          patternAlways: false,
+        },
+      ]}
+      selectedKey={null}
+      onSelect={() => {}}
+      moreLabel={() => "more"}
+      lessLabel="fewer"
+    />,
+  );
+  const button = screen.getByRole("button", { name: "Use patterns" });
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    button.hasAttribute("disabled") ||
+      button.getAttribute("aria-disabled") === "true",
+  ).toBe(true);
+  expect(button.getAttribute("aria-describedby")).toBeTruthy();
+  expect(
+    document.getElementById(button.getAttribute("aria-describedby")!)
+      ?.textContent,
+  ).toBe("Patterns are always on in high contrast");
 });

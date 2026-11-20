@@ -255,6 +255,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           entries={entries}
           selected={classes.selected}
           onSelect={classes.choose}
+          forced={autoPatterns}
         />
       </div>
       <ModelEvidence frame={frame} text={text} />

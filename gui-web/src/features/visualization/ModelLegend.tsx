@@ -65,6 +65,7 @@ export function ModelLegend({
   entries,
   selected,
   onSelect,
+  forced,
 }: {
   frame: ModelResponse;
   text: VizText;
@@ -73,6 +74,8 @@ export function ModelLegend({
   entries: readonly LegendEntry[];
   selected: string | null;
   onSelect: (key: string | null) => void;
+  /** Patterns are on by the system's request (forced colours, more contrast). */
+  forced: boolean;
 }) {
   if (!controls) return null;
   const footer = entries.length > 0 && (
@@ -93,6 +96,7 @@ export function ModelLegend({
       criterion={controls.criterion}
       patternsLabel={text.message("legendPatterns")}
       patterns={controls.patterns}
+      patternsForced={forced ? text.message("legendPatternsForced") : undefined}
       onPatterns={controls.onPatterns}
       entries={entries}
       selectedKey={selected}

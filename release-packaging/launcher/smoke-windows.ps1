@@ -1848,6 +1848,13 @@ function Test-CaptureTypeLegend {
   $files = [ordered]@{ 'report.pdf' = 6MB; 'photo.jpg' = 3MB; 'song.mp3' = 2MB; 'clip.mp4' = 8MB; 'backup.zip' = 4MB; 'ubuntu.iso' = 10MB; 'README' = 1MB; 'notes.xyz' = 2MB }
   foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
   [IO.File]::WriteAllBytes((Join-Path (Join-Path $scope 'tiny') 'a.txt'), [byte[]]::new(1KB))
+  # A junction is an item whose type cannot be decided: the legend's ninth class, past the
+  # eight items shown before "more" (README 44.3 implementation check).
+  $outside = Join-Path $root 'type-legend-outside'
+  [IO.Directory]::CreateDirectory($outside) | Out-Null
+  & cmd.exe /D /C mklink /J (Join-Path $scope 'link') $outside | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not create the type legend junction' }
+  try {
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -1864,6 +1871,15 @@ function Test-CaptureTypeLegend {
   $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
   "Legend: $(@($legend.FindAll($scopeTree, $listItem) | ForEach-Object { $_.Current.Name }) -join ' | ')"
   Save-SmokeCapture '01-treemap-type'
+  $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
+  $more = @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -match '1.*(more|더 보기)' }) | Select-Object -First 1
+  if ($more) {
+    Invoke-UI $more
+    Start-Sleep -Milliseconds 800
+    "Legend opened: $(@($legend.FindAll($scopeTree, $listItem)).Count) items"
+    Save-SmokeCapture '01b-legend-more'
+    Invoke-UI (@($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -eq (Get-UiName 'Show fewer') }) | Select-Object -First 1)
+  } else { 'The legend has no "more" item' }
   $radioType = [Windows.Automation.ControlType]::RadioButton
   $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)
   $format = { param($english) $wanted = Get-UiName $english; @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$wanted*" }) | Select-Object -First 1 }
@@ -1891,6 +1907,10 @@ function Test-CaptureTypeLegend {
   Select-SmokeRadio (@($colorBy.FindAll($scopeTree, $radioCondition))[0])
   Save-SmokeCapture '05-color-none'
   "Type legend capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  } finally {
+    # Remove only the junction entry before the fixture is cleaned up.
+    [IO.Directory]::Delete((Join-Path $scope 'link'))
+  }
 }
 function Test-CaptureHistogramGaps {
   $scope = Join-Path $root 'histogram-gaps-scope'

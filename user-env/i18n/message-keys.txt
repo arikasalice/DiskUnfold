@@ -903,6 +903,7 @@ ui.visualization.colorBy
 ui.visualization.colorNone
 ui.visualization.colorType
 ui.visualization.legendPatterns
+ui.visualization.legendPatternsForced
 ui.visualization.legendLess
 ui.visualization.legendFolderNote
 ui.visualization.legendMore count:count

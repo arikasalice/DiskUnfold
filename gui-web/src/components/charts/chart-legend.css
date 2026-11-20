@@ -52,9 +52,8 @@
 }
 
 .du-chart-legend__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* A name is never cut: a long one wraps (README 44.3 implementation check). */
+  overflow-wrap: anywhere;
 }
 
 /* Counts and totals line up in figures of one width (README 5). */

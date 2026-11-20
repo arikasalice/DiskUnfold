@@ -32,6 +32,7 @@ export function ChartLegend({
   criterion,
   patternsLabel,
   patterns,
+  patternsForced,
   onPatterns,
   entries,
   selectedKey,
@@ -45,6 +46,11 @@ export function ChartLegend({
   criterion: ReactNode;
   patternsLabel: string;
   patterns: boolean;
+  /**
+   * Why patterns are on whatever the switch says (forced colours, more
+   * contrast): the switch then shows on and cannot be changed.
+   */
+  patternsForced?: string | undefined;
   onPatterns: (on: boolean) => void;
   entries: readonly LegendEntry[];
   selectedKey: string | null;
@@ -55,6 +61,7 @@ export function ChartLegend({
   footer?: ReactNode;
 }) {
   const prefix = useId();
+  const forcedId = useId();
   const [open, setOpen] = useState(false);
   const shown = open ? entries : entries.slice(0, SHOWN);
   return (
@@ -71,13 +78,25 @@ export function ChartLegend({
       <div className="du-chart-legend__head">
         {criterion}
         {entries.length > 0 && (
-          <ToggleButton
-            className="du-action du-action--quiet du-chart-legend__patterns"
-            isSelected={patterns}
-            onChange={onPatterns}
-          >
-            {patternsLabel}
-          </ToggleButton>
+          // A disabled button shows no tooltip; the wrapper carries it.
+          <span title={patternsForced}>
+            <ToggleButton
+              className="du-action du-action--quiet du-chart-legend__patterns"
+              isSelected={patterns || patternsForced !== undefined}
+              isDisabled={patternsForced !== undefined}
+              onChange={onPatterns}
+              {...(patternsForced === undefined
+                ? {}
+                : { "aria-describedby": forcedId })}
+            >
+              {patternsLabel}
+            </ToggleButton>
+          </span>
+        )}
+        {patternsForced !== undefined && (
+          <span id={forcedId} className="du-visually-hidden">
+            {patternsForced}
+          </span>
         )}
       </div>
       {entries.length > 0 && (
