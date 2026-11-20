@@ -297,7 +297,7 @@ fn partial_values_and_cancellation_never_become_exact_or_zero() -> Result<(), St
 }
 
 #[test]
-fn other_with_unverifiable_folder_members_fails_closed() -> Result<(), String> {
+fn folder_members_of_one_disjoint_partition_form_an_exact_other_group() -> Result<(), String> {
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)).map_err(|e| format!("{e:?}"))?;
     build.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
@@ -332,13 +332,19 @@ fn other_with_unverifiable_folder_members_fails_closed() -> Result<(), String> {
     }];
     let scope = reference(&version, 0);
     let aggregate = aggregate(&version)?;
-    assert_eq!(
-        bar_projection::project(
-            request(&version, &selected, &scope, &aggregate, 0, 1),
-            &mut || false
-        ),
-        Err(Error::GroupAttributionUnavailable)
-    );
+    // The F03 set total cannot take a folder row, but the scope's children form
+    // the disjoint partition the treemap admits, so Other is its exact sum (#242).
+    let result = bar_projection::project(
+        request(&version, &selected, &scope, &aggregate, 0, 1),
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result.bars.len(), 1);
+    assert!(matches!(
+        &result.bars[0].identity,
+        BarIdentity::Other { members, size }
+            if members.len() == 1 && size.amount == SizeAmount::Exact { bytes: 10.into() }
+    ));
     Ok(())
 }
 
@@ -432,3 +438,4 @@ fn denominator_must_be_scope_or_whole_analysis_even_for_equal_sibling_values() -
 }
 
 mod dispatch;
+mod partition;

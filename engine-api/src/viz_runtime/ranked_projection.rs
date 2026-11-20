@@ -59,6 +59,7 @@ pub(super) fn to_projection(
     }
     let mut sum = 0_u64;
     let mut by_item = HashMap::new();
+    let mut bytes_of = HashMap::new();
     for row in ranking.rows {
         if cancelled() {
             return Err(internal());
@@ -67,10 +68,13 @@ pub(super) fn to_projection(
             return Ok(None);
         };
         sum = sum.checked_add(bytes).ok_or_else(internal)?;
+        bytes_of.insert(row.item.item_no, bytes);
         if by_item.insert(row.item.item_no, row).is_some() {
             return Err(internal());
         }
     }
+    // Every child is exact and the children sum to the exact scope total, so the
+    // children partition the scope and a drawn subset adds up to its own bytes.
     if sum != scope {
         return Ok(None);
     }
@@ -94,13 +98,16 @@ pub(super) fn to_projection(
     let totals = source
         .selection_total(&drawn, true, cancelled)
         .map_err(|_| internal())?;
-    let drawn = match &admitted.request.size_basis {
+    let set_total = match &admitted.request.size_basis {
         SizeBasis::Logical => &totals.logical,
         SizeBasis::Allocated => &totals.allocated,
         SizeBasis::UniquePhysical => &totals.unique_physical,
     };
-    let Some(drawn_bytes) = exact(drawn) else {
-        return Ok(None);
+    // The F03 set total takes file rows only; a drawn folder leaves it without
+    // independent membership, and the partition above gives the exact sum (#242).
+    let drawn_bytes = match exact(set_total) {
+        Some(bytes) => bytes,
+        None => drawn_sum(&drawn, &bytes_of)?,
     };
     Ok(Some(projection::Model {
         result_revision: ranking.result_version,
@@ -138,6 +145,17 @@ struct BarParts {
     shapes: Vec<projection::Shape>,
     omissions: Vec<typed_layout::Omission>,
     drawn: Vec<du_core_contracts::ItemRef>,
+}
+
+/// The exact bytes of drawn children of a scope their exact values partition.
+fn drawn_sum(
+    drawn: &[du_core_contracts::ItemRef],
+    bytes_of: &HashMap<u32, u64>,
+) -> Result<u64, EngineError> {
+    drawn.iter().try_fold(0_u64, |total, item| {
+        let bytes = bytes_of.get(&item.item_no).ok_or_else(internal)?;
+        total.checked_add(*bytes).ok_or_else(internal)
+    })
 }
 
 fn map_bars(

@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) struct GroupRequest<'a> {
     pub(super) source: &'a ResultVersion,
+    pub(super) scope: &'a ItemRef,
     pub(super) basis: &'a SizeBasis,
     pub(super) members: Vec<ItemRef>,
     pub(super) size: SizeValue,
@@ -15,6 +16,7 @@ pub(super) struct GroupRequest<'a> {
 pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows), Error> {
     let GroupRequest {
         source,
+        scope,
         basis,
         members,
         size,
@@ -40,21 +42,21 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         }
         rows.push(row);
     }
-    let sum = source
-        .selection_total(&members, true, &mut *cancelled)
-        .map_err(|_| {
-            if cancelled() {
-                Error::Cancelled
-            } else {
-                Error::InvalidModel
-            }
-        })?;
-    let total = match basis {
-        SizeBasis::Logical => sum.logical,
-        SizeBasis::Allocated => sum.allocated,
-        SizeBasis::UniquePhysical => sum.unique_physical,
-    };
-    if total != size || exact(&size).is_none() {
+    let bytes = exact(&size).ok_or(Error::InvalidModel)?;
+    // The same independent check as the ranking, folder members included (#242).
+    let total = bar_projection::other_total(
+        source,
+        scope,
+        basis,
+        &members,
+        Weight::Exact(bytes),
+        &mut *cancelled,
+    )
+    .map_err(|error| match error {
+        bar_projection::Error::Cancelled => Error::Cancelled,
+        _ => Error::InvalidModel,
+    })?;
+    if total != size {
         return Err(Error::InvalidModel);
     }
     let denominator = rows.first().ok_or(Error::InvalidModel)?.denominator.clone();

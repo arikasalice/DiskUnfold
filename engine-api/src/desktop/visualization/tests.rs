@@ -1,4 +1,5 @@
 //! The default registration, served through the desktop assembly and a real result store.
+mod folders;
 mod groups;
 mod lower_bound;
 mod remainder;

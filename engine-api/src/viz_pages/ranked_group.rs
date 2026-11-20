@@ -6,7 +6,7 @@ use super::{
 use du_analysis_index::{
     ResultVersion,
     visualization::{
-        bar_projection::{BarIdentity, Ranking},
+        bar_projection::{self, BarIdentity, Ranking},
         geometry::Weight,
         live_models::{GroupRows, PreparedRows, SizeRange},
         ratio,
@@ -129,6 +129,7 @@ impl ModelPages {
         )?;
         let (rows, groups, shapes) = assemble(
             &source,
+            scope,
             &basis,
             selected.output,
             &mut by_item,
@@ -224,6 +225,7 @@ fn exact(size: &SizeValue) -> Option<u64> {
 
 fn assemble(
     source: &ResultVersion,
+    scope: &ItemRef,
     basis: &SizeBasis,
     ranking: Ranking,
     by_item: &mut HashMap<u32, VizRow>,
@@ -256,6 +258,7 @@ fn assemble(
             BarIdentity::Other { members, size } => {
                 let (row, group) = make_group(GroupRequest {
                     source,
+                    scope,
                     basis,
                     members,
                     size,
