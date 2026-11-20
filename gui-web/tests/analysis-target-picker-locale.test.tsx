@@ -53,6 +53,11 @@ test("target picker shows the macOS path example and the shared folder label", (
           feedback={null}
           isInitial
           onPathCompositionChange={() => {}}
+          review={{
+            reviewing: false,
+            targets: undefined,
+            openPrivacySettings: () => {},
+          }}
         />
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>,
