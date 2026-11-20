@@ -192,17 +192,20 @@ fn information_commands_reject_bad_arguments_with_exit_two_and_one_stderr_line()
 }
 
 #[test]
-fn scan_requires_roots_and_never_starts_without_an_engine() -> io::Result<()> {
-    for args in [
-        &["scan"][..],
-        &["scan", "root"][..],
-        &["scan", "--exclude"][..],
-    ] {
+fn scan_requires_roots_and_a_usable_path() -> io::Result<()> {
+    for args in [&["scan"][..], &["scan", "--exclude"][..]] {
         let output = run_launcher(&[&["--lang", "en"], args].concat())?;
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(output.stdout.is_empty(), "{args:?}");
         assert_eq!(text(&output.stderr), UNSUPPORTED_LINE, "{args:?}");
     }
+    // A root that does not exist stops at review, before any job starts.
+    let output = run_launcher(&["--lang", "en", "scan", "root"])?;
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = text(&output.stderr);
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(stderr.contains("A path cannot be analyzed"), "{stderr}");
     Ok(())
 }
 

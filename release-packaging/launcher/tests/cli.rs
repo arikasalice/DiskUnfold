@@ -49,11 +49,11 @@ fn launcher_prints_help_and_version_to_stdout() -> io::Result<()> {
     for (args, expected) in [
         (
             ["--lang", "en", "--help"],
-            "DiskUnfold\n\nUsage: diskunfold [--lang LANGUAGE] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>]]\n",
+            "DiskUnfold\n\nUsage: diskunfold [--lang LANGUAGE] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>] | scan [--format <text|json>] [--exclude PATH|PATTERN]... PATH...]\n",
         ),
         (
             ["--lang", "ko", "--help"],
-            "DiskUnfold\n\n사용법: diskunfold [--lang 언어] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>]]\n",
+            "DiskUnfold\n\n사용법: diskunfold [--lang 언어] [--help | --version | version | notices <LICENSE|THIRD-PARTY-NOTICES> | support [--format <text|json>] | scan [--format <text|json>] [--exclude 경로|패턴]... 경로...]\n",
         ),
     ] {
         let (mut command, _data_dir) = launcher_with_temp_data()?;
@@ -306,9 +306,15 @@ fn help_and_version_skip_a_corrupt_settings_database() -> io::Result<()> {
         .args(["--", "--delete"])
         .output()?;
     assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_localized_settings_unavailable_warning_once(&stderr);
-    assert!(stderr.contains("unsupported arguments") || stderr.contains("지원하지 않는 인자"));
+    // After `--`, `--delete` is a path. It does not exist, so the scan stops at
+    // review with a usage error before any job starts.
+    assert!(
+        stderr.contains("A path cannot be analyzed") || stderr.contains("분석할 수 없는 경로"),
+        "{stderr}"
+    );
     Ok(())
 }
 
