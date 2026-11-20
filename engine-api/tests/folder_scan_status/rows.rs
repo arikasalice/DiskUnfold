@@ -153,3 +153,18 @@ fn a_disconnected_folder_is_unenumerated_without_its_reason() -> Check {
     );
     Ok(())
 }
+
+#[test]
+fn a_complete_scan_proves_a_folder_without_marks_has_no_boundary() -> Check {
+    let sink = IngestSink::default();
+    let build = tree(&sink, &["keep"])?;
+    build
+        .seal(id(2), ResultCompleteness::Complete)
+        .map_err(err)?;
+    let wire = browse(&session(sink), None, None, 5)?;
+    wire.check()?;
+    // F03 #219: a Complete seal proves every folder without a mark was read.
+    assert_eq!(wire.row("keep")?["flags"], folder(present(false), absent()));
+    assert_eq!(wire.row("f")?["flags"], file());
+    Ok(())
+}
