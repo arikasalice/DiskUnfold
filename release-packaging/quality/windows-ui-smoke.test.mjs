@@ -30,12 +30,12 @@ test('scenario arguments are switches that smoke-windows.ps1 declares', () => {
 test('scenario language, theme and window size are values smoke-windows.ps1 accepts', () => {
   for (const scenario of list.scenarios) {
     if (scenario.locale !== undefined) assert.ok(['en', 'ko'].includes(scenario.locale), scenario.name);
-    if (scenario.theme !== undefined) assert.ok(['light', 'dark'].includes(scenario.theme), scenario.name);
+    if (scenario.theme !== undefined) assert.ok(['light', 'dark', 'contrast'].includes(scenario.theme), scenario.name);
     if (scenario.windowSize !== undefined) assert.match(scenario.windowSize, /^\d+x\d+$/, scenario.name);
     if (scenario.appScale !== undefined) assert.ok([100, 125, 150, 200].includes(scenario.appScale), scenario.name);
   }
   assert.match(smoke, /ValidateSet\('en', 'ko'\)\]\[string\]\$Locale/);
-  assert.match(smoke, /ValidateSet\('light', 'dark'\)\]\[string\]\$Theme/);
+  assert.match(smoke, /ValidateSet\('light', 'dark', 'contrast'\)\]\[string\]\$Theme/);
   assert.match(smoke, /ValidateSet\('100', '125', '150', '200'\)\]\[string\]\$AppScale/);
   assert.match(smoke, /\[string\]\$WindowSize/);
 });
