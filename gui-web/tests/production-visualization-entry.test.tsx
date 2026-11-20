@@ -879,9 +879,10 @@ test("F06 FR2.HD1.gui-web.DD1, FR16.HD1.gui-web.DD1: the format strip switches t
     label("ui.visualization.unavailableTitleNoItemSizes"),
   );
   const switched = renders.at(-1)!;
-  // Only the format changes; the scope, basis and denominator stay.
+  // The scope, basis and denominator stay; a format other than the treemap asks for one level.
   expect(switched).toMatchObject({
     format: "histogram",
+    depthLimit: 1,
     aggregateScopeRef: first.aggregateScopeRef,
     navigationScopeRef: first.navigationScopeRef,
     sizeBasis: first.sizeBasis,
@@ -900,6 +901,7 @@ test("F06 FR2.HD1.gui-web.DD1, FR16.HD1.gui-web.DD1: the format strip switches t
     }),
   );
   await waitFor(() => expect(renders.at(-1)!.format).toBe("treemap"));
+  expect(renders.at(-1)!.depthLimit).toBe(first.depthLimit);
   const treemap = option(label("ui.visualization.treemap"));
   expect(treemap.checked).toBe(true);
   await waitFor(() => expect(document.activeElement).toBe(treemap));

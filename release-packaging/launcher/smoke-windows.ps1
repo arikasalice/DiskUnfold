@@ -1513,9 +1513,11 @@ function Test-CaptureTreemap {
         Where-Object { $_.Current.Name -like "$wanted*" } | Select-Object -First 1
     }
     $pattern = $null
+    $radio.SetFocus()
     if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
     else { Invoke-UI $radio }
     Start-Sleep -Milliseconds 2000
+    if (Find-UI 'The chart could not be loaded.' $null) { throw "The $($step[0]) request was refused" }
     "Format $($step[0]): selected as '$($radio.Current.Name)'"
     Save-SmokeCapture $step[1]
   }

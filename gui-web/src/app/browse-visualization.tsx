@@ -464,6 +464,7 @@ export function BrowseVisualizationView({
               request={{
                 ...assembly.request,
                 format: formats.format,
+                depthLimit: formats.depthLimit,
                 viewport: {
                   ...viewport,
                   height: chartHeight(viewport.height, chartParts.offset),
@@ -596,6 +597,10 @@ function sameItemRef(left: ItemRef, right: ItemRef): boolean {
  * answer, which lists the formats the engine can draw for this result and
  * folder; until then no format carries a mark. Choosing a format from the
  * unavailable notice returns the focus to the strip.
+ *
+ * The owner's depth belongs to the owner's format (a treemap names the shapes
+ * inside a folder); every other format asks for one level, which is what the
+ * engine accepts for them.
  */
 function useFormatChoice(
   catalog: VizCatalog | undefined,
@@ -615,6 +620,8 @@ function useFormatChoice(
   const options = catalog?.formats ?? [];
   const fallback = assembly?.request.format ?? "";
   const format = chosen && options.includes(chosen) ? chosen : fallback;
+  const depthLimit =
+    format === fallback ? (assembly?.request.depthLimit ?? 1) : 1;
   const known = learned?.key === key ? learned.formats : undefined;
   const available =
     known && !known.includes(format)
@@ -635,6 +642,7 @@ function useFormatChoice(
   );
   return {
     format,
+    depthLimit,
     options,
     strip,
     available,
