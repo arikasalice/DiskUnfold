@@ -1038,6 +1038,8 @@
     ["ui.analysis.issue_reason_access_denied","접근 거부됨",[]],
     ["ui.analysis.issue_reason_path_missing","항목을 더 이상 사용할 수 없음",[]],
     ["ui.analysis.issue_reason_unverified","항목 확인 불가",[]],
+    ["ui.analysis.issue_reason_replaced","스캔 중 다른 항목으로 바뀜",[]],
+    ["ui.analysis.issue_reason_kind_changed","스캔 중 유형이 바뀜",[]],
     ["ui.analysis.issue_reason_link_skipped","링크 대상을 건너뜀",[]],
     ["ui.analysis.issue_reason_other_volume","다른 드라이브에 있어 포함하지 않음",[]],
     ["ui.analysis.issue_reason_already_covered","다른 위치에서 이미 확인함",[]],

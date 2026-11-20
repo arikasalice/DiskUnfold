@@ -249,6 +249,7 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
         "scan.path_vanished",
         "scan.unclassified",
     );
+    let (replaced, unverifiable) = ("scan.item_replaced", "scan.item_unverifiable");
     let mut issues = vec![
         range(&["denied"], Stage::OpenDirectory, denied),
         range(&["gone"], Stage::OpenDirectory, vanished),
@@ -256,9 +257,9 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
         range(&["partial"], Stage::Enumerate, other),
         range(&["huge"], Stage::Enumerate, other),
         entry_issue(&["meta.bin"], Kind::CollectionFailed, denied),
-        entry_issue(&["swapped"], Kind::Uncertain, other),
-        entry_issue(&["unknown"], Kind::Uncertain, other),
-        entry_issue(&["other"], Kind::Uncertain, other),
+        entry_issue(&["swapped"], Kind::Uncertain, replaced),
+        entry_issue(&["unknown"], Kind::Uncertain, unverifiable),
+        entry_issue(&["other"], Kind::Uncertain, unverifiable),
         entry_issue(&["sizeless.txt"], Kind::CollectionFailed, denied),
         link(0, &["away"]),
         other_volume(0, &["mnt"]),
@@ -275,9 +276,9 @@ fn every_failure_kind_gives_one_result_from_both_collectors() -> Result<(), Stri
         gap(&["partial"], other),
         gap(&["huge"], other),
         gap(&["meta.bin"], denied),
-        gap(&["swapped"], other),
-        gap(&["unknown"], other),
-        gap(&["other"], other),
+        gap(&["swapped"], replaced),
+        gap(&["unknown"], unverifiable),
+        gap(&["other"], unverifiable),
         gap(&["sizeless.txt"], denied),
     ];
     gaps.sort();

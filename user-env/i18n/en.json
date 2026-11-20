@@ -1038,6 +1038,8 @@
     ["ui.analysis.issue_reason_access_denied","Access denied",[]],
     ["ui.analysis.issue_reason_path_missing","The item was no longer available",[]],
     ["ui.analysis.issue_reason_unverified","The item could not be verified",[]],
+    ["ui.analysis.issue_reason_replaced","Replaced by another item during the scan",[]],
+    ["ui.analysis.issue_reason_kind_changed","Its type changed during the scan",[]],
     ["ui.analysis.issue_reason_link_skipped","The link target was skipped",[]],
     ["ui.analysis.issue_reason_other_volume","On another drive, not included",[]],
     ["ui.analysis.issue_reason_already_covered","Already covered from another location",[]],
