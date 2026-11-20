@@ -107,7 +107,13 @@ fn boundary_issues_name_the_boundary_and_confirm_the_folder_was_not_read() -> Re
         state(&version, 1, &[])?,
         bounded(FolderBoundary::AlreadyCounted)
     );
-    assert_eq!(state(&version, 0, &["a"])?, UNPROVEN);
+    // #217: "a" was entered, since its child "deep" was found to be a boundary, and the
+    // Complete seal proves it was read. Nothing below the unentered second root was read,
+    // so "x" stays unknown.
+    assert_eq!(
+        state(&version, 0, &["a"])?,
+        bounded(FolderBoundary::NoBoundary)
+    );
     assert_eq!(state(&version, 1, &["x"])?, UNPROVEN);
     assert_eq!(
         FolderBoundary::OtherVolume.name(),
