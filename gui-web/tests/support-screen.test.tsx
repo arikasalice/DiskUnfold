@@ -195,7 +195,9 @@ test("retries a failed read and keeps the last content when a refresh fails", as
   );
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("region", { name: "Combination status" });
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh support information" }),
+  );
   expect((await screen.findByRole("alert")).textContent).toContain(
     "last successful read",
   );

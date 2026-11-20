@@ -82,26 +82,45 @@ export function startupCopy(text: LocaleText) {
     denied: text("ui.startup.denied", "Denied"),
     confirmed: text("ui.startup.confirmed", "Confirmed"),
     bannerHeading: text("ui.startup.banner_heading", "Startup notice"),
-    bannerLimited: text(
-      "ui.startup.banner_limited",
-      "Some DiskUnfold features are limited on this system.",
+    noticeFullDiskAccess: text(
+      "ui.startup.notice_full_disk_access",
+      "Full Disk Access couldn't be confirmed, so some folders may be missing from results.",
     ),
-    bannerOutsideVerified: text(
-      "ui.startup.banner_outside_verified",
-      "This system is not one of the combinations DiskUnfold has verified. It can still run, but some behavior may differ.",
+    noticeOpenSettings: text(
+      "ui.startup.notice_open_settings",
+      "Open Settings",
     ),
-    bannerUnverifiable: text(
-      "ui.startup.banner_unverifiable",
-      "Some startup checks could not be verified. DiskUnfold keeps running.",
+    noticeDismiss: text("ui.startup.notice_dismiss", "Dismiss notice"),
+    checksSection: text("ui.startup.checks_section", "Startup checks"),
+    checkedAtStart: text(
+      "ui.startup.checked_at_start",
+      "Checked when DiskUnfold started",
     ),
-    bannerUnknown: text(
-      "ui.startup.banner_unknown",
-      "Startup checks reported a status this version does not recognize.",
+    overallLimited: text("ui.startup.overall_limited", "Some features limited"),
+    overallOutsideVerified: text(
+      "ui.startup.overall_outside_verified",
+      "Untested combination",
     ),
-    bannerDismiss: text("ui.startup.banner_dismiss", "Dismiss"),
-    bannerOpenSupport: text(
-      "ui.startup.banner_open_support",
-      "Open support information",
+    showAllChecks: text("ui.startup.show_all_checks", "Show all checks"),
+    showCombination: text(
+      "ui.startup.show_combination",
+      "Show combination status",
+    ),
+    describeLimited: text(
+      "ui.startup.describe_limited",
+      "Some features are limited on this computer. See Feature areas below.",
+    ),
+    describeUnverifiable: text(
+      "ui.startup.describe_unverifiable",
+      "This could not be checked. It does not mean something is wrong, and DiskUnfold keeps running.",
+    ),
+    describeUntested: text(
+      "ui.startup.describe_untested",
+      "This combination hasn't been tested. This doesn't mean there's a problem.",
+    ),
+    describeTestedUnknown: text(
+      "ui.startup.describe_tested_unknown",
+      "DiskUnfold can't tell whether this computer was tested. This doesn't mean there's a problem.",
     ),
     checkNames: {
       resource_integrity: text(
@@ -119,7 +138,7 @@ export function startupCopy(text: LocaleText) {
       ),
       support_matrix: text(
         "ui.startup.check.support_matrix",
-        "Verified environment",
+        "Tested environment",
       ),
       capability: text("ui.startup.check.capability", "Platform capabilities"),
       full_disk_access: text(

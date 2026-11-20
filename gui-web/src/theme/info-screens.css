@@ -52,6 +52,24 @@
   border-block-start: 1px solid var(--du-border);
 }
 
+/* Items to review in support information (design F15 README 1.3): a dot after
+   the name of the second entry, "Support information". */
+.du-info-entry[data-review] > .du-action:nth-child(2)::after {
+  content: "";
+  flex: 0 0 auto;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--du-warning-text);
+}
+
+@media (forced-colors: active) {
+  .du-info-entry[data-review] > .du-action:nth-child(2)::after {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
 /* Per-area and per-combination rows: label and badge on the first line, the
    supporting notes below in reading order. */
 .du-info-areas .du-readout {

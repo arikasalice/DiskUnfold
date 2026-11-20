@@ -83,13 +83,21 @@ export function ReviewSurface({
 export function ReviewSection({
   title,
   children,
+  headingRef,
 }: {
   title: string;
   children: ReactNode;
+  /** Lets the screen move focus to this section's heading. */
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <section className="du-review-section" aria-label={title}>
-      <Heading level={3}>{title}</Heading>
+      <Heading
+        level={3}
+        {...(headingRef ? { ref: headingRef, programmaticFocus: true } : {})}
+      >
+        {title}
+      </Heading>
       {children}
     </section>
   );

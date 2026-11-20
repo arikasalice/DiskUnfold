@@ -1,21 +1,34 @@
-.du-startup-banner {
-  display: grid;
-  gap: 8px;
+/* One line of at most 40 CSS px (design F15 README 1.2): the sentence wraps to
+   a second line when the window is narrow and is never cut short. */
+.du-startup-notice {
+  display: flex;
+  align-items: center;
+  gap: 4px 8px;
   min-width: 0;
-  padding: 10px clamp(12px, 3vw, 24px);
+  padding: 2px clamp(12px, 3vw, 24px);
   border-bottom: 1px solid var(--du-border);
   background: var(--du-surface);
-  overflow-wrap: anywhere;
 }
 
-.du-startup-banner .du-startup__actions .du-action {
+.du-startup-notice > svg {
   flex: 0 0 auto;
+  color: var(--du-warning-text);
 }
 
-.du-startup-banner__details {
-  display: grid;
-  gap: 8px;
+.du-startup-notice > .du-live-status {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow-wrap: normal;
+}
+
+.du-startup-notice .du-action {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding-block: 4px;
+}
+
+.du-startup-notice .du-action--icon {
+  min-width: 32px;
 }
 
 .du-app.du-startup-screen {
