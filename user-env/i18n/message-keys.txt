@@ -888,6 +888,24 @@ ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
 ui.visualization.itemOpenUnavailable
+ui.visualization.legend.type.document
+ui.visualization.legend.type.audio
+ui.visualization.legend.type.image
+ui.visualization.legend.type.installer_image
+ui.visualization.legend.type.video
+ui.visualization.legend.type.archive
+ui.visualization.legend.type.unclassified
+ui.visualization.legend.type.no_extension
+ui.visualization.legend.type.unavailable
+ui.visualization.legend.unknownClass
+ui.visualization.legendTitle
+ui.visualization.colorBy
+ui.visualization.colorNone
+ui.visualization.colorType
+ui.visualization.legendPatterns
+ui.visualization.legendLess
+ui.visualization.legendFolderNote
+ui.visualization.legendMore count:count
 ui.visualization.legend.unclassified
 ui.visualization.loadNewer
 ui.visualization.loadRangeFailed

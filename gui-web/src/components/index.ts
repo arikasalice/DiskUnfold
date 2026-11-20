@@ -64,6 +64,14 @@ export type { SegmentedOption } from "./segmented-choice";
 export { createChartRenderers } from "./charts/chart-renderers";
 export { GeometryRenderer } from "./charts/geometry-renderer";
 export { BarRenderer, HistogramRenderer } from "./charts/ranked-renderers";
+export {
+  ChartPatternDefs,
+  PLACE_PATTERNS,
+  patternId,
+} from "./charts/chart-patterns";
+export type { ChartPattern } from "./charts/chart-patterns";
+export { ChartLegend } from "./charts/chart-legend";
+export type { LegendEntry } from "./charts/chart-legend";
 export type {
   DisplayGeometry,
   DisplayPoint,

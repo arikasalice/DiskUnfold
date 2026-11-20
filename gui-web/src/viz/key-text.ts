@@ -1,5 +1,10 @@
 import type { VisualizationMessageKey } from "./messages";
-import type { VizText } from "./model-text";
+
+/** A localized message, as VizText gives it. */
+type Message = (
+  key: VisualizationMessageKey,
+  values?: Readonly<Record<string, string | bigint>>,
+) => string;
 
 /**
  * Wire words and keys that a model carries for its status line, evidence table
@@ -36,6 +41,15 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
   unclassified: "legend.unclassified",
   "ui.visualization.group.other": "group.other",
   "ui.visualization.legend.unclassified": "legend.unclassified",
+  "ui.visualization.legend.type.document": "legend.type.document",
+  "ui.visualization.legend.type.audio": "legend.type.audio",
+  "ui.visualization.legend.type.image": "legend.type.image",
+  "ui.visualization.legend.type.installer_image": "legend.type.installer_image",
+  "ui.visualization.legend.type.video": "legend.type.video",
+  "ui.visualization.legend.type.archive": "legend.type.archive",
+  "ui.visualization.legend.type.unclassified": "legend.type.unclassified",
+  "ui.visualization.legend.type.no_extension": "legend.type.no_extension",
+  "ui.visualization.legend.type.unavailable": "legend.type.unavailable",
 };
 
 /**
@@ -43,7 +57,7 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
  * the general phrase, so neither a raw key nor a missing-translation marker
  * reaches the screen.
  */
-export function createVizKeyText(message: VizText["message"]): VizText["key"] {
+export function createVizKeyText(message: Message): (key: string) => string {
   return (key) => {
     const known = Object.hasOwn(keyMessages, key)
       ? keyMessages[key]

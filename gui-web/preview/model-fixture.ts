@@ -83,7 +83,7 @@ export function modelFixture(): { frame: ModelResponse; page: ModelRowsPage } {
         measure: "size",
         sizeBasis: "logical",
         classificationCriterion: "type",
-        colorCriterion: "type",
+        colorCriterion: "none",
         denominatorBasis: "scope",
         colorMode: "monochrome",
         labelMode: "name_size",

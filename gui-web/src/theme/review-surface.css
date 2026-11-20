@@ -33,6 +33,23 @@
 .du-chart-axis-title {
   margin-block-start: 12px;
 }
+/* The chart and its legend (F06 README 2): the legend in a column of its own
+   beside a wide chart area, under a narrow one. */
+.du-chart-and-legend {
+  display: grid;
+  gap: 16px;
+  min-inline-size: 0;
+}
+.du-chart-and-legend[data-legend-side="right"] {
+  grid-template-columns: minmax(0, 1fr) var(--du-legend-width);
+  align-items: start;
+}
+.du-chart-and-legend__chart {
+  min-inline-size: 0;
+}
+:root {
+  --du-legend-width: 240px;
+}
 .du-review-surface__body,
 .du-review-stack,
 .du-content-state {

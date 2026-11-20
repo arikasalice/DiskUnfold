@@ -22,6 +22,8 @@ export {
 } from "./model-text";
 export { plainRowName, rowName } from "./row-text";
 export { histogramRanges } from "./histogram-ranges";
+export { classCell, hasClosedFolders, legendEntries } from "./legend-text";
+export { TYPE_CRITERION, coloredByClass } from "./legend-style";
 export { explainReason } from "./reason-text";
 export { MAX_ROWS_PER_READ, readRowsPages } from "./rows-pages";
 export type { VizText } from "./model-text";

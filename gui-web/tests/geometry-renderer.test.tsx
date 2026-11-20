@@ -575,7 +575,9 @@ test("renders all common geometry and leaves same-model rows readable", async ()
   expect(
     container.querySelector("svg rect[x='0']")?.getAttribute("width"),
   ).toBe("99");
-  expect(container.querySelector("circle")?.getAttribute("cx")).toBe("200");
+  expect(
+    container.querySelector(".du-geometry-shape circle")?.getAttribute("cx"),
+  ).toBe("200");
   expect(container.querySelectorAll("polyline")).toHaveLength(2);
   expect(container.querySelectorAll("polygon")).toHaveLength(1);
   expect(

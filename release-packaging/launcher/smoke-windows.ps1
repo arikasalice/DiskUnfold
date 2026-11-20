@@ -34,6 +34,8 @@ param(
   [switch]$CaptureUniquePhysical,
   # Capture a histogram with an empty interval between two drawn ones, on both axes (F06 README 43).
   [switch]$CaptureHistogramGaps,
+  # Capture the type legend: treemap and bar by type, a chosen class, patterns, None (F06 FR6).
+  [switch]$CaptureTypeLegend,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1830,6 +1832,66 @@ function Test-CaptureUniquePhysical {
 # F06 README 43: a histogram keeps the place, name and zero value of an empty interval between
 # drawn ones. Small files fill 1 KiB–1 MiB and one 1 GiB file fills 1 GiB–1 TiB, so 1 MiB–1 GiB is
 # empty on the item count and on the size axis. SetLength allocates the large file without writing it.
+# F06 FR6 (README 44): the type legend. One file of each type, an installer image, a name without
+# an extension, an unknown extension and a small folder that stays one shape. Captures the treemap
+# and the bar chart by type, a class chosen in the legend, patterns on, and the None criterion.
+function Select-SmokeRadio($radio) {
+  $pattern = $null
+  $radio.SetFocus()
+  if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
+  else { Invoke-UI $radio }
+  Start-Sleep -Milliseconds 1500
+}
+function Test-CaptureTypeLegend {
+  $scope = Join-Path $root 'type-legend-scope'
+  [IO.Directory]::CreateDirectory((Join-Path $scope 'tiny')) | Out-Null
+  $files = [ordered]@{ 'report.pdf' = 6MB; 'photo.jpg' = 3MB; 'song.mp3' = 2MB; 'clip.mp4' = 8MB; 'backup.zip' = 4MB; 'ubuntu.iso' = 10MB; 'README' = 1MB; 'notes.xyz' = 2MB }
+  foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
+  [IO.File]::WriteAllBytes((Join-Path (Join-Path $scope 'tiny') 'a.txt'), [byte[]]::new(1KB))
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'report.pdf' { Find-UI 'report.pdf' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $legendName = Get-UiName 'Legend'
+  $listType = [Windows.Automation.ControlType]::List
+  $legend = Wait-UI 'type legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  } 60
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  "Legend: $(@($legend.FindAll($scopeTree, $listItem) | ForEach-Object { $_.Current.Name }) -join ' | ')"
+  Save-SmokeCapture '01-treemap-type'
+  $radioType = [Windows.Automation.ControlType]::RadioButton
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $radioType)
+  $format = { param($english) $wanted = Get-UiName $english; @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$wanted*" }) | Select-Object -First 1 }
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { & $format 'Bar chart' })
+  $null = Wait-UI 'bar legend' { $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) }
+  Save-SmokeCapture '02-bar-type'
+  Select-SmokeRadio (Wait-UI 'Treemap format' { & $format 'Treemap' })
+  $legend = Wait-UI 'treemap legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  }
+  $videosName = Get-UiName 'Videos'
+  $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
+  Select-SmokeRadio $videos
+  "Legend class chosen: '$($videos.Current.Name)'"
+  Save-SmokeCapture '03-legend-videos'
+  Select-SmokeRadio $videos
+  $patterns = Wait-UI 'Use patterns' { Find-UI 'Use patterns' $null }
+  Invoke-UI $patterns
+  Start-Sleep -Milliseconds 800
+  Save-SmokeCapture '04-patterns'
+  Invoke-UI $patterns
+  # "None" names more than one English text, so it is taken as the criterion group's first option.
+  $colorBy = Wait-UI 'Color by' { $window.FindFirst($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, (Get-UiName 'Color by'))) }
+  Select-SmokeRadio (@($colorBy.FindAll($scopeTree, $radioCondition))[0])
+  Save-SmokeCapture '05-color-none'
+  "Type legend capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
 function Test-CaptureHistogramGaps {
   $scope = Join-Path $root 'histogram-gaps-scope'
   [IO.Directory]::CreateDirectory($scope) | Out-Null
@@ -2240,7 +2302,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2252,6 +2314,7 @@ function Test-VirtualGroups {
   if ($CaptureProgress) { Test-CaptureProgress }
   if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
   if ($CaptureHistogramGaps) { Test-CaptureHistogramGaps }
+  if ($CaptureTypeLegend) { Test-CaptureTypeLegend }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

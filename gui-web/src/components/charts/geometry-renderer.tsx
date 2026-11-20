@@ -1,4 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import { ChartPatternDefs, patternId } from "./chart-patterns";
+import type { ChartPattern } from "./chart-patterns";
 import type { KeyboardEvent, ReactNode } from "react";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
@@ -29,6 +31,18 @@ type Shape = {
   container?: boolean;
   /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
   lowerBound?: boolean;
+  /**
+   * The palette place ("1"-"8"), "neutral", "neutral-2" or "folder" of its
+   * legend class (F06 README 4.1); absent: the chart's own fill.
+   */
+  tone?: string;
+  /** The pattern of its class, drawn when patterns are on or always. */
+  pattern?: ChartPattern | null;
+  patternAlways?: boolean;
+  /** Another legend class is chosen: drawn faded, still selectable (README 4.7). */
+  dimmed?: boolean;
+  /** The key of its legend class, for choosing a class in the legend. */
+  legendClass?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -81,6 +95,8 @@ export type GeometryRendererProps = {
    * out; the caller draws names and values beside them (bar chart, histogram).
    */
   variant?: "ranked";
+  /** Draw the patterns of palette places 1-8 too ("Use patterns", README 4.1). */
+  patterns?: boolean | undefined;
   /**
    * Every interval of a histogram in model order, shape or not; the histogram
    * keeps the place and name of an empty one (F06 README 43).
@@ -548,6 +564,41 @@ function rectangleLabel(
   );
 }
 
+/** Below this size in CSS px a pattern is not drawn (F06 README 4.1). */
+const PATTERN_MIN = 24;
+
+/**
+ * The pattern of a shape's legend class over its fill, inside its gap: for every
+ * class while patterns are on, and always for the neutral classes and the ninth
+ * class onward. A folder frame and a small shape take none.
+ */
+function patternOverlay(
+  shape: Shape,
+  patterns: boolean | undefined,
+  prefix: string,
+  at: { viewport: Viewport; width: number; height: number; grid: DeviceGrid },
+) {
+  if (!shape.pattern || shape.container || !(patterns || shape.patternAlways))
+    return null;
+  const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
+  if (
+    !edges ||
+    edges.right - edges.left < PATTERN_MIN ||
+    edges.bottom - edges.top < PATTERN_MIN
+  )
+    return null;
+  return (
+    <rect
+      className="du-geometry-pattern"
+      x={edges.left}
+      y={edges.top}
+      width={edges.right - edges.left}
+      height={edges.bottom - edges.top}
+      fill={`url(#${patternId(prefix, shape.pattern)})`}
+    />
+  );
+}
+
 /** Draws all supported common primitives or presents the supplied same-model table. */
 export function GeometryRenderer(props: GeometryRendererProps) {
   const clip = useId();
@@ -726,6 +777,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             <clipPath id={clip}>
               <rect width={width} height={height} />
             </clipPath>
+            <ChartPatternDefs prefix={clip} />
           </defs>
           <g
             clipPath={`url(#${clip})`}
@@ -754,8 +806,16 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   key={shape.shapeRef}
                   data-container={shape.container ? "true" : undefined}
                   data-selected={selected ? "true" : undefined}
+                  data-tone={shape.tone}
+                  data-dimmed={shape.dimmed ? "true" : undefined}
                 >
                   {drawing}
+                  {patternOverlay(shape, props.patterns, clip, {
+                    viewport,
+                    width,
+                    height,
+                    grid,
+                  })}
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}

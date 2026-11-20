@@ -8,6 +8,7 @@ import type {
   VizShape,
 } from "../ipc";
 import type { GeometryRendererProps } from "../components";
+import type { ChartPattern } from "../components";
 import type { ShapePlace } from "./model-text";
 
 export type ModelResponse = Extract<VizRenderResponse, { kind: "model" }>;
@@ -88,6 +89,10 @@ export function adaptVizModel(
     displayValue?: string;
     container?: boolean;
     lowerBound?: boolean;
+    tone?: string;
+    pattern?: ChartPattern | null;
+    patternAlways?: boolean;
+    legendClass?: string;
   },
   folderRows: readonly VizRow[] = [],
 ) {
