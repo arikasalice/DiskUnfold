@@ -5,10 +5,13 @@
 //   location shown to a pointer resting 0.4 s on the cell cut in the middle;
 //   then the details of the lower-bound item (#204).
 // - browse: the browse table with every mark of the "Scan status" column (#133).
+// - date-picker: the shared date field in empty, selected, invalid, open, and
+//   forced-colors states (#272).
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder] notice
+//   npm run capture:date-picker-gallery -- [output folder]
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -30,6 +33,11 @@ const surfaces = {
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
   browse: { ready: ".du-browse-grid__row", count: 3, pointer: false },
   "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
+  "date-picker": {
+    ready: ".du-date-picker__control",
+    count: 4,
+    pointer: false,
+  },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -173,6 +181,29 @@ async function drawn(selector, count) {
   return cells();
 }
 
+/* In the page: wait for finite motion to finish, then paint two settled frames. */
+async function settleAnimations() {
+  const nextFrame = () => new Promise(requestAnimationFrame);
+  let quietFrames = 0;
+  for (;;) {
+    const running = document
+      .getAnimations()
+      .filter(
+        (animation) =>
+          animation.playState === "running" &&
+          Number.isFinite(animation.effect?.getComputedTiming().endTime),
+      );
+    if (running.length) {
+      quietFrames = 0;
+      await Promise.allSettled(running.map((animation) => animation.finished));
+      continue;
+    }
+    await nextFrame();
+    quietFrames++;
+    if (quietFrames === 2) return;
+  }
+}
+
 /* In the page: the point of the second location, which is cut in the middle. */
 function cutCell() {
   const cell = document.querySelectorAll(
@@ -196,7 +227,10 @@ async function open(session, base, theme, width, scene, query = "") {
     mobile: false,
   });
   await session.send("Emulation.setEmulatedMedia", {
-    features: [{ name: "prefers-color-scheme", value: theme }],
+    features: [
+      { name: "prefers-color-scheme", value: theme },
+      { name: "forced-colors", value: "none" },
+    ],
   });
   const loaded = session.once("Page.loadEventFired");
   await session.send("Page.navigate", {
@@ -225,8 +259,43 @@ async function open(session, base, theme, width, scene, query = "") {
   }
 }
 
+/** Opens the third date field with keyboard input so its focused day is visible. */
+async function openDatePickerCalendar(session) {
+  await session.run(() => {
+    const trigger = document
+      .querySelectorAll(".du-date-picker")[2]
+      ?.querySelector(
+        ".du-date-picker__control .du-date-picker__button:not(.du-date-picker__clear)",
+      );
+    if (!(trigger instanceof HTMLButtonElement))
+      throw new Error("The date-picker preview trigger was not found");
+    trigger.focus();
+    trigger.click();
+  });
+  await session.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+  });
+  await session.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "ArrowRight",
+    code: "ArrowRight",
+    windowsVirtualKeyCode: 39,
+  });
+  await sleep(150);
+  if (
+    !(await session.run(() =>
+      Boolean(document.querySelector(".du-date-picker__picker[data-open]")),
+    ))
+  )
+    throw new Error("The date-picker calendar did not open");
+}
+
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false) {
+  await session.run(settleAnimations);
   const options = { format: "png" };
   if (!viewport) {
     const { cssContentSize } = await session.send("Page.getLayoutMetrics");
@@ -324,6 +393,20 @@ try {
   if (surface === "browse" && !noticeOnly) {
     await open(session, base, "light", 1280, undefined, "&notice=1");
     await save(session, "notice-light-1280");
+  }
+  if (surface === "date-picker") {
+    await open(session, base, "light", 1280);
+    await openDatePickerCalendar(session);
+    await save(session, "light-1280-calendar");
+    await open(session, base, "light", 1280);
+    await session.send("Emulation.setEmulatedMedia", {
+      features: [
+        { name: "prefers-color-scheme", value: "light" },
+        { name: "forced-colors", value: "active" },
+      ],
+    });
+    await openDatePickerCalendar(session);
+    await save(session, "light-1280-forced-colors-calendar");
   }
   if (pointer) {
     await open(session, base, "light", 1280);

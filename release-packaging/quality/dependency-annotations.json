@@ -377,6 +377,12 @@
     "distributed": false,
     "reason": "Create isolated staged-file fixtures for release inventory tests"
   },
+  "npm:diskunfold-gui:@internationalized/date@3.12.4": {
+    "license": "Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Parse and format localized calendar dates in the shared date picker"
+  },
   "npm:diskunfold-gui:react-aria-components@1.22.1": {
     "license": "Apache-2.0",
     "role": "runtime",

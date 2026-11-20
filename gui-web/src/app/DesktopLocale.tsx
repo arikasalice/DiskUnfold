@@ -21,11 +21,13 @@ import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { ClosingGuard } from "../features/shutdown/ClosingGuard";
 import { StartupGate } from "../features/startup/StartupGate";
 
-function regionalFormat({ selected, profile }: LocaleView): RegionalFormat {
+function regionalFormat(view: LocaleView): RegionalFormat {
+  const { selected, profile } = view;
   const { decimalSeparator, groupingSeparator, groupingSize, datePatterns } =
     selected.formatTable;
   const byteUnit = selected.messages["ui.unit.byte"];
   return {
+    language: view.language,
     decimalSeparator,
     groupingSeparator,
     groupingSize,

@@ -521,6 +521,13 @@ ui.inspection.mismatch kind:name
 ui.inspection.stale kind:name
 ui.inspection.file_unavailable
 ui.inspection.folder_unavailable
+ui.date_picker.clear label:name
+ui.date_picker.next_month
+ui.date_picker.open_calendar label:name
+ui.date_picker.placeholder_day
+ui.date_picker.placeholder_month
+ui.date_picker.placeholder_year
+ui.date_picker.previous_month
 ui.history.all_outcomes
 ui.history.ambiguous_information
 ui.history.approval_check

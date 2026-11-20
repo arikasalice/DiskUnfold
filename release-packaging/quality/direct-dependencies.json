@@ -706,6 +706,17 @@
   {
     "ecosystem": "npm",
     "owner": "diskunfold-gui",
+    "name": "@internationalized/date",
+    "version": "3.12.4",
+    "source": "https://registry.npmjs.org/@internationalized/date/-/date-3.12.4.tgz",
+    "license": "Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Parse and format localized calendar dates in the shared date picker"
+  },
+  {
+    "ecosystem": "npm",
+    "owner": "diskunfold-gui",
     "name": "@testing-library/dom",
     "version": "10.4.2",
     "source": "https://registry.npmjs.org/@testing-library/dom/-/dom-10.4.2.tgz",
