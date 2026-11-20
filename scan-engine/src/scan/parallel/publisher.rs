@@ -131,6 +131,14 @@ fn processed(counts: &JobCounts) -> JobProgress {
 }
 
 impl Progress {
+    /// The sharing evidence of a root's volume; unknown for a root it does not know.
+    fn sharing_of(&self, root_index: u32) -> SharingEvidence {
+        self.sharing
+            .get(root_index as usize)
+            .copied()
+            .unwrap_or(SharingEvidence::Unknown)
+    }
+
     /// Keep observations and explicit disconnection evidence even without a successful root batch.
     pub(super) fn has_usable_result(&self, disconnects: &disconnect::Disconnects) -> bool {
         self.failed_roots.contains(&false) || disconnects.any_closed()
@@ -211,15 +219,17 @@ impl Progress {
             }
             Event::Item(root_index, path, timed, row, _permit) => {
                 let gap_at = || context.utc_now();
+                let sharing = self.sharing_of(root_index);
                 let item = (root_index, path, &*timed);
-                record::record_item(build, counts, &gap_at, item, row)?;
+                record::record_item(build, counts, &gap_at, item, row, sharing)?;
                 self.cadence.changed();
                 Ok(())
             }
             Event::CorrelatedItem(root_index, path, timed, row, _permit) => {
                 let gap_at = || context.utc_now();
+                let sharing = self.sharing_of(root_index);
                 let item = (root_index, path, &*timed);
-                record::record_item(build, counts, &gap_at, item, row)?;
+                record::record_item(build, counts, &gap_at, item, row, sharing)?;
                 self.cadence.changed();
                 Ok(())
             }

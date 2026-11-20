@@ -124,6 +124,8 @@ pub(super) fn scope_facts(
         ),
         Err(_) => (Evidence::Unknown, Evidence::Unknown),
     };
+    let basis_not_counted =
+        sizes == Evidence::Absent && basis_not_counted(version, scope.item_no, basis);
     Ok(FactValues {
         folder_hierarchy: hierarchy,
         item_sizes: sizes,
@@ -132,7 +134,27 @@ pub(super) fn scope_facts(
         comparison: Evidence::Absent,
         histogram_bins: Evidence::Known(()),
         attribution: Evidence::Absent,
+        basis_not_counted,
     })
+}
+
+/// #149: the folder has no unique physical size only because sharing evidence
+/// was not collected, while its allocated size is known. Any other basis, or a
+/// folder without an allocated size (as on Linux), is not a basis without
+/// evidence.
+fn basis_not_counted(
+    version: &du_analysis_index::ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> bool {
+    let Some(space) = version.space(item_no) else {
+        return false;
+    };
+    let known = |size: &SizeValue| size.amount != SizeAmount::Unknown;
+    *basis == SizeBasis::UniquePhysical
+        && !known(&space.unique_physical)
+        && space.limitations.contains(&"space.sharing_not_collected")
+        && known(&space.allocated)
 }
 
 /// A folder without children has no size to lack; it is an empty model, not missing data.

@@ -166,7 +166,7 @@ fn links_only_match_same_volume_and_preserve_exclusivity_evidence() -> Result<()
     assert_eq!(
         different.exclusive,
         ExclusiveDecision::Unknown {
-            reason_key: "space.sharing_unknown"
+            reason_key: "space.sharing_not_collected"
         }
     );
     Ok(())

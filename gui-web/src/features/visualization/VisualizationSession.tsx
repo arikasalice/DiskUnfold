@@ -167,6 +167,7 @@ export function VisualizationSession({
           groupController={session.groups}
           text={localizedText}
           autoLoadRows={autoLoadRows}
+          sizeBasis={request.sizeBasis}
           {...(resolveRenderer ? { resolveRenderer } : {})}
           {...(onApplyRevision ? { onApplyRevision } : {})}
           {...(backAction ? { backAction } : {})}

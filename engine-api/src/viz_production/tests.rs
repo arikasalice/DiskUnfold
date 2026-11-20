@@ -21,6 +21,8 @@ use crate::{
 
 type TestResult = Result<(), String>;
 
+mod basis;
+
 fn id(value: u8) -> Id {
     Id::from_v7_bytes([value; 16])
 }

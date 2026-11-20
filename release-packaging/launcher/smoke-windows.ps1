@@ -29,6 +29,8 @@ param(
   [switch]$CaptureTreemapLink,
   # Capture the analysis, chart and table progress rows on a scope large enough to show them.
   [switch]$CaptureProgress,
+  # Capture the treemap on the unique physical size basis, which NTFS can count (#149).
+  [switch]$CaptureUniquePhysical,
   [switch]$VerifyWorkspaceLayout,
   [switch]$VerifyInitialDrive,
   [switch]$VerifyAutomaticScopeReview,
@@ -1565,9 +1567,9 @@ function Test-CaptureTreemapLink {
 # F06 #129 item 6: an unavailable chart opens the folder's table under its notice (#109), and the
 # table title must fold and unfold with the mouse, Enter and Space and say so (aria-expanded).
 # Every unavailable reason uses the same table. A runner cannot produce no_attribution: folders
-# that share a hard link are counted as items not drawn. On the unique physical size basis a scan
-# never proves that extents are unshared, so no item has a size and the chart is unavailable with
-# no_item_sizes, which shows the same table.
+# that share a hard link are counted as items not drawn. Since #149 NTFS counts the unique
+# physical size, so the scope holds only folders that cannot be listed: none of them has an
+# allocated or unique physical size, and the finished chart is unavailable with no_item_sizes.
 function Get-SmokeExpanded($item) {
   $disclosure = $null
   if (-not $item.TryGetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$disclosure)) {
@@ -1581,19 +1583,8 @@ function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
     if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
   }
 }
-function Test-CaptureFallbackTable {
-  $scope = Join-Path $root 'attribution-scope'
-  $left = Join-Path $scope 'left'
-  $right = Join-Path $scope 'right'
-  [IO.Directory]::CreateDirectory($left) | Out-Null
-  [IO.Directory]::CreateDirectory($right) | Out-Null
-  [IO.File]::WriteAllBytes((Join-Path $left 'original.bin'), [byte[]]::new(1MB))
-  [IO.File]::WriteAllBytes((Join-Path $left 'notes.bin'), [byte[]]::new(64KB))
-  [IO.File]::WriteAllBytes((Join-Path $right 'second.bin'), [byte[]]::new(256KB))
-  Set-Scope $scope
-  Invoke-UI (Wait-Enabled 'Review scope' $true)
-  Invoke-UI (Wait-Enabled 'Start analysis' $true)
-  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+# Chooses the unique physical size basis in the display options of a finished scan.
+function Select-UniquePhysicalBasis {
   Wait-Details 'Display options' 'Size basis'
   $basis = Wait-UI 'size basis selector' {
     Find-UI 'Size basis' ([Windows.Automation.ControlType]::ComboBox)
@@ -1608,6 +1599,34 @@ function Test-CaptureFallbackTable {
   $null = Wait-UI 'unique physical size as the result metric' {
     Find-UI 'Unique physical size' ([Windows.Automation.ControlType]::Group)
   }
+}
+function Test-CaptureFallbackTable {
+  $scope = Join-Path $root 'attribution-scope'
+  $left = Join-Path $scope 'left'
+  $right = Join-Path $scope 'right'
+  [IO.Directory]::CreateDirectory($left) | Out-Null
+  [IO.Directory]::CreateDirectory($right) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $left 'original.bin'), [byte[]]::new(1MB))
+  [IO.File]::WriteAllBytes((Join-Path $left 'notes.bin'), [byte[]]::new(64KB))
+  [IO.File]::WriteAllBytes((Join-Path $right 'second.bin'), [byte[]]::new(256KB))
+  $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
+  $originals = @{}
+  foreach ($folder in @($left, $right)) {
+    $originals[$folder] = Get-Acl -LiteralPath $folder
+    $acl = Get-Acl -LiteralPath $folder
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($user, 'ListDirectory', 'Deny'))
+    Set-Acl -LiteralPath $folder -AclObject $acl
+  }
+  try { Show-FallbackTable $scope } finally {
+    foreach ($folder in $originals.Keys) { Set-Acl -LiteralPath $folder -AclObject $originals[$folder] }
+  }
+}
+function Show-FallbackTable($scope) {
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Select-UniquePhysicalBasis
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'left' { Find-UI 'left' $null }
   Invoke-UI (Wait-Enabled 'Show space distribution' $true)
@@ -1634,6 +1653,34 @@ function Test-CaptureFallbackTable {
   Send-SmokeKey 0x20 # VK_SPACE
   $null = Wait-SmokeExpanded $title $true 'Space'
   "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# #149: NTFS without block cloning shares no extents between files, so the unique physical size
+# basis counts every file and the chart draws both folders instead of an unavailable notice.
+function Test-CaptureUniquePhysical {
+  $scope = Join-Path $root 'unique-scope'
+  $left = Join-Path $scope 'left'
+  $right = Join-Path $scope 'right'
+  [IO.Directory]::CreateDirectory($left) | Out-Null
+  [IO.Directory]::CreateDirectory($right) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $left 'original.bin'), [byte[]]::new(1MB))
+  [IO.File]::WriteAllBytes((Join-Path $left 'notes.bin'), [byte[]]::new(64KB))
+  [IO.File]::WriteAllBytes((Join-Path $right 'second.bin'), [byte[]]::new(256KB))
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Select-UniquePhysicalBasis
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'left' { Find-UI 'left' $null }
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $heading = Get-UiName 'No item sizes are available'
+  $null = Wait-UI 'left and right drawn on the unique physical size basis' {
+    if (Find-UI $heading $null) { throw 'The unique physical size basis has no item sizes on NTFS' }
+    $names = Get-UINames
+    ($names | Where-Object { $_ -like 'left, *' }) -and ($names | Where-Object { $_ -like 'right, *' })
+  } 60
+  Save-SmokeCapture '01-unique-physical-treemap'
+  "Unique physical treemap: left and right drawn; $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 function Test-CaptureTour {
   # #178: a name with a zero-width space and a direction mark. The table draws it as it is; the
@@ -1886,7 +1933,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   }
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -1896,6 +1943,7 @@ function Test-VirtualGroups {
   if ($CaptureFallbackTable) { Test-CaptureFallbackTable }
   if ($CaptureTreemapLink) { Test-CaptureTreemapLink }
   if ($CaptureProgress) { Test-CaptureProgress }
+  if ($CaptureUniquePhysical) { Test-CaptureUniquePhysical }
   if (-not $captureOnly) {
     $null = Wait-Enabled 'Start analysis' $false
     if ($VerifyInitialDrive) { Test-InitialDrive }

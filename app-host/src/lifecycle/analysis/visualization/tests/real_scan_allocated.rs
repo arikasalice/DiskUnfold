@@ -170,7 +170,7 @@ fn four_children() -> Result<tempfile::TempDir, Failure> {
     Ok(folder)
 }
 
-// A scan records no extent-sharing evidence for any file, and the treemap used to refuse
+// A scan used to record no extent-sharing evidence for any file, and the treemap refused
 // every file for that, so the allocated basis (the view's default) never drew a shape.
 #[test]
 fn a_real_scan_draws_the_treemap_on_the_allocated_and_the_logical_basis() -> Result<(), Failure> {
@@ -213,6 +213,24 @@ fn a_real_scan_draws_the_treemap_on_the_allocated_and_the_logical_basis() -> Res
             .sum::<Result<u64, _>>()?;
         assert_eq!(listed, scope, "{basis}");
     }
+    Ok(())
+}
+
+// #149, F03 FR11.HD1: NTFS without block cloning cannot share extents between files, so a
+// real scan confirms that nothing is shared and the unique physical size is the allocated
+// size of these files, none of which is hard-linked.
+#[cfg(windows)]
+#[test]
+fn a_real_ntfs_scan_confirms_the_unique_physical_size() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let folder = four_children()?;
+    let revision = scan(&assembled, folder.path())?;
+    let allocated = space_total(&assembled, &revision, "allocated", 1)?;
+    assert!(allocated > 0);
+    assert_eq!(
+        space_total(&assembled, &revision, "unique_physical", 2)?,
+        allocated
+    );
     Ok(())
 }
 

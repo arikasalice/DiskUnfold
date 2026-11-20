@@ -5,6 +5,7 @@ mod correlated_batches;
 #[cfg(test)]
 mod correlated_tests;
 mod enumeration;
+mod extent_sharing;
 #[cfg(test)]
 mod filter_tests;
 mod metadata;
@@ -462,6 +463,10 @@ impl AnchoredDirectory for WindowsDirectory {
     }
     fn observed_modified_at(&self) -> Option<du_core_contracts::Timestamp> {
         timestamps::modified_at(&self.handle)
+    }
+
+    fn creates_no_shared_extents(&self) -> bool {
+        extent_sharing::creates_no_shared_extents(&self.handle)
     }
 
     fn observed_modified_at_timed(

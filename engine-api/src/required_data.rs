@@ -37,6 +37,10 @@ pub struct FactValues {
     pub histogram_bins: Evidence<()>,
     /// Attribution evidence for the pinned source and requested scope.
     pub attribution: Evidence<Attribution>,
+    /// The requested size basis has no item values only because the pinned
+    /// result has no evidence to count it, while another basis has values
+    /// (#149). Checked before an absent `item_sizes` becomes `NoItemSizes`.
+    pub basis_not_counted: bool,
 }
 
 /// Evidence bundle labeled with the source revision inspected by its provider.
@@ -147,6 +151,9 @@ pub(crate) enum Reason {
     NoItemSizes,
     /// A confirmed attribution summary contains negative flow.
     NegativeFlow,
+    /// Item sizes are absent on the requested basis only because the result has
+    /// no evidence to count it, while another basis has values (#149).
+    BasisNotCounted,
 }
 
 impl Reason {
@@ -158,6 +165,7 @@ impl Reason {
             Self::NoAttribution => "viz.unavailable.no_attribution",
             Self::NoItemSizes => "viz.unavailable.no_item_sizes",
             Self::NegativeFlow => "viz.unavailable.negative_flow",
+            Self::BasisNotCounted => "viz.unavailable.basis_not_counted",
         }
     }
 }
@@ -301,7 +309,13 @@ pub(super) fn format_availability<'a>(
 fn check(requirement: Requirement, facts: &FactValues) -> Result<Evaluation, Error> {
     Ok(match requirement {
         Requirement::FolderHierarchy => require(facts.folder_hierarchy, Reason::NoItemSizes)?,
-        Requirement::ItemSizes => require(facts.item_sizes, Reason::NoItemSizes)?,
+        Requirement::ItemSizes => {
+            if facts.item_sizes == Evidence::Absent && facts.basis_not_counted {
+                Evaluation::Unavailable(Reason::BasisNotCounted)
+            } else {
+                require(facts.item_sizes, Reason::NoItemSizes)?
+            }
+        }
         Requirement::NumericValues => require(facts.numeric_values, Reason::NoItemSizes)?,
         Requirement::HistogramBins => require(facts.histogram_bins, Reason::NoItemSizes)?,
         Requirement::TrendObservations => match facts.trend_observations {

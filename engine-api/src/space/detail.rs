@@ -99,7 +99,8 @@ fn exclusive_parts(
             }),
             None,
         ),
-        SharedSpace::Unknown => unknown("space.sharing_unknown"),
+        // Sharing evidence is not collected yet (DLD FR11.HD1.app-host.DD1).
+        SharedSpace::Unknown => unknown("space.sharing_not_collected"),
         SharedSpace::NotApplicable => BrowseValue::Absent,
     };
     (

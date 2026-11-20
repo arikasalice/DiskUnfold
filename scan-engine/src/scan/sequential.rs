@@ -16,7 +16,9 @@ use super::{
     admission::{self, Admission, Boundary, Parent, RootStart, Visited},
     issues, record,
 };
-use du_analysis_index::{BuildError, BuildHandle, IngestSink, folder_collection::UnreadReason};
+use du_analysis_index::{
+    BuildError, BuildHandle, IngestSink, SharingEvidence, folder_collection::UnreadReason,
+};
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobCounts},
@@ -105,6 +107,7 @@ pub(super) fn run(
             closed: false,
             // An unverifiable root was already counted as failed at its start.
             failed: record::FailedRanges::new(vec![root.boundary == Boundary::Unknown]),
+            sharing: record::root_sharing(root.dir.as_ref()),
         };
         walk.root(root, ids)?
     };
@@ -146,6 +149,8 @@ struct Walk<'a> {
     closed: bool,
     /// The ranges that failed, so that each one is counted once.
     failed: record::FailedRanges,
+    /// The sharing evidence of the root's volume, for every file.
+    sharing: SharingEvidence,
 }
 
 impl Walk<'_> {
@@ -307,7 +312,7 @@ impl Walk<'_> {
             frame.excluded = frame.excluded.saturating_add(1);
         } else {
             let item = (0, path, &timed);
-            record::record_item(self.build, self.counts, &|| None, item, row)?;
+            record::record_item(self.build, self.counts, &|| None, item, row, self.sharing)?;
         }
         Ok((row, timed.entry))
     }

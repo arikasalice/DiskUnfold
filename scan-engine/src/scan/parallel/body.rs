@@ -22,6 +22,10 @@ pub(super) fn run(
         correlated_budget,
     } = options;
     let root_count = roots.len();
+    let sharing = roots
+        .iter()
+        .map(|root| record::root_sharing(root.as_ref()))
+        .collect();
     let volumes = build.root_volumes();
     let disconnects = disconnect::Disconnects::new(root_count, &volumes);
     let mut reports = volume_reports::Reports::new(volumes);
@@ -70,6 +74,7 @@ pub(super) fn run(
         counted_roots,
         published: false,
         cadence: PublicationCadence::default(),
+        sharing,
     };
     let mut failure = None;
     thread::scope(|scope| {

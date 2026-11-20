@@ -34,6 +34,7 @@ fn complete_fixture() -> FactValues {
         attribution: Evidence::Known(Attribution {
             has_negative_flow: false,
         }),
+        basis_not_counted: false,
     }
 }
 
@@ -133,6 +134,38 @@ fn each_published_format_returns_its_first_missing_requirement_reason() {
         );
         assert_eq!(reason.key(), expected_reason_key(reason));
     }
+}
+
+// #149: absent item sizes name the basis only when the facts say the basis has no
+// evidence; only the item-size requirement looks at it.
+#[test]
+fn absent_item_sizes_on_a_basis_without_evidence_name_the_basis() {
+    let uncounted = FactValues {
+        item_sizes: Evidence::Absent,
+        numeric_values: Evidence::Absent,
+        basis_not_counted: true,
+        ..complete_fixture()
+    };
+    let (source, pinned_uncounted) = pinned(uncounted.clone());
+    for format in ["treemap", "histogram"] {
+        assert_eq!(
+            evaluate(format, &source, &pinned_uncounted),
+            Ok(Evaluation::Unavailable(Reason::BasisNotCounted)),
+            "{format}"
+        );
+    }
+    assert_eq!(
+        evaluate("bar", &source, &pinned_uncounted),
+        Ok(Evaluation::Unavailable(Reason::NoItemSizes))
+    );
+    let (source, pinned_sized) = pinned(FactValues {
+        item_sizes: Evidence::Known(()),
+        ..uncounted
+    });
+    assert_eq!(
+        evaluate("treemap", &source, &pinned_sized),
+        Ok(Evaluation::Available)
+    );
 }
 
 #[test]
@@ -246,6 +279,7 @@ fn the_five_published_unavailable_reason_keys_keep_their_spelling() {
         Reason::NoAttribution,
         Reason::NoItemSizes,
         Reason::NegativeFlow,
+        Reason::BasisNotCounted,
     ]
     .map(Reason::key);
     assert_eq!(
@@ -256,6 +290,7 @@ fn the_five_published_unavailable_reason_keys_keep_their_spelling() {
             "viz.unavailable.no_attribution",
             "viz.unavailable.no_item_sizes",
             "viz.unavailable.negative_flow",
+            "viz.unavailable.basis_not_counted",
         ]
     );
 }
@@ -267,5 +302,6 @@ fn expected_reason_key(reason: Reason) -> &'static str {
         Reason::NoAttribution => "viz.unavailable.no_attribution",
         Reason::NoItemSizes => "viz.unavailable.no_item_sizes",
         Reason::NegativeFlow => "viz.unavailable.negative_flow",
+        Reason::BasisNotCounted => "viz.unavailable.basis_not_counted",
     }
 }

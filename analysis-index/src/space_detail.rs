@@ -225,7 +225,10 @@ fn decide(
         return unknown("space.data_insufficient");
     }
     if !observation.is_some_and(|value| value.sharing == SharingEvidence::None) {
-        return unknown("space.sharing_unknown");
+        // DLD FR11.HD1.app-host.DD1: sharing evidence is not collected yet
+        // (attr.space_sharing is not implemented), so an unproven absence of sharing is
+        // "not collected", not "unsupported".
+        return unknown("space.sharing_not_collected");
     }
     if links.in_scope.is_some() && links.facts_consistent.is_none() {
         return unknown("space.data_insufficient");
