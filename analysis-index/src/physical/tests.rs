@@ -1,5 +1,71 @@
 use super::*;
 
+fn folder() -> ResultItem {
+    ResultItem {
+        item_no: 0,
+        parent: None,
+        name: vec![],
+        size: None,
+        kind: du_core_contracts::result::ResultItemKind::Directory,
+    }
+}
+
+fn file_value(bytes: u64) -> Known {
+    Known {
+        bytes,
+        lower: false,
+        sharing: SharingEvidence::None,
+    }
+}
+
+/// #270: a file whose identity occurs once is no sharing candidate, so any number
+/// of them stays exact under a small capacity.
+#[test]
+fn files_seen_once_do_not_reach_the_capacity() {
+    let mut sum = Physical::with_limit(1);
+    for bytes in [10, 20, 30] {
+        sum.add_known(&file_value(bytes));
+        sum.untabled.add(&file_value(bytes));
+    }
+    let mut aggregates =
+        crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
+    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
+    let exact = SizeAmount::Exact {
+        bytes: ByteSize::from(60),
+    };
+    assert_eq!(aggregates[0].allocated.amount, exact);
+    assert_eq!(aggregates[0].unique_physical.amount, exact);
+    assert!(!aggregates[0].limitations.contains(&"space.dedup_capacity"));
+}
+
+/// #270: over the capacity both totals are the lower bound of the files seen once;
+/// the candidates the table kept are left out, as they depend on the order.
+#[test]
+fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() {
+    let mut sum = Physical::with_limit(1);
+    sum.add_known(&file_value(7));
+    sum.untabled.add(&file_value(7));
+    for file in 1..=2 {
+        sum.insert(
+            FileIdentity {
+                volume: vec![1],
+                file: vec![file],
+            },
+            Some(file_value(100)),
+        );
+    }
+    let mut aggregates =
+        crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
+    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
+    let lower = SizeAmount::LowerBound {
+        bytes: ByteSize::from(7),
+    };
+    assert_eq!(aggregates[0].allocated.amount, lower);
+    assert_eq!(aggregates[0].unique_physical.amount, lower);
+    assert_eq!(aggregates[0].allocated.evidence, SizeEvidence::OsReported);
+    assert!(aggregates[0].limitations.contains(&"space.dedup_capacity"));
+}
+
 #[test]
 fn configured_capacity_deduplicates_and_rejects_new_identities() {
     let mut sum = Physical::with_limit(1);

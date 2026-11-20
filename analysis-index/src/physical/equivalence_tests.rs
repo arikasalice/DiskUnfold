@@ -1,8 +1,7 @@
 //! The whole-build folder totals must equal one identity table per subtree.
 //!
 //! The reference is the single-table calculation behind `scope_total`, run on
-//! the files below each item. Byte values stay small, so the one documented
-//! difference (overflow limitation of a capacity-exceeded subtree) cannot arise.
+//! the files below each item with the same repeated identities tabled.
 use super::*;
 use crate::space;
 use du_core_contracts::result::ResultItemKind;
@@ -253,6 +252,10 @@ fn reference(
     let mut expected: Vec<_> = (0..forest.items.len())
         .map(|index| expected_logical(&forest.items, index, completeness))
         .collect();
+    let repeated = forest
+        .observations
+        .as_deref()
+        .map(|observations| subtree::repeated_identities(&forest.items, observations));
     for (index, output) in expected.iter_mut().enumerate() {
         let mut sum = Physical::with_limit(limit);
         let files: Vec<usize> = (0..forest.items.len())
@@ -271,7 +274,8 @@ fn reference(
                 .observations
                 .as_ref()
                 .and_then(|values| values[*file].as_deref());
-            let _ = sum.observe(input);
+            let tabled = repeated.as_deref().is_none_or(|repeated| repeated[*file]);
+            let _ = sum.record(&Observed::read(input), tabled);
         }
         sum.finish(completeness, output);
     }

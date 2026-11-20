@@ -4,27 +4,41 @@ use super::*;
 
 impl Physical {
     pub(super) fn finish(&self, source: ResultCompleteness, output: &mut SpaceAggregate) {
-        let overflow = self.total > u128::from(u64::MAX);
-        let sharing_unknown = self.sharing_unknown > 0;
-        let lower = self.lower > 0;
+        let capacity_exceeded = self.capacity_exceeded();
+        // Over the capacity, which sharing candidates the table kept depends on the order
+        // of the observations. Only the files whose identity occurs once in the build are
+        // then summed: they share with no other file, so the sum is a lower bound of both
+        // totals that does not depend on the order (#270).
+        let (total, known, lower, sharing_unknown) = if capacity_exceeded {
+            let untabled = &self.untabled;
+            (
+                untabled.total,
+                untabled.count,
+                untabled.lower,
+                untabled.sharing_unknown,
+            )
+        } else {
+            (self.total, self.known, self.lower, self.sharing_unknown)
+        };
+        let overflow = total > u128::from(u64::MAX);
+        let sharing_unknown = sharing_unknown > 0;
+        let lower = lower > 0;
         let mut missing = self.missing || self.conflicts > 0;
-        let bytes = if self.known > 0 && !overflow {
-            u64::try_from(self.total).ok()
-        } else if self.known == 0 && !missing && source == ResultCompleteness::Complete {
+        let bytes = if known > 0 && !overflow {
+            u64::try_from(total).ok()
+        } else if known == 0
+            && !missing
+            && !capacity_exceeded
+            && source == ResultCompleteness::Complete
+        {
             Some(0)
         } else {
             None
         };
-        let capacity_exceeded = self.capacity_exceeded();
-        missing |= bytes.is_none() || capacity_exceeded;
-        let completeness = state(source, missing || lower || overflow);
+        missing |= bytes.is_none();
+        let completeness = state(source, missing || capacity_exceeded || lower || overflow);
         output.allocated_completeness = completeness;
-        output.allocated = amount(
-            SizeBasis::Allocated,
-            bytes,
-            completeness,
-            overflow || capacity_exceeded,
-        );
+        output.allocated = amount(SizeBasis::Allocated, bytes, completeness, overflow);
         output.unique_physical_completeness = state(completeness, sharing_unknown);
         output.unique_physical = if sharing_unknown || missing {
             amount(
@@ -41,7 +55,7 @@ impl Physical {
                 overflow,
             )
         };
-        if self.known == 0 && !missing && bytes == Some(0) {
+        if known == 0 && !missing && bytes == Some(0) {
             output.allocated.evidence = SizeEvidence::Measured;
             output.unique_physical.evidence = SizeEvidence::Measured;
         }

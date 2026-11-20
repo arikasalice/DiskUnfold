@@ -3,18 +3,14 @@
 //! A folder's totals come from the identity table of the files below it. An
 //! identity carried by only one file of the whole build cannot meet another
 //! observation of itself in any folder, so it never conflicts. Such an
-//! identity is summed into the folder's counters and counted toward the
-//! capacity limit, but it is not stored in the folder's table. Only identities
-//! seen twice or more are tabled and merged, which keeps the work and the
-//! memory of a large publication proportional to the repeated identities.
+//! identity is summed into the folder's counters but not stored in the folder's
+//! table, and it does not count toward the capacity limit (#270). Only
+//! identities seen twice or more are tabled and merged, which keeps the work and
+//! the memory of a large publication proportional to the repeated identities.
 //!
-//! The results equal those of one table per subtree, with one known
-//! difference: when a subtree exceeds the identity capacity and its allocation
-//! sum also exceeds `u64`, the `space.aggregation_overflow` limitation can
-//! differ. The old code stopped adding identities once its table was full, so
-//! its partial sum depended on the order of observations; this code adds every
-//! untabled identity. The allocated and unique-physical values are Unknown in
-//! that case either way.
+//! The results equal those of one table per subtree that tables the same
+//! repeated identities. Over the capacity both give the lower bound of the
+//! untabled identities, which does not depend on the order of observations.
 
 use super::*;
 use crate::folder_completion::ProvenFolders;
@@ -45,7 +41,7 @@ impl Eq for IdentityKey<'_> {}
 /// Marks every file whose usable identity also belongs to another file.
 ///
 /// Only files that `Physical::record` would put in an identity table count.
-fn repeated_identities(
+pub(super) fn repeated_identities(
     items: &[ResultItem],
     observations: &[Option<Arc<SpaceObservation>>],
 ) -> Vec<bool> {

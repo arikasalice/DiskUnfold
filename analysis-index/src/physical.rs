@@ -142,11 +142,6 @@ impl Physical {
             insertions: 0,
         }
     }
-    #[cfg(test)]
-    fn observe(&mut self, input: Option<&SpaceObservation>) -> Option<u64> {
-        self.record(&Observed::read(input), true)
-    }
-
     /// Notes a placeholder file whose missing allocation is due to its unreported
     /// local occupancy, so the total names that cause.
     fn note_placeholder(&mut self, observed: &Observed<'_>, placeholder: bool) {
@@ -306,17 +301,21 @@ impl Physical {
         }
     }
 
-    /// Whether the scope has more distinct identities than the table limit.
+    /// Whether the scope has more sharing candidates than the table limit.
     ///
-    /// The table itself never holds more than `limit` entries. Untabled
-    /// identities are distinct from every tabled one, so they count in full.
+    /// The table never holds more than `limit` entries. An untabled identity occurs
+    /// once in the build, so it is no candidate and is not counted: it needs no
+    /// table entry, and counting it made every scope of more than `limit` files
+    /// lose its allocation (#270).
     fn capacity_exceeded(&self) -> bool {
         self.capacity_exceeded
-            || self.untabled.count.saturating_add(self.identities.len()) > self.limit
     }
 }
 
 /// Computes the scope-wide physical total with one shared identity table.
+///
+/// Like the folder totals, only identities that occur more than once in the build
+/// are tabled and count toward the capacity.
 pub(crate) fn scope_total(
     items: &[ResultItem],
     evidence: FileEvidence<'_>,
@@ -326,6 +325,9 @@ pub(crate) fn scope_total(
     output: &mut SpaceAggregate,
 ) {
     let mut sum = Physical::with_limit(limit);
+    let repeated = evidence
+        .observations
+        .map(|observations| subtree::repeated_identities(items, observations));
     for item in items {
         let index = item.item_no as usize;
         if !is_structure(item.kind) && boundary.binary_search(&item.item_no).is_err() {
@@ -335,7 +337,8 @@ pub(crate) fn scope_total(
                     .and_then(|values| values[index].as_deref()),
             );
             sum.note_placeholder(&observed, local_unknown(evidence.placeholders, index));
-            let _ = sum.record(&observed, true);
+            let tabled = repeated.as_deref().is_none_or(|repeated| repeated[index]);
+            let _ = sum.record(&observed, tabled);
         }
     }
     sum.finish(completeness, output);
