@@ -968,6 +968,7 @@
     ["ui.visualization.revisionUnverified","표시된 결과를 다시 확인하지 못했습니다. 선택한 결과를 확인하려면 그래프를 다시 여세요.",[]],
     ["ui.visualization.rowNotes","비고",[]],
     ["ui.visualization.rowRange","{total}개 중 {start}–{end}번째 행",[["start","count"],["end","count"],["total","count"]]],
+    ["ui.visualization.rangesOnePage",{"kind":"plural","parameter":"count","variants":{"other":"구간 {count}개"}},[["count","count"]]],
     ["ui.visualization.rowsBySizeRange","크기 구간별 항목",[]],
     ["ui.visualization.rowsFailed","행을 불러오지 못했습니다.",[]],
     ["ui.visualization.rowsFromGraph","이 폴더의 항목",[]],

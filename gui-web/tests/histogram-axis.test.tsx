@@ -133,5 +133,14 @@ test.each([
       say(title),
     );
     expect(screen.getByRole("button", { name: "axis" })).toBeTruthy();
+    // The rows of a histogram are size ranges, and the line above its table counts ranges.
+    expect(
+      screen.getByText(
+        say("rangesOnePage").replace(
+          "{count}",
+          String(input.page.response.totalCount),
+        ),
+      ),
+    ).toBeTruthy();
   },
 );

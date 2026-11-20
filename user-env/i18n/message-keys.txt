@@ -951,6 +951,7 @@ ui.visualization.revisionStale
 ui.visualization.revisionUnverified
 ui.visualization.rowNotes
 ui.visualization.rowRange start:count end:count total:count
+ui.visualization.rangesOnePage count:count
 ui.visualization.rowsBySizeRange
 ui.visualization.rowsFailed
 ui.visualization.rowsFromGraph

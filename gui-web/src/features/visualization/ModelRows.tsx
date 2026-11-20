@@ -186,7 +186,7 @@ export function ModelRows({
             {vizMessage(text, "ratioDenominator", { value: sharedDenominator })}
           </Text>
         )}
-        <Text>{pageWords(page, paged, text)}</Text>
+        <Text>{pageWords(page, paged, text, model)}</Text>
         <DataTable
           label={rowTitle}
           density="compact"
@@ -235,13 +235,23 @@ function defaultTitle(model: VizModel | undefined, text: VizText) {
 }
 
 /** The line above the table: how many items, or which of them this page shows. */
-function pageWords(page: ModelRowsPage, paged: boolean, text: VizText) {
+function pageWords(
+  page: ModelRowsPage,
+  paged: boolean,
+  text: VizText,
+  model: VizModel | undefined,
+) {
   const { request, response } = page;
   if (response.rows.length === 0) return text.message("noRowsInPage");
   if (!paged)
-    return vizMessage(text, "rowsOnePage", {
-      count: String(response.totalCount),
-    });
+    // A histogram's rows are size ranges; counting them as items would read as the scope's item count.
+    return vizMessage(
+      text,
+      model?.representation.format === "histogram"
+        ? "rangesOnePage"
+        : "rowsOnePage",
+      { count: String(response.totalCount) },
+    );
   return vizMessage(text, "rowRange", {
     start: String(request.start + 1),
     end: String(request.start + response.rows.length),

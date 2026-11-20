@@ -968,6 +968,7 @@
     ["ui.visualization.revisionUnverified","Could not recheck a displayed result. Reopen the chart to check the selected result.",[]],
     ["ui.visualization.rowNotes","Notes",[]],
     ["ui.visualization.rowRange","Rows {start}–{end} of {total}",[["start","count"],["end","count"],["total","count"]]],
+    ["ui.visualization.rangesOnePage",{"kind":"plural","parameter":"count","variants":{"one":"{count} range","other":"{count} ranges"}},[["count","count"]]],
     ["ui.visualization.rowsBySizeRange","Items by size range",[]],
     ["ui.visualization.rowsFailed","Rows could not be loaded.",[]],
     ["ui.visualization.rowsFromGraph","Items in this folder",[]],
