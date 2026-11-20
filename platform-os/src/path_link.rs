@@ -5,21 +5,25 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The first symbolic link in a path and the path suggested after resolving it.
+/// The first symbolic link in a path, its target, and an optional resolved path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathLink {
     /// The symbolic-link prefix as it appeared in the inspected path.
     pub link: PathBuf,
-    /// The fully resolved target of the link prefix.
+    /// The resolved target of the link prefix, or its stored target when it cannot be resolved.
     pub target: PathBuf,
-    /// The resolved target followed by the remaining path components.
-    pub suggestion: PathBuf,
+    /// The fully resolved path, or the resolved link target followed by remaining components.
+    /// `None` means neither form could be resolved.
+    pub suggestion: Option<PathBuf>,
 }
 
 /// Finds the first symbolic-link prefix of an absolute path without opening folders.
 ///
-/// Only metadata is read before resolving the first link. Any metadata or
-/// canonicalization error returns `None`, as does a relative input path.
+/// Only metadata is read before resolving the first link. The link's stored
+/// target is used when it cannot be canonicalized. The suggestion first tries
+/// to canonicalize the whole path, then the link prefix; if both fail it is
+/// absent. Any metadata error before finding a link returns `None`, as does a
+/// relative input path.
 pub fn first_symbolic_link(path: &Path) -> Option<PathLink> {
     if !path.is_absolute() {
         return None;
@@ -31,11 +35,16 @@ pub fn first_symbolic_link(path: &Path) -> Option<PathLink> {
         prefix.push(component.as_os_str());
         let metadata = fs::symlink_metadata(&prefix).ok()?;
         if metadata.file_type().is_symlink() {
-            let target = fs::canonicalize(&prefix).ok()?;
-            let mut suggestion = target.clone();
-            for remainder in &components[index + 1..] {
-                suggestion.push(remainder.as_os_str());
-            }
+            let target = fs::canonicalize(&prefix)
+                .or_else(|_| fs::read_link(&prefix))
+                .ok()?;
+            let suggestion = fs::canonicalize(path).ok().or_else(|| {
+                let mut suggestion = fs::canonicalize(&prefix).ok()?;
+                for remainder in &components[index + 1..] {
+                    suggestion.push(remainder.as_os_str());
+                }
+                Some(suggestion)
+            });
             return Some(PathLink {
                 link: prefix,
                 target,
@@ -96,13 +105,38 @@ mod tests {
     }
 
     #[test]
-    fn returns_none_for_a_dangling_link() -> Result<(), Box<dyn Error>> {
+    fn reports_a_dangling_link_without_a_resolved_suggestion() -> Result<(), Box<dyn Error>> {
         let directory = tempfile::tempdir()?;
         let base = fs::canonicalize(directory.path())?;
         let link = base.join("dangling");
-        symlink(base.join("missing"), &link)?;
+        let target = base.join("missing");
+        symlink(&target, &link)?;
 
-        assert!(first_symbolic_link(&link).is_none());
+        let found = first_symbolic_link(&link).ok_or("link not found")?;
+        assert_eq!(found.link, link);
+        assert_eq!(found.target, fs::read_link(&link)?);
+        assert_eq!(found.suggestion, None);
+        Ok(())
+    }
+
+    #[test]
+    fn suggestion_resolves_a_later_link_in_the_path() -> Result<(), Box<dyn Error>> {
+        let directory = tempfile::tempdir()?;
+        let base = fs::canonicalize(directory.path())?;
+        let real = base.join("real");
+        fs::create_dir_all(&real)?;
+        let final_target = base.join("final");
+        fs::create_dir_all(final_target.join("child"))?;
+        let second_link = real.join("second");
+        symlink(&final_target, &second_link)?;
+        let first_link = base.join("first");
+        symlink(&real, &first_link)?;
+        let path = first_link.join("second").join("child");
+
+        let found = first_symbolic_link(&path).ok_or("link not found")?;
+        assert_eq!(found.link, first_link);
+        assert_eq!(found.suggestion, Some(fs::canonicalize(&path)?));
+        assert_eq!(found.suggestion, Some(final_target.join("child")));
         Ok(())
     }
 }

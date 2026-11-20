@@ -421,15 +421,22 @@ fn path_link_message(scan: &Scan, message: &Messages<'_>) -> Option<String> {
         };
         let link = path_link.link.to_string_lossy();
         let target = path_link.target.to_string_lossy();
-        let suggestion = path_link.suggestion.to_string_lossy();
-        return Some(message.render_names(
-            "cli.scan.path_through_link",
-            &[
-                ("link", &link),
-                ("target", &target),
-                ("suggestion", &suggestion),
-            ],
-        ));
+        return Some(if let Some(suggestion) = path_link.suggestion.as_deref() {
+            let suggestion = suggestion.to_string_lossy();
+            message.render_names(
+                "cli.scan.path_through_link",
+                &[
+                    ("link", &link),
+                    ("target", &target),
+                    ("suggestion", &suggestion),
+                ],
+            )
+        } else {
+            message.render_names(
+                "cli.scan.path_through_link_unresolved",
+                &[("link", &link), ("target", &target)],
+            )
+        });
     }
     None
 }

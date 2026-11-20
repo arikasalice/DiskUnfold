@@ -160,6 +160,7 @@ fn a_path_that_does_not_exist_is_a_usage_error_with_an_empty_stdout()
     let errors = String::from_utf8_lossy(&stderr);
     assert_eq!(errors.lines().count(), 1, "{errors}");
     assert_ne!(exit, ExitCode::SUCCESS, "{errors}");
+    assert!(errors.contains("A path cannot be analyzed."), "{errors}");
     Ok(())
 }
 
@@ -196,16 +197,58 @@ fn a_path_through_a_symbolic_link_explains_the_resolved_scan_path()
     assert!(stdout.is_empty());
     assert!(errors.contains("path.unresolvable"), "{errors}");
     assert!(
-        errors.contains(&link.to_string_lossy().to_string()),
+        errors.contains(&format!(
+            "Link: {} -> {}.",
+            link.display(),
+            target.display()
+        )),
         "{errors}"
     );
     assert!(
-        errors.contains(&target.to_string_lossy().to_string()),
+        errors.contains(&format!("Scan this path instead: {}", root.display())),
         "{errors}"
     );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_link_reports_its_target_without_a_suggestion()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::symlink;
+
+    let folder = tempfile::tempdir()?;
+    let base = fs::canonicalize(folder.path())?;
+    let link = base.join("dangling");
+    let target = base.join("missing");
+    symlink(&target, &link)?;
+    let registry = embedded::register(&[]).map_err(|error| format!("{error:?}"))?;
+    let message = Messages::new(&registry, "en");
+    let scan = scan(&[&link.to_string_lossy()])?;
+    let engine = engine()?;
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+
+    let exit = run(
+        &engine,
+        &scan,
+        scan.format(),
+        &message,
+        &mut stdout,
+        &mut stderr,
+    );
+
+    let errors = String::from_utf8_lossy(&stderr);
+    assert_eq!(exit, ExitCode::from(2), "{errors}");
+    assert!(stdout.is_empty());
+    assert!(errors.contains("Scans don't follow links."), "{errors}");
     assert!(
-        errors.contains(&root.to_string_lossy().to_string()),
+        errors.contains(&format!(
+            "Link: {} -> {}.",
+            link.display(),
+            target.display()
+        )),
         "{errors}"
     );
+    assert!(!errors.contains("Scan this path instead:"), "{errors}");
     Ok(())
 }
