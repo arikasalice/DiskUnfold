@@ -59,6 +59,19 @@
 - 운영 체제가 들어가야 뜻이 통하는 곳(지원 정보의 운영 체제 이름, 설치 형태 「Windows 설치 프로그램(MSI)」)은 그대로 둔다.
 - 구현은 문구 키를 운영 체제별로 고르는 방식(예: ui.analysis.drives.macos)이다. 화면이 운영 체제 이름으로 분기하지 않고, 지역 형식처럼 호스트가 고른 말을 받는다.
 
+확정 (같은 날, F03 정적 조사와 대조): 위 표의 키 17개는 F03 조사와 같다. 다음을 더한다.
+
+| 뜻 | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| 첫 경로 칸 예시 | 예: C:\Users\민서\문서 | 예: /Users/minseo/Documents | 예: /home/minseo/문서 |
+| 추가 경로 칸 예시 | 예: D:\사진 | 예: /Volumes/백업 | 예: /mnt/백업 |
+| 휴지통 (ko) | 휴지통 | 휴지통 | 휴지통 |
+| 휴지통 (en) | Recycle Bin | Trash | Trash |
+
+- 추가 경로 칸은 첫 칸과 다른 예시를 쓴다. 같은 경로가 두 칸에 보이면 이미 입력된 것처럼 읽힌다. 예시는 칸 이름을 대신하지 않는다. 칸 이름 「폴더 경로」는 늘 보인다.
+- ui.history.check_os_trash: ko는 「휴지통을 직접 확인하세요」로 고친다. 「운영 체제 휴지통」은 사용자 말이 아니다. en은 Windows에서 "Check the Recycle Bin yourself", macOS·Linux에서 "Check the Trash yourself"다. time_moved_to_trash의 en도 같은 규칙으로 고른다.
+- 문구 고르기: 호스트가 windows·macos·linux 중 하나를 알려 주고, 화면의 한 모듈이 키를 다음 순서로 찾는다. 운영 체제 변형 키(…macos)가 먼저이고, 없으면 경로 체계 변형 키(…unix), 그것도 없으면 기본 키다. 예시 문구는 macOS와 Linux가 달라서 경로 체계(windows·unix) 하나로는 모자란다. 지원 정보가 이미 받는 운영 체제 구분(osFamily)과 같은 값을 쓴다.
+
 ## 바뀐 기록
 
 - 2026-11-15, PR #73(병합): 스캔을 뜻하던 "검사" 23개를 "스캔"으로, 행 메뉴의 "검사"(Inspect)를 "상세 보기"로 바꿨다. 근거는 F02 README 19번.
