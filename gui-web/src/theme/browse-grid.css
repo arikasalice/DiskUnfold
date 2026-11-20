@@ -347,6 +347,10 @@
 .du-browse-header > .du-notice {
   padding: 6px 8px;
 }
+.du-browse-results__notice-lines {
+  display: grid;
+  gap: var(--du-space-1);
+}
 /* Expanded context and failures may grow; let the document scroll instead of
    reducing the virtual list to an unusable sliver. */
 .du-app[data-browse-open]:has(

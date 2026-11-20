@@ -745,6 +745,9 @@ ui.browse.item_actions name:name
 ui.browse.item_count count:count
 ui.browse.item_count_at_least count:count
 ui.browse.scan_status_not_read
+ui.browse.scan_status_unread_inside_one
+ui.browse.scan_status_unread_inside_count count:count
+ui.browse.scan_status_unread_inside_some
 ui.browse.scan_status_other_volume
 ui.browse.scan_status_already_counted
 ui.browse.origin_scan
@@ -784,6 +787,10 @@ ui.browse.reopen_folder
 ui.browse.reopening_folder
 ui.browse.result
 ui.browse.results_incomplete
+ui.browse.lower_bound_evidence_not_recorded
+ui.browse.lower_bound_evidence_budget_exceeded
+ui.browse.lower_bound_unexplained
+ui.browse.lower_bound_dedup_capacity
 ui.browse.retry
 ui.browse.retry_page
 ui.browse.retrying

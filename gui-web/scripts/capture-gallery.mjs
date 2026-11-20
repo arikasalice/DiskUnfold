@@ -8,6 +8,7 @@
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder]
+//   npm run capture:browse-gallery -- [output folder] notice
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -27,7 +28,7 @@ const gui = fileURLToPath(new URL("..", import.meta.url));
 const surfaces = {
   // 4 + 1 + 2 location cells: the main record and the two count sentence records.
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
-  browse: { ready: ".du-browse-grid__row", count: 6, pointer: false },
+  browse: { ready: ".du-browse-grid__row", count: 3, pointer: false },
   "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
 };
 const surface = process.argv[2];
@@ -38,7 +39,7 @@ const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
-const shots =
+const galleryShots =
   surface === "scan-lanes"
     ? [
         { name: "light-1280", theme: "light", width: 1280 },
@@ -51,6 +52,13 @@ const shots =
         { name: "dark-1280", theme: "dark", width: 1280 },
         { name: "light-700", theme: "light", width: 700 },
       ];
+const noticeOnly = surface === "browse" && process.argv[4] === "notice";
+const shots = noticeOnly
+  ? [
+      { name: "notice-light-1280", theme: "light", width: 1280 },
+      { name: "notice-light-700", theme: "light", width: 700 },
+    ]
+  : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -180,7 +188,7 @@ function cutCell() {
 }
 
 /** Opens the gallery's surface in a theme and waits until it is drawn. */
-async function open(session, base, theme, width, scene) {
+async function open(session, base, theme, width, scene, query = "") {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
     height,
@@ -198,7 +206,8 @@ async function open(session, base, theme, width, scene) {
       surface +
       "&theme=" +
       theme +
-      (scene ? "&scene=" + scene : ""),
+      (scene ? "&scene=" + scene : "") +
+      query,
   });
   await loaded;
   if (surface === "scan-lanes") {
@@ -278,7 +287,14 @@ try {
   const session = await page(port);
   await session.send("Page.enable");
   for (const shot of shots) {
-    await open(session, base, shot.theme, shot.width);
+    await open(
+      session,
+      base,
+      shot.theme,
+      shot.width,
+      undefined,
+      noticeOnly ? "&notice=1" : "",
+    );
     if (surface === "scan-lanes") await saveLanes(session, shot.name);
     else await save(session, shot.name);
   }
@@ -304,6 +320,10 @@ try {
     await saveLanes(session, "light-1280-expanded");
     await open(session, base, "light", 1280, "one-lane");
     await saveLanes(session, "light-1280-one-lane");
+  }
+  if (surface === "browse" && !noticeOnly) {
+    await open(session, base, "light", 1280, undefined, "&notice=1");
+    await save(session, "notice-light-1280");
   }
   if (pointer) {
     await open(session, base, "light", 1280);

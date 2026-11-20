@@ -10,6 +10,7 @@ export function createBrowsePort(
   let disposed = false;
   let region: { id: Promise<Id>; closed: boolean } | undefined;
   let offset = 0;
+  let totalRequestSeq = 0;
   const closeRegion = (entry: NonNullable<typeof region>) => {
     if (entry.closed) return;
     entry.closed = true;
@@ -77,6 +78,12 @@ export function createBrowsePort(
       if (region) closeRegion(region);
     },
     page: (request) => client.call("query.page", request),
+    spaceTotal: (resultVersion) =>
+      client.call("space.total", {
+        resultVersion,
+        target: { kind: "scope_root" },
+        requestSeq: ++totalRequestSeq,
+      }),
     copyPath: (item) =>
       client.call("browse.copy_path", {
         resultVersion: item.resultVersion,

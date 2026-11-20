@@ -4915,11 +4915,19 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
   };
   await startFixtureScan(client);
   await screen.findByText("At least 42 bytes");
+  const totalsBeforeBrowse = base.calls.filter(
+    ({ name }) => name === "space.total",
+  ).length;
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   const defaultFile = await screen.findByRole("button", {
     name: "Sample file",
   });
   expect(defaultFile.closest('[role="row"]')?.textContent).toContain("1.1 kB");
+  await waitFor(() =>
+    expect(
+      base.calls.filter(({ name }) => name === "space.total"),
+    ).toHaveLength(totalsBeforeBrowse + 1),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   fireEvent.click(screen.getByRole("button", { name: "Display options" }));
   const totalsBefore = base.calls.filter(
@@ -4933,6 +4941,11 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
   );
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   const file = await screen.findByRole("button", { name: "Sample file" });
+  await waitFor(() =>
+    expect(
+      base.calls.filter(({ name }) => name === "space.total"),
+    ).toHaveLength(totalsBefore + 1),
+  );
   const row = file.closest('[role="row"]');
   expect(row?.textContent).toContain("1.1 KiB");
   fireEvent.click(file);
@@ -4952,7 +4965,7 @@ test("F03 F05: temporary units follow the pinned result into browse and inspecti
       .value,
   ).toBe("iec");
   expect(base.calls.filter(({ name }) => name === "space.total")).toHaveLength(
-    totalsBefore,
+    totalsBefore + 1,
   );
   fireEvent.click(screen.getByRole("button", { name: "Analyze again" }));
   fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));

@@ -2,18 +2,27 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
-import { scanStatus, size } from "../src/features/browse/browse-cells";
+import {
+  browseNotice,
+  hasDedupCapacityLowerBound,
+  scanStatus,
+  size,
+} from "../src/features/browse/browse-cells";
 import type { LocaleText } from "../src/i18n/presentation";
+import { interpolate } from "../src/i18n/presentation";
 import type {
   BrowseOpenResponse,
   FolderQueryPage,
   FolderQueryRow,
+  SizeValue,
+  SpaceTotal,
 } from "../src/ipc";
 import { BrowsePages } from "../src/state/browse-pages";
 
 afterEach(cleanup);
 
-const text: LocaleText = (_key, fallback) => fallback;
+const text: LocaleText = (_key, fallback, values) =>
+  interpolate(fallback, (name) => String(values?.[name] ?? "Unknown"));
 const id = "018f0000-0000-7000-8000-000000000002";
 type Flags = FolderQueryRow["flags"];
 const inProgress = { state: "unknown", reasonKey: "scan.in_progress" } as const;
@@ -110,6 +119,181 @@ test("a file row, which carries no boundary, has a blank scan status", () => {
   expect(scanStatus(row(1, {}, "file"), text)).toBe("");
 });
 
+test.each([
+  ["omitted", undefined, ""],
+  ["unknown while scanning", inProgress, ""],
+  ["absent", { state: "absent" }, ""],
+  [
+    "one unread range",
+    { state: "present", value: { count: "1" } },
+    "1 location inside not read",
+  ],
+  [
+    "several unread ranges",
+    { state: "present", value: { count: "3" } },
+    "3 locations inside not read",
+  ],
+  [
+    "an uncounted unread range",
+    { state: "present", value: {} },
+    "Some locations inside not read",
+  ],
+] as [string, Flags["unreadInside"] | undefined, string][])(
+  "unreadInside mark for %s",
+  (_case, unreadInside, expected) => {
+    expect(
+      scanStatus(
+        row(1, unreadInside === undefined ? {} : { unreadInside }),
+        text,
+      ),
+    ).toBe(expected);
+  },
+);
+
+test("a folder not read itself keeps only its existing mark", () => {
+  expect(
+    scanStatus(
+      row(1, {
+        unenumerated: unread,
+        unreadInside: { state: "present", value: { count: "3" } },
+      }),
+      text,
+    ),
+  ).toBe("Contents not read");
+});
+
+test("unread ranges join other row marks with the existing middle dot", () => {
+  expect(
+    scanStatus(
+      row(1, {
+        boundary: boundary("other_volume"),
+        unreadInside: { state: "present", value: { count: "3" } },
+      }),
+      text,
+    ),
+  ).toBe("3 locations inside not read · Other volume");
+});
+
+test("an unread-inside folder uses the existing minimum size presentation", () => {
+  const value = {
+    state: "present",
+    value: {
+      basis: "allocated",
+      evidence: "os_reported",
+      state: "lower_bound",
+      bytes: "4096",
+    },
+  } as const;
+  expect(
+    size(
+      row(1, { unreadInside: { state: "present", value: { count: "3" } } }),
+      value,
+      { system: "iec", unit: "auto" },
+      text,
+    ),
+  ).toBe("At least 4.0 KiB");
+});
+
+test.each([
+  [
+    "scan.evidence_not_recorded",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+  ],
+  [
+    "scan.evidence_budget_exceeded",
+    "There were too many folders to record whether each was read completely. Sizes and counts for those folders are minimums.",
+  ],
+  [
+    "scan.lower_bound_unexplained",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums.",
+  ],
+  [
+    "unknown.future_reason",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums.",
+  ],
+])("lower-bound notice for %s", (key, expected) => {
+  expect(browseNotice(false, [key], false, text)).toEqual([expected]);
+});
+
+test("the browse notice keeps two reasons on separate lines in order", () => {
+  expect(
+    browseNotice(false, ["scan.evidence_not_recorded"], true, text),
+  ).toEqual([
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
+});
+
+test("the browse notice puts the incomplete headline before both reasons", () => {
+  expect(
+    browseNotice(true, ["scan.evidence_not_recorded"], true, text),
+  ).toEqual([
+    "Results are incomplete.",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
+});
+
+test("the browse notice shows only the headline for an incomplete result", () => {
+  expect(browseNotice(true, [], false, text)).toEqual([
+    "Results are incomplete.",
+  ]);
+});
+
+function spaceTotal(sizes: SpaceTotal["sizes"]): SpaceTotal {
+  return {
+    resultVersion: id,
+    requestSeq: 1,
+    sizes,
+    completeness: "complete",
+    missingItems: null,
+    inaccessibleRanges: null,
+    untraversedLinks: null,
+  };
+}
+
+function totalSize(
+  basis: SizeValue["basis"],
+  lowerBound: boolean,
+  measurementLimits: string[],
+): SpaceTotal["sizes"][number] {
+  return {
+    size: {
+      basis,
+      evidence: "os_reported",
+      state: lowerBound ? "lower_bound" : "exact",
+      bytes: "4096",
+    },
+    completeness: "complete",
+    measurementLimits,
+  };
+}
+
+test.each(["allocated", "unique_physical"] as const)(
+  "shows the file-identity notice only for a %s lower bound with its measurement limit",
+  (basis) => {
+    const limited = spaceTotal([
+      totalSize(basis, true, ["space.dedup_capacity"]),
+    ]);
+    const exact = spaceTotal([
+      totalSize(basis, false, ["space.dedup_capacity"]),
+    ]);
+    const unexplained = spaceTotal([totalSize(basis, true, [])]);
+    expect(hasDedupCapacityLowerBound(limited)).toBe(true);
+    expect(
+      browseNotice(false, [], hasDedupCapacityLowerBound(limited), text),
+    ).toEqual([
+      "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+    ]);
+    expect(hasDedupCapacityLowerBound(exact)).toBe(false);
+    expect(hasDedupCapacityLowerBound(unexplained)).toBe(false);
+  },
+);
+
+test("no browse notice appears when no incomplete result or lower bound applies", () => {
+  expect(browseNotice(false, [], false, text)).toBeUndefined();
+});
+
 test("a zero size of a folder the scan did not enter reads as not counted", () => {
   const display = { system: "iec", unit: "auto" } as const;
   const sized = (flags: Partial<Flags>, bytes: string) => {
@@ -142,7 +326,9 @@ test("a list keeps the scan status column once a row carried the boundary", () =
   expect(pages.boundaries).toBe(true);
 });
 
-function opened(rows: FolderQueryRow[]): BrowseOpenResponse {
+function opened(
+  rows: FolderQueryRow[],
+): Extract<BrowseOpenResponse, { kind: "opened" }> {
   return {
     kind: "opened",
     requestSeq: 1,
@@ -164,10 +350,14 @@ function opened(rows: FolderQueryRow[]): BrowseOpenResponse {
   };
 }
 
-function show(response: BrowseOpenResponse) {
+function show(
+  response: BrowseOpenResponse,
+  spaceTotal?: BrowsePort["spaceTotal"],
+) {
   const port: BrowsePort = {
     open: vi.fn().mockResolvedValue(response),
     page: vi.fn(),
+    ...(spaceTotal ? { spaceTotal } : {}),
   };
   render(<BrowsePanel port={port} resultVersion={id} />);
 }
@@ -194,6 +384,7 @@ test("the browse table shows the recorded marks and leaves unproven folders blan
     within(cells("Folder 3")).queryByText(/Unknown|Contents not read/),
   ).toBeNull();
   expect(screen.queryByText(/excluded/)).toBeNull();
+  expect(screen.queryByText("Results are incomplete.")).toBeNull();
 });
 
 test("a response without the boundary has no scan status column", async () => {
@@ -202,4 +393,34 @@ test("a response without the boundary has no scan status column", async () => {
   expect(
     screen.queryByRole("columnheader", { name: "Scan status" }),
   ).toBeNull();
+});
+
+test("the browse notice uses one region with a separate line for each sentence", async () => {
+  const response = opened([row(1, {})]);
+  response.page.completeness = "partial";
+  response.page.unexplainedLowerBound = "scan.evidence_not_recorded";
+  const readTotal = vi
+    .fn()
+    .mockResolvedValue(
+      spaceTotal([totalSize("allocated", true, ["space.dedup_capacity"])]),
+    );
+  show(response, readTotal);
+  await screen.findByText(
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  );
+  const headline = await screen.findByText("Results are incomplete.");
+  const notice = headline.closest(".du-notice");
+  const lines = notice?.querySelector(".du-browse-results__notice-lines");
+  expect(notice?.getAttribute("role")).toBe("status");
+  expect(
+    document.querySelectorAll('.du-browse-results > [role="status"]'),
+  ).toHaveLength(1);
+  expect(
+    Array.from(lines?.children ?? []).map((line) => line.textContent),
+  ).toEqual([
+    "Results are incomplete.",
+    "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+    "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+  ]);
+  expect(readTotal).toHaveBeenCalledWith(id);
 });

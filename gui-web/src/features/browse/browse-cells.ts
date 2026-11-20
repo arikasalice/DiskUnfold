@@ -1,4 +1,4 @@
-import type { FolderQueryRow } from "../../ipc";
+import type { FolderQueryRow, SpaceTotal } from "../../ipc";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
@@ -52,6 +52,16 @@ export function size(
   return `${lowerBound ? `${text("ui.browse.at_least", "At least")} ` : ""}${readable}`;
 }
 
+/** Whether the result-level identity limit explains a displayed physical-size lower bound. */
+export function hasDedupCapacityLowerBound(total: SpaceTotal): boolean {
+  return total.sizes.some(
+    ({ size, measurementLimits }) =>
+      (size.basis === "allocated" || size.basis === "unique_physical") &&
+      size.state === "lower_bound" &&
+      measurementLimits.includes("space.dedup_capacity"),
+  );
+}
+
 /** The disabled reason of the copy action: the host's reason first, else "Unavailable now". */
 export function copyDisabled(
   hostReason: string | undefined,
@@ -77,10 +87,35 @@ export function copyDisabled(
  * blank as well.
  */
 export function scanStatus(row: FolderQueryRow, text: LocaleText): string {
-  const { unenumerated, boundary } = row.flags;
+  const { unenumerated, boundary, unreadInside } = row.flags;
   const labels: string[] = [];
-  if (unenumerated.state === "present" && unenumerated.value)
+  const notRead = unenumerated.state === "present" && unenumerated.value;
+  if (notRead)
     labels.push(text("ui.browse.scan_status_not_read", "Contents not read"));
+  if (
+    row.kind === "directory" &&
+    !notRead &&
+    unreadInside?.state === "present"
+  ) {
+    const count = unreadInside.value.count;
+    labels.push(
+      count === undefined
+        ? text(
+            "ui.browse.scan_status_unread_inside_some",
+            "Some locations inside not read",
+          )
+        : count === "1"
+          ? text(
+              "ui.browse.scan_status_unread_inside_one",
+              "1 location inside not read",
+            )
+          : text(
+              "ui.browse.scan_status_unread_inside_count",
+              "{count} locations inside not read",
+              { count },
+            ),
+    );
+  }
   if (boundary?.state === "present" && boundary.value === "other_volume")
     labels.push(text("ui.browse.scan_status_other_volume", "Other volume"));
   if (boundary?.state === "present" && boundary.value === "already_counted")
@@ -88,4 +123,42 @@ export function scanStatus(row: FolderQueryRow, text: LocaleText): string {
       text("ui.browse.scan_status_already_counted", "Counted at another path"),
     );
   return labels.join(" · ");
+}
+
+/** One notice for incomplete results and lower bounds with no row reason. */
+export function browseNotice(
+  incomplete: boolean,
+  unexplainedLowerBounds: readonly string[],
+  dedupCapacityLowerBound: boolean,
+  text: LocaleText,
+): string[] | undefined {
+  const lines: string[] = [];
+  if (incomplete)
+    lines.push(text("ui.browse.results_incomplete", "Results are incomplete."));
+  for (const key of new Set(unexplainedLowerBounds)) {
+    lines.push(
+      key === "scan.evidence_not_recorded"
+        ? text(
+            "ui.browse.lower_bound_evidence_not_recorded",
+            "This result doesn't record whether folders were read completely, so some sizes and counts are minimums. Analyze again to see exact values.",
+          )
+        : key === "scan.evidence_budget_exceeded"
+          ? text(
+              "ui.browse.lower_bound_evidence_budget_exceeded",
+              "There were too many folders to record whether each was read completely. Sizes and counts for those folders are minimums.",
+            )
+          : text(
+              "ui.browse.lower_bound_unexplained",
+              "This result doesn't record whether folders were read completely, so some sizes and counts are minimums.",
+            ),
+    );
+  }
+  if (dedupCapacityLowerBound)
+    lines.push(
+      text(
+        "ui.browse.lower_bound_dedup_capacity",
+        "There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums.",
+      ),
+    );
+  return lines.length > 0 ? lines : undefined;
 }

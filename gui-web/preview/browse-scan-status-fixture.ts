@@ -1,11 +1,14 @@
-import type { BrowseOpenResponse, FolderQueryRow, SizeValue } from "../src/ipc";
+import type {
+  BrowseOpenResponse,
+  FolderQueryRow,
+  SizeValue,
+  SpaceTotal,
+} from "../src/ipc";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
 
 /*
- * Synthetic folder rows of one finished scan for the browse table's "Scan
- * status" column (F02 README "#133 「스캔 상태」 열"). A runner cannot make a
- * folder on another volume or one counted at another path, so the gallery
- * shows every mark together. Never imported by the product entry.
+ * Synthetic folder rows for the browse lower-bound states. Never imported by
+ * the product entry.
  */
 
 export const browseVersion = "0193f000-0000-7000-8000-000000000133";
@@ -56,45 +59,39 @@ function row(
 const folder = (
   boundary: NonNullable<FolderQueryRow["flags"]["boundary"]>,
   unread = false,
+  unreadInside?: NonNullable<FolderQueryRow["flags"]["unreadInside"]>,
 ): FolderQueryRow["flags"] => ({
   unenumerated: unread ? notRead : unproven,
   excluded: read,
   boundary,
+  ...(unreadInside ? { unreadInside } : {}),
 });
 
-/** One row a mark, a folder read normally and a file, in one table. */
+/** Ancestor mark, self unread, and an exact folder in one table. */
 export const browseRows: FolderQueryRow[] = [
-  row(1, "프로젝트", "directory", "734003200", folder(unproven)),
-  row(2, "권한 없는 폴더", "directory", "4096", folder(unproven, true), true),
   row(
-    3,
-    "취소로 남은 폴더",
+    1,
+    "상위 폴더",
+    "directory",
+    "734003200",
+    folder(unproven, false, {
+      state: "present",
+      value: { count: "3" },
+    }),
+    true,
+  ),
+  row(
+    2,
+    "권한 없는 폴더",
     "directory",
     "1048576",
     folder(unproven, true),
     true,
   ),
-  row(
-    4,
-    "외장 디스크 연결",
-    "directory",
-    "0",
-    folder({ state: "present", value: "other_volume" }),
-  ),
-  row(
-    5,
-    "사진 (다른 경로)",
-    "directory",
-    "0",
-    folder({ state: "present", value: "already_counted" }),
-  ),
-  row(6, "보고서.docx", "file", "48213", {
-    unenumerated: { state: "absent" },
-    excluded: read,
-  }),
+  row(3, "정확한 크기 폴더", "directory", "48213", folder(unproven)),
 ];
 
-const opened: BrowseOpenResponse = {
+const opened: Extract<BrowseOpenResponse, { kind: "opened" }> = {
   kind: "opened",
   requestSeq: 0,
   origin: "scan",
@@ -115,15 +112,63 @@ const opened: BrowseOpenResponse = {
     total: { state: "exact", count: browseRows.length },
     unknownCount: 0,
     observedAt: "2026-11-20T09:00:00.000Z",
-    completeness: "partial",
+    completeness: "complete",
     nextCursor: null,
   },
   sortStrategies: [],
   predicateStrategies: [],
 };
 
-/** Opens the fixed folder; nothing reaches an engine. */
-export const browsePort: BrowsePort = {
-  open: async (request) => ({ ...opened, requestSeq: request.requestSeq }),
-  page: () => Promise.reject(new Error("The preview has one page")),
-};
+/** Opens the fixed folder and a result-level size summary; nothing reaches an engine. */
+export function browsePort(notice = false): BrowsePort {
+  return {
+    open: async (request) => ({
+      ...opened,
+      requestSeq: request.requestSeq,
+      page: notice
+        ? {
+            ...opened.page,
+            completeness: "partial",
+            unexplainedLowerBound: "scan.evidence_not_recorded",
+          }
+        : opened.page,
+    }),
+    page: () => Promise.reject(new Error("The preview has one page")),
+    spaceTotal: async (resultVersion): Promise<SpaceTotal> => {
+      const size = (
+        basis: SizeValue["basis"],
+        lowerBound = false,
+      ): SizeValue => ({
+        basis,
+        evidence: "os_reported",
+        state: lowerBound ? "lower_bound" : "exact",
+        bytes: "734003200",
+      });
+      return {
+        resultVersion,
+        requestSeq: 1,
+        sizes: [
+          {
+            size: size("logical"),
+            completeness: "complete",
+            measurementLimits: [],
+          },
+          {
+            size: size("allocated", notice),
+            completeness: notice ? "partial" : "complete",
+            measurementLimits: notice ? ["space.dedup_capacity"] : [],
+          },
+          {
+            size: size("unique_physical", notice),
+            completeness: notice ? "partial" : "complete",
+            measurementLimits: notice ? ["space.dedup_capacity"] : [],
+          },
+        ],
+        completeness: notice ? "partial" : "complete",
+        missingItems: null,
+        inaccessibleRanges: null,
+        untraversedLinks: null,
+      };
+    },
+  };
+}
