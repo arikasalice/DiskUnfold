@@ -73,7 +73,13 @@ test("F02 FR8.HD1: a request marks the row before the response, sends once and a
       appliedPriorityArea: ref(1),
     }),
   );
-  expect(screen.getAllByText("‘Photos’ is analyzed first")).toHaveLength(1);
+  // Read once from the bar's status region; the short notice is not read.
+  expect(announced()).toBe("‘Photos’ is analyzed first");
+  expect(
+    screen
+      .getAllByText("‘Photos’ is analyzed first")
+      .filter((node) => !node.closest('[aria-hidden="true"]')),
+  ).toHaveLength(1);
   expect(
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
@@ -252,11 +258,9 @@ test("F02 FR8.HD1: no effect keeps the mark only when the folder remains the app
       appliedPriorityArea: ref(1),
     }),
   );
-  expect(
-    screen.getByText(
-      "This folder is already scanned or is already being analyzed first.",
-    ),
-  ).toBeDefined();
+  expect(announced()).toBe(
+    "This folder is already scanned or is already being analyzed first.",
+  );
   expect(
     within(gridRow("Photos")).getByText("Analyze first requested"),
   ).toBeDefined();
@@ -275,7 +279,7 @@ test("F02 FR8.HD1: an ended scan, a replaced result and other failures clear the
   await act(async () =>
     answers[0]?.resolve({ controlResult: "already_terminal" }),
   );
-  expect(screen.getByText("The scan has already finished.")).toBeDefined();
+  expect(announced()).toBe("The scan has already finished.");
   expect(rowAction("Photos")).not.toBeNull();
 
   await requestFirst("Photos");
@@ -284,11 +288,9 @@ test("F02 FR8.HD1: an ended scan, a replaced result and other failures clear the
       new AnalysisError("STALE_VERSION", "result.version_stale"),
     ),
   );
-  expect(
-    screen.getByText(
-      "The results changed. Select the folder again in the new results.",
-    ),
-  ).toBeDefined();
+  expect(announced()).toBe(
+    "The results changed. Select the folder again in the new results.",
+  );
   expect(rowAction("Photos")).not.toBeNull();
   // The view keeps the result it shows; the user selects again in a new one.
   expect(browsePort.open).toHaveBeenCalledTimes(1);
@@ -297,9 +299,7 @@ test("F02 FR8.HD1: an ended scan, a replaced result and other failures clear the
   await act(async () =>
     answers[2]?.reject(new AnalysisError("NOT_FOUND", "job.not_found")),
   );
-  expect(
-    screen.getByText("This folder could not be analyzed first."),
-  ).toBeDefined();
+  expect(announced()).toBe("This folder could not be analyzed first.");
   expect(
     within(gridRow("Videos")).queryByText("Analyze first requested"),
   ).toBeNull();
@@ -330,6 +330,11 @@ const fallbackText: LocaleText = (_key, fallback, values) =>
 
 function selectionBar() {
   return screen.queryByRole("toolbar", { name: "Selection actions" });
+}
+
+/** What the bar's status region reads now. */
+function announced() {
+  return within(selectionBar()!).getByRole("status").textContent;
 }
 
 function toast() {
