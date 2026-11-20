@@ -43,8 +43,6 @@ struct MacDirectory {
     /// Identity of the actual volume, also used in file space identities.
     volume_id: Arc<[u8]>,
     pending: VecDeque<TimedObservedEntry>,
-    /// Bulk reply buffer, allocated by the first read and released at the end.
-    buffer: Vec<u8>,
     filtered: Option<bool>,
     filter_failed: bool,
     correlated: bool,
@@ -70,7 +68,6 @@ impl MacDirectory {
             inode,
             volume_id,
             pending: VecDeque::new(),
-            buffer: Vec::new(),
             filtered: None,
             filter_failed: false,
             correlated: false,

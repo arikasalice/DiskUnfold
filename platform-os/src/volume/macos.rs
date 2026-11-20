@@ -119,6 +119,23 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
     })
 }
 
+/// The mounts whose records can be read, and whether any record could not be.
+///
+/// One unreadable record, such as a name without its terminating NUL, leaves
+/// out that mount only; the listing reports itself as partial.
+fn readable(entries: &[libc::statfs]) -> (Vec<VolumeMount>, bool) {
+    let mut skipped = false;
+    let mounts = entries
+        .iter()
+        .filter_map(|entry| {
+            let mount = mount(entry).ok();
+            skipped |= mount.is_none();
+            mount
+        })
+        .collect();
+    (mounts, skipped)
+}
+
 /// Opens a directory as scope roots are opened and checks search permission by
 /// looking up `.` in it, without reading its entries.
 fn open_checked(path: &[u8]) -> Result<OwnedFd, PortError> {
@@ -142,11 +159,20 @@ fn capacity_of(directory: BorrowedFd<'_>) -> Result<VolumeCapacity, PortError> {
 
 impl VolumePort for MacVolumes {
     fn enumerate(&self) -> VolumeEnumeration {
-        let mounts = listed().and_then(|entries| entries.iter().map(mount).collect());
-        let enumerate = if mounts.is_ok() {
-            capability(CapabilityState::Supported, None)
-        } else {
-            capability(CapabilityState::Unsupported, Some("os.query_failed"))
+        let (mounts, enumerate) = match listed() {
+            Ok(entries) => match readable(&entries) {
+                (mounts, false) => (Ok(mounts), capability(CapabilityState::Supported, None)),
+                // The mounts that were read are kept; the skipped ones are counted
+                // nowhere else, so the listing says it is not complete.
+                (mounts, true) => (
+                    Ok(mounts),
+                    capability(CapabilityState::Partial, Some("os.query_failed")),
+                ),
+            },
+            Err(error) => (
+                Err(error),
+                capability(CapabilityState::Unsupported, Some("os.query_failed")),
+            ),
         };
         VolumeEnumeration {
             mounts,
@@ -191,5 +217,50 @@ impl VolumePort for MacVolumes {
                 None => capacity_of(fd),
             }),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A record with the given mount path and file system names.
+    fn entry(mount_path: &[u8], filesystem: &[u8]) -> libc::statfs {
+        // SAFETY: `statfs` holds only integers and byte arrays, so all zero
+        // bytes form a valid value.
+        let mut entry = unsafe { std::mem::zeroed::<libc::statfs>() };
+        let copy = |target: &mut [c_char], bytes: &[u8]| {
+            for (slot, &byte) in target.iter_mut().zip(bytes) {
+                *slot = c_char::from_ne_bytes(byte.to_ne_bytes());
+            }
+        };
+        copy(&mut entry.f_mntonname, mount_path);
+        copy(&mut entry.f_fstypename, filesystem);
+        copy(&mut entry.f_mntfromname, b"source");
+        entry
+    }
+
+    #[test]
+    fn an_unreadable_mount_is_left_out_and_the_listing_is_partial() {
+        let mut unterminated = entry(b"/Volumes/broken", b"apfs");
+        unterminated.f_mntonname.fill(c_char::from_ne_bytes(*b"x"));
+        let entries = [
+            entry(b"/", b"apfs"),
+            unterminated,
+            entry(b"relative", b"apfs"),
+            entry(b"/Volumes/Data", b"apfs"),
+        ];
+        let (mounts, skipped) = readable(&entries);
+        assert!(skipped);
+        let paths: Vec<&[u8]> = mounts.iter().map(|m| m.mount_path.as_slice()).collect();
+        assert_eq!(paths, [b"/".as_slice(), b"/Volumes/Data".as_slice()]);
+    }
+
+    #[test]
+    fn readable_mounts_are_all_kept() {
+        let entries = [entry(b"/", b"apfs"), entry(b"/dev", b"devfs")];
+        let (mounts, skipped) = readable(&entries);
+        assert!(!skipped);
+        assert_eq!(mounts.len(), 2);
     }
 }

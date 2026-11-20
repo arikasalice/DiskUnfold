@@ -35,17 +35,15 @@ impl MacDirectory {
     /// excluded records are dropped and no item is ever opened. An error ends
     /// the directory, and so does one malformed record (see [`bulk::parse`]).
     ///
-    /// The bulk buffer is allocated on the first read of this handle, reused by
-    /// later reads and released when the directory ends.
+    /// The reply buffer lives only for this read (see [`bulk::BUFFER_BYTES`]).
     fn fill(
         &mut self,
         include: &mut dyn FnMut(&[u8]) -> FilterDecision,
         clock: &dyn Fn() -> Option<Timestamp>,
     ) -> Result<(), PortError> {
-        if self.buffer.is_empty() {
-            self.buffer = vec![0u8; bulk::BUFFER_BYTES];
-        }
-        let records = match bulk::read(self.fd.as_fd(), &mut self.buffer) {
+        let records = match bulk::reply_buffer()
+            .and_then(|mut buffer| bulk::read(self.fd.as_fd(), &mut buffer))
+        {
             Ok(records) => records,
             Err(error) => {
                 self.finish();
@@ -75,7 +73,6 @@ impl MacDirectory {
 
     fn finish(&mut self) {
         self.finished = true;
-        self.buffer = Vec::new();
     }
 
     /// The enumerated and metadata views come from the same record, so they
@@ -153,18 +150,9 @@ impl MacDirectory {
         if self.finished {
             return Ok(false);
         }
-        if self.buffer.is_empty() {
-            let mut buffer = Vec::new();
-            if buffer.try_reserve_exact(bulk::BUFFER_BYTES).is_err() {
-                let error = bulk::allocation_error();
-                self.finish();
-                self.correlated_stream_error = Some(error.clone());
-                return Err(error);
-            }
-            buffer.resize(bulk::BUFFER_BYTES, 0);
-            self.buffer = buffer;
-        }
-        match bulk::read_correlated(self.fd.as_fd(), &mut self.buffer) {
+        match bulk::reply_buffer()
+            .and_then(|mut buffer| bulk::read_correlated(self.fd.as_fd(), &mut buffer))
+        {
             Ok(records) if records.is_empty() => {
                 self.finish();
                 Ok(false)

@@ -3,6 +3,8 @@
 //!
 //! `size` must be `st_size` of the entry itself, as on Linux and Windows,
 //! and `allocated` must be `st_blocks` in bytes, which `du` counts, for files.
+mod machine;
+
 use du_core_contracts::scan_observation::{
     MetadataObservation, ObservedEntry, ObservedKind, ScopeRootPort,
 };
@@ -105,13 +107,11 @@ fn compressed_files_report_logical_length_and_compressed_allocation() -> TestRes
         .arg(path.join("compressed"))
         .status();
     if !copied.as_ref().is_ok_and(|status| status.success()) {
-        eprintln!("skipped: ditto could not compress a copy: {copied:?}");
-        return Ok(());
+        return machine::skip(&format!("ditto could not compress a copy: {copied:?}"));
     }
     let actual = fs::symlink_metadata(path.join("compressed"))?;
     if std::os::macos::fs::MetadataExt::st_flags(&actual) & UF_COMPRESSED == 0 {
-        eprintln!("skipped: the volume kept the copy uncompressed");
-        return Ok(());
+        return machine::skip("the volume kept the copy uncompressed");
     }
     let entries = entries(&path)?;
     let observed = meta(&entries, "compressed")?;

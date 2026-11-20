@@ -2,7 +2,10 @@
 //! A disk image attached below a temporary folder, as a real mount point.
 //!
 //! `hdiutil` attaches an image without privileges. A runner without it, or
-//! one that refuses the attach, prints the reason and skips the checks.
+//! one that refuses the attach, prints the reason and skips the checks; on CI
+//! the skip fails.
+mod machine;
+
 use du_core_contracts::scan_observation::{
     DirectoryObservations, ObservedEntry, ObservedKind, OpenedScopeRoot, ScopeRootPort,
 };
@@ -88,8 +91,7 @@ fn a_mount_point_is_listed_with_the_covered_identity_and_never_entered() -> Test
     let attached = match attach(work.path(), &mount) {
         Ok(attached) => attached,
         Err(reason) => {
-            eprintln!("skipped: no disk image could be attached: {reason}");
-            return Ok(());
+            return machine::skip(&format!("no disk image could be attached: {reason}"));
         }
     };
     fs::write(mount.join("inside"), b"inside")?;

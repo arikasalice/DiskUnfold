@@ -317,9 +317,8 @@ pub trait AnchoredDirectory: DirectoryObservations {
         None
     }
 
-    /// True only when the volume's file system name and flags show that it
-    /// cannot share extents between files (block clones, reflinks; hard links
-    /// are file identity). `false`, the default, leaves sharing unknown.
+    /// True only when the volume's file system name and flags show it cannot share extents
+    /// between files (block clones, reflinks; hard links are file identity). `false`: unknown.
     fn creates_no_shared_extents(&self) -> bool {
         false
     }
@@ -472,7 +471,9 @@ pub struct MetadataObservation {
     pub modified_at: Option<Timestamp>,
     /// Native value from the same verified metadata handle, when available.
     pub native_modified_at: Option<NativeModifiedTime>,
-    /// OS-reported allocation for the observed file, or `None` when unverified.
+    /// OS-reported allocation of the observed file, or `None` when unverified. macOS: every fork;
+    /// Windows: the default data stream only (compressed size if compressed or sparse);
+    /// Linux: `st_blocks` x 512.
     pub allocated: Option<u64>,
     /// OS-reported total hard-link count, or `None` when unverified.
     /// This does not establish whether physical extents are shared.
