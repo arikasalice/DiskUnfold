@@ -84,7 +84,8 @@ pub(crate) fn final_state(job: &Entry, outcome: &JobOutcome) -> JobState {
         }
         return JobState::Done;
     }
-    if outcome.counts.completed > 0 || outcome.counts.overwritten > 0 {
+    // F24 FR8.HD1.app-host.DD1: an unfinished job is Partial only when it completed an item.
+    if outcome.counts.completed > 0 {
         JobState::Partial
     } else {
         JobState::Failed

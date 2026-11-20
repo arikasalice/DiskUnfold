@@ -6,6 +6,57 @@ impl JobClock for MutableClock {
         self.0.load(Ordering::SeqCst)
     }
 }
+struct UnfinishedBody(JobCounts);
+impl JobBody for UnfinishedBody {
+    fn kind_id(&self) -> &str {
+        "scan.metadata"
+    }
+    fn run(&self, _: Arc<dyn JobContext>) -> JobOutcome {
+        JobOutcome {
+            counts: self.0.clone(),
+            completed_scope: false,
+            failure_reason_key: None,
+            unprocessed_summary: None,
+            result_version_id: None,
+        }
+    }
+}
+
+/// F24 FR8.HD1.app-host.DD1: overwritten items alone do not make an unfinished job Partial.
+#[test]
+fn unfinished_job_is_partial_only_with_completed_items() -> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            JobCounts {
+                overwritten: 1,
+                ..Default::default()
+            },
+            JobState::Failed,
+        ),
+        (
+            JobCounts {
+                completed: 1,
+                ..Default::default()
+            },
+            JobState::Partial,
+        ),
+        (JobCounts::default(), JobState::Failed),
+    ];
+    for (counts, expected) in cases {
+        let runtime = JobRuntime::new(
+            Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+            Arc::new(Clock),
+            Arc::new(History::default()),
+            Arc::new(Events::default()),
+        )?;
+        runtime.register(descriptor())?;
+        let id = created(runtime.submit(sample_submission(Arc::new(UnfinishedBody(counts)))?)?)?;
+        assert_eq!(runtime.run_next()?, Some(id.clone()));
+        runtime.flush()?;
+        assert_eq!(runtime.state(&id)?, expected);
+    }
+    Ok(())
+}
 #[test]
 fn terminal_body_is_released_and_entry_expires_after_ten_minutes()
 -> Result<(), Box<dyn std::error::Error>> {
