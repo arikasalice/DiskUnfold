@@ -1,5 +1,5 @@
 use super::{RulesetError, RulesetRow};
-use crate::{AppDb, HISTORY_DEFINITIONS, migration};
+use crate::{AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
 use du_core_contracts::ruleset::{RulesetRead, RulesetReadError};
 use std::sync::{Arc, Barrier};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -186,6 +186,11 @@ fn version_four_data_survives_migration_five() -> TestResult {
         migration::apply_next(&path, &dir.path().join("7.bak"), &HISTORY_DEFINITIONS)
             .map_err(|e| format!("{e:?}"))?,
         7
+    );
+    assert_eq!(
+        migration::apply_next(&path, &dir.path().join("8.bak"), &HISTORY_DEFINITIONS)
+            .map_err(|e| format!("{e:?}"))?,
+        HISTORY_SCHEMA_VERSION
     );
     let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let saved: String = db.connection.query_row(

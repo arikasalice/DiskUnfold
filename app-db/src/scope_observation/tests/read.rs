@@ -173,7 +173,7 @@ fn a_database_older_than_the_table_is_unsupported_rather_than_empty() -> TestRes
 #[test]
 fn a_read_only_connection_lists_rows_and_an_upgraded_database_starts_empty() -> TestResult {
     let dir = tempfile::tempdir()?;
-    let upgraded = database_at(dir.path(), 7)?;
+    let upgraded = database_at(dir.path(), HISTORY_SCHEMA_VERSION)?;
     let reader = AppDb::open_read_only(&upgraded).map_err(|e| format!("{e:?}"))?;
     let empty = reader
         .list(&fingerprint(1), 1, None, None, 10)

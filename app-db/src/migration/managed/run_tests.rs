@@ -133,7 +133,7 @@ fn multi_step_run_scans_the_final_backup_set_once() -> TestResult {
     let baseline_validations = Cell::new(0);
     let baseline_quick_checks = Cell::new(0);
     let baseline_bytes = Cell::new(0);
-    for expected in [2, 3, 4, 5, 6, 7] {
+    for expected in [2, 3, 4, 5, 6, 7, 8] {
         let result = apply_next_managed_with(
             &baseline_path,
             &baseline_root,
@@ -173,12 +173,12 @@ fn multi_step_run_scans_the_final_backup_set_once() -> TestResult {
         },
     )
     .map_err(|failure| format!("{failure:?}"))?;
-    assert_eq!((outcome.revision, outcome.applied_steps), (7, 6));
-    assert_eq!(outcome.retention.content_valid, 8);
-    assert_eq!(baseline_validations.get(), 33);
-    assert_eq!(baseline_quick_checks.get(), 33);
-    assert_eq!(optimized_validations.get(), 8);
-    assert_eq!(optimized_quick_checks.get(), 8);
+    assert_eq!((outcome.revision, outcome.applied_steps), (8, 7));
+    assert_eq!(outcome.retention.content_valid, 9);
+    assert_eq!(baseline_validations.get(), 42);
+    assert_eq!(baseline_quick_checks.get(), 42);
+    assert_eq!(optimized_validations.get(), 9);
+    assert_eq!(optimized_quick_checks.get(), 9);
     assert!(optimized_bytes.get() < baseline_bytes.get());
     println!(
         "retention scans: per-step validations={} quick_checks={} copy_bytes={}; terminal validations={} quick_checks={} copy_bytes={}",
@@ -189,7 +189,7 @@ fn multi_step_run_scans_the_final_backup_set_once() -> TestResult {
         optimized_quick_checks.get(),
         optimized_bytes.get(),
     );
-    assert_eq!(state(&optimized_path)?.0, 7);
+    assert_eq!(state(&optimized_path)?.0, 8);
     Ok(())
 }
 
@@ -271,11 +271,11 @@ fn failed_step_is_diagnosed_restored_and_restart_migrates_from_the_old_revision(
         )
     })
     .map_err(|failure| format!("{failure:?}"))?;
-    assert_eq!((restarted.revision, restarted.applied_steps), (7, 6));
-    assert_eq!(restarted.retention.content_valid, 10);
-    assert_eq!(restart_validations.get(), 10);
-    assert_eq!(restart_quick_checks.get(), 10);
-    assert_eq!(state(&path)?.0, 7);
+    assert_eq!((restarted.revision, restarted.applied_steps), (8, 7));
+    assert_eq!(restarted.retention.content_valid, 11);
+    assert_eq!(restart_validations.get(), 11);
+    assert_eq!(restart_quick_checks.get(), 11);
+    assert_eq!(state(&path)?.0, 8);
     Ok(())
 }
 
@@ -312,13 +312,13 @@ fn terminal_scan_observes_corruption_and_replacement_without_deleting_entries() 
         inspect_retention(root)
     })
     .map_err(|failure| format!("{failure:?}"))?;
-    assert_eq!(outcome.revision, 7);
+    assert_eq!(outcome.revision, 8);
     assert_eq!(inspector_calls.get(), 1);
-    assert_eq!(outcome.retention.content_valid, 6);
+    assert_eq!(outcome.retention.content_valid, 7);
     assert!(outcome.retention.ignored >= 3);
     assert!(!outcome.retention.inspection_failed);
     assert!(outcome.retention.cleanup_unavailable);
-    for sequence in 1..=8 {
+    for sequence in 1..=9 {
         assert!(root.join(format!("backup-{sequence:020}")).exists());
     }
     assert!(root.join("backup-00000000000000000002-old").exists());

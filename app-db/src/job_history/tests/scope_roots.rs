@@ -48,7 +48,6 @@ fn stores_scope_roots_for_list_and_detail_and_caps_the_stored_prefix() -> TestRe
         |row| row.get(0),
     )?;
     assert_eq!(stored_roots, 100);
-    drop(writer);
 
     let mut reader = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
     let page = reader
@@ -124,7 +123,6 @@ fn mismatched_persisted_root_rows_are_unreadable() -> TestResult {
          VALUES (?1, 1, '/unexpected', 251)",
         [job_id.as_slice()],
     )?;
-    drop(writer);
 
     let mut reader = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
     let page = reader
