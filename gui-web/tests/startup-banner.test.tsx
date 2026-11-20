@@ -12,7 +12,11 @@ import { ApplicationEntry } from "../src/app/ApplicationEntry";
 import { DesktopLocale } from "../src/app/DesktopLocale";
 import { InfoEntry } from "../src/app/InfoEntry";
 import { StartupGate } from "../src/features/startup/StartupGate";
-import { startupMemory } from "../src/features/startup/startup-memory";
+import {
+  reviewKey,
+  STATE_KEY_LIMIT,
+  startupMemory,
+} from "../src/features/startup/startup-memory";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { createAnalysisClient } from "../src/ipc";
 import { supportReport } from "./info-host";
@@ -458,6 +462,32 @@ test("support information leads with the startup checks", async () => {
   ).toBeTruthy();
 });
 
+test("a state key keeps to the stored grammar and size", () => {
+  const names = [
+    "resource_integrity",
+    "webview",
+    "data_format_and_open",
+    "temporary_files",
+    "support_matrix",
+    "capability",
+    "full_disk_access",
+  ];
+  const key = reviewKey(
+    report(
+      "outside_verified",
+      names.map((check) => ({
+        check,
+        result: "outside_verified",
+        reasonKey: null,
+      })),
+    ),
+  );
+  expect(key.length).toBeLessThanOrEqual(STATE_KEY_LIMIT);
+  expect(key).toMatch(/^grade:outside_verified(\|[a-z0-9_.:]+)+$/);
+  // Rows are sorted by name, so the same state always gives the same key.
+  expect(key.split("|")[1]).toBe("capability:outside_verified");
+});
+
 test("a passing state shows no dot and a changed state shows it again", async () => {
   const pass = report("pass", [
     { check: "webview", result: "pass", reasonKey: null },
@@ -599,6 +629,7 @@ test("the Windows composition keeps the analysis shell and puts the dot on suppo
   ).toBeNull();
   expect(calls.filter((name) => name === "app.startup_status")).toHaveLength(1);
 
+  entry.focus();
   fireEvent.click(entry);
   const dialog = await screen.findByRole("dialog", { name: "지원 정보" });
   const checks = within(dialog).getByRole("region", { name: "시작 점검" });

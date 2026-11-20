@@ -9,12 +9,13 @@ import type { StartupStatus } from "../../ipc";
  * checks section read the same startup status. A dismissed notice and a
  * reviewed state are remembered by a state key, so a changed state shows
  * again. A state key uses only `[a-z0-9_.:|]`: `check:result` parts, the
- * grade first and the rows sorted by name, joined with `|`. The empty string
- * means nothing is remembered. When the current state no longer matches a
+ * grade first and the rows sorted by name, joined with `|`, at most
+ * {@link STATE_KEY_LIMIT} bytes. The empty string means nothing is
+ * remembered. When the current state no longer matches a
  * remembered key, the key is forgotten, so the same state returning later
  * shows again. These keys are kept for this run; they move to the user-env
  * settings `startup.notice_dismissed` and `startup.review_seen` once the host
- * can store them.
+ * can store them (#195).
  */
 type StartupMemory = {
   status: StartupStatus | undefined;
@@ -67,14 +68,26 @@ export function noticeKey(status: StartupStatus | undefined) {
     : "";
 }
 
-/** The state key behind the dot: the grade and the rows that did not pass. */
+/** The longest state key user-env stores. */
+export const STATE_KEY_LIMIT = 200;
+
+/**
+ * The state key behind the dot: the grade and the rows that did not pass.
+ * Rows that would pass {@link STATE_KEY_LIMIT} are left out from the end; the
+ * parts are ASCII, so their length is their size in bytes.
+ */
 export function reviewKey(status: StartupStatus | undefined) {
   if (!status || status.grade === "pass") return "";
   const rows = status.checks
     .filter((row) => row.result !== "pass" && row.result !== "not_applicable")
     .map((row) => `${row.check}:${row.result}`)
     .sort();
-  return [`grade:${status.grade}`, ...rows].join("|");
+  let key = `grade:${status.grade}`;
+  for (const row of rows) {
+    if (key.length + 1 + row.length > STATE_KEY_LIMIT) break;
+    key += `|${row}`;
+  }
+  return key;
 }
 
 /** True while the one-line notice should show. */
