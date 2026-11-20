@@ -1584,6 +1584,28 @@ PR #286(F02 #258) 검수 (2026-11-21, captures/258-priority, headless Edge): 디
 - 목록의 이름은 볼륨 이름(「Macintosh HD」)이다. 용량은 Finder와 같은 컨테이너 기준(사용 가능·전체)으로 보인다. 그래야 사용자가 두 숫자를 견줄 수 있다.
 - 받을 캡처: macOS 실기에서 「Macintosh HD」를 분석한 결과 요약과 공간 분포 Light 1280 한 장씩이다. 합계는 「이 Mac에 관하여 › 저장 공간」 캡처와 나란히 본다.
 
+(A) 구현의 화면 (2026-11-21, F03 질의, 총괄 승인):
+
+1. firmlink 밖 Data 항목
+   - 가상의 묶음을 만들지 않는다. 실제 경로 /System/Volumes/Data 아래에 둔다. 사용자가 보는 경로와 Finder·터미널의 경로가 같아야 한다. 「macOS Install Data」 12 GiB 같은 큰 항목은 지금처럼 탐색과 그래프에서 크기대로 보인다.
+   - /System/Volumes/Data 폴더에는 설명을 붙인다. 행의 이름 도구 설명과 폴더 상세의 설명 줄은 「Macintosh HD의 데이터 볼륨입니다. 사용자 폴더와 응용 프로그램은 / 아래에서 셉니다.」 / "This is the data volume of Macintosh HD. User folders and apps are counted under /."이다. 아이콘은 다른 폴더와 같다.
+   - 그 안의 firmlink 대상(Users, Applications 등)은 #133 규칙 그대로 「스캔 상태 · 다른 경로에서 이미 셈」이고, 크기는 「세지 않음」이다. 폴더 상세에 어디서 셌는지를 한 줄 둔다. 「/Users에서 셈」 / "Counted at /Users"다. 엔진이 그 경로를 실어 줄 수 있으면 넣고, 못 주면 이 줄은 뺀다.
+2. 범위 검토의 알림
+   - 합쳐 분석할 때(scope.volume_group_merged): 범위 검토의 「경계」 줄 아래에 info 톤 한 줄을 둔다. 「시스템과 데이터 볼륨을 함께 분석합니다. 같은 파일은 한 번만 셉니다.」 / "The system and data volumes are analyzed together. Each file is counted once." 결과 화면에는 다시 띄우지 않는다. 정상 동작을 매번 알리면 피로하다(F15 1절과 같은 원칙).
+   - 그룹을 확인하지 못할 때(scope.volume_group_unverified): warning 톤이다. 범위 검토의 같은 자리와 결과 요약의 안내 상자에 둔다. 「데이터 볼륨을 확인하지 못해 시스템 볼륨만 분석합니다. 사용자 파일은 포함되지 않습니다.」 / "The data volume couldn't be confirmed, so only the system volume is analyzed. User files aren't included." 옆에 「홈 폴더 분석」 / "Analyze home folder" 단추를 둔다. 사용자가 원래 원한 것에 가장 가까운 길이다.
+3. 볼륨 차이 화면의 「분석 범위 밖」 행
+   - 행 이름은 「다른 시스템 볼륨」 / "Other system volumes"이고, 값은 합계다. 볼륨 이름을 행에 늘어놓지 않는다. 사용자 대부분은 Preboot, VM을 모른다.
+   - 행을 펼치면 볼륨마다 한 줄과 크기를 보인다. 알려진 이름은 뜻을 앞에 붙인다. 「가상 메모리(VM)」, 「시동 준비(Preboot)」, 「복구(Recovery)」, 「업데이트(Update)」다. 그 밖의 이름은 볼륨 이름 그대로 쓴다.
+   - 받을 캡처에 이 행을 펼친 장면을 더한다.
+
+받을 캡처(Mac 검증팀, Light 1280):
+
+- 범위 검토의 합침 알림 한 장.
+- 결과 요약과 공간 분포를 「이 Mac에 관하여 › 저장 공간」과 나란히 한 장씩.
+- 탐색에서 /System/Volumes/Data를 연 장면 한 장(이미 셈 행과 설명 도구 설명).
+- 볼륨 차이의 「다른 시스템 볼륨」을 펼친 장면 한 장.
+- 확인하지 못함 알림은 실기에서 만들 수 없으면 시험으로 받는다.
+
 네트워크 볼륨의 접근 확인 시점 (같은 날, F03 #266): 시작하자마자 고르지도 않은 볼륨 때문에 macOS 권한 대화상자가 뜨면, 사용자는 무엇을 허용하는지 모른 채 답해야 한다. F03 제안 2)를 받는다. 네트워크 볼륨은 시작 때 열지 않고, 사용자가 그 볼륨을 고를 때 접근을 확인한다. 대화상자는 그 조작에 대한 응답으로 뜬다.
 
 - 목록 카드: 용량은 목록 단계 값으로 지금처럼 보인다. 상태 표지는 중립색으로 「고를 때 확인」 / "Checked when selected"다. 경고색을 쓰지 않는다. 문제가 아니다. 표지의 도구 설명과 접근 이름 뒤에는 「네트워크 볼륨은 고를 때 접근을 확인합니다.」 / "Network volumes are checked when you select them."를 둔다.
