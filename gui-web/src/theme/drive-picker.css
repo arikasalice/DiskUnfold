@@ -121,6 +121,12 @@
 }
 
 @media (forced-colors: active) {
+  /* A full edge for each drive card; a selected card keeps its Highlight edge
+     through the more specific rule above (#214). */
+  .du-choice {
+    border-color: CanvasText;
+  }
+
   .du-choice[data-hovered]:not([data-disabled]) .du-choice__label {
     text-decoration: underline;
   }

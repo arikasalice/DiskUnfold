@@ -35,6 +35,7 @@ import {
   displayMeasurementLimit,
   displaySize,
   displayRawSize,
+  displaySharedLimits,
   displayUnitSystem,
   sizeLabels,
 } from "./space-format";
@@ -191,6 +192,22 @@ export function PinnedResult({
   const leadWait =
     lead && awaitedSize(lead.size, lead.measurementLimits, sizeWait);
   const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
+  // Limits that every shown size row has in common are said once (#214).
+  const shown = total.sizes.filter(
+    ({ size, measurementLimits }) =>
+      !awaitedSize(size, measurementLimits, sizeWait),
+  );
+  const first = shown[0]?.measurementLimits ?? [];
+  const sharedLimits =
+    shown.length > 1 &&
+    first.length > 0 &&
+    shown.every(
+      ({ measurementLimits }) =>
+        measurementLimits.length === first.length &&
+        measurementLimits.every((key) => first.includes(key)),
+    )
+      ? first
+      : [];
   return (
     <div className="du-results">
       <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
@@ -238,13 +255,16 @@ export function PinnedResult({
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),
-                ...measurementLimits.map((key) =>
-                  displayMeasurementLimit(key, text),
+                ...(sharedLimits.length > 0 ? [] : measurementLimits).map(
+                  (key) => displayMeasurementLimit(key, text),
                 ),
               ],
             };
           })}
         />
+        {sharedLimits.length > 0 && (
+          <Text kind="muted">{displaySharedLimits(sharedLimits, text)}</Text>
+        )}
       </DetailDisclosure>
       <Text kind="muted">
         {basisLabel} · {displayUnitSystem(display.system, text)} · {unit}

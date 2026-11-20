@@ -36,6 +36,22 @@
   pointer-events: none;
 }
 
+/* Forced colors tell shapes apart by outline, never by fill (#213, F06 README
+   38): a folder and its header band take Canvas under CanvasText text, and
+   every rectangle has a CanvasText 1 px edge, so the top edges of the shapes
+   inside a folder draw the line under its band. */
+@media (forced-colors: active) {
+  .du-geometry-shape[data-container] {
+    fill: Canvas;
+  }
+
+  .du-geometry-shape > rect {
+    stroke: CanvasText;
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+  }
+}
+
 /* A lower bound keeps its own fill; only its right and bottom edges are dashed
    (F06 design README 4.6). --du-muted keeps 4:1 on leaf and folder fills. The
    width is set per chart in whole device pixels. */

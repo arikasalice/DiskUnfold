@@ -368,6 +368,7 @@ ui.analysis.space_data_insufficient
 ui.analysis.space_aggregation_overflow
 ui.analysis.space_allocated_not_collected
 ui.analysis.space_observation_detail_insufficient
+ui.analysis.space_aux_detail_unavailable
 ui.analysis.space_hardlink_identity_unknown
 ui.analysis.space_measurement_limit_reported
 ui.analysis.space_not_applicable

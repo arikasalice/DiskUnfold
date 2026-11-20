@@ -402,6 +402,30 @@ test("measurement details hide the reasons of an awaited size and show them agai
   expect(valued.queryByText("Allocation data was not collected")).toBeNull();
 });
 
+test("limits every size row shares are said once below the rows (#214)", () => {
+  const total = laterResult("v2");
+  for (const size of total.sizes) {
+    size.measurementLimits = [
+      "space.aux_not_included",
+      "space.observation_detail_insufficient",
+    ];
+  }
+  render(<Summary client={liveScan().client} total={total} wait={undefined} />);
+  fireEvent.click(screen.getByRole("button", { name: /Measurement details/ }));
+  const rows = screen.getByLabelText("Measurement details");
+  expect(
+    within(rows).queryByText("Auxiliary data was not collected"),
+  ).toBeNull();
+  expect(
+    within(rows).queryByText("Some observation details are unavailable"),
+  ).toBeNull();
+  expect(
+    screen.getAllByText(
+      "Auxiliary data was not collected, so some observation details are unavailable.",
+    ),
+  ).toHaveLength(1);
+});
+
 type Entry = [key: string, text: string, parameters: unknown[]];
 const bundle = JSON.parse(
   readFileSync(resolve(process.cwd(), "../user-env/i18n/ko.json"), "utf8"),
