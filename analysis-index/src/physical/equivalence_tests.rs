@@ -274,7 +274,9 @@ fn reference(
                 .observations
                 .as_ref()
                 .and_then(|values| values[*file].as_deref());
-            let tabled = repeated.as_deref().is_none_or(|repeated| repeated[*file]);
+            // A file that is its own scope has no other file to share with.
+            let tabled =
+                *file != index && repeated.as_deref().is_none_or(|repeated| repeated[*file]);
             let _ = sum.record(&Observed::read(input), tabled);
         }
         sum.finish(completeness, output);
