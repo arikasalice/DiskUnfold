@@ -329,7 +329,12 @@ export function BrowseVisualizationView({
   const [chartParts, setChartParts] = useState({
     offset: DEFAULT_CHART_OFFSET,
   });
-  const formats = useFormatChoice(catalog, assembly, selection);
+  const formats = useFormatChoice(
+    open ? client : undefined,
+    catalog,
+    assembly,
+    selection,
+  );
   const area = useMemo(
     () => ({
       element: viewportElement,
@@ -602,9 +607,10 @@ function viewAsLabel(format: string, text: VizText): string {
  * The strip lists the catalog formats in catalog order and starts on the
  * owner's format. A choice is kept while the view moves between folders; the
  * request changes only its format, so the selection, scope, denominator and
- * colour criterion stay. What can be drawn is learned from an unavailable
- * answer, which lists the formats the engine can draw for this result and
- * folder; until then no format carries a mark. Choosing a format from the
+ * colour criterion stay. What can be drawn is asked with `viz.availability`
+ * when the view opens on a result and folder, and also learned from an
+ * unavailable answer, which lists the formats the engine can draw; until one
+ * of them arrives no format carries a mark. Choosing a format from the
  * unavailable notice returns the focus to the strip.
  *
  * The owner's depth belongs to the owner's format (a treemap names the shapes
@@ -612,6 +618,7 @@ function viewAsLabel(format: string, text: VizText): string {
  * engine accepts for them.
  */
 function useFormatChoice(
+  client: AnalysisClient | undefined,
   catalog: VizCatalog | undefined,
   assembly: BrowseVisualizationAssembly | undefined,
   selection: BrowseVisualizationSelection | undefined,
@@ -649,6 +656,29 @@ function useFormatChoice(
     (formats: readonly string[]) => setLearned({ key, formats }),
     [key],
   );
+  // Asked once per result and folder, so the marks show before a choice (#241).
+  // A failed read leaves the marks to the next unavailable answer.
+  useEffect(() => {
+    if (!client || !selection || options.length < 2) return undefined;
+    let active = true;
+    void client
+      .call("viz.availability", {
+        resultRevision: selection.resultVersion,
+        aggregateScopeRef: selection.location,
+      })
+      .then((answer) => {
+        if (active)
+          learn(
+            answer.formats
+              .filter((entry) => entry.available)
+              .map((entry) => entry.format),
+          );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [client, selection, learn, options.length]);
   return {
     format,
     depthLimit,

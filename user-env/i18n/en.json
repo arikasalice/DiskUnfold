@@ -882,8 +882,6 @@
     ["ui.visualization.omittedItems","Items inside unexpanded folders",[]],
     ["ui.visualization.openFailed","The chart could not be opened.",[]],
     ["ui.visualization.originScan","Current analysis",[]],
-    ["ui.visualization.previousBasis","Previous observation:",[]],
-    ["ui.visualization.previousMeasure","Size basis:",[]],
     ["ui.visualization.previousName","Previous item:",[]],
     ["ui.visualization.previousRange","Previous range",[]],
     ["ui.visualization.previousRows","Previous rows",[]],

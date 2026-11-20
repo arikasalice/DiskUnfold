@@ -27,8 +27,6 @@ export const visualizationMessages = {
     itemOpenUnavailable: "This item can't be opened or expanded here yet.",
     noGraphTargets: "There are no selectable items in the chart.",
     previousName: "Previous item:",
-    previousBasis: "Previous observation:",
-    previousMeasure: "Size basis:",
     correspondenceUnknown:
       "The reason the item could not be matched is unavailable.",
     nextSelection:
@@ -251,8 +249,6 @@ export const visualizationMessages = {
     itemOpenUnavailable: "이 항목은 아직 이 화면에서 열거나 펼칠 수 없습니다",
     noGraphTargets: "그래프에서 선택할 수 있는 항목이 없습니다.",
     previousName: "이전 항목:",
-    previousBasis: "이전 관측:",
-    previousMeasure: "크기 기준:",
     correspondenceUnknown: "항목을 대응하지 못한 이유는 확인할 수 없습니다.",
     nextSelection:
       "현재 결과의 항목 목록을 사용할 수 있으면 검토하고 다시 선택하세요.",

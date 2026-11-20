@@ -45,6 +45,7 @@ const names = ["Videos", "Photos", "Documents"];
 
 type VisualizationAnswers = {
   catalog?: () => unknown | Promise<unknown>;
+  availability?: (body: unknown) => unknown | Promise<unknown>;
   render?: (request: VizRenderRequest) => unknown | Promise<unknown>;
   rows?: (request: VizRowsRequest) => unknown | Promise<unknown>;
 };
@@ -288,6 +289,8 @@ function desktop(
         return { outcome: "no_effect" };
       case "viz.catalog":
         return visualization.catalog?.() ?? catalog;
+      case "viz.availability":
+        return visualization.availability?.(body) ?? {};
       case "viz.view.open":
         return { viewChannel: "view" };
       case "viz.render":
@@ -905,4 +908,61 @@ test("F06 FR2.HD1.gui-web.DD1, FR16.HD1.gui-web.DD1: the format strip switches t
   const treemap = option(label("ui.visualization.treemap"));
   expect(treemap.checked).toBe(true);
   await waitFor(() => expect(document.activeElement).toBe(treemap));
+});
+
+test("F06 FR16.HD1.gui-web.DD1: the strip marks the formats that cannot be drawn as soon as the view opens (#241)", async () => {
+  const asked: unknown[] = [];
+  const { client } = desktop("en", {
+    availability: (body) => {
+      asked.push(body);
+      return {
+        formats: [
+          { format: "treemap", available: true, reasonKey: null },
+          { format: "bar", available: true, reasonKey: null },
+          {
+            format: "histogram",
+            available: false,
+            reasonKey: "viz.unavailable.no_item_sizes",
+          },
+        ],
+        requiredDataTableRevision: 1,
+      };
+    },
+  });
+  const label = (key: string) => realLocales.en.text(key, "");
+  render(<DesktopLocale client={client} />);
+  fireEvent.click(await screen.findByRole("radio", { name: target.display }));
+  fireEvent.click(
+    screen.getByRole("button", { name: label("ui.analysis.review") }),
+  );
+  const start = await screen.findByRole<HTMLButtonElement>("button", {
+    name: label("ui.analysis.start"),
+  });
+  await waitFor(() => expect(start.disabled).toBe(false));
+  fireEvent.click(start);
+  fireEvent.click(
+    await screen.findByRole("button", { name: label("ui.analysis.browse") }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: label("ui.visualization.show_space_distribution"),
+    }),
+  );
+  const strip = await screen.findByRole("radiogroup", {
+    name: label("ui.visualization.formatChoice"),
+  });
+  const noData = label("ui.visualization.formatNoData");
+  expect(
+    await within(strip).findByRole("radio", {
+      name: `${label("ui.visualization.histogram")}, ${noData}`,
+    }),
+  ).toBeTruthy();
+  expect(
+    within(strip).getByRole("radio", { name: label("ui.visualization.bar") }),
+  ).toBeTruthy();
+  // Asked with the result revision and folder only; no scan lineage is named.
+  expect(asked[0]).toEqual({
+    resultRevision: "result",
+    aggregateScopeRef: { resultVersion: "result", itemNo: 5 },
+  });
 });

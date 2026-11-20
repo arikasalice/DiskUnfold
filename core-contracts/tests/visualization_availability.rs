@@ -20,7 +20,7 @@ fn request_requires_explicit_source_revision_and_folder_scope()
     let decoded: VizAvailabilityRequest = from_value(value.clone())?;
     assert_eq!(to_value(decoded)?, value);
 
-    for field in ["sourceRef", "resultRevision", "aggregateScopeRef"] {
+    for field in ["resultRevision", "aggregateScopeRef"] {
         let mut invalid = request();
         invalid
             .as_object_mut()
@@ -31,6 +31,20 @@ fn request_requires_explicit_source_revision_and_folder_scope()
             "{field}"
         );
     }
+
+    // The source lineage may be left out; it is then not written back either.
+    let mut unnamed = request();
+    unnamed
+        .as_object_mut()
+        .ok_or("expected request object")?
+        .remove("sourceRef");
+    let decoded: VizAvailabilityRequest = from_value(unnamed.clone())?;
+    assert!(decoded.source_ref.is_none());
+    assert_eq!(to_value(decoded)?, unnamed);
+    // An explicit null is not a missing lineage.
+    let mut null_source = request();
+    null_source["sourceRef"] = Value::Null;
+    assert!(from_value::<VizAvailabilityRequest>(null_source).is_err());
     Ok(())
 }
 

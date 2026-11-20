@@ -91,11 +91,16 @@ function keptAcrossFormats(
   next: ModelResponse,
 ): VizSelection | null {
   if (
-    selection?.kind !== "item" ||
+    !selection ||
     !previous ||
     selection.resultRevision !== next.resultRevision ||
     previous.model.representation.format === next.model.representation.format ||
-    !sameItem(previous.model.aggregateScopeRef, next.model.aggregateScopeRef) ||
+    !sameItem(previous.model.aggregateScopeRef, next.model.aggregateScopeRef)
+  )
+    return null;
+  // An item the new chart draws is carried by its shape, never kept beside it.
+  if (
+    selection.kind === "item" &&
     next.model.shapes.some((shape) =>
       sameItem(shape.itemRef, selection.itemRef),
     )
@@ -115,6 +120,20 @@ function carrySelection(
   if (transferred) return { selection: transferred, kept: false };
   const kept = keptAcrossFormats(selection, previous, next);
   return { selection: kept, kept: kept !== null };
+}
+
+/**
+ * Only a new result that cannot carry the selection reports it lost; on the
+ * same result (another folder) it is released quietly (F06 README 41).
+ */
+function lostToNewResult(
+  previous: VizSelection | null,
+  next: VizSelection | null,
+  response: ModelResponse,
+): boolean {
+  return (
+    !!previous && !next && previous.resultRevision !== response.resultRevision
+  );
 }
 
 /** A kept selection keeps the evidence it had; a carried one is read from the new model. */
@@ -345,7 +364,8 @@ export class VisualizationController {
         )
       : { selection: oldSelection, kept: false };
     const selection = carried.selection;
-    const selectionLost = Boolean(canDisplay && oldSelection && !selection);
+    const selectionLost =
+      canDisplay && lostToNewResult(oldSelection, selection, response);
     const oldFocus = this.state.focus;
     const canTransferFocus =
       !oldFocus ||

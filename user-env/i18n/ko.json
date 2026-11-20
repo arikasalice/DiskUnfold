@@ -882,8 +882,6 @@
     ["ui.visualization.omittedItems","펼치지 않은 폴더 안의 항목",[]],
     ["ui.visualization.openFailed","그래프를 열지 못했습니다.",[]],
     ["ui.visualization.originScan","현재 분석",[]],
-    ["ui.visualization.previousBasis","이전 관측:",[]],
-    ["ui.visualization.previousMeasure","크기 기준:",[]],
     ["ui.visualization.previousName","이전 항목:",[]],
     ["ui.visualization.previousRange","이전 구간",[]],
     ["ui.visualization.previousRows","이전 행",[]],
