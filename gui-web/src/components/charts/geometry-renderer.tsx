@@ -549,6 +549,8 @@ function rectangleLabel(
   width: number,
   height: number,
   grid: DeviceGrid,
+  /** The shape draws a pattern: the label stands on a plate of its own fill. */
+  plate = false,
 ) {
   if (shape.geometry.primitive !== "rect") return null;
   const start = project(shape.geometry.points[0]!, view, width, height, grid);
@@ -568,11 +570,33 @@ function rectangleLabel(
         );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
   const limit = Math.max(4, Math.floor((available - 24) / 14));
-  return labelText(
-    "du-geometry-label",
-    left + 12,
-    top + 24,
-    fitLabel(shape, limit),
+  const label = fitLabel(shape, limit);
+  const text = labelText("du-geometry-label", left + 12, top + 24, label);
+  if (!plate || text === null) return text;
+  // No pattern runs through a name (README 44): the 14 px line and 2 px above and
+  // below, the text and 4 px each side, take the shape's own fill.
+  return (
+    <g>
+      <rect
+        className="du-geometry-label-plate"
+        x={left + 12 - 4}
+        y={top + 24 - 14 - 2}
+        width={labelWidth(label) + 8}
+        height={14 + 4 + 4}
+      />
+      {text}
+    </g>
+  );
+}
+
+const WIDE_GLYPH =
+  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+/** The approximate drawn width of a 14 px label: 14 px for a wide glyph, 8 for others. */
+function labelWidth(label: string) {
+  return graphemes(label).reduce(
+    (sum, part) => sum + (WIDE_GLYPH.test(part) ? 14 : 8),
+    0,
   );
 }
 
@@ -821,6 +845,12 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               ))}
             {visible.map(({ shape, drawing }) => {
               const selected = shape.rowRef === props.selectedRowRef;
+              const overlay = patternOverlay(shape, props.patterns, clip, {
+                viewport,
+                width,
+                height,
+                grid,
+              });
               return (
                 <g
                   className="du-geometry-shape"
@@ -831,17 +861,19 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   data-dimmed={shape.dimmed ? "true" : undefined}
                 >
                   {drawing}
-                  {patternOverlay(shape, props.patterns, clip, {
-                    viewport,
-                    width,
-                    height,
-                    grid,
-                  })}
+                  {overlay}
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
                   {props.variant !== "ranked" &&
-                    rectangleLabel(shape, viewport, width, height, grid)}
+                    rectangleLabel(
+                      shape,
+                      viewport,
+                      width,
+                      height,
+                      grid,
+                      overlay !== null,
+                    )}
                   {selected &&
                     selectionCheck(shape, viewport, width, height, grid)}
                 </g>

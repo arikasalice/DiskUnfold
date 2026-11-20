@@ -186,6 +186,12 @@
   stroke: none;
 }
 
+/* The plate under a label on a patterned shape: the shape's own fill, no edge. */
+.du-geometry-shape .du-geometry-label-plate {
+  pointer-events: none;
+  stroke: none;
+}
+
 /* Pattern marks: 1 px lines in the fill text colour at 35% opacity. */
 .du-chart-pattern {
   stroke: var(--du-chart-on-fill);

@@ -16,6 +16,7 @@ import { createProductionVizText, visualizationMessage } from "../src/viz";
 import type { VizText } from "../src/viz";
 import { legendLook } from "../src/viz/legend-style";
 import { ChartLegend } from "../src/components/charts/chart-legend";
+import { GeometryRenderer } from "../src/components/charts/geometry-renderer";
 
 afterEach(cleanup);
 
@@ -261,4 +262,63 @@ test("F06 README 44.3: in high contrast the pattern switch shows on, cannot be c
     document.getElementById(button.getAttribute("aria-describedby")!)
       ?.textContent,
   ).toBe("Patterns are always on in high contrast");
+});
+
+test("F06 README 44 re-review: a patterned shape draws no pattern under its name", () => {
+  const { container } = render(
+    <GeometryRenderer
+      modelRef="model-1"
+      resultRevision="revision-1"
+      label="Chart"
+      selectedText="selected"
+      fallbackNotice="Graph unavailable"
+      missingFallbackNotice="Table unavailable"
+      width={600}
+      height={300}
+      viewport={{ left: 0, top: 0, right: 1_000_000, bottom: 1_000_000 }}
+      selectedRowRef={null}
+      onSelect={() => {}}
+      fallback={{
+        modelRef: "model-1",
+        resultRevision: "revision-1",
+        content: null,
+      }}
+      relations={[]}
+      shapes={[
+        {
+          shapeRef: "readme",
+          rowRef: "row-readme",
+          accessibleLabel: "README, 1 MiB",
+          displayName: "README",
+          displayValue: "1 MiB",
+          tone: "neutral-2",
+          pattern: "sparse-dots",
+          patternAlways: true,
+          geometry: {
+            primitive: "rect",
+            points: [
+              { x: 0, y: 0 },
+              { x: 1_000_000, y: 1_000_000 },
+            ],
+          },
+        },
+      ]}
+    />,
+  );
+  const shape = container.querySelector(".du-geometry-shape")!;
+  const parts = Array.from(shape.querySelectorAll("rect, text")).map(
+    (node) => node.getAttribute("class") ?? node.tagName,
+  );
+  // The plate comes after the pattern, so the pattern runs only around the name.
+  expect(parts.indexOf("du-geometry-label-plate")).toBeGreaterThan(
+    parts.indexOf("du-geometry-pattern"),
+  );
+  const plate = shape.querySelector(".du-geometry-label-plate")!;
+  const label = shape.querySelector(".du-geometry-label")!;
+  expect(Number(plate.getAttribute("x"))).toBe(
+    Number(label.getAttribute("x")) - 4,
+  );
+  expect(Number(plate.getAttribute("y"))).toBeLessThan(
+    Number(label.getAttribute("y")) - 14,
+  );
 });

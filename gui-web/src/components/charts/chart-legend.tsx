@@ -81,7 +81,7 @@ export function ChartLegend({
           // A disabled button shows no tooltip; the wrapper carries it.
           <span title={patternsForced}>
             <ToggleButton
-              className="du-action du-action--quiet du-chart-legend__patterns"
+              className="du-action du-chart-legend__patterns"
               isSelected={patterns || patternsForced !== undefined}
               isDisabled={patternsForced !== undefined}
               onChange={onPatterns}
