@@ -49,7 +49,7 @@
 | 뜻 | Windows | macOS | Linux | 쓰지 않는 말 |
 | --- | --- | --- | --- | --- |
 | 경로 입력 칸 이름 | 폴더 경로 / Folder path | 같음 | 같음 | Windows 폴더 경로 |
-| 경로 입력 칸 예시(placeholder) | 예: C:\Users\민서\문서 | 예: /Users/minseo/Documents | 예: /home/minseo/문서 | — |
+| 경로 입력 칸 예시(placeholder) | 예: C:\Users\민서\Documents | 예: /Users/minseo/Documents | 예: /home/minseo/문서 | — |
 | 분석할 수 있는 저장 공간 한 개 | 드라이브 / Drive | 볼륨 / Volume | 볼륨 / Volume | macOS·Linux에서 드라이브 |
 | 그 목록 제목 | 드라이브 / Drives | 볼륨 / Volumes | 볼륨 / Volumes | — |
 | 경로 안내 | 로컬 폴더 또는 드라이브 경로를 입력하세요. | 로컬 폴더 경로를 입력하세요. | 로컬 폴더 경로를 입력하세요. | — |
@@ -63,7 +63,7 @@
 
 | 뜻 | Windows | macOS | Linux |
 | --- | --- | --- | --- |
-| 첫 경로 칸 예시 | 예: C:\Users\민서\문서 | 예: /Users/minseo/Documents | 예: /home/minseo/문서 |
+| 첫 경로 칸 예시 | 예: C:\Users\민서\Documents | 예: /Users/minseo/Documents | 예: /home/minseo/문서 |
 | 추가 경로 칸 예시 | 예: D:\사진 | 예: /Volumes/백업 | 예: /mnt/백업 |
 | 휴지통 (ko) | 휴지통 | 휴지통 | 휴지통 |
 | 휴지통 (en) | Recycle Bin | Trash | Trash |
@@ -71,6 +71,9 @@
 - 추가 경로 칸은 첫 칸과 다른 예시를 쓴다. 같은 경로가 두 칸에 보이면 이미 입력된 것처럼 읽힌다. 예시는 칸 이름을 대신하지 않는다. 칸 이름 「폴더 경로」는 늘 보인다.
 - ui.history.check_os_trash: ko는 「휴지통을 직접 확인하세요」로 고친다. 「운영 체제 휴지통」은 사용자 말이 아니다. en은 Windows에서 "Check the Recycle Bin yourself", macOS·Linux에서 "Check the Trash yourself"다. time_moved_to_trash의 en도 같은 규칙으로 고른다.
 - 문구 고르기: 호스트가 windows·macos·linux 중 하나를 알려 주고, 화면의 한 모듈이 키를 다음 순서로 찾는다. 운영 체제 변형 키(…macos)가 먼저이고, 없으면 경로 체계 변형 키(…unix), 그것도 없으면 기본 키다. 예시 문구는 macOS와 Linux가 달라서 경로 체계(windows·unix) 하나로는 모자란다. 지원 정보가 이미 받는 운영 체제 구분(osFamily)과 같은 값을 쓴다.
+- 예시는 사용자가 실제로 칠 경로다(2026-11-20, #262 검수에서 고침). Windows 탐색기와 macOS Finder는 「문서」로 보여 주지만 실제 경로는 Documents다. 그래서 Windows 예시는 「C:\Users\민서\Documents」다. Linux는 한국어 사용자 폴더 이름(/home/minseo/문서)이 실제 경로이므로 그대로 둔다.
+- en 예시: "e.g. C:\Users\Minseo\Documents", "e.g. /Users/minseo/Documents", "e.g. /home/minseo/Documents", "e.g. D:\Photos", "e.g. /Volumes/Backup", "e.g. /mnt/backup".
+- ui.history.check_os_trash: 「기록된 정보로 휴지통을 직접 확인하세요.」 / Windows "Use the recorded details to check the Recycle Bin yourself.", macOS·Linux "Use the recorded details to check the Trash yourself." 앞의 「기록된 정보로」는 무엇을 가지고 찾으면 되는지 알려 주므로 남기고, 「운영 체제」만 뺀다.
 
 ## 바뀐 기록
 
