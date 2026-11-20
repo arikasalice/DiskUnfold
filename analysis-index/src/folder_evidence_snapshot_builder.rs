@@ -171,9 +171,9 @@ impl FolderAttemptLedger {
                 None => None,
             };
             pinned_events.push(PinnedFolderEvent {
-                _attempt_id: state.token.attempt_id,
+                attempt_id: state.token.attempt_id,
                 _event_seq: event.event_seq,
-                _input: input,
+                input,
             });
         }
         let required_bytes = capacity(base_snapshot_bytes.checked_add(cloned_payload_bytes))?;

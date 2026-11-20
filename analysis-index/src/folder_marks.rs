@@ -61,6 +61,9 @@ pub(crate) struct FolderMarks {
     evidence: EvidenceState,
     /// Why this version's lower bounds may have no row reason, decided once (#226).
     pub(crate) cause: std::sync::OnceLock<&'static str>,
+    /// Excluded direct children of folders with exactly one pinned attempt that ended,
+    /// ascending by item number.
+    excluded: Box<[(u32, u32)]>,
     unread_counts: UnreadFolderCounts,
 }
 
@@ -81,8 +84,8 @@ impl BuildHandle {
     ///
     /// `root` identifies the actual input root and an empty path selects that root.
     /// `count` is the number of dropped direct children and `complete` tells whether
-    /// enumeration ran to its end. Current records are not published or retained because
-    /// the producer has not established that a child cannot be counted repeatedly.
+    /// enumeration ran to its end. These records are not published or retained: the count
+    /// comes from the folder's attempt evidence instead (see `excluded_children`).
     ///
     /// # Errors
     /// Returns `Unavailable` after the build finishes and `InvalidTree` when the exact
@@ -219,6 +222,7 @@ impl FolderMarks {
             attempted: attempted.into_boxed_slice(),
             evidence: state,
             cause: std::sync::OnceLock::new(),
+            excluded: excluded_children(evidence),
             unread_counts,
         }
     }
@@ -265,6 +269,84 @@ impl FolderMarks {
     pub(crate) fn evidence(&self) -> EvidenceState {
         self.evidence
     }
+    /// The excluded direct children counted from the folder's single ended attempt.
+    pub(crate) fn excluded(&self, item_no: u32) -> Option<u32> {
+        let at = self
+            .excluded
+            .binary_search_by_key(&item_no, |entry| entry.0)
+            .ok()?;
+        self.excluded.get(at).map(|entry| entry.1)
+    }
+}
+
+/// Counts the excluded direct children of every folder with exactly one pinned attempt,
+/// and that attempt `EndedUnproven`: the distinct child IDs whose filter callback decided
+/// `Exclude`. Child IDs are unique within an attempt, so no child counts twice; a folder
+/// with several attempts or an event whose input was not kept gives no count.
+/// Linear in the attempts and events plus a sort.
+fn excluded_children(evidence: Option<&FolderEvidenceSnapshot>) -> Box<[(u32, u32)]> {
+    use du_core_contracts::scan_observation::{CorrelatedDirectoryEvent, FilterDecision};
+    let Some(evidence) = evidence else {
+        return Box::default();
+    };
+    let mut folders: Vec<(u32, u64, bool)> = evidence
+        .summaries()
+        .iter()
+        .map(|summary| {
+            (
+                summary.folder_item,
+                summary.attempt_id,
+                summary.status == FolderAttemptStatus::EndedUnproven,
+            )
+        })
+        .collect();
+    folders.sort_unstable();
+    // Attempt ID -> folder item, for folders whose only attempt ended.
+    let mut single: Vec<(u64, u32)> = folders
+        .chunk_by(|left, right| left.0 == right.0)
+        .filter(|group| group.len() == 1 && group[0].2)
+        .map(|group| (group[0].1, group[0].0))
+        .collect();
+    single.sort_unstable();
+    let folder_of = |attempt: u64| {
+        single
+            .binary_search_by_key(&attempt, |entry| entry.0)
+            .ok()
+            .map(|at| single[at].1)
+    };
+    let mut excluded: Vec<(u32, u64)> = Vec::new();
+    let mut incomplete: Vec<u32> = Vec::new();
+    for event in evidence.events() {
+        let Some(folder) = folder_of(event.attempt_id) else {
+            continue;
+        };
+        match &event.input {
+            None => incomplete.push(folder),
+            Some(crate::FolderAttemptInput::Adapter(
+                CorrelatedDirectoryEvent::FilterCallback {
+                    child_id,
+                    decision: FilterDecision::Exclude,
+                    ..
+                },
+            )) => excluded.push((folder, *child_id)),
+            Some(_) => {}
+        }
+    }
+    excluded.sort_unstable();
+    excluded.dedup();
+    incomplete.sort_unstable();
+    let mut counts: Vec<(u32, u32)> = single
+        .iter()
+        .map(|entry| entry.1)
+        .filter(|folder| incomplete.binary_search(folder).is_err())
+        .map(|folder| {
+            let start = excluded.partition_point(|entry| entry.0 < folder);
+            let end = excluded.partition_point(|entry| entry.0 <= folder);
+            (folder, u32::try_from(end - start).unwrap_or(u32::MAX))
+        })
+        .collect();
+    counts.sort_unstable();
+    counts.into_boxed_slice()
 }
 
 /// Folders with at least one pinned attempt, every one of them `EndedUnproven`: the

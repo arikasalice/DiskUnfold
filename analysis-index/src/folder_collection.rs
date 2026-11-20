@@ -43,9 +43,14 @@
 //!
 //! # Excluded children
 //!
-//! Excluded counts are not provided: the current producer does not establish that
-//! repeated enumeration cannot count the same direct child twice. Neither a reported
-//! count nor an absent record proves an exact count or a positive lower bound.
+//! A real scan answers an exact count for a folder with exactly one pinned attempt that
+//! ended (`EndedUnproven`): the distinct child IDs whose filter callback decided
+//! `Exclude`. Child IDs are unique within an attempt and only one attempt is used, so no
+//! child counts twice. A scan without exclusion rules admits every child, so such a folder
+//! answers exactly 0. Every other folder answers `None`: no attempt, an attempt that did
+//! not end, several attempts, an attempt event whose input was not kept, or a sample.
+//! Like the attempt evidence itself, the count reflects one enumeration; a directory that
+//! changes while it is listed may show an entry twice or not at all.
 //!
 //! # Cost
 //!
@@ -188,7 +193,13 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
-        Ok(None)
+        if !self.data_source.is_real() {
+            return Ok(None);
+        }
+        Ok(self
+            .folder_marks
+            .excluded(item.item_no)
+            .map(|count| ExcludedChildren { count, exact: true }))
     }
 
     /// How many folders of this version carry each unread mark.
