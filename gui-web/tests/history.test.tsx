@@ -89,7 +89,7 @@ const row = {
   },
 } satisfies HistoryListResponse["rows"][number];
 
-test("loads history, filters, and preserves opaque paging cursors", async () => {
+test("loads history without a redundant status title, filters, and preserves opaque paging cursors", async () => {
   const call = vi
     .fn()
     .mockResolvedValueOnce(response([row], "opaque"))
@@ -106,11 +106,11 @@ test("loads history, filters, and preserves opaque paging cursors", async () => 
   expect(screen.getByText("Time unavailable")).toBeDefined();
   // The engine's target text is not drawn under the operation (#170).
   expect(screen.queryByText("1 folder")).toBeNull();
-  expect(
-    within(screen.getByRole("table", { name: "Operation history" })).getByText(
-      "Completed",
-    ),
-  ).toBeDefined();
+  const completed = within(
+    screen.getByRole("table", { name: "Operation history" }),
+  ).getByText("Completed");
+  expect(completed).toBeDefined();
+  expect(completed.closest("[title]")).toBeNull();
   expect(screen.queryByLabelText("Result counts")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
   await waitFor(() => expect(call).toHaveBeenCalledTimes(2));

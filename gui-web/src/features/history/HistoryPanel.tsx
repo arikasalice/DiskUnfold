@@ -354,20 +354,22 @@ function rowCells(
   const unavailable = row.missingReasons
     .map((reason) => missingLabel(reason, text))
     .join(" ");
+  const fullStateLabel = state ? stateLabel(state, false, text) : null;
+  const compactStateLabel = state ? stateLabel(state, true, text) : null;
+  const statusTitle =
+    unavailable ||
+    (fullStateLabel !== null && fullStateLabel !== compactStateLabel
+      ? fullStateLabel
+      : undefined);
   return [
     // F02 README #170: the recorded target is a fixed engine summary, not a
     // path, so it is not shown until the scope roots are recorded.
     <div className="du-history-operation" key="operation">
       <Text>{name}</Text>
     </div>,
-    <div
-      key="status"
-      title={unavailable || (state && stateLabel(state, false, text))}
-    >
+    <div key="status" title={statusTitle}>
       <StatusBadge tone={stateTone(state)}>
-        {state
-          ? stateLabel(state, true, text)
-          : text("ui.history.unavailable", "Unavailable")}
+        {compactStateLabel ?? text("ui.history.unavailable", "Unavailable")}
       </StatusBadge>
       {unavailable && (
         <Text kind="muted">{text("ui.history.incomplete", "Incomplete")}</Text>

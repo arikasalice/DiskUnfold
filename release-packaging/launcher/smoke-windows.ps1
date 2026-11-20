@@ -1895,6 +1895,31 @@ function Test-CaptureHistory {
       Select-Object -First 1
   }
   Save-SmokeCapture '01-operation-history'
+  $filterDisclosure = Wait-UI 'date and type filters disclosure' {
+    $item = Find-UI 'Date and type filters' $button
+    if ($item -and $item.Current.IsEnabled) { $item }
+  }
+  Expand-UI $filterDisclosure
+  $startDateLabel = Get-UiName 'From date'
+  $throughDateLabel = Get-UiName 'Through date'
+  $startDateCalendarName = Get-UiName 'Open calendar for From date'
+  $null = Wait-UI 'history date fields' {
+    if ((Find-UI $startDateLabel $null) -and (Find-UI $throughDateLabel $null)) { $true }
+  }
+  Save-SmokeCapture '02-operation-history-filters'
+  $startDateCalendarButton = Wait-UI 'start-date calendar button' {
+    $item = Find-UI $startDateCalendarName $button
+    if (-not $item) { $item = Find-UI 'Show date picker' $button }
+    $item
+  }
+  $buttonName = $startDateCalendarButton.Current.Name
+  $buttonHelpText = $startDateCalendarButton.Current.HelpText
+  $buttonLog = "F21 #272 date picker button: $buttonName"
+  if (-not [string]::IsNullOrWhiteSpace($buttonHelpText)) { $buttonLog += "; HelpText: $buttonHelpText" }
+  $buttonLog
+  if ([string]::IsNullOrWhiteSpace($buttonName) -or $buttonName -eq 'Show date picker') {
+    throw "Unexpected start-date calendar button Name: '$buttonName'"
+  }
   "History capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # Best effort: a scope over the synchronous limit (200,000 files) classifies as a job, which
