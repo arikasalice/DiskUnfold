@@ -1,20 +1,22 @@
+mod events;
 mod menu;
 mod scheme;
+mod timer;
 mod titlebar;
 
-use super::contract::{ShutdownCallbacks, WebApp, entry, message};
+use super::contract::{Events, ShutdownCallbacks, WebApp, entry, message};
+use super::events_common::DocumentGate;
 use crate::cli_link::Language;
 use block2::DynBlock;
 use objc2::{
-    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, msg_send,
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class,
     rc::{Retained, autoreleasepool},
     runtime::{AnyObject, Bool, ProtocolObject},
-    sel,
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-    NSApplicationTerminateReply, NSBackingStoreType, NSEvent, NSEventModifierFlags, NSEventType,
-    NSImage, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSApplicationTerminateReply, NSBackingStoreType, NSImage, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSData, NSError, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
@@ -43,15 +45,10 @@ struct State {
     /// True while a Dock or menu quit is postponed with `TerminateLater` and
     /// AppKit still waits for `replyToApplicationShouldTerminate:`.
     terminate_pending: Cell<bool>,
-}
-
-/// Interval of the shutdown progress timer, matching the Windows and Linux tickers.
-const SHUTDOWN_TICK_SECONDS: f64 = 0.016;
-
-#[link(name = "Foundation", kind = "framework")]
-unsafe extern "C" {
-    /// The run-loop mode set that covers tracking, modal and default modes.
-    static NSRunLoopCommonModes: &'static NSString;
+    /// The host's event source, when the page receives application events.
+    events: Option<Events>,
+    /// Which top-level document may receive events.
+    document: RefCell<DocumentGate>,
 }
 
 /// Clears the application delegate on every exit path, including early returns
@@ -61,62 +58,6 @@ struct DelegateGuard(Retained<NSApplication>);
 impl Drop for DelegateGuard {
     fn drop(&mut self) {
         self.0.setDelegate(None);
-    }
-}
-
-/// Invalidates the shutdown timer on every exit path.
-struct TimerGuard(Retained<AnyObject>);
-
-impl Drop for TimerGuard {
-    fn drop(&mut self) {
-        // SAFETY: `invalidate` is sent to the NSTimer this guard retains, on the main thread.
-        unsafe {
-            let () = msg_send![&*self.0, invalidate];
-        }
-    }
-}
-
-/// Schedules the shutdown ticker in the common run-loop modes.
-///
-/// A postponed quit (`TerminateLater`) runs the loop in a modal mode, and a window
-/// resize or menu tracking uses an event-tracking mode. A timer in the default mode
-/// alone would stall in both and the shutdown would never advance.
-fn schedule_shutdown_timer(handler: &Handler) -> Retained<AnyObject> {
-    // SAFETY: Called on the main thread; the timer retains `handler` until invalidated.
-    unsafe {
-        let timer: Retained<AnyObject> = msg_send![
-            class!(NSTimer),
-            timerWithTimeInterval: SHUTDOWN_TICK_SECONDS,
-            target: handler,
-            selector: sel!(shutdownTick:),
-            userInfo: Option::<&AnyObject>::None,
-            repeats: Bool::YES
-        ];
-        let run_loop: Retained<AnyObject> = msg_send![class!(NSRunLoop), currentRunLoop];
-        let () = msg_send![&*run_loop, addTimer: &*timer, forMode: NSRunLoopCommonModes];
-        timer
-    }
-}
-
-/// Ends `NSApplication::run` from outside an event handler.
-///
-/// `stop:` only takes effect after the next event, so a timer callback must post
-/// one for the loop to observe the request.
-fn stop_application(application: &NSApplication) {
-    application.stop(None);
-    let wake = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
-        NSEventType::ApplicationDefined,
-        NSPoint::new(0.0, 0.0),
-        NSEventModifierFlags::empty(),
-        0.0,
-        0,
-        None,
-        0,
-        0,
-        0,
-    );
-    if let Some(wake) = wake {
-        application.postEvent_atStart(&wake, true);
     }
 }
 
@@ -193,9 +134,11 @@ define_class!(
             menu::install_command_line_tool(self.mtm(), self.ivars().language);
         }
 
-        /// Advances the host shutdown and leaves the run loop once it completes.
-        #[unsafe(method(shutdownTick:))]
-        fn shutdown_tick(&self, _: &AnyObject) {
+        /// Posts pending application events, advances the host shutdown and leaves the
+        /// run loop once the shutdown completes.
+        #[unsafe(method(tick:))]
+        fn tick(&self, _: &AnyObject) {
+            events::poll(self, self.mtm());
             if let Some(shutdown) = &self.ivars().shutdown {
                 shutdown.pump();
                 if shutdown.is_complete() {
@@ -206,7 +149,7 @@ define_class!(
                         // loop, which would skip the host's exit status and cleanup.
                         application.replyToApplicationShouldTerminate(false);
                     }
-                    stop_application(&application);
+                    timer::stop_application(&application);
                 }
             }
         }
@@ -263,11 +206,24 @@ define_class!(
             }
         }
 
+        /// A new top-level document replaced the old one: events wait until it is ready.
+        #[unsafe(method(webView:didCommitNavigation:))]
+        unsafe fn navigation_committed(&self, view: &WKWebView, _: Option<&WKNavigation>) {
+            events::document_committed(self.ivars(), view);
+        }
+
         /// The buttons are laid out once the window is on screen, so the page gets their
-        /// measured space after the first load.
+        /// measured space after the first load. The loaded document now takes events.
         #[unsafe(method(webView:didFinishNavigation:))]
-        unsafe fn navigation_finished(&self, _: &WKWebView, _: Option<&WKNavigation>) {
+        unsafe fn navigation_finished(&self, view: &WKWebView, _: Option<&WKNavigation>) {
             publish_titlebar(self.ivars());
+            events::document_finished(self.ivars(), view);
+        }
+
+        /// The page's process ended; no event is posted to the lost document.
+        #[unsafe(method(webViewWebContentProcessDidTerminate:))]
+        unsafe fn content_terminated(&self, _: &WKWebView) {
+            events::document_lost(self.ivars());
         }
     }
 
@@ -370,7 +326,11 @@ fn publish_titlebar(state: &State) {
     unsafe { view.evaluateJavaScript_completionHandler(&NSString::from_str(&script), None) };
 }
 
-pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<(), Box<dyn Error>> {
+pub(super) fn run(
+    app: WebApp,
+    shutdown: Option<ShutdownCallbacks>,
+    events: Option<Events>,
+) -> Result<(), Box<dyn Error>> {
     let mtm = MainThreadMarker::new().ok_or("AppKit requires the main thread")?;
     autoreleasepool(|_| {
         // SAFETY: AppKit and WebKit are initialized and operated exclusively on the main thread.
@@ -391,12 +351,15 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
                     shutdown,
                     error: RefCell::new(None),
                     view: RefCell::new(None),
-                    terminate_pending: Cell::new(false)
+                    terminate_pending: Cell::new(false),
+                    events,
+                    document: RefCell::new(DocumentGate::default())
                 })),
                 init
             ];
             let handler: Retained<Handler> = handler;
             let has_shutdown = handler.ivars().shutdown.is_some();
+            let has_events = handler.ivars().events.is_some();
             if has_shutdown {
                 application.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
             }
@@ -464,8 +427,9 @@ pub(super) fn run(app: WebApp, shutdown: Option<ShutdownCallbacks>) -> Result<()
             window.center();
             window.makeKeyAndOrderFront(None);
             application.activate();
-            let _timer = has_shutdown.then(|| TimerGuard(schedule_shutdown_timer(&handler)));
+            let _timer = (has_shutdown || has_events).then(|| timer::schedule(&handler));
             application.run();
+            events::close(handler.ivars());
             manager.removeScriptMessageHandlerForName_contentWorld(&channel, &world);
             manager.removeScriptMessageHandlerForName(&window_channel);
             view.setNavigationDelegate(None);

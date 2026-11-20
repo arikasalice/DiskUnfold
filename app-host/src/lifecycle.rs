@@ -289,8 +289,11 @@ fn run_app(
         native_language,
         icon: include_bytes!("../icons/icon.png"),
     };
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
+        // Window close, Dock and menu quit use the same orderly coordinator on every
+        // platform; the adapter keeps the window open until it completes. The macOS
+        // adapter also delivers application events (#228).
         let event_source = crate::shutdown::webview::event_source(events.clone(), shutdown.clone());
         let result = du_platform_os::webview::run_with_events(app, event_source);
         retire_unreleased_session(&engine_owner);
@@ -298,15 +301,6 @@ fn run_app(
         if let Ok(mut worker) = recent_worker_owner.lock() {
             worker.take();
         }
-        finish(result, &shutdown)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // Window close, Dock and menu quit use the same orderly coordinator as the
-        // other platforms; the adapter keeps the window open until it completes.
-        let hooks = crate::shutdown::webview::shutdown_callbacks(shutdown.clone());
-        let result = du_platform_os::webview::run_with_shutdown(app, hooks);
-        retire_unreleased_session(&engine_owner);
         finish(result, &shutdown)
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]

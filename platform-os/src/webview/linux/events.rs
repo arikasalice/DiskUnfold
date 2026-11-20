@@ -1,35 +1,22 @@
-use super::super::contract::{EventPostFailure, Events, entry};
+use super::super::contract::{Events, entry};
+use super::super::events_common::{
+    DocumentGate, EVENT_DELIVERY_SCRIPT, fail_event_batch, take_event_batch,
+};
 use super::timer::TimerSlot;
 use gtk4::{gio, glib};
 use std::{cell::RefCell, rc::Rc, time::Duration};
 use webkit6::prelude::*;
-const EVENT_BATCH_LIMIT: usize = 32;
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(16);
-const EVENT_DELIVERY_SCRIPT: &str = r#"
-    if (location.href !== 'diskunfold://app/index.html' || window !== window.top) return false;
-    let detail;
-    try { detail = JSON.parse(payload); } catch { return false; }
-    window.dispatchEvent(new CustomEvent('du://event', { detail }));
-    return true;
-"#;
 
 pub(super) struct DocumentSession {
-    active: bool,
-    ready: bool,
-    closed: bool,
-    generation: u64,
-    sending: bool,
+    gate: DocumentGate,
     cancellable: gio::Cancellable,
 }
 
 impl DocumentSession {
     fn new() -> Self {
         Self {
-            active: false,
-            ready: false,
-            closed: false,
-            generation: 0,
-            sending: false,
+            gate: DocumentGate::default(),
             cancellable: gio::Cancellable::new(),
         }
     }
@@ -52,14 +39,10 @@ impl EventLifecycle {
             webkit6::LoadEvent::Started if is_trusted_document(view.uri()) => {
                 let previous = {
                     let mut document = started_state.borrow_mut();
-                    if document.closed {
+                    if !document.gate.start() {
                         return;
                     }
                     let previous = document.cancellable.clone();
-                    document.generation = document.generation.wrapping_add(1);
-                    document.active = true;
-                    document.ready = false;
-                    document.sending = false;
                     document.cancellable = gio::Cancellable::new();
                     previous
                 };
@@ -67,15 +50,7 @@ impl EventLifecycle {
                 started_events.document_started();
             }
             webkit6::LoadEvent::Finished if is_trusted_document(view.uri()) => {
-                let should_notify = {
-                    let mut document = ready_state.borrow_mut();
-                    if document.closed || !document.active || document.ready {
-                        false
-                    } else {
-                        document.ready = true;
-                        true
-                    }
-                };
+                let should_notify = ready_state.borrow_mut().gate.mark_ready();
                 if should_notify {
                     ready_events.document_ready();
                 }
@@ -101,10 +76,7 @@ impl Drop for EventLifecycle {
 pub(super) fn retire_session(state: &Rc<RefCell<DocumentSession>>, closed: bool) {
     let cancellable = {
         let mut document = state.borrow_mut();
-        document.active = false;
-        document.ready = false;
-        document.closed |= closed;
-        document.sending = false;
+        document.gate.retire(closed);
         document.cancellable.clone()
     };
     cancellable.cancel();
@@ -114,12 +86,6 @@ fn is_trusted_document(uri: Option<glib::GString>) -> bool {
     uri.is_some_and(|uri| uri.as_str() == entry())
 }
 
-fn take_event_batch(mut next: impl FnMut() -> Option<String>) -> Vec<String> {
-    std::iter::from_fn(&mut next)
-        .take(EVENT_BATCH_LIMIT)
-        .collect()
-}
-
 fn event_arguments(payload: &str) -> glib::Variant {
     let arguments = glib::VariantDict::new(None);
     arguments.insert("payload", payload);
@@ -127,20 +93,7 @@ fn event_arguments(payload: &str) -> glib::Variant {
 }
 
 fn finish_event_batch(state: &Rc<RefCell<DocumentSession>>, generation: u64) {
-    let mut document = state.borrow_mut();
-    if document.generation == generation {
-        document.sending = false;
-    }
-}
-
-fn fail_event_batch(events: &Events, batch: &[String], index: usize) {
-    let Some(failed) = batch.get(index) else {
-        return;
-    };
-    events.report_post_failure(EventPostFailure {
-        failed: failed.clone(),
-        discarded: batch[index + 1..].to_vec(),
-    });
+    state.borrow_mut().gate.finish(generation);
 }
 
 fn post_event_batch(
@@ -161,11 +114,7 @@ fn post_event_batch(
     };
     let cancellable = {
         let document = state.borrow();
-        if document.closed
-            || !document.active
-            || !document.ready
-            || document.generation != generation
-        {
+        if !document.gate.is_current(generation) {
             return;
         }
         document.cancellable.clone()
@@ -186,14 +135,7 @@ fn post_event_batch(
         Some(&source_uri),
         Some(&cancellable),
         move |result| {
-            let still_current = {
-                let document = state.borrow();
-                !document.closed
-                    && document.active
-                    && document.ready
-                    && document.generation == generation
-            };
-            if !still_current {
+            if !state.borrow().gate.is_current(generation) {
                 finish_event_batch(&state, generation);
                 return;
             }
@@ -214,22 +156,16 @@ pub(super) fn start_event_polling(
 ) -> TimerSlot {
     let view = view.downgrade();
     TimerSlot::every(EVENT_POLL_INTERVAL, move || {
-        let (closed, active, ready, sending, generation) = {
+        let (closed, generation) = {
             let document = state.borrow();
-            (
-                document.closed,
-                document.active,
-                document.ready,
-                document.sending,
-                document.generation,
-            )
+            (document.gate.closed, document.gate.ready_to_send())
         };
         if closed {
             return glib::ControlFlow::Break;
         }
-        if !active || !ready || sending {
+        let Some(generation) = generation else {
             return glib::ControlFlow::Continue;
-        }
+        };
         let Some(view) = view.upgrade() else {
             return glib::ControlFlow::Break;
         };
@@ -240,7 +176,7 @@ pub(super) fn start_event_polling(
         if batch.is_empty() {
             return glib::ControlFlow::Continue;
         }
-        state.borrow_mut().sending = true;
+        state.borrow_mut().gate.sending = true;
         post_event_batch(
             view.downgrade(),
             Rc::clone(&state),
@@ -260,14 +196,6 @@ mod tests {
     const EVENT: &str = r#"{"contractVersion":1,"topic":"fixture.event","occurredAt":"2026-11-12T00:00:00.000Z","seq":1,"body":{"text":"\"); window.__diskunfoldInjected = true; //"}}"#;
 
     #[test]
-    fn event_batch_is_bounded() {
-        let mut next = (0..EVENT_BATCH_LIMIT + 1).map(|index| format!("event-{index}"));
-        let batch = take_event_batch(|| next.next());
-        assert_eq!(batch.len(), EVENT_BATCH_LIMIT);
-        assert_eq!(next.next().as_deref(), Some("event-32"));
-    }
-
-    #[test]
     fn event_payload_is_passed_as_data() -> Result<(), Box<dyn std::error::Error>> {
         let arguments = event_arguments(EVENT);
         let dictionary = glib::VariantDict::new(Some(&arguments));
@@ -280,71 +208,24 @@ mod tests {
     }
 
     #[test]
-    fn post_failure_reports_the_failed_envelope_and_later_batch_items()
-    -> Result<(), Box<dyn std::error::Error>> {
-        use std::sync::{Arc, Mutex};
-
-        let reported = Arc::new(Mutex::new(None));
-        let callback = Arc::clone(&reported);
-        let events = Events::new(
-            || None,
-            super::super::super::contract::EventCallbacks::new(
-                move |failure| {
-                    if let Ok(mut reported) = callback.lock() {
-                        *reported = Some(failure);
-                    }
-                },
-                || {},
-                || {},
-                || {},
-            ),
-        );
-        let batch = vec!["first".into(), "failed".into(), "discarded".into()];
-        fail_event_batch(&events, &batch, 1);
-        let failure = reported.lock().map_err(|_| "post failure lock")?;
-        let expected = Some(EventPostFailure {
-            failed: "failed".into(),
-            discarded: vec!["discarded".into()],
-        });
-        assert_eq!(failure.as_ref(), expected.as_ref());
-        Ok(())
-    }
-
-    #[test]
     fn retiring_a_document_cancels_its_pending_post() {
         let state = Rc::new(RefCell::new(DocumentSession::new()));
         {
             let mut document = state.borrow_mut();
-            document.active = true;
-            document.ready = true;
-            document.sending = true;
-            document.generation = 1;
+            document.gate.active = true;
+            document.gate.ready = true;
+            document.gate.sending = true;
+            document.gate.generation = 1;
         }
         let cancellable = state.borrow().cancellable.clone();
 
         retire_session(&state, false);
 
         let document = state.borrow();
-        assert!(!document.active);
-        assert!(!document.ready);
-        assert!(!document.sending);
-        assert!(!document.closed);
+        assert!(!document.gate.active);
+        assert!(!document.gate.ready);
+        assert!(!document.gate.sending);
+        assert!(!document.gate.closed);
         assert!(cancellable.is_cancelled());
-    }
-
-    #[test]
-    fn stale_async_completion_cannot_clear_a_new_documents_send() {
-        let state = Rc::new(RefCell::new(DocumentSession::new()));
-        {
-            let mut document = state.borrow_mut();
-            document.generation = 2;
-            document.sending = true;
-        }
-
-        finish_event_batch(&state, 1);
-        assert!(state.borrow().sending);
-
-        finish_event_batch(&state, 2);
-        assert!(!state.borrow().sending);
     }
 }
