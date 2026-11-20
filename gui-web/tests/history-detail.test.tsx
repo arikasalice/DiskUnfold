@@ -160,7 +160,12 @@ test("late detail response cannot overwrite a later selection", async () => {
           finish = resolve;
         }),
     )
-    .mockResolvedValueOnce({ ...detail, followUps: [] });
+    .mockResolvedValueOnce({
+      ...detail,
+      followUps: [],
+      completeness: "complete",
+      missingReasons: [],
+    });
   render(<HistoryPanel client={client(call)} onClose={() => {}} />);
   fireEvent.click(
     (await screen.findAllByRole("button", { name: /^View details:/ }))[0]!,
@@ -169,11 +174,17 @@ test("late detail response cannot overwrite a later selection", async () => {
   fireEvent.click(
     screen.getAllByRole("button", { name: /^View details:/ })[1]!,
   );
-  await screen.findByText("No follow-up operations.");
+  await screen.findByText("Operation summary unavailable.");
+  // The second record is complete and has no related records to show.
+  const second = () => {
+    expect(screen.queryByText(/Some records could not be read/)).toBeNull();
+    expect(screen.queryByLabelText("Related records")).toBeNull();
+  };
+  second();
   await act(async () => {
     finish?.(detail);
   });
-  expect(screen.getByText("No follow-up operations.")).toBeDefined();
+  second();
   fireEvent.click(screen.getByRole("button", { name: "Recorded evidence" }));
   const effects = within(screen.getByLabelText("Effects"));
   expect(effects.getAllByText("Unavailable")).toHaveLength(3);

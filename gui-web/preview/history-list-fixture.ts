@@ -37,7 +37,7 @@ function summary(finishedAtMs: number, roots?: string[]): HistoryListSummary {
 const roots = {
   one: ["C:\\Users\\민서\\Videos"],
   many: [
-    "C:\\Users\\민서\\문서\\프로젝트\\2026 상반기 사업 보고서\\최종 검토본 모음\\Videos",
+    "C:\\Users\\민서\\문서\\프로젝트\\2026 상반기 사업 보고서\\최종 검토본 모음\\부록 자료와 원본 데이터 보관함\\Videos",
     "D:\\보관\\가져온 파일",
     "E:\\보관함\\2026년 상반기 고객 설문 응답 원본과 정리본 전체 모음\\부록 자료와 원본 데이터\\설문 응답 정리본 최종",
   ],
@@ -72,7 +72,8 @@ function detail(row: HistoryListRow): HistoryDetail {
     summary: row.summary,
     ...(row.jobRef === "scope-many" ? { scopeRoots: roots.many } : {}),
     workflow: { planVersions: null, executedPlan: null, approvalCheck: null },
-    followUps: null,
+    // A scan has no follow-ups; null would mean they could not be read.
+    followUps: [],
     effects: { estimated: null, executed: null, confirmed: null },
     completeness: "complete",
     missingReasons: [],

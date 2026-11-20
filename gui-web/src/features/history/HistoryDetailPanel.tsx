@@ -180,6 +180,9 @@ function RelatedRecords({
   const displayTime = useHistoryTime();
   const predecessor = summary?.predecessorJobRef;
   const relation = summary?.relation;
+  // Design #249: a record without a relation or follow-ups has nothing to
+  // show here. Unreadable follow-ups (null) still say so.
+  if (!relation && !predecessor && followUps?.length === 0) return null;
   return (
     <section
       className="du-history-related"
