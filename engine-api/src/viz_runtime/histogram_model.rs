@@ -90,13 +90,37 @@ pub(super) fn build(
         Ok(select(result, &request.size_basis))
     };
     let total = |size: SizeValue| total(size, &policy.unknown_reason);
-    let scope_size = select(data.summary.aggregate.clone(), &request.size_basis);
-    let scope = total(scope_size)?;
+    let denominator = pages.rows.first().ok_or_else(internal)?.denominator.clone();
+    // On the item-count axis every total counts items and carries no source size: the
+    // contract ties a source size to the size measure only (F06 HLD 2.2.3).
+    let counting = request.measure == "count";
+    let measured = |members: &[ItemRef],
+                    complete: bool,
+                    cancelled: &mut dyn FnMut() -> bool|
+     -> Result<VizTotal, EngineError> {
+        if counting {
+            Ok(VizTotal {
+                quantity: count(members.len() as u64, complete)?,
+                source_size: None,
+            })
+        } else {
+            total(aggregate(members, complete, cancelled)?)
+        }
+    };
+    // The item count of the scope is the files the histogram observed, as its denominator says.
+    let scope = if counting {
+        VizTotal {
+            quantity: denominator.value.clone(),
+            source_size: None,
+        }
+    } else {
+        total(select(data.summary.aggregate.clone(), &request.size_basis))?
+    };
     // Every shape of a histogram is an interval, which is a group: it has no item shape,
     // so its drawn total is zero and the items of its intervals are the grouped total.
-    let drawn_total = total(aggregate(&[], true, cancelled)?)?;
-    let grouped_total = total(aggregate(&grouped, complete, cancelled)?)?;
-    let filtered_total = total(aggregate(&[], true, cancelled)?)?;
+    let drawn_total = measured(&[], true, cancelled)?;
+    let grouped_total = measured(&grouped, complete, cancelled)?;
+    let filtered_total = measured(&[], true, cancelled)?;
     // What the intervals do not hold is the share of items whose size is not known, and
     // that makes the grouped total, and so the remainder, unknown. A histogram names no
     // cause for a remainder: an exact one that is not zero would be a mistake.
@@ -113,11 +137,10 @@ pub(super) fn build(
             key,
             label_key: class.label_key.clone(),
             item_count: count(members.len() as u64, complete)?,
-            total: total(aggregate(&members, complete, cancelled)?)?,
+            total: measured(&members, complete, cancelled)?,
             condition: class.condition.clone(),
         });
     }
-    let denominator = pages.rows.first().ok_or_else(internal)?.denominator.clone();
     let model = VizModel {
         model_ref: "pending".into(),
         condition_fingerprint: admitted.key.clone(),
