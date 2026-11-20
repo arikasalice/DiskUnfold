@@ -17,6 +17,7 @@ use std::{
 };
 
 mod async_browse;
+mod attempt_evidence;
 mod items;
 mod many_roots;
 mod measurement;

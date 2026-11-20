@@ -172,7 +172,9 @@ pub(super) fn end(
         shared,
         context,
     )?;
-    receive(receiver, shared, context)
+    receive(receiver, shared, context)?;
+    shared.correlated_budget.note_ended_attempt();
+    Ok(())
 }
 
 /// Records a terminal transport failure without waiting for a reply.

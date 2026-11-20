@@ -42,8 +42,14 @@ pub(super) fn read(
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> Read {
-    let Policy::BeforeMetadata(include) = policy else {
-        return Read::Legacy;
+    // Without exclusion rules every entry is admitted.
+    let admit_all = |_: u32, _: &[Vec<u8>], _: &[u8]| {
+        du_core_contracts::scan_observation::FilterDecision::Admit
+    };
+    let include: &crate::scan::PreMetadataFilter<'_> = match policy {
+        Policy::BeforeMetadata(include) => include,
+        Policy::Evidence => &admit_all,
+        Policy::Legacy(_) => return Read::Legacy,
     };
     if let Some(read) = select_attempt(frame, shared, sender, context) {
         return read;

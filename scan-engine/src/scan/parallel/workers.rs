@@ -209,7 +209,7 @@ fn process_remaining(
     if disconnected::unstarted_on_closed(&frame, shared, started) {
         return disconnected::close_frame(frame, shared, sender, context, policy);
     }
-    if matches!(policy, Policy::BeforeMetadata(_)) {
+    if policy.correlated() {
         match correlated_read::read(&mut frame, shared, sender, context, policy) {
             correlated_read::Read::Legacy => {}
             correlated_read::Read::Turn(result) => {

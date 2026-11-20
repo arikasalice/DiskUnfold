@@ -53,8 +53,9 @@ pub(super) fn run(
         }
         Err(_) => return Err(BuildError::Unavailable),
     };
-    let correlated_budget =
-        correlated_budget.unwrap_or_else(correlated_budget::CorrelatedBudget::new);
+    let channel_bytes = size_of::<Event>().saturating_mul(BUFFERED_OBSERVATIONS);
+    let correlated_budget = correlated_budget
+        .unwrap_or_else(|| correlated_budget::CorrelatedBudget::with_channel(channel_bytes));
     let shared = scheduler::create_with_budget(
         prepared,
         devices,
@@ -63,7 +64,6 @@ pub(super) fn run(
         scan_control,
         correlated_budget,
     )?;
-    let channel_bytes = size_of::<Event>().saturating_mul(BUFFERED_OBSERVATIONS);
     // The base result channel still drives ordinary scans if this optional evidence pool
     // cannot budget its single inline ring. Correlated selection then falls back before read.
     let _channel_permit = shared.correlated_budget.reserve_channel(channel_bytes);
@@ -100,6 +100,9 @@ pub(super) fn run(
     });
     // Preserve the peak after workers stop, including failure and cancellation.
     queue::record_ready_peak(&shared, diagnostics);
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.record_ended_folder_attempts(shared.correlated_budget.ended_attempts());
+    }
     if let Some(error) = failure {
         return Err(error);
     }
