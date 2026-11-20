@@ -22,9 +22,9 @@ fn other_volume_entry_carries_identity_without_size_or_times() {
     let observed = other_volume(ObservedKind::Directory, 9, 11);
     assert_eq!((observed.device, observed.inode), (9, 11));
     assert!(observed.size.is_err());
-    assert!(observed.modified_at.is_none() && observed.native_modified_at.is_none());
-    assert!(observed.allocated.is_none() && observed.link_count.is_none());
-    assert!(observed.space_identity.is_none());
+    assert!(observed.modified_at.known().is_none() && observed.native_modified_at.is_none());
+    assert!(observed.allocated.known().is_none() && observed.link_count.known().is_none());
+    assert!(observed.space_identity.known().is_none());
 }
 
 #[test]

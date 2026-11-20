@@ -1,4 +1,5 @@
 #![cfg(windows)]
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{
     AnchoredDirectory, DirectoryObservations, ObservedKind, ScopeRootPort,
 };
@@ -51,7 +52,7 @@ fn observed_last_write_is_retained_after_live_change() -> Result<(), Box<dyn std
         .as_ref()
         .map_err(|e| format!("{e:?}"))?
         .modified_at
-        .clone()
+        .get()
         .ok_or("missing time")?;
     assert_eq!(first.to_string(), "2020-09-13T12:26:40.000Z");
     file.set_times(
@@ -67,12 +68,12 @@ fn observed_last_write_is_retained_after_live_change() -> Result<(), Box<dyn std
             .metadata
             .map_err(|e| format!("{e:?}"))?
             .modified_at
-            .as_ref(),
+            .known(),
         Some(&first)
     );
     assert_eq!(
         observed.metadata.map_err(|e| format!("{e:?}"))?.modified_at,
-        Some(first)
+        ObservedValue::Known(first)
     );
     Ok(())
 }
@@ -233,12 +234,12 @@ fn hard_links_have_the_same_identity_and_reported_allocation()
         .as_ref()
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(first.size, Ok(8192));
-    assert!(first.allocated.is_some_and(|n| n >= 8192));
+    assert!(first.allocated.get().is_some_and(|n| n >= 8192));
     assert_eq!(first.allocated, second.allocated);
-    assert_eq!(first.link_count, Some(2));
+    assert_eq!(first.link_count, ObservedValue::Known(2));
     assert_eq!(first.link_count, second.link_count);
     assert_eq!(
-        first.space_identity.as_ref().map(|id| id.volume.as_slice()),
+        first.space_identity.known().map(|id| id.volume.as_slice()),
         Some(root.volume_id.as_slice())
     );
     assert_eq!(first.space_identity, second.space_identity);
@@ -409,7 +410,7 @@ fn sparse_file_reports_physical_allocation_without_reading_content()
         .as_ref()
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(meta.size, Ok(1024 * 1024));
-    assert_eq!(meta.allocated, Some(0));
+    assert_eq!(meta.allocated, ObservedValue::Known(0));
     Ok(())
 }
 

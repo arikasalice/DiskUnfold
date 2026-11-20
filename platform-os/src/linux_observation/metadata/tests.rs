@@ -45,11 +45,11 @@ fn other_volume(meta: &MetadataObservation, kind: ObservedKind, device: u64) -> 
         && meta.device == device
         && meta.inode == 256
         && meta.size.is_err()
-        && meta.modified_at.is_none()
+        && meta.modified_at.known().is_none()
         && meta.native_modified_at.is_none()
-        && meta.allocated.is_none()
-        && meta.link_count.is_none()
-        && meta.space_identity.is_none()
+        && meta.allocated.known().is_none()
+        && meta.link_count.known().is_none()
+        && meta.space_identity.known().is_none()
 }
 
 /// A directory whose device alone differs, on the parent's mount and not a

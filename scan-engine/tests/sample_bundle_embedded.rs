@@ -239,7 +239,7 @@ fn source_reports_state_examples_in_the_observation_fields() -> TestResult {
     let image = find("Projects/Website/assets/images/image-01.png")?;
     let meta = image.metadata.map_err(|e| format!("{e:?}"))?;
     assert_eq!(meta.size, Ok(6 * 1048576 + 200 * 1024));
-    assert!(meta.allocated.is_some() && meta.space_identity.is_some());
+    assert!(meta.allocated.known().is_some() && meta.space_identity.known().is_some());
 
     // Denied directory, links and files cannot be opened as directories.
     let root = scope

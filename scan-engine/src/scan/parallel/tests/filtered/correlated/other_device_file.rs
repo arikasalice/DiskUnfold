@@ -4,6 +4,7 @@
 //! a boundary file and sends a boundary final, so the folder attempt ends
 //! instead of being held, and the file is one unread range, not a failure.
 use super::super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     result::ResultCompleteness,
     scan_observation::{MetadataObservation, ObservedKind},
@@ -64,10 +65,10 @@ impl DirectoryObservations for OtherDeviceFileRoot {
                             reason_key: "os.unsupported".into(),
                             os_code: None,
                         }),
-                        allocated: None,
-                        link_count: None,
-                        space_identity: None,
-                        modified_at: None,
+                        allocated: ObservedValue::NotApplicable,
+                        link_count: ObservedValue::NotApplicable,
+                        space_identity: ObservedValue::NotApplicable,
+                        modified_at: ObservedValue::NotApplicable,
                         native_modified_at: None,
                     }),
                 }

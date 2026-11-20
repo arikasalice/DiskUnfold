@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::{DirectoryObservations, ObservedKind},
@@ -155,10 +156,10 @@ fn drained_directory_is_reported_without_being_reserved() -> Result<(), String> 
             device: 1,
             inode: 9,
             size: Ok(0),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     };
@@ -274,10 +275,10 @@ fn windows_file_cancel_drain_waits_for_full_consumer_queue() -> Result<(), Strin
             device: 1,
             inode: 1,
             size: Ok(length),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     });

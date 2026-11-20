@@ -91,10 +91,10 @@ fn check_subvolume(
         "{name}"
     );
     assert!(meta.size.is_err(), "{name}");
-    assert!(meta.modified_at.is_none(), "{name}");
-    assert!(meta.allocated.is_none(), "{name}");
-    assert!(meta.link_count.is_none(), "{name}");
-    assert!(meta.space_identity.is_none(), "{name}");
+    assert!(meta.modified_at.known().is_none(), "{name}");
+    assert!(meta.allocated.known().is_none(), "{name}");
+    assert!(meta.link_count.known().is_none(), "{name}");
+    assert!(meta.space_identity.known().is_none(), "{name}");
     assert!(directory.open_child(entry).is_err(), "{name} was entered");
     Ok(())
 }

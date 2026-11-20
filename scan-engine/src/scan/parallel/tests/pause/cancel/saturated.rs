@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use std::{
     collections::BTreeSet,
     sync::{
@@ -261,10 +262,10 @@ fn file_entry_on_device(index: usize, device: u64) -> ObservedEntry {
             device,
             inode,
             size: Ok(1),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

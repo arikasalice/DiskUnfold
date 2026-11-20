@@ -38,7 +38,7 @@ fn expected(dir: &std::path::Path) -> Result<ExpectedIdentity, Box<dyn std::erro
         .as_ref()
         .map_err(|error| format!("{error:?}"))?
         .space_identity
-        .as_ref()
+        .known()
         .ok_or("no identity")?;
     Ok(ExpectedIdentity {
         volume: identity.volume.clone(),
@@ -262,7 +262,7 @@ fn scan_native_time_matches_identity_checked_handle_facts() -> Result<(), Box<dy
     let native = metadata
         .native_modified_at
         .ok_or("missing native timestamp")?;
-    assert!(metadata.modified_at.is_some());
+    assert!(metadata.modified_at.known().is_some());
     let facts =
         inspect_handle(&File::open(&path)?, &identity).map_err(|error| format!("{error:?}"))?;
     let NativeModifiedTime::WindowsFiletime(ticks) = native;

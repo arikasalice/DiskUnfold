@@ -1,5 +1,6 @@
 //! Adapter behavior on real temporary directories.
 use super::{LinuxScopeRoots, enumeration::BATCH_SIZE, metadata::PROBES};
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     PathEncoding,
     ports::{PortError, PortErrorKind},
@@ -101,13 +102,10 @@ fn reports_root_identity_and_file_facts() -> TestResult {
     assert_eq!(file.enumerated_inode, meta.inode);
     assert_eq!(meta.device, info.dev());
     assert_eq!(meta.size, Ok(5));
-    assert_eq!(meta.link_count, Some(2));
-    assert!(meta.allocated.is_some_and(|bytes| bytes % 512 == 0));
-    assert!(meta.modified_at.is_some());
-    let identity = meta
-        .space_identity
-        .clone()
-        .ok_or("missing space identity")?;
+    assert_eq!(meta.link_count, ObservedValue::Known(2));
+    assert!(meta.allocated.get().is_some_and(|bytes| bytes % 512 == 0));
+    assert!(meta.modified_at.known().is_some());
+    let identity = meta.space_identity.get().ok_or("missing space identity")?;
     assert_eq!(identity.volume, root.volume_id);
     assert_eq!(identity.file, meta.inode.to_le_bytes());
     let alias = entry(&entries, b"a-link")?
@@ -119,7 +117,7 @@ fn reports_root_identity_and_file_facts() -> TestResult {
         .metadata
         .as_ref()
         .map_err(|e| fail(e.clone()))?;
-    assert_eq!((zero.size.clone(), zero.link_count), (Ok(0), Some(1)));
+    assert_eq!((zero.size.clone(), zero.link_count.get()), (Ok(0), Some(1)));
     assert!(root.directory.open_child(file).is_err());
     Ok(())
 }
@@ -132,8 +130,11 @@ fn opens_child_and_empty_directories_through_their_entries() -> TestResult {
     let sub = entry(&entries, b"sub")?;
     let sub_meta = sub.metadata.as_ref().map_err(|e| fail(e.clone()))?;
     assert_eq!(sub_meta.kind, ObservedKind::Directory);
-    assert_eq!((sub_meta.allocated, sub_meta.link_count), (None, None));
-    assert!(sub_meta.space_identity.is_none());
+    assert_eq!(
+        (sub_meta.allocated.get(), sub_meta.link_count.get()),
+        (None, None)
+    );
+    assert!(sub_meta.space_identity.known().is_none());
     let mut child = root.directory.open_child(sub).map_err(fail)?;
     let nested = drain(&mut *child)?;
     let large = entry(&nested, b"b.bin")?

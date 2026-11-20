@@ -2,6 +2,7 @@
 //! files confirms that no file below it shares any, so the unique physical
 //! size is known. Any other root leaves it unknown.
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id, SizeAmount,
     job::Checkpoint,
@@ -63,13 +64,13 @@ fn file(name: &[u8], allocated: u64, links: u64, id: u8) -> ObservedEntry {
             device: 1,
             inode: u64::from(id),
             size: Ok(allocated / 2),
-            allocated: Some(allocated),
-            link_count: Some(links),
-            space_identity: Some(SpaceIdentity {
+            allocated: ObservedValue::Known(allocated),
+            link_count: ObservedValue::Known(links),
+            space_identity: ObservedValue::Known(SpaceIdentity {
                 volume: vec![1],
                 file: vec![id],
             }),
-            modified_at: None,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

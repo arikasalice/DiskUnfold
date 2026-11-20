@@ -4,6 +4,7 @@
 //! identity share a listing. A nonzero seed varies enumeration delays, which
 //! changes how workers interleave between runs.
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     result::{ResultItem, ResultItemKind},
     scan_failures::{ScanFailureKind as Kind, ScanFailureStage as Stage, unentered_reason},
@@ -172,10 +173,10 @@ impl Tree {
                 device: node.device,
                 inode: node.inode,
                 size,
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }

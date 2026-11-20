@@ -1,4 +1,5 @@
 use super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Timestamp,
     scan_observation::{FilterDecision, TimedFilteredBatch, TimedObservedEntry},
@@ -41,10 +42,11 @@ impl DirectoryObservations for TimedRoot {
         let mut entry = root.next_batch()?.remove(0);
         if let Ok(meta) = &mut entry.metadata {
             if name != b"missing" {
-                meta.space_identity = Some(du_core_contracts::scan_observation::SpaceIdentity {
-                    volume: if name == b"foreign" { vec![2] } else { vec![1] },
-                    file: vec![7],
-                });
+                meta.space_identity =
+                    ObservedValue::Known(du_core_contracts::scan_observation::SpaceIdentity {
+                        volume: if name == b"foreign" { vec![2] } else { vec![1] },
+                        file: vec![7],
+                    });
             }
             meta.native_modified_at = std::num::NonZeroU64::new(123_456_789)
                 .map(du_core_contracts::scan_observation::NativeModifiedTime::WindowsFiletime);

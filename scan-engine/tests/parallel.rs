@@ -1,4 +1,5 @@
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id,
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError},
@@ -96,10 +97,10 @@ fn entry(name: &[u8], kind: ObservedKind, inode: u64) -> ObservedEntry {
             device: 1,
             inode,
             size: Ok(3),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

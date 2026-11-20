@@ -4,6 +4,7 @@ use super::*;
 use du_analysis_index::folder_collection::{
     ExcludedChildren, FolderCollection, REASON_CANCELLED, Unenumerated,
 };
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{FilterDecision, FilteredBatch, HandleIdentity};
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -202,10 +203,10 @@ pub(super) fn entry(name: &str, kind: ObservedKind, device: u64, inode: u64) -> 
             device,
             inode,
             size: Ok(1),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }

@@ -3,6 +3,7 @@ use crate::{
     BuildHandle, FolderAttemptFinal, FolderAttemptInput, FolderAttemptToken, IngestSink,
     Observation, ResultVersion,
 };
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     Id, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     ports::{PortError, PortErrorKind},
@@ -53,11 +54,11 @@ fn observation(name: &str, kind: ObservedKind) -> TimedObservedEntry {
                     reason_key: "scan.test_size_unavailable".into(),
                     os_code: None,
                 }),
-                modified_at: None,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
-                allocated: None,
-                link_count: None,
-                space_identity: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
             }),
         },
         observed_at: None,

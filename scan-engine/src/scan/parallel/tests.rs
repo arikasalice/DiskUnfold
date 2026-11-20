@@ -1,6 +1,7 @@
 use super::super::collect_parallel;
 use super::*;
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ItemRef, OsPath, PathBytes, PathEncoding,
     job::{JobBody, JobFlowError},
@@ -63,10 +64,10 @@ impl DirectoryObservations for SmallRoot {
                 device: 1,
                 inode: 7,
                 size: Ok(5),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }])
@@ -417,10 +418,10 @@ impl DirectoryObservations for Root {
                     device: 1,
                     inode: n,
                     size: Ok(1),
-                    allocated: None,
-                    link_count: None,
-                    space_identity: None,
-                    modified_at: None,
+                    allocated: ObservedValue::NotApplicable,
+                    link_count: ObservedValue::NotApplicable,
+                    space_identity: ObservedValue::NotApplicable,
+                    modified_at: ObservedValue::NotApplicable,
                     native_modified_at: None,
                 }),
             })

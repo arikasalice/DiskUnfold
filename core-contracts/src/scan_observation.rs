@@ -7,6 +7,8 @@ use std::sync::atomic::AtomicBool;
 
 mod placeholder;
 pub use placeholder::PlaceholderObservation;
+mod observed_value;
+pub use observed_value::{ObservedValue, attribute_reason};
 
 /// A bounded filtered enumeration step; `Progress` is not end of directory.
 pub enum FilteredBatch {
@@ -451,7 +453,7 @@ pub enum NativeModifiedTime {
 /// `device` may differ from the volume of the enumerated parent directory.
 /// Such an entry carries its own `device`, `inode` and `kind` only: `size`
 /// is an error, and the times, allocation, link count and space identity are
-/// `None`. When the parent's volume is known, the collector classifies the
+/// unknown for [`attribute_reason::OTHER_VOLUME`]. When the parent's volume is known, the collector classifies the
 /// entry outside the boundary. It never enters such an entry and never uses a
 /// size reported for it. A [`ObservedKind::MountPoint`] or an
 /// [`ObservedKind::MountedFile`] follows the same rule and is outside the
@@ -464,18 +466,20 @@ pub struct MetadataObservation {
     pub inode: u64,
     pub size: Result<u64, PortError>,
     /// Last write time observed on the verified handle, when available.
-    pub modified_at: Option<Timestamp>,
-    /// Native value from the same verified metadata handle, when available.
+    pub modified_at: ObservedValue<Timestamp>,
+    /// Native value from the same verified metadata handle. `None` when
+    /// `modified_at` is not known or the OS has no native form (Linux, macOS).
     pub native_modified_at: Option<NativeModifiedTime>,
-    /// OS-reported allocation of the observed file, or `None` when unverified. macOS: every fork;
+    /// OS-reported allocation of the observed file; not applicable to other kinds. macOS: every fork;
     /// Windows: the default data stream only (compressed size if compressed or sparse);
     /// Linux: `st_blocks` x 512.
-    pub allocated: Option<u64>,
-    /// OS-reported total hard-link count, or `None` when unverified.
+    pub allocated: ObservedValue<u64>,
+    /// OS-reported total hard-link count of a file; not applicable to other kinds.
     /// This does not establish whether physical extents are shared.
-    pub link_count: Option<u64>,
-    /// OS-provided identity for physical accounting, when independently available.
-    pub space_identity: Option<SpaceIdentity>,
+    pub link_count: ObservedValue<u64>,
+    /// OS-provided identity of a file for physical accounting, when independently
+    /// available; not applicable to other kinds.
+    pub space_identity: ObservedValue<SpaceIdentity>,
 }
 
 /// An operating-system volume and file identity, scoped to the observation.

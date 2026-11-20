@@ -132,7 +132,7 @@ impl WindowsDirectory {
                 timestamps::matched_native(file, &value, native),
             )
         } else {
-            (space::Facts::default(), None)
+            (space::Facts::not_applicable(), None)
         };
         Ok(MetadataObservation {
             kind: observed_kind,
@@ -187,21 +187,16 @@ fn identity_changed() -> PortError {
 
 /// The entry of another volume: identity and kind only, without its size.
 fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> MetadataObservation {
-    MetadataObservation {
+    MetadataObservation::other_volume(
         kind,
         device,
         inode,
-        size: Err(PortError {
+        PortError {
             kind: PortErrorKind::Unsupported,
             reason_key: "os.unsupported".into(),
             os_code: None,
-        }),
-        modified_at: None,
-        native_modified_at: None,
-        allocated: None,
-        link_count: None,
-        space_identity: None,
-    }
+        },
+    )
 }
 
 /// Accepts a handle identity only on the opened volume with a nonzero index.

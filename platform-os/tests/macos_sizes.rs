@@ -5,6 +5,7 @@
 //! and `allocated` must be `st_blocks` in bytes, which `du` counts, for files.
 mod machine;
 
+use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::scan_observation::{
     MetadataObservation, ObservedEntry, ObservedKind, ScopeRootPort,
 };
@@ -68,7 +69,7 @@ fn sizes_match_lstat_for_forks_holes_directories_and_links() -> TestResult {
         assert_eq!(observed.size, Ok(actual.size()), "{name}");
         let blocks = actual.blocks() * 512;
         let expected = (observed.kind == ObservedKind::File).then_some(blocks);
-        assert_eq!(observed.allocated, expected, "{name}");
+        assert_eq!(observed.allocated.get(), expected, "{name}");
         eprintln!(
             "F02_MACOS_SIZE {name} kind={:?} size={:?} allocated={:?} st_size={} st_blocks_bytes={blocks}",
             observed.kind,
@@ -80,11 +81,11 @@ fn sizes_match_lstat_for_forks_holes_directories_and_links() -> TestResult {
     // The resource fork counts towards the allocation but not the length.
     let forked = meta(&entries, "forked")?;
     assert_eq!(forked.size, Ok(4));
-    assert!(forked.allocated.is_some_and(|bytes| bytes >= 20_000));
+    assert!(forked.allocated.get().is_some_and(|bytes| bytes >= 20_000));
     // A hole is part of the length but not of the allocation.
     let sparse = meta(&entries, "sparse")?;
     assert_eq!(sparse.size, Ok((64 << 20) + 4));
-    assert!(sparse.allocated.is_some_and(|bytes| bytes < 1 << 20));
+    assert!(sparse.allocated.get().is_some_and(|bytes| bytes < 1 << 20));
     assert_eq!(meta(&entries, "link")?.size, Ok(9));
     Ok(())
 }
@@ -124,7 +125,7 @@ fn compressed_files_report_logical_length_and_compressed_allocation() -> TestRes
     );
     assert_eq!(observed.size, Ok(actual.size()));
     assert_eq!(observed.size, Ok(1_080_000));
-    assert_eq!(observed.allocated, Some(blocks));
+    assert_eq!(observed.allocated, ObservedValue::Known(blocks));
     assert!(blocks < actual.size());
     Ok(())
 }

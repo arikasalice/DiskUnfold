@@ -22,6 +22,7 @@ use serde_json::json;
 
 use super::{CountingHistory, Entropy, NoVolumes, call};
 use crate::api::{Channel, EngineBuilder};
+use du_core_contracts::scan_observation::ObservedValue;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -84,10 +85,10 @@ impl DirectoryObservations for Held {
                 device: 1,
                 inode: 2,
                 size: Ok(64),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }])

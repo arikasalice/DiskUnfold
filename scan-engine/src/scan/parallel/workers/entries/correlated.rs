@@ -232,6 +232,7 @@ pub(super) fn record_final(
 mod tests {
     use super::*;
     use du_analysis_index::FolderAttemptFinal;
+    use du_core_contracts::scan_observation::ObservedValue;
     use du_core_contracts::scan_observation::{MetadataObservation, ObservedKind};
 
     fn observed() -> ObservedEntry {
@@ -244,10 +245,10 @@ mod tests {
                 device: 1,
                 inode: 1,
                 size: Ok(0),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }

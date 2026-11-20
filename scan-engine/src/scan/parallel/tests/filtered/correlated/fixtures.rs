@@ -1,4 +1,5 @@
 use super::super::*;
+use du_core_contracts::scan_observation::ObservedValue;
 
 pub(super) struct CorrelatedRoot {
     pub(super) step: u8,
@@ -25,10 +26,10 @@ pub(super) fn directory_observation(
             device: 1,
             inode: 7,
             size: Ok(0),
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     })
@@ -39,10 +40,14 @@ pub(super) fn oversized_directory_observation(
 ) -> du_core_contracts::scan_observation::TimedObservedEntry {
     let mut observation = directory_observation(name);
     if let Ok(metadata) = &mut observation.entry.metadata {
-        metadata.space_identity = Some(du_core_contracts::scan_observation::SpaceIdentity {
-            volume: vec![0; crate::scan::parallel::correlated_budget::MAX_EVENT_PAYLOAD_BYTES + 1],
-            file: Vec::new(),
-        });
+        metadata.space_identity =
+            ObservedValue::Known(du_core_contracts::scan_observation::SpaceIdentity {
+                volume: vec![
+                    0;
+                    crate::scan::parallel::correlated_budget::MAX_EVENT_PAYLOAD_BYTES + 1
+                ],
+                file: Vec::new(),
+            });
     }
     observation
 }
@@ -77,10 +82,10 @@ impl DirectoryObservations for BudgetExhaustionRoot {
                 device: 1,
                 inode: 8,
                 size: Ok(4),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }]))
@@ -250,10 +255,10 @@ impl DirectoryObservations for ReturnedDirectoryRoot {
                 device: 1,
                 inode: 8,
                 size: Ok(4),
-                allocated: None,
-                link_count: None,
-                space_identity: None,
-                modified_at: None,
+                allocated: ObservedValue::NotApplicable,
+                link_count: ObservedValue::NotApplicable,
+                space_identity: ObservedValue::NotApplicable,
+                modified_at: ObservedValue::NotApplicable,
                 native_modified_at: None,
             }),
         }]))

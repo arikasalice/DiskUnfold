@@ -198,11 +198,11 @@ impl VhdFixture {
         assert_eq!(metadata.device, parent_volume);
         assert_eq!(metadata.inode, entry.enumerated_inode);
         assert!(metadata.size.is_err());
-        assert!(metadata.modified_at.is_none());
+        assert!(metadata.modified_at.known().is_none());
         assert!(metadata.native_modified_at.is_none());
-        assert!(metadata.allocated.is_none());
-        assert!(metadata.link_count.is_none());
-        assert!(metadata.space_identity.is_none());
+        assert!(metadata.allocated.known().is_none());
+        assert!(metadata.link_count.known().is_none());
+        assert!(metadata.space_identity.known().is_none());
         assert!(directory.open_child(entry).is_err());
 
         let junction_name = "directory-junction"

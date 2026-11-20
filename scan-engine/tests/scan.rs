@@ -1,4 +1,5 @@
 use du_analysis_index::IngestSink;
+use du_core_contracts::scan_observation::{ObservedValue, attribute_reason};
 use du_core_contracts::{
     Id, SizeAmount,
     job::Checkpoint,
@@ -70,10 +71,10 @@ fn entry(name: &[u8], kind: ObservedKind, size: Result<u64, PortError>) -> Obser
             device: 1,
             inode: 1,
             size,
-            allocated: None,
-            link_count: None,
-            space_identity: None,
-            modified_at: None,
+            allocated: ObservedValue::NotApplicable,
+            link_count: ObservedValue::NotApplicable,
+            space_identity: ObservedValue::NotApplicable,
+            modified_at: ObservedValue::NotApplicable,
             native_modified_at: None,
         }),
     }
@@ -387,9 +388,9 @@ fn allocation_deduplicates_hard_links_without_assuming_unshared_extents()
     let ids = ids();
     let mut first = file(b"first", 10);
     if let Ok(m) = &mut first.metadata {
-        m.allocated = Some(4096);
-        m.link_count = Some(2);
-        m.space_identity = Some(SpaceIdentity {
+        m.allocated = ObservedValue::Known(4096);
+        m.link_count = ObservedValue::Known(2);
+        m.space_identity = ObservedValue::Known(SpaceIdentity {
             volume: vec![1],
             file: vec![2],
         });
@@ -430,8 +431,12 @@ fn allocation_deduplicates_hard_links_without_assuming_unshared_extents()
 fn missing_allocation_is_not_zero_or_exact() -> Result<(), Box<dyn std::error::Error>> {
     let sink = IngestSink::default();
     let ids = ids();
+    let mut unknown = file(b"unknown", 7);
+    if let Ok(meta) = &mut unknown.metadata {
+        meta.allocated = ObservedValue::Unknown(attribute_reason::QUERY_FAILED);
+    }
     let root = Directory {
-        entries: Some(vec![file(b"unknown", 7)]),
+        entries: Some(vec![unknown]),
         fail: false,
     };
     collect(
