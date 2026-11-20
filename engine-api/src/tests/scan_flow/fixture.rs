@@ -3,23 +3,23 @@ use super::*;
 pub(super) fn scan_harness_with_gate(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, None, None, false, false, None)
+    scan_harness_with_admissions(finish_gate, None, None, false, false, None, false)
 }
 
 pub(super) fn scan_harness_with_priority() -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, false, true, None)
+    scan_harness_with_admissions(None, None, None, false, true, None, false)
 }
 
 pub(super) fn scan_harness_with_recent_admissions()
 -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, true, false, None)
+    scan_harness_with_admissions(None, None, None, true, false, None, false)
 }
 
 pub(super) fn scan_harness_with_comparison(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, None, false, false, None)
+    scan_harness_with_admissions(finish_gate, comparison, None, false, false, None, false)
 }
 
 pub(super) fn scan_harness_with_options(
@@ -27,7 +27,7 @@ pub(super) fn scan_harness_with_options(
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
     limit: Option<crate::desktop::SharedTableLimitSource>,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(finish_gate, comparison, limit, false, false, None)
+    scan_harness_with_admissions(finish_gate, comparison, limit, false, false, None, false)
 }
 
 pub(super) fn scan_harness_with_size_rule_source(
@@ -40,9 +40,29 @@ pub(super) fn scan_harness_with_size_rule_source(
 pub(super) fn scan_harness_with_size_rules(
     rules: crate::size_rule::SizeRules,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
-    scan_harness_with_admissions(None, None, None, false, false, Some(rules))
+    scan_harness_with_admissions(None, None, None, false, false, Some(rules), false)
 }
 
+/// A harness that also admits command-line calls, through a filter that passes
+/// every response unchanged.
+pub(super) fn scan_harness_with_cli() -> Result<ScanHarness, Box<dyn std::error::Error>> {
+    scan_harness_with_admissions(None, None, None, false, false, None, true)
+}
+
+struct PassThrough;
+
+impl crate::api::OutboundFilter for PassThrough {
+    fn filter(
+        &self,
+        _: &str,
+        _: &CallerCtx,
+        response: serde_json::Value,
+    ) -> Result<serde_json::Value, EngineError> {
+        Ok(response)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn scan_harness_with_admissions(
     finish_gate: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     comparison: Option<Arc<dyn crate::scope::exclusion::PathComparison>>,
@@ -50,6 +70,7 @@ fn scan_harness_with_admissions(
     recent: bool,
     priority_scenario: bool,
     size_rules: Option<crate::size_rule::SizeRules>,
+    cli: bool,
 ) -> Result<ScanHarness, Box<dyn std::error::Error>> {
     let ids = Arc::new(Ids {
         next: AtomicUsize::new(1),
@@ -119,6 +140,9 @@ fn scan_harness_with_admissions(
         },
     )?);
     let mut builder = EngineBuilder::default();
+    if cli {
+        builder.with_outbound_filter(PassThrough);
+    }
     if let Some(comparison) = comparison.clone() {
         crate::scope::register_review_with_comparison(
             &mut builder,

@@ -11,8 +11,11 @@ fn caller() -> CallerCtx {
 fn a_review_keeps_its_fingerprint_and_drops_every_path() -> Result<(), String> {
     let review = json!({
         "scope": {"includes": [{"display": "C:\\Secret"}]},
-        "notices": [],
-        "targets": [{"path": {"display": "C:\\Secret"}, "access": "accessible", "reasonKey": null}],
+        "notices": ["scope.exclusion_ineffective", "C:\\Secret"],
+        "targets": [
+            {"path": {"display": "C:\\Secret"}, "access": "accessible", "reasonKey": null},
+            "C:\\Secret"
+        ],
         "reviewFingerprint": "abc",
         "observedAt": "2026-11-20T00:00:00Z",
         "requestSeq": 1
@@ -24,9 +27,7 @@ fn a_review_keeps_its_fingerprint_and_drops_every_path() -> Result<(), String> {
         kept,
         json!({
             "reviewFingerprint": "abc",
-            "requestSeq": 1,
-            "notices": [],
-            "targets": [{"access": "accessible", "reasonKey": null}]
+            "targets": [{"access": "accessible", "reasonKey": null}, null]
         })
     );
     Ok(())
@@ -43,17 +44,49 @@ fn a_call_the_scan_command_does_not_make_is_refused() {
 }
 
 #[test]
-fn a_status_keeps_its_terminal_and_drops_the_lineage() -> Result<(), String> {
+fn a_status_keeps_only_the_counts_of_its_terminal() -> Result<(), String> {
     let status = json!({
         "jobRef": "j", "kind": "scan.metadata", "state": "done", "sequence": 3,
         "resultVersion": "v", "reasonKey": null,
         "scanResult": {"lineageId": "l", "sequence": 1},
-        "terminal": {"state": "done", "completed": 2}
+        "terminal": {
+            "state": "done", "sequence": 3, "completed": 2, "overwritten": 0,
+            "failed": 1, "skipped": 4, "unprocessed": 0, "historyRecorded": false,
+            "unprocessedSummary": "C:\\Secret", "resultVersion": "v"
+        }
     });
     let kept = CliOutbound
         .filter("job.status", &caller(), status)
         .map_err(|error| format!("{error:?}"))?;
-    assert!(kept.get("scanResult").is_none());
-    assert_eq!(kept["terminal"]["completed"], 2);
+    assert_eq!(
+        kept,
+        json!({
+            "jobRef": "j", "state": "done", "resultVersion": "v",
+            "terminal": {"completed": 2, "failed": 1, "skipped": 4}
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn a_start_and_a_cancel_keep_only_what_the_command_reads() -> Result<(), String> {
+    let start = json!({
+        "jobRef": "j", "existing": false, "scopeVersion": "s",
+        "scopeFingerprint": "f", "lineageId": "l"
+    });
+    let cancel = json!({"outcome": "requested", "state": "running", "sequence": 2});
+    let filter = |name, value| {
+        CliOutbound
+            .filter(name, &caller(), value)
+            .map_err(|error| format!("{error:?}"))
+    };
+    assert_eq!(
+        filter("scan.start", start)?,
+        json!({"jobRef": "j", "existing": false})
+    );
+    assert_eq!(
+        filter("job.cancel", cancel)?,
+        json!({"outcome": "requested"})
+    );
     Ok(())
 }
