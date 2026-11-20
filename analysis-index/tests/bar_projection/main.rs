@@ -348,8 +348,9 @@ fn folder_members_of_one_disjoint_partition_form_an_exact_other_group() -> Resul
     Ok(())
 }
 
-/// The ui-smoke treemap fixture (#242): two large folders, a small folder and a
-/// file. With two bars the small folder and the file form Other.
+/// The shape of the ui-smoke treemap fixture (#242), scaled to this file's fixed
+/// axis of 50: two large folders, a small folder and a file. With two bars the
+/// small folder and the file form Other.
 #[test]
 fn other_with_a_small_folder_and_a_file_is_drawn_from_the_partition() -> Result<(), String> {
     let sink = IngestSink::default();
@@ -366,10 +367,10 @@ fn other_with_a_small_folder_and_a_file_is_drawn_from_the_partition() -> Result<
         }),
     };
     for (folder, files) in [
-        (b"Videos".to_vec(), vec![(b"clip.bin".to_vec(), 128_u64)]),
+        (b"Videos".to_vec(), vec![(b"clip.bin".to_vec(), 40_u64)]),
         (
             b"Photos".to_vec(),
-            vec![(b"album-a.bin".to_vec(), 64), (b"album-b.bin".to_vec(), 48)],
+            vec![(b"album-a.bin".to_vec(), 20), (b"album-b.bin".to_vec(), 15)],
         ),
         (b"Tiny".to_vec(), vec![(b"tiny.bin".to_vec(), 1)]),
     ] {
@@ -383,7 +384,7 @@ fn other_with_a_small_folder_and_a_file_is_drawn_from_the_partition() -> Result<
         }
     }
     build
-        .add_file(file(vec![b"notes.bin".to_vec()], 16))
+        .add_file(file(vec![b"notes.bin".to_vec()], 6))
         .map_err(|e| format!("{e:?}"))?;
     let version = build
         .seal(id(2), ResultCompleteness::Complete)
@@ -414,7 +415,7 @@ fn other_with_a_small_folder_and_a_file_is_drawn_from_the_partition() -> Result<
     assert!(matches!(
         &result.bars[2].identity,
         BarIdentity::Other { members, size }
-            if members.len() == 2 && size.amount == SizeAmount::Exact { bytes: 17.into() }
+            if members.len() == 2 && size.amount == SizeAmount::Exact { bytes: 7.into() }
     ));
     Ok(())
 }
