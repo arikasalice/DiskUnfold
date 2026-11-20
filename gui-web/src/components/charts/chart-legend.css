@@ -27,7 +27,7 @@
 
 .du-chart-legend__item {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  grid-template-columns: 12px 12px minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   padding: 4px 6px;
@@ -49,6 +49,12 @@
 .du-chart-legend__item[data-focus-visible] {
   outline: 2px solid var(--du-focus);
   outline-offset: 1px;
+}
+
+/* The check of a chosen row, before the swatch (README 46.4). */
+.du-chart-legend__check {
+  font-weight: 600;
+  text-align: center;
 }
 
 .du-chart-legend__name {

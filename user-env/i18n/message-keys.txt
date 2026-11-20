@@ -935,7 +935,7 @@ ui.visualization.legendLess
 ui.visualization.legendFolderNote
 ui.visualization.filterClearType
 ui.visualization.filterNotApplicable
-ui.visualization.filterTotalLine type:name size:name scope:name
+ui.visualization.filterTotalLine type:name size:name scope:name basis:name
 ui.visualization.filterFilteredOut size:name
 ui.visualization.filterFilteredOutAtLeast size:name
 ui.visualization.filterFilteredOutCalculating

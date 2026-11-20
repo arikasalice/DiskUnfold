@@ -32,6 +32,7 @@ import {
   ClassChip,
   ModelLegend,
   NarrowingStatus,
+  narrowedScopeLine,
   narrowedFrame,
   TypeAbsent,
   useAutoPatterns,
@@ -176,7 +177,11 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     >
       <div ref={contextRef}>
         <div className="du-review-context">
-          <ModelStatus frame={frame} text={text} />
+          <ModelStatus
+            frame={frame}
+            text={text}
+            scopeLine={narrowedScopeLine(props.narrowing, frame, text)}
+          />
           <StatusChoice
             narrowing={props.narrowing}
             frame={frame}

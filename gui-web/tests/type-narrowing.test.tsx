@@ -110,7 +110,7 @@ function presenter(
 const legendOption = (name: string) =>
   within(screen.getByRole("listbox", { name: say("legendTitle") }))
     .getAllByRole("option")
-    .find((option) => option.textContent?.startsWith(name))!;
+    .find((option) => option.textContent?.replace(/^✓/, "").startsWith(name))!;
 
 test("F06 README 46.1: pressing a legend row narrows to its type with the row's condition", () => {
   const chosen = narrowing();
@@ -134,11 +134,13 @@ test("F06 README 46.2, 46.7: a narrowed treemap names the type, its total agains
   presenter(typed(), chosen);
   const clear = screen.getByRole("button", { name: say("filterClearType") });
   expect(clear.textContent).toContain(say("legend.type.video"));
+  // The chosen row has its check before the swatch (README 46.4).
+  expect(legendOption(say("legend.type.video")).textContent).toMatch(/^✓/);
   expect(
     legendOption(say("legend.type.video")).getAttribute("aria-selected"),
   ).toBe("true");
   expect(screen.getByText(/· 범위 합계/).textContent).toMatch(
-    /^동영상 100 bytes · 범위 합계 96\.0 GiB$/,
+    /^동영상 100 bytes · 범위 합계 96\.0 GiB · \S/,
   );
   expect(screen.getByText("필터 제외 300 bytes")).toBeTruthy();
   fireEvent.click(clear);
@@ -157,7 +159,13 @@ test("F06 README 46.5: a format that does not narrow keeps the chip, inactive, a
       inactive: true,
     }),
   );
-  expect(screen.getByText(say("filterNotApplicable"))).toBeTruthy();
+  const note = screen.getByText(say("filterNotApplicable"));
+  // The inactive chip still clears, and says why it does not apply.
+  const chip = screen.getByRole("button", { name: say("filterClearType") });
+  expect(
+    document.getElementById(chip.getAttribute("aria-describedby")!)
+      ?.textContent,
+  ).toBe(note.textContent);
   expect(screen.queryByText(/· 범위 합계/)).toBeNull();
 });
 

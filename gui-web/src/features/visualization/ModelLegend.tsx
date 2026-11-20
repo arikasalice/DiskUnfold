@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useId, useMemo, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { Action, ChartLegend, Text } from "../../components";
 import type { GeometryRendererProps, LegendEntry } from "../../components";
@@ -169,9 +169,10 @@ export function narrowedFrame(
 }
 
 /**
- * The chosen type on the status line (README 46.2): the chip "Type: Videos ×",
- * then the narrowed total against the scope total and what the filter left
- * out; inactive with a note where the format does not narrow.
+ * The chosen type on the status line (README 46.2, 46.11): the chip
+ * "Type: Videos ×" and what the filter left out, one group that wraps as a
+ * whole; inactive with a note where the format does not narrow. The narrowed
+ * total takes the place of the scope total, see narrowedScopeLine.
  */
 export function NarrowingStatus({
   narrowing,
@@ -182,6 +183,7 @@ export function NarrowingStatus({
   frame: ModelResponse;
   text: VizText;
 }) {
+  const noteId = useId();
   if (!narrowing) return null;
   const announcement =
     narrowing.announced === null
@@ -199,7 +201,9 @@ export function NarrowingStatus({
     criterion: text.message("colorType"),
     name: narrowing.label,
   });
-  const narrowed = narrowedFrame(narrowing, frame);
+  const removed = narrowedFrame(narrowing, frame)
+    ? filteredOutText(frame, text)
+    : null;
   return (
     <>
       {live}
@@ -207,56 +211,45 @@ export function NarrowingStatus({
         className="du-narrowing-chip"
         data-inactive={narrowing.inactive || undefined}
       >
+        {/* Inactive, the chip still clears the condition (README 46.11). */}
         <Action
           onPress={() => narrowing.choose(null)}
           aria-label={text.message("filterClearType")}
+          {...(narrowing.inactive ? { "aria-describedby": noteId } : {})}
         >
           {`${label} ×`}
         </Action>
         {narrowing.inactive && (
-          <Text kind="muted">{text.message("filterNotApplicable")}</Text>
+          <div id={noteId}>
+            <Text kind="muted">{text.message("filterNotApplicable")}</Text>
+          </div>
         )}
+        {removed && <Text kind="muted">{removed}</Text>}
       </div>
-      {narrowed && (
-        <NarrowedTotals
-          narrowing={narrowing}
-          frame={frame}
-          text={text}
-          label={narrowing.label}
-        />
-      )}
     </>
   );
 }
 
-function NarrowedTotals({
-  narrowing,
-  frame,
-  text,
-  label,
-}: {
-  narrowing: TypeNarrowing;
-  frame: ModelResponse;
-  text: VizText;
-  label: string;
-}) {
-  const { totals, legend } = frame.model;
+/**
+ * The scope total of a narrowed treemap, in its place on the status line:
+ * "Videos 10 MiB · Scope total 23 MiB · Allocated size" (README 46.11).
+ * Nothing when the frame is not narrowed or its type is not in the legend.
+ */
+export function narrowedScopeLine(
+  narrowing: TypeNarrowing | undefined,
+  frame: ModelResponse,
+  text: VizText,
+) {
+  if (!narrowing?.label || !narrowedFrame(narrowing, frame)) return null;
+  const { totals, legend, representation } = frame.model;
   const entry = legend.find((candidate) => candidate.key === narrowing.key);
-  const removed = filteredOutText(frame, text);
-  return (
-    <>
-      {entry && (
-        <Text>
-          {vizMessage(text, "filterTotalLine", {
-            type: label,
-            size: text.quantity(entry.total.quantity),
-            scope: text.quantity(totals.scope.quantity),
-          })}
-        </Text>
-      )}
-      {removed && <Text kind="muted">{removed}</Text>}
-    </>
-  );
+  if (!entry) return null;
+  return vizMessage(text, "filterTotalLine", {
+    type: narrowing.label,
+    size: text.quantity(entry.total.quantity),
+    scope: text.quantity(totals.scope.quantity),
+    basis: text.key(representation.sizeBasis),
+  });
 }
 
 /** "Filtered out" by the value state (README 46.7); nothing when nothing was left out. */

@@ -952,7 +952,7 @@
     ["ui.visualization.legendFolderNote","Files in uncolored folders are counted in the legend",[]],
     ["ui.visualization.filterClearType","Clear type filter",[]],
     ["ui.visualization.filterNotApplicable","Doesn't apply to this format",[]],
-    ["ui.visualization.filterTotalLine","{type} {size} · Scope total {scope}",[["type","name"],["size","name"],["scope","name"]]],
+    ["ui.visualization.filterTotalLine","{type} {size} · Scope total {scope} · {basis}",[["type","name"],["size","name"],["scope","name"],["basis","name"]]],
     ["ui.visualization.filterFilteredOut","Filtered out {size}",[["size","name"]]],
     ["ui.visualization.filterFilteredOutAtLeast","Filtered out at least {size}",[["size","name"]]],
     ["ui.visualization.filterFilteredOutCalculating","Filtered out: calculating…",[]],
