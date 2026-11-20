@@ -4,6 +4,7 @@
   gap: 4px;
   min-inline-size: 0;
   overflow-x: auto;
+  scrollbar-width: thin;
   white-space: nowrap;
 }
 

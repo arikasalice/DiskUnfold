@@ -26,7 +26,11 @@ import {
   chartHeight,
   usableSize,
 } from "../features/visualization/chart-area";
-import { useProductionVizText, visualizationFormatName } from "../viz";
+import {
+  useProductionVizText,
+  visualizationFormatName,
+  vizMessage,
+} from "../viz";
 import type { ModelResponse, VisualizationViewRequest } from "../viz";
 import type { VizText } from "../viz";
 import { useLocaleText } from "../i18n/presentation";
@@ -293,7 +297,6 @@ export function BrowseVisualizationView({
   selection,
   assembly,
   catalog,
-  onClose,
 }: {
   client: AnalysisClient | undefined;
   open: boolean;
@@ -301,8 +304,6 @@ export function BrowseVisualizationView({
   assembly: BrowseVisualizationAssembly | undefined;
   /** The formats offered in the format strip, in catalog order (F06 README 3). */
   catalog?: VizCatalog | undefined;
-  /** Leaves the view; the unavailable notice offers it next to its text. */
-  onClose?: () => void;
 }) {
   const text = useLocaleText();
   const productionText = useProductionVizText(
@@ -480,22 +481,11 @@ export function BrowseVisualizationView({
               {...(formats.available
                 ? {
                     formatAction: {
-                      label: vizText.message("availableFormat"),
+                      label: viewAsLabel(formats.available, vizText),
                       onPress: () => {
                         if (formats.available)
                           formats.choose(formats.available, true);
                       },
-                    },
-                  }
-                : {})}
-              {...(onClose
-                ? {
-                    backAction: {
-                      label: text(
-                        "ui.visualization.back_to_folders",
-                        "Back to folders",
-                      ),
-                      onPress: onClose,
                     },
                   }
                 : {})}
@@ -585,6 +575,25 @@ function sameItemRef(left: ItemRef, right: ItemRef): boolean {
   return (
     left.resultVersion === right.resultVersion && left.itemNo === right.itemNo
   );
+}
+
+const viewAsKeys = {
+  treemap: "viewAsTreemap",
+  bar: "viewAsBar",
+  histogram: "viewAsHistogram",
+  trend: "viewAsTrend",
+  waterfall: "viewAsWaterfall",
+  sankey: "viewAsSankey",
+} as const;
+
+/** "View as {format}" for the unavailable notice (F06 README 41). */
+function viewAsLabel(format: string, text: VizText): string {
+  const key = viewAsKeys[format as keyof typeof viewAsKeys];
+  return key
+    ? text.message(key)
+    : vizMessage(text, "viewAsFormat", {
+        format: visualizationFormatName(format, text.message),
+      });
 }
 
 /**

@@ -897,7 +897,7 @@ test("F06 FR2.HD1.gui-web.DD1, FR16.HD1.gui-web.DD1: the format strip switches t
 
   fireEvent.click(
     screen.getByRole("button", {
-      name: label("ui.visualization.availableFormat"),
+      name: label("ui.visualization.viewAsTreemap"),
     }),
   );
   await waitFor(() => expect(renders.at(-1)!.format).toBe("treemap"));

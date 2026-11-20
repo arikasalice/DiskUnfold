@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Radio, RadioGroup } from "react-aria-components";
 import "../theme/segmented-choice.css";
 
@@ -11,8 +12,10 @@ export type SegmentedOption = {
 /**
  * One line of mutually exclusive options that behaves as a radio group: the
  * arrow keys move and select, and one option is always chosen. When the line is
- * wider than its place it scrolls sideways instead of wrapping (F06 README 3).
- * A noted option stays selectable; its note says what is special about it.
+ * wider than its place it scrolls sideways instead of wrapping, with a thin
+ * scroll bar; a vertical wheel over it scrolls it sideways, and the chosen
+ * option is always scrolled into view (F06 README 3, 41). A noted option stays
+ * selectable; its note says what is special about it.
  */
 export function SegmentedChoice({
   label,
@@ -25,8 +28,30 @@ export function SegmentedChoice({
   options: readonly SegmentedOption[];
   onChange: (value: string) => void;
 }) {
+  const line = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = line.current;
+    if (!element) return undefined;
+    const onWheel = (event: WheelEvent) => {
+      if (
+        element.scrollWidth <= element.clientWidth ||
+        Math.abs(event.deltaY) <= Math.abs(event.deltaX)
+      )
+        return;
+      event.preventDefault();
+      element.scrollLeft += event.deltaY;
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, []);
+  useEffect(() => {
+    line.current
+      ?.querySelector("[data-selected]")
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [value]);
   return (
     <RadioGroup
+      ref={line}
       aria-label={label}
       value={value}
       onChange={onChange}

@@ -942,7 +942,13 @@ ui.visualization.unavailable_for_folder
 ui.visualization.unknownFormat
 ui.visualization.formatChoice
 ui.visualization.formatNoData
-ui.visualization.availableFormat
+ui.visualization.viewAsTreemap
+ui.visualization.viewAsBar
+ui.visualization.viewAsHistogram
+ui.visualization.viewAsTrend
+ui.visualization.viewAsWaterfall
+ui.visualization.viewAsSankey
+ui.visualization.viewAsFormat format:name
 ui.visualization.unknownItems
 ui.visualization.unknownReason
 ui.visualization.unrecognizedValue

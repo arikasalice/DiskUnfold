@@ -77,6 +77,7 @@ export function ControlledVisualization({
   const table = state.table;
   // The panel takes the chart's place; the previous model stays in the controller.
   const unavailable = unavailableResponse(state);
+  const shownGroups = groupsBesideChart(groupController, unavailable);
   const onAvailableRef = useRef(onAvailableFormats);
   onAvailableRef.current = onAvailableFormats;
   useEffect(() => {
@@ -234,9 +235,9 @@ export function ControlledVisualization({
             : {})}
         />
       )}
-      {groupController && (
+      {shownGroups && (
         <GroupView
-          controller={groupController}
+          controller={shownGroups}
           frame={groupViewFrame}
           selection={state.selection}
           origin={groupOrigin}
@@ -245,11 +246,14 @@ export function ControlledVisualization({
           text={text}
         />
       )}
-      <LiveStatus>
-        {announcement.message && (
-          <Text key={announcement.count}>{announcement.message}</Text>
-        )}
-      </LiveStatus>
+      {/* Said once for assistive technology; the Toast shows the same words (F06 README 41). */}
+      <div className="du-announcer">
+        <LiveStatus>
+          {announcement.message && (
+            <Text key={announcement.count}>{announcement.message}</Text>
+          )}
+        </LiveStatus>
+      </div>
       <Toast message={announcement.message} version={announcement.count} />
       <RowsRetry
         controller={controller}
@@ -280,6 +284,14 @@ function useLostInThisUpdate(
     seen.current = previous;
   });
   return previous !== null && previous !== seen.current;
+}
+
+/** Combined items open only beside a chart; an unavailable answer has none (F06 README 41). */
+function groupsBesideChart(
+  groups: GroupController | undefined,
+  unavailable: unknown,
+) {
+  return unavailable ? undefined : groups;
 }
 
 function unavailableResponse(state: VisualizationSnapshot) {

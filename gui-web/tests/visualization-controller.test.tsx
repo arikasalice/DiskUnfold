@@ -761,6 +761,63 @@ test("selection is not rebound to absent or ambiguous target shapes", async () =
   });
 });
 
+test("a format switch on the same result and folder keeps an item selection the new chart cannot draw (#241)", async () => {
+  const first = frame(1),
+    histogram = frame(2),
+    back = frame(3);
+  const selected = first.model.shapes[0]!;
+  histogram.model.representation = {
+    ...histogram.model.representation,
+    format: "histogram",
+  };
+  histogram.model.shapes = histogram.model.shapes.filter(
+    (shape) => !sameItemRef(shape.itemRef, selected.itemRef),
+  );
+  const controller = new VisualizationController({
+    render: vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(histogram)
+      .mockResolvedValueOnce(back),
+    rows: vi.fn(),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const selection = {
+    kind: "item" as const,
+    itemRef: selected.itemRef!,
+    matchKey: selected.matchKey,
+    modelRef: first.model.modelRef,
+    resultRevision: revision,
+  };
+  controller.select(selection);
+  await controller.render(request(2));
+  // Not lost: no notice, and the selection waits for a chart that can show it.
+  expect(controller.getSnapshot()).toMatchObject({
+    selection,
+    previousSelection: null,
+  });
+  await controller.render(request(3));
+  expect(controller.getSnapshot().selection).toMatchObject({
+    kind: "item",
+    itemRef: selected.itemRef,
+  });
+  expect(controller.getSnapshot().previousSelection).toBeNull();
+});
+
+function sameItemRef(
+  left: { resultVersion: string; itemNo: number } | null,
+  right: { resultVersion: string; itemNo: number } | null,
+) {
+  return (
+    !!left &&
+    !!right &&
+    left.resultVersion === right.resultVersion &&
+    left.itemNo === right.itemNo
+  );
+}
+
 test("failed rows keep the visible page and offer retry for the same model and range", async () => {
   const f = frame(1);
   const page = modelFixture().page;
