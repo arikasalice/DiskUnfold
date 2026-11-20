@@ -5,6 +5,15 @@
 //! settings screen or search lists them. The default `""` means nothing is
 //! remembered; a stored value that fails the grammar is quarantined when the
 //! settings are restored and reads as the default.
+//!
+//! The memories are app state, not preferences, so the F14 settings paths
+//! that 0.0.1 does not have yet must keep these rules (#205):
+//! - An export leaves out every key for which [`is_memory`] holds.
+//! - A reset to defaults keeps the memories; it does not show a dismissed
+//!   startup notice again.
+//! - Any path that changes a memory (an import, a reset, a CLI write) calls
+//!   `StartupAccessSession::load_memories` in app-host with the stored values
+//!   after its commit, so `app.startup_status` answers from them at once.
 use crate::{Descriptor, ValueKind};
 use du_core_contracts::{
     settings::{SettingPresentation, SettingsSnapshot},
@@ -16,6 +25,11 @@ use serde_json::json;
 pub const NOTICE_DISMISSED: &str = "startup.notice_dismissed";
 /// The state key of the Support information the user has seen.
 pub const REVIEW_SEEN: &str = "startup.review_seen";
+
+/// Whether `key` names a startup memory, which settings export leaves out.
+pub fn is_memory(key: &str) -> bool {
+    key.starts_with("startup.")
+}
 
 /// Whether `key` follows the startup state key grammar `[a-z0-9_.:|]`, at most
 /// 200 bytes. The empty string, which clears a memory, is allowed.
@@ -96,8 +110,24 @@ mod tests {
         let descriptors = crate::settings::builtin_descriptors(&["en", "ko"])
             .map_err(|error| format!("{error:?}"))?
             .into_iter()
-            .filter(|descriptor| with_memories || !descriptor.key.starts_with("startup."));
+            .filter(|descriptor| with_memories || !is_memory(&descriptor.key));
         Registry::new(descriptors).map_err(|error| format!("{error:?}"))
+    }
+
+    #[test]
+    fn only_the_hidden_startup_memories_are_memories() -> Result<(), String> {
+        let all = crate::settings::builtin_descriptors(&["en", "ko"])
+            .map_err(|error| format!("{error:?}"))?;
+        let memories: Vec<_> = all
+            .iter()
+            .filter(|descriptor| is_memory(&descriptor.key))
+            .collect();
+        let mut keys: Vec<_> = memories.iter().map(|d| d.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, [NOTICE_DISMISSED, REVIEW_SEEN]);
+        // An export that drops memories therefore drops only hidden settings.
+        assert!(memories.iter().all(|d| d.presentation.hidden));
+        Ok(())
     }
 
     #[test]
