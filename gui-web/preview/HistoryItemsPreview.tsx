@@ -5,8 +5,11 @@ import {
   Text,
 } from "../src/components";
 import { HistoryItems } from "../src/features/history/HistoryItems";
+import { HistorySizeDisplay } from "../src/features/history/history-size";
 import { LocaleTextContext } from "../src/i18n/presentation";
+import { RegionalFormatContext } from "../src/i18n/regional-format";
 import "../src/theme/history.css";
+import { regional } from "./BrowseScanStatusPreview";
 import { historyClient, standaloneLocation } from "./history-items-fixture";
 import { koreanText } from "./result-summary-fixture";
 
@@ -19,6 +22,21 @@ import { koreanText } from "./result-summary-fixture";
 export function HistoryItemsPreview() {
   return (
     <LocaleTextContext.Provider value={koreanText}>
+      <RegionalFormatContext.Provider value={regional}>
+        <HistorySizeDisplay.Provider
+          value={{ system: "iec", unit: "auto", regional }}
+        >
+          <HistoryItemsRecords />
+        </HistorySizeDisplay.Provider>
+      </RegionalFormatContext.Provider>
+    </LocaleTextContext.Provider>
+  );
+}
+
+/** The records in the size display and regional format the app gives them. */
+function HistoryItemsRecords() {
+  return (
+    <>
       <ItemRecord jobRef="preview-job" label="작업 상세" />
       <ItemRecord jobRef="preview-partial" label="일부만 남은 기록" />
       <ItemRecord
@@ -43,7 +61,7 @@ export function HistoryItemsPreview() {
           <MiddleEllipsisText text={standaloneLocation} />
         </div>
       </section>
-    </LocaleTextContext.Provider>
+    </>
   );
 }
 

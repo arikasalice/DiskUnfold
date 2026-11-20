@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Gallery } from "../preview/Gallery";
 import { historyLocations } from "../preview/history-items-fixture";
@@ -50,7 +56,12 @@ test("the gallery draws the history item results with the product's table and a 
   fireEvent.change(screen.getByLabelText("검토할 화면"), {
     target: { value: "history" },
   });
-  await screen.findByText("기록된 위치");
+  // The main record, then the two count sentence records (#204).
+  await waitFor(() =>
+    expect(
+      container.querySelectorAll(".du-history-item-location"),
+    ).toHaveLength(7),
+  );
   const heard = Array.from(
     container.querySelectorAll(
       ".du-history-item-location .du-fit > .du-visually-hidden",
@@ -61,7 +72,7 @@ test("the gallery draws the history item results with the product's table and a 
     historyLocations.short,
     historyLocations.long,
   ]);
-  expect(heard).toHaveLength(4);
+  expect(heard).toHaveLength(7);
   expect(
     screen
       .getByRole("region", { name: "표 밖 단독 값" })

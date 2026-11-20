@@ -550,7 +550,6 @@
     ["ui.history.loading_items","Loading item results",[]],
     ["ui.history.loading_operation_details","Loading operation details",[]],
     ["ui.history.name","Name",[]],
-    ["ui.history.no_additional_notes","No additional notes",[]],
     ["ui.history.no_follow_ups","No follow-up operations.",[]],
     ["ui.history.no_items_match","No recorded items match this outcome.",[]],
     ["ui.history.no_matches","No history matches these filters.",[]],

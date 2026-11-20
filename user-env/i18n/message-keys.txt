@@ -533,7 +533,6 @@ ui.history.loading
 ui.history.loading_items
 ui.history.loading_operation_details
 ui.history.name
-ui.history.no_additional_notes
 ui.history.no_follow_ups
 ui.history.no_items_match
 ui.history.no_matches

@@ -203,29 +203,52 @@ test.each([
 );
 
 test.each([
-  ["not_recorded", null, "This task didn't record results for each item."],
-  ["recorded", null, "No items were processed in this task."],
-  [undefined, null, "This task didn't record results for each item."],
-  [undefined, "0", "No items were processed in this task."],
-  ["later_value", null, "This task didn't record results for each item."],
+  [
+    "not_recorded",
+    null,
+    null,
+    "This task didn't record results for each item.",
+  ],
+  ["recorded", "0", "0", "No items were processed in this task."],
+  [undefined, null, null, "This task didn't record results for each item."],
+  [undefined, "0", "0", "No items were processed in this task."],
+  ["later_value", null, null, "This task didn't record results for each item."],
 ] as const)(
   "explains an empty %s item history",
-  async (recording, summary, message) => {
+  async (recording, summary, unavailable, message) => {
     const empty = {
       ...page("unused"),
       rows: [],
-      counts: { summary, recorded: "0", unavailable: null },
+      counts: { summary, recorded: "0", unavailable },
       itemRecording: recording as HistoryItemsResponse["itemRecording"],
     };
     const call = vi.fn().mockResolvedValue(empty);
     render(<HistoryItems client={client(call)} jobRef="job" />);
     await screen.findByText(message);
-    fireEvent.change(screen.getByLabelText("Outcome"), {
-      target: { value: "failed" },
-    });
-    await screen.findByText("No recorded items match this outcome.");
+    // Design #232: with no recorded item there is nothing to filter.
+    await waitFor(() => expect(screen.queryByLabelText("Outcome")).toBeNull());
   },
 );
+
+test("recorded item history with every result missing states the count, not an empty task", async () => {
+  const missing = {
+    ...page("unused"),
+    rows: [],
+    counts: { summary: "5", recorded: "0", unavailable: "5" },
+    completeness: "partial" as const,
+    missingReasons: ["items_incomplete"],
+  };
+  render(
+    <HistoryItems
+      client={client(vi.fn().mockResolvedValue(missing))}
+      jobRef="job"
+    />,
+  );
+  await screen.findByText("Results are kept for 0 of 5 items.");
+  expect(
+    screen.queryByText("No items were processed in this task."),
+  ).toBeNull();
+});
 
 test("opens a full recorded item with a long location, lower-bound size and every flag", async () => {
   const full = page("long");
@@ -249,8 +272,14 @@ test("opens a full recorded item with a long location, lower-bound size and ever
   fireEvent.keyUp(open, { key: "Enter", code: "Enter" });
   const details = screen.getByRole("region", { name: "Recorded item details" });
   expect(document.activeElement).toBe(details);
-  expect(within(details).getByText(result.locationDisplay)).toBeDefined();
-  expect(within(details).getByText(/^At least \S+ EiB$/)).toBeDefined();
+  // The full path breaks after its separators; its text is unchanged.
+  const location = within(details)
+    .getByText("Recorded location")
+    .closest("div")!
+    .querySelector("dd")!;
+  expect(location.textContent).toBe(result.locationDisplay);
+  // The largest unit is PiB, so 2^63 - 1 bytes reads in thousands of PiB.
+  expect(within(details).getByText(/^At least \S+ PiB$/)).toBeDefined();
   expect(
     within(details).getByText(
       "Review needed · Held · Outcome unknown · A reason was recorded",

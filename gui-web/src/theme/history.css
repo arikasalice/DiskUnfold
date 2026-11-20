@@ -280,8 +280,8 @@
 }
 
 .du-history-item-observation {
-  font-size: 12px;
-  line-height: 1.25;
+  /* Design #232: the size reads in the same size and line as the other cells. */
+  font-size: inherit;
 }
 
 .du-history-displaced {

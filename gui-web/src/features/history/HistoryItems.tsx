@@ -65,22 +65,29 @@ export function HistoryItems({
     },
   ];
   const [filter, setFilter] = useState<Filter>("all");
+  // Design #232: an operation without recorded items has nothing to filter.
+  // The recorded count does not depend on the filter, so the control stays
+  // mounted (and keeps focus) while a filtered page loads.
+  const [noItems, setNoItems] = useState(false);
   return (
     <>
-      <div className="du-history-item-filter">
-        <SelectField
-          label={text("ui.history.outcome", "Outcome")}
-          value={filter}
-          options={filters}
-          onChange={setFilter}
-        />
-      </div>
+      {!noItems && (
+        <div className="du-history-item-filter">
+          <SelectField
+            label={text("ui.history.outcome", "Outcome")}
+            value={filter}
+            options={filters}
+            onChange={setFilter}
+          />
+        </div>
+      )}
       <ItemPages
         key={`${jobRef}:${filter}`}
         client={client}
         jobRef={jobRef}
         outcome={filter === "all" ? null : filter}
         filters={filters.filter((option) => option.value !== "all")}
+        onRecorded={(recorded) => setNoItems(recorded === "0")}
       />
     </>
   );
@@ -90,11 +97,14 @@ function ItemPages({
   jobRef,
   outcome,
   filters,
+  onRecorded,
 }: {
   client: AnalysisClient;
   jobRef: string;
   outcome: HistoryItemOutcome | null;
   filters: { value: Filter; label: string }[];
+  /** Reports the whole operation's recorded item count once a page is read. */
+  onRecorded: (recorded: string) => void;
 }) {
   const text = useLocaleText();
   const display = useContext(HistorySizeDisplay);
@@ -108,6 +118,10 @@ function ItemPages({
   const table = useRef<HTMLDivElement>(null);
   const selectedResult =
     selected && page?.rows.includes(selected) ? selected.result : undefined;
+  const recorded = page?.counts.recorded;
+  useEffect(() => {
+    if (recorded !== undefined) onRecorded(recorded);
+  }, [recorded, onRecorded]);
   return (
     <div className="du-history-item-results">
       {refreshed && (
@@ -278,20 +292,27 @@ function ItemCounts({ page }: { page: HistoryItemsResponse }) {
   const { summary, recorded, unavailable } = page.counts;
   if (!itemsRecorded(page) || (recorded === "0" && unavailable === "0"))
     return null;
+  const count = BigInt(recorded);
   return (
     <Text>
       {summary === null
         ? text(
             "ui.history.item_count_total_unknown",
-            "{recorded} items with results · Total unknown",
-            { recorded },
+            count === 1n
+              ? "{recorded} item with results · Total unknown"
+              : "{recorded} items with results · Total unknown",
+            { recorded: count },
           )
         : unavailable === "0"
-          ? text("ui.history.item_count_all", "{recorded} items", { recorded })
+          ? text(
+              "ui.history.item_count_all",
+              count === 1n ? "{recorded} item" : "{recorded} items",
+              { recorded: count },
+            )
           : text(
               "ui.history.item_count_partial",
               "Results are kept for {recorded} of {summary} items.",
-              { recorded, summary },
+              { recorded: count, summary: BigInt(summary) },
             )}
     </Text>
   );
@@ -308,6 +329,7 @@ function RecordedItemDetails({
 }) {
   const text = useLocaleText();
   const displaced = result.displaced;
+  const notes = itemFlags(result, text);
   const display = useContext(HistorySizeDisplay);
   const displayTime = useHistoryTime();
   const title = displaced
@@ -337,7 +359,8 @@ function RecordedItemDetails({
         rows={[
           {
             label: text("ui.history.recorded_location", "Recorded location"),
-            value: result.locationDisplay,
+            // Design #232: the full path marks edge spaces as the table does.
+            value: <NameText name={result.locationDisplay} path />,
           },
           {
             label: text("ui.history.outcome", "Outcome"),
@@ -350,12 +373,10 @@ function RecordedItemDetails({
             label: text("ui.history.observed_size", "Observed size"),
             value: observedSizeText(result, display, text),
           },
-          {
-            label: text("ui.history.notes", "Notes"),
-            value:
-              itemFlags(result, text) ||
-              text("ui.history.no_additional_notes", "No additional notes"),
-          },
+          // Design #232: an item without notes has no notes row.
+          ...(notes
+            ? [{ label: text("ui.history.notes", "Notes"), value: notes }]
+            : []),
         ]}
       />
       {displaced && (

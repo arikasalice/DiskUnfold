@@ -550,7 +550,6 @@
     ["ui.history.loading_items","항목 결과를 불러오는 중",[]],
     ["ui.history.loading_operation_details","작업 상세 정보를 불러오는 중",[]],
     ["ui.history.name","이름",[]],
-    ["ui.history.no_additional_notes","추가 메모 없음",[]],
     ["ui.history.no_follow_ups","후속 작업이 없습니다.",[]],
     ["ui.history.no_items_match","이 결과에 해당하는 항목 기록이 없습니다.",[]],
     ["ui.history.no_matches","필터에 맞는 이력이 없습니다.",[]],
