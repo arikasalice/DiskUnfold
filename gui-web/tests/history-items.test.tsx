@@ -12,6 +12,8 @@ import { HistoryItems } from "../src/features/history/HistoryItems";
 import { AnalysisError } from "../src/ipc";
 import type { AnalysisClient, HistoryItemsResponse } from "../src/ipc";
 afterEach(cleanup);
+/** A location as screen readers hear it; the drawn parts are hidden from them. */
+const locationText = { ignore: "[aria-hidden], script, style" };
 const page = (
   name: string,
   cursor: string | null = null,
@@ -100,7 +102,7 @@ test("supports every outcome filter and ignores an earlier response", async () =
       }),
     );
   }
-  await screen.findByText("Historical new");
+  await screen.findByText("Historical new", locationText);
   await act(async () => resolveOld(page("old")));
   expect(screen.queryByText("Historical old")).toBeNull();
 });
@@ -116,7 +118,9 @@ test("restarts from page one after a stale cursor", async () => {
   fireEvent.click(
     await screen.findByRole("button", { name: "Load more items" }),
   );
-  expect(await screen.findByText("Historical fresh")).toBeDefined();
+  expect(
+    await screen.findByText("Historical fresh", locationText),
+  ).toBeDefined();
   expect(screen.queryByText("Historical old")).toBeNull();
   expect(screen.getByText(/restarted from the first page/)).toBeDefined();
   expect(call.mock.calls[1]?.[1].cursor).toBe("next");
@@ -136,7 +140,7 @@ test("ignores results for a previous job", async () => {
   const api = client(call);
   const view = render(<HistoryItems client={api} jobRef="old" />);
   view.rerender(<HistoryItems client={api} jobRef="new" />);
-  await screen.findByText("Historical new");
+  await screen.findByText("Historical new", locationText);
   await act(async () => resolveOld(page("old")));
   expect(screen.queryByText("Historical old")).toBeNull();
 });

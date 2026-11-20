@@ -52,7 +52,9 @@ test("the gallery draws the history item results with the product's table and a 
   });
   await screen.findByText("기록된 위치");
   const heard = Array.from(
-    container.querySelectorAll(".du-history-item-location .du-visually-hidden"),
+    container.querySelectorAll(
+      ".du-history-item-location .du-fit > .du-visually-hidden",
+    ),
     (copy) => copy.textContent,
   );
   expect(heard.slice(0, 2)).toEqual([

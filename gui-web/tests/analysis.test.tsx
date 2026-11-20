@@ -1660,21 +1660,20 @@ test("F21 F24: history and a pinned result recover separately after a shared del
   await startFixtureScan(client);
   await screen.findByText("Result version: Interim");
   fireEvent.click(screen.getByRole("button", { name: "Operation history" }));
-  const history = await screen.findByRole("table", {
-    name: "Operation history",
-  });
-  await within(history).findByText("Cancelled");
+  // The list shows the operation and its end state; the engine's target text is not shown (#170).
+  const operation = () =>
+    screen
+      .getByRole("button", { name: /^View details: / })
+      .closest<HTMLElement>("tr")!;
+  await screen.findByRole("button", { name: /^View details: / });
+  expect(within(operation()).getByText("Cancelled")).toBeDefined();
   changed = true;
   passReflectInterval();
   notifyResult(listeners, "job.resync_required", {});
-  await within(
-    screen.getByRole("table", { name: "Operation history" }),
-  ).findByText("Failed");
-  expect(
-    within(
-      screen.getByRole("table", { name: "Operation history" }),
-    ).queryByText("Cancelled"),
-  ).toBeNull();
+  await waitFor(() =>
+    expect(within(operation()).getByText("Failed")).toBeDefined(),
+  );
+  expect(within(operation()).queryByText("Cancelled")).toBeNull();
   expect(lists).toBe(2);
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   expect(await screen.findByText("Result version: Final")).toBeDefined();
