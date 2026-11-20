@@ -63,15 +63,6 @@ export function VisualizationStatus({
               />
             </Text>
           )}
-          {state.previousSelectionEvidence && (
-            <Text>
-              {text.message("previousBasis")}{" "}
-              {text.observedAt(state.previousSelectionEvidence.observedAt)} ·{" "}
-              {text.key(state.previousSelectionEvidence.origin)} ·{" "}
-              {text.message("previousMeasure")}{" "}
-              {text.key(state.previousSelectionEvidence.sizeBasis)}
-            </Text>
-          )}
           <Text>{text.message("correspondenceUnknown")}</Text>
           {!graphTargets && <Text>{text.message("noGraphTargets")}</Text>}
         </Notice>

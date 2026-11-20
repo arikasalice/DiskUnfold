@@ -239,6 +239,12 @@ fn availability_and_render_agree_for_each_catalog_format() -> TestResult {
     let lineage =
         serde_json::to_value(harness.publish(&two_files(3))?).map_err(|e| e.to_string())?;
     let answer = availability(&harness, &lineage, 3)?;
+    // Without a source lineage the named revision alone is pinned, with the same answer (#241).
+    let unnamed = harness.ok(
+        "viz.availability",
+        json!({"resultRevision": id(3), "aggregateScopeRef": scope(3)}),
+    )?;
+    assert_eq!(unnamed, answer);
     let view = harness.open_view()?;
     let formats = [
         "treemap",
@@ -258,6 +264,20 @@ fn availability_and_render_agree_for_each_catalog_format() -> TestResult {
             assert_eq!(rendered["reasonKey"], entry["reasonKey"], "{format}");
         }
     }
+    Ok(())
+}
+
+#[test]
+fn an_unnamed_availability_request_for_a_revision_that_is_not_current_is_stale() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&two_files(3))?;
+    // Without a lineage only the named revision is pinned; one that is not the
+    // current scan result is refused as stale, as viz.render does.
+    let reason = harness.reason(
+        "viz.availability",
+        json!({"resultRevision": id(7), "aggregateScopeRef": scope(7)}),
+    )?;
+    assert_eq!(reason, "result.version_stale");
     Ok(())
 }
 

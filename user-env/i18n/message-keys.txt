@@ -905,8 +905,6 @@ ui.visualization.observedAtUnknown
 ui.visualization.omittedItems
 ui.visualization.openFailed
 ui.visualization.originScan
-ui.visualization.previousBasis
-ui.visualization.previousMeasure
 ui.visualization.previousName
 ui.visualization.previousRange
 ui.visualization.previousRows

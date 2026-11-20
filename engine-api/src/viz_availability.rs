@@ -107,12 +107,18 @@ impl UseCase for ReadAvailability {
         request: Self::Request,
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        if request.source_ref.kind != "scan" {
+        // A named source must be a scan; without one the revision alone is pinned,
+        // and a revision outside the scan lineage fails as unavailable.
+        if request
+            .source_ref
+            .as_ref()
+            .is_some_and(|source| source.kind != "scan")
+        {
             return Err(unavailable());
         }
         let source = current_analysis::admit_scan(
             &self.source,
-            Some(&request.source_ref.reference),
+            request.source_ref.as_ref().map(|source| &source.reference),
             Some(&request.result_revision),
             caller.channel,
         )

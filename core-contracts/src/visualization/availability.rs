@@ -1,17 +1,24 @@
 //! F06 availability query and its required-data result.
-use super::{request::VizSourceRef, required_nullable};
+use super::{optional_present, request::VizSourceRef, required_nullable};
 use crate::{Id, ItemRef};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 /// Checks whether registered visualization formats have the data they require.
 ///
-/// The request names one source lineage, one immutable result revision and one
-/// aggregate folder. The engine does not select a result on the caller's behalf.
+/// The request names one immutable result revision and one aggregate folder, and
+/// may name its source lineage. Without one the engine pins the named revision
+/// alone; it never selects a result on the caller's behalf.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VizAvailabilityRequest {
-    pub source_ref: VizSourceRef,
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub source_ref: Option<VizSourceRef>,
     pub result_revision: Id,
     pub aggregate_scope_ref: ItemRef,
 }

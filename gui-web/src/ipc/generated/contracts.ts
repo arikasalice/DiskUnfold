@@ -835,7 +835,7 @@ export type VizCancelRequest = { target: VizCancelTarget, };
 export type VizCancelTarget = { "kind": "subscription", viewChannel: Id, requestSeq: number, } | { "kind": "job", jobRef: Id, };
 export type VizControlResult = "accepted" | "no_effect" | "already_terminal";
 export type VizCancelResponse = { controlResult: VizControlResult, };
-export type VizAvailabilityRequest = { sourceRef: VizSourceRef, resultRevision: Id, aggregateScopeRef: ItemRef, };
+export type VizAvailabilityRequest = { sourceRef?: VizSourceRef, resultRevision: Id, aggregateScopeRef: ItemRef, };
 export type VizFormatAvailability = { format: string, available: boolean,
 /**
  * Null for an available format; required and non-null for an unavailable one.

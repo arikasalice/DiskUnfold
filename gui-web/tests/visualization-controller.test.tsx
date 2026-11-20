@@ -731,7 +731,7 @@ test("entry point shows loading, failure and a newer table independently of the 
   ).toBeTruthy();
 });
 
-test("selection is not rebound to absent or ambiguous target shapes", async () => {
+test("selection is not rebound to absent or ambiguous target shapes, and the same result releases it quietly", async () => {
   const first = frame(1),
     ambiguous = frame(2);
   const selected = first.model.shapes[0]!;
@@ -757,7 +757,62 @@ test("selection is not rebound to absent or ambiguous target shapes", async () =
   await controller.render(request(2));
   expect(controller.getSnapshot()).toMatchObject({
     selection: null,
-    previousSelection: selection,
+    previousSelection: null,
+  });
+});
+
+test("a format switch keeps a group selection, and moving to another folder releases a selection quietly (#241)", async () => {
+  const first = frame(1),
+    histogram = frame(2),
+    otherFolder = frame(3);
+  first.model.shapes[0] = {
+    ...first.model.shapes[0]!,
+    itemRef: null,
+    groupRef: "group-other",
+    matchKey: { state: "not_applicable" },
+  };
+  histogram.model.representation = {
+    ...histogram.model.representation,
+    format: "histogram",
+  };
+  otherFolder.model.aggregateScopeRef = {
+    ...otherFolder.model.aggregateScopeRef,
+    itemNo: otherFolder.model.aggregateScopeRef.itemNo + 1,
+  };
+  otherFolder.model.navigationScopeRef = otherFolder.model.aggregateScopeRef;
+  otherFolder.model.shapes = [];
+  const controller = new VisualizationController({
+    render: vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(histogram)
+      .mockResolvedValueOnce(otherFolder),
+    rows: vi.fn(),
+    cancel: vi.fn(),
+    canDisplay: () => true,
+  });
+  await controller.render(request(1));
+  const group = {
+    kind: "group" as const,
+    groupRef: "group-other",
+    modelRef: first.model.modelRef,
+    resultRevision: revision,
+  };
+  controller.select(group);
+  await controller.render(request(2));
+  expect(controller.getSnapshot()).toMatchObject({
+    selection: group,
+    previousSelection: null,
+  });
+  // Another folder of the same result: released without a notice.
+  await controller.render({
+    ...request(3),
+    aggregateScopeRef: otherFolder.model.aggregateScopeRef,
+    navigationScopeRef: otherFolder.model.aggregateScopeRef,
+  });
+  expect(controller.getSnapshot()).toMatchObject({
+    selection: null,
+    previousSelection: null,
   });
 });
 
@@ -1652,7 +1707,7 @@ test.each([
 );
 
 test.each(["en", "ko"] as const)(
-  "lost selection shows only its verified previous observation in %s",
+  "a selection lost to a new result names the item and no observation line in %s",
   async (language) => {
     const first = frame(1),
       second = frame(2, "new-result");
@@ -1708,11 +1763,12 @@ test.each(["en", "ko"] as const)(
         new RegExp(language === "ko" ? "이전 항목:" : "Previous item:"),
       ).textContent,
     ).toContain("Observed directory");
+    // What was released is said; where it was observed is not (F06 README 41).
     expect(
-      screen.getByText(
+      screen.queryByText(
         new RegExp(language === "ko" ? "이전 관측:" : "Previous observation:"),
-      ).textContent,
-    ).toContain(first.observedAt);
+      ),
+    ).toBeNull();
     expect(
       screen.getByText(text.message("correspondenceUnknown")),
     ).toBeTruthy();
