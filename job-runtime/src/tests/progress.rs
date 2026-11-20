@@ -11,7 +11,6 @@ use std::{
 mod lane_status;
 mod property;
 mod slow;
-use lane_status::lane_status;
 
 const WAIT: Duration = Duration::from_secs(5);
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;

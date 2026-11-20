@@ -82,6 +82,7 @@ fn one_runtime_shares_a_disk_limit_across_jobs_and_keys() -> Result<(), Box<dyn 
         }),
         priority: JobPriority::Normal,
         scope_summary: "first".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::from_v7_bytes([2; 16]),
         sample: false,
     })?;
@@ -100,6 +101,7 @@ fn one_runtime_shares_a_disk_limit_across_jobs_and_keys() -> Result<(), Box<dyn 
         }),
         priority: JobPriority::Normal,
         scope_summary: "second".into(),
+        scope_roots: Vec::new(),
         correlation_id: Id::from_v7_bytes([3; 16]),
         sample: false,
     })?;
