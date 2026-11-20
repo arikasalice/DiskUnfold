@@ -7,7 +7,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { modelFixture } from "../preview/model-fixture";
 import { useLegendChoice } from "../src/app/legend-choice";
 import { VisualizationModelPresenter } from "../src/features/visualization/VisualizationModelPresenter";
@@ -264,8 +264,8 @@ test("F06 README 44.3: in high contrast the pattern switch shows on, cannot be c
   ).toBe("Patterns are always on in high contrast");
 });
 
-test("F06 README 44 re-review: a patterned shape draws no pattern under its name", () => {
-  const { container } = render(
+function patterned() {
+  return render(
     <GeometryRenderer
       modelRef="model-1"
       resultRevision="revision-1"
@@ -305,6 +305,10 @@ test("F06 README 44 re-review: a patterned shape draws no pattern under its name
       ]}
     />,
   );
+}
+
+test("F06 README 44 re-review: a patterned shape draws no pattern under its name", () => {
+  const { container } = patterned();
   const shape = container.querySelector(".du-geometry-shape")!;
   const parts = Array.from(shape.querySelectorAll("rect, text")).map(
     (node) => node.getAttribute("class") ?? node.tagName,
@@ -321,4 +325,23 @@ test("F06 README 44 re-review: a patterned shape draws no pattern under its name
   expect(Number(plate.getAttribute("y"))).toBeLessThan(
     Number(label.getAttribute("y")) - 14,
   );
+});
+
+test("F06 README 44 final review: the plate takes the drawn width of the name", () => {
+  // jsdom draws no text; the browser's measured width is stood in for.
+  const svgText = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "text",
+  ) as SVGTextElement;
+  const proto = Object.getPrototypeOf(
+    Object.getPrototypeOf(svgText),
+  ) as SVGTextContentElement;
+  const measure = vi.spyOn(proto, "getComputedTextLength").mockReturnValue(100);
+  try {
+    const { container } = patterned();
+    const plate = container.querySelector(".du-geometry-label-plate")!;
+    expect(plate.getAttribute("width")).toBe(String(100 + 8));
+  } finally {
+    measure.mockRestore();
+  }
 });

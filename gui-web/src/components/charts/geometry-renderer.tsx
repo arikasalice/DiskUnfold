@@ -573,18 +573,34 @@ function rectangleLabel(
   const label = fitLabel(shape, limit);
   const text = labelText("du-geometry-label", left + 12, top + 24, label);
   if (!plate || text === null) return text;
-  // No pattern runs through a name (README 44): the 14 px line and 2 px above and
-  // below, the text and 4 px each side, take the shape's own fill.
+  return <PlatedLabel x={left + 12} y={top + 24} label={label} />;
+}
+
+/**
+ * A label on a plate of its shape's fill, so no pattern runs through the name
+ * (README 44): the 14 px line and 2 px above and below, the text and 4 px each
+ * side. The plate takes the drawn width of the text, measured before paint; an
+ * estimate stands where the text cannot be measured.
+ */
+function PlatedLabel({ x, y, label }: { x: number; y: number; label: string }) {
+  const text = useRef<SVGTextElement>(null);
+  const [width, setWidth] = useState(() => labelWidth(label));
+  useLayoutEffect(() => {
+    const measured = text.current?.getComputedTextLength?.();
+    setWidth(measured && measured > 0 ? measured : labelWidth(label));
+  }, [label]);
   return (
     <g>
       <rect
         className="du-geometry-label-plate"
-        x={left + 12 - 4}
-        y={top + 24 - 14 - 2}
-        width={labelWidth(label) + 8}
+        x={x - 4}
+        y={y - 14 - 2}
+        width={Math.ceil(width) + 8}
         height={14 + 4 + 4}
       />
-      {text}
+      <text ref={text} className="du-geometry-label" x={x} y={y}>
+        {label}
+      </text>
     </g>
   );
 }
@@ -592,7 +608,7 @@ function rectangleLabel(
 const WIDE_GLYPH =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
 
-/** The approximate drawn width of a 14 px label: 14 px for a wide glyph, 8 for others. */
+/** The estimated width of a 14 px label before it can be measured: 14 px for a wide glyph, 8 for others. */
 function labelWidth(label: string) {
   return graphemes(label).reduce(
     (sum, part) => sum + (WIDE_GLYPH.test(part) ? 14 : 8),
