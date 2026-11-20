@@ -1,5 +1,14 @@
 //! Persist a summary-history job's terminal summary and history link in one transaction.
 
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
+};
+
 use du_core_contracts::{
     Id,
     job::{
@@ -9,7 +18,9 @@ use du_core_contracts::{
 };
 use rusqlite::{Error, ErrorCode, TransactionBehavior, params};
 
-use crate::AppDb;
+use crate::{
+    AppDb, BUSY_TIMEOUT, HISTORY_SCHEMA_VERSION, OpenError, history_open::refuse_history_migration,
+};
 
 pub mod read;
 
@@ -42,6 +53,20 @@ impl AppDb {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_error)?;
+        if let Some(path) = self.history_commit_path.as_deref() {
+            let version: u32 = tx
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .map_err(map_error)?;
+            if version != HISTORY_SCHEMA_VERSION {
+                return Err("history.schema_changed".into());
+            }
+            if let Err(error) = refuse_history_migration(path) {
+                return Err(match error {
+                    OpenError::IncompleteCreation => "history.migration_in_progress".into(),
+                    _ => "history.record_failed".into(),
+                });
+            }
+        }
         let [completed, overwritten, failed, skipped, unprocessed] = prepared.counts;
         let inserted = tx
             .execute(
@@ -123,6 +148,40 @@ impl AppDb {
             revision,
             observed_at_ms: now_ms,
         })))
+    }
+
+    /// Appends through the same transaction while allowing Ctrl+C to stop SQLite's
+    /// bounded lock wait. `should_abort` is called only while SQLite waits for a lock.
+    pub fn append_scan_history_interruptible(
+        &mut self,
+        summary: &JobSummary,
+        now_ms: i64,
+        should_abort: impl Fn() -> bool + Send + 'static,
+    ) -> Result<HistoryAppend, String> {
+        let started = Instant::now();
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let interrupted_by_handler = Arc::clone(&interrupted);
+        self.connection
+            .busy_handler(Some(move |_| {
+                if should_abort() {
+                    interrupted_by_handler.store(true, Ordering::Release);
+                    return false;
+                }
+                if started.elapsed() >= BUSY_TIMEOUT {
+                    return false;
+                }
+                thread::sleep(Duration::from_millis(10));
+                true
+            }))
+            .map_err(map_error)?;
+
+        let result = self.append_scan_history(summary, now_ms);
+        let _ = self.connection.busy_timeout(BUSY_TIMEOUT);
+        if interrupted.load(Ordering::Acquire) {
+            Err("history.interrupted".into())
+        } else {
+            result
+        }
     }
 }
 

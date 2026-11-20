@@ -337,11 +337,19 @@ fn run_command<W: Write, E: Write>(
                 );
                 return ExitCode::from(EXIT_USAGE);
             }
-            let Ok(engine) = scan_command::engine() else {
+            let Ok((engine, history)) = scan_command::engine() else {
                 write_error_line(stderr, "support.internal_error", &ErrorCode::Internal, None);
                 return ExitCode::from(EXIT_FAILURE);
             };
-            return scan_command::run(&engine, &scan, scan.format(), &message, stdout, stderr);
+            return scan_command::run(
+                &engine,
+                &history,
+                &scan,
+                scan.format(),
+                &message,
+                stdout,
+                stderr,
+            );
         }
         args::Command::NotProvided | args::Command::Unsupported => {
             return write_unsupported(stderr, message.resolve("cli.help.unsupported"));
