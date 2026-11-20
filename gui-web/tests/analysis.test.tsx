@@ -1100,7 +1100,7 @@ test("F01–F03: reviewed scope starts a scan and reads its pinned partial resul
   expect(
     space.getByText("Unique physical size").nextElementSibling?.textContent,
   ).toBe(
-    "At least 1.0 KiB · At least 1,100 bytes · Estimated · The file identity limit was reached · File identity could not be verified · A measurement limitation was reported",
+    "At least 1.0 KiB · At least 1,100 bytes · Estimated · There were too many files that may share content, so some weren't counted. Allocated and unique physical sizes are minimums. · File identity could not be verified · A measurement limitation was reported",
   );
   expect(space.getByText("Sharing evidence was not collected")).toBeDefined();
   expect(space.getByText("Auxiliary data was not collected")).toBeDefined();
