@@ -43,6 +43,7 @@ const surfaces = {
     count: 4,
     pointer: false,
   },
+  "job-center": { ready: ".du-job-center__header", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -67,12 +68,32 @@ const output = resolve(
 );
 const height = 900;
 const galleryShots =
-  surface === "scan-lanes"
+  surface === "job-center"
     ? [
-        { name: "light-1280", theme: "light", width: 1280 },
-        { name: "dark-1280", theme: "dark", width: 1280 },
-        { name: "light-700", theme: "light", width: 700 },
-        { name: "dark-700", theme: "dark", width: 700 },
+        { name: "01-light-1280", theme: "light", width: 1280, scene: "main" },
+        { name: "01-dark-1280", theme: "dark", width: 1280, scene: "main" },
+        { name: "01-light-700", theme: "light", width: 700, scene: "main" },
+        {
+          name: "02-request-pending-no-effect",
+          theme: "light",
+          width: 1280,
+          scene: "request-pending",
+        },
+        { name: "03-resync", theme: "light", width: 1280, scene: "resync" },
+        { name: "04-empty", theme: "light", width: 1280, scene: "empty" },
+        {
+          name: "05-cancel-confirm",
+          theme: "light",
+          width: 1280,
+          scene: "cancel-confirm",
+        },
+        {
+          name: "06-forced-colors",
+          theme: "light",
+          width: 1280,
+          scene: "forced-colors",
+          forcedColors: "active",
+        },
       ]
     : [
         { name: "light-1280", theme: "light", width: 1280 },
@@ -234,7 +255,15 @@ function cutCell(surface) {
 }
 
 /** Opens the gallery's surface in a theme and waits until it is drawn. */
-async function open(session, base, theme, width, scene, query = "") {
+async function open(
+  session,
+  base,
+  theme,
+  width,
+  scene,
+  query = "",
+  forcedColors = "none",
+) {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
     height,
@@ -244,7 +273,7 @@ async function open(session, base, theme, width, scene, query = "") {
   await session.send("Emulation.setEmulatedMedia", {
     features: [
       { name: "prefers-color-scheme", value: theme },
-      { name: "forced-colors", value: "none" },
+      { name: "forced-colors", value: forcedColors },
     ],
   });
   const loaded = session.once("Page.loadEventFired");
@@ -382,8 +411,17 @@ try {
   await session.send("Page.enable");
   for (const scene of captureScenes) {
     for (const shot of shots) {
-      await open(session, base, shot.theme, shot.width, scene);
+      await open(
+        session,
+        base,
+        shot.theme,
+        shot.width,
+        shot.scene ?? scene,
+        "",
+        shot.forcedColors,
+      );
       if (surface === "scan-lanes") await saveLanes(session, shot.name);
+      else if (surface === "job-center") await save(session, shot.name, true);
       else await save(session, shot.name, false, scene);
     }
   }

@@ -21,7 +21,6 @@ import { ComparisonPresenter } from "../src/features/comparison/ComparisonPresen
 import { DuplicateReviewPresenter } from "../src/features/duplicates/DuplicateReviewPresenter";
 import { PlanReviewPresenter } from "../src/features/planning/PlanReviewPresenter";
 import { ApprovalReviewPresenter } from "../src/features/approval/ApprovalReviewPresenter";
-import { JobCenterPresenter } from "../src/features/jobs/JobCenterPresenter";
 import { ProtectionPresenter } from "../src/features/protection/ProtectionPresenter";
 import { ExportReviewPresenter } from "../src/features/export/ExportReviewPresenter";
 import { PreferencesPresenter } from "../src/features/settings/PreferencesPresenter";
@@ -40,6 +39,7 @@ import { HistoryListPreview } from "./HistoryListPreview";
 import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
 import { ScanLanesPreview } from "./ScanLanesPreview";
 import { DatePickerPreview } from "./DatePickerPreview";
+import { JobCenterPreview } from "./JobCenterPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -48,7 +48,6 @@ const presenters = {
   duplicates: DuplicateReviewPresenter,
   planning: PlanReviewPresenter,
   approval: ApprovalReviewPresenter,
-  jobs: JobCenterPresenter,
   protection: ProtectionPresenter,
   export: ExportReviewPresenter,
   settings: PreferencesPresenter,
@@ -87,6 +86,7 @@ function requested() {
         ? (surface as SurfaceId)
         : "workspace",
     theme: theme === "light" || theme === "dark" ? theme : "system",
+    scene: query.get("scene") ?? "main",
   };
 }
 
@@ -98,6 +98,7 @@ function applyTheme(value: string) {
 /** Development entry only: all data, mutations and recovery are synthetic. */
 export function Gallery() {
   const [surface, setSurface] = useState<SurfaceId>(() => requested().surface);
+  const [scene] = useState(() => requested().scene);
   const [state, setState] = useState<SurfaceState>("ready");
   const [theme, setTheme] = useState(() => {
     const { theme } = requested();
@@ -120,6 +121,9 @@ export function Gallery() {
     setDraft("");
     setFeedback("");
   };
+  if (surface === "job-center") {
+    return <JobCenterPreview scene={scene} />;
+  }
   const context = (
     <>
       <StatusBadge>UI 검토용 샘플</StatusBadge>
@@ -199,6 +203,7 @@ export function Gallery() {
     surface === "history" ||
     surface === "history-list" ||
     surface === "summary" ||
+    surface === "jobs" ||
     surface === "browse" ||
     surface === "scan-lanes" ||
     surface === "date-picker"

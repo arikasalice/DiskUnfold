@@ -1,4 +1,16 @@
 /** Synthetic display fixtures. Never imported by the product entry point. */
+import type {
+  AnalysisJobListRow,
+  AnalysisJobProgress,
+  AnalysisJobTerminal,
+} from "../src/ipc";
+import type {
+  JobCenterCommand,
+  JobCenterCard,
+  JobCenterFeedback,
+  JobCenterSnapshot,
+} from "../src/state/job-center";
+
 export const fixtures = {
   workspace: {
     title: "공간 탐색",
@@ -359,6 +371,196 @@ export const fixtures = {
     ],
     notice: "실제 스캔과 연결되지 않은 폴더입니다.",
   },
+  "job-center": {
+    title: "작업",
+    query: "작업 찾기",
+    description: "진행 중인 작업과 이번 실행에서 끝난 작업을 확인합니다.",
+    rows: [],
+    facts: [
+      ["패널", "오른쪽 비모달 패널 · 360 CSS px"],
+      ["진행", "전체 수를 모르는 작업과 대기·일시정지 상태"],
+      ["세션", "최근 종료 결과는 최대 5개"],
+    ],
+    notice: "UI 검토용 고정 샘플이며 실제 작업을 조회하거나 제어하지 않습니다.",
+  },
 } as const;
 
 export type SurfaceId = keyof typeof fixtures;
+
+export type JobCenterGalleryScene =
+  | "main"
+  | "request-pending"
+  | "resync"
+  | "empty"
+  | "cancel-confirm"
+  | "forced-colors";
+
+const finished = (
+  state: AnalysisJobTerminal["state"],
+  sequence: number,
+): AnalysisJobTerminal => ({
+  state,
+  sequence,
+  completed: state === "done" ? 1234 : 800,
+  overwritten: 0,
+  failed: state === "failed" ? 3 : 0,
+  skipped: 0,
+  unprocessed: 0,
+  historyRecorded: true,
+});
+
+const jobRow = (
+  jobRef: string,
+  state: AnalysisJobListRow["state"],
+  sequence: number,
+  waitReason: AnalysisJobListRow["waitReason"],
+  supportedControls: AnalysisJobListRow["supportedControls"],
+  scopeFirstRoot: string,
+  scopeRootCount: number,
+  terminal?: AnalysisJobTerminal,
+): AnalysisJobListRow => ({
+  jobRef,
+  kind: "scan.metadata",
+  scopeSummary: "metadata scan · 1 root",
+  scopeFirstRoot,
+  scopeRootCount,
+  state,
+  waitReason,
+  priority: "normal",
+  supportedControls,
+  sequence,
+  ...(terminal ? { terminal } : {}),
+});
+
+const runningRef = "019a0000-0000-7000-8000-000000000701";
+const queuedRef = "019a0000-0000-7000-8000-000000000702";
+const pausedRef = "019a0000-0000-7000-8000-000000000703";
+const doneRef = "019a0000-0000-7000-8000-000000000704";
+const failedRef = "019a0000-0000-7000-8000-000000000705";
+
+const progress = (
+  sequence: number,
+  completed: number,
+  totalKnown: boolean,
+  total?: number,
+): AnalysisJobProgress => ({
+  sequence,
+  unit: "items",
+  completed,
+  totalKnown,
+  ...(totalKnown && total !== undefined ? { total } : {}),
+  waitReason: "none",
+  observedAt: "2026-11-21T12:00:00.000Z",
+});
+
+const activeCards: JobCenterCard[] = [
+  {
+    row: jobRow(
+      runningRef,
+      "running",
+      4,
+      "none",
+      ["pause", "cancel"],
+      "C:\\Users\\Demo\\Pictures",
+      2,
+    ),
+    progress: progress(4, 1234, false),
+    sequence: 4,
+    terminalReceived: false,
+    order: 0,
+  },
+  {
+    row: jobRow(
+      queuedRef,
+      "queued",
+      2,
+      "queue_full",
+      ["cancel"],
+      "D:\\Archive\\Photos",
+      1,
+    ),
+    sequence: 2,
+    terminalReceived: false,
+    order: 1,
+  },
+  {
+    row: jobRow(
+      pausedRef,
+      "paused",
+      9,
+      "paused",
+      ["resume", "cancel"],
+      "C:\\Users\\Demo\\Videos",
+      1,
+    ),
+    progress: progress(9, 5000, true, 10000),
+    sequence: 9,
+    terminalReceived: false,
+    order: 2,
+  },
+];
+
+const finishedCards: JobCenterCard[] = [
+  {
+    row: jobRow(
+      failedRef,
+      "failed",
+      5,
+      "none",
+      [],
+      "E:\\Backup\\Pictures",
+      1,
+      finished("failed", 5),
+    ),
+    terminal: finished("failed", 5),
+    sequence: 5,
+    terminalReceived: true,
+    order: 4,
+  },
+  {
+    row: jobRow(
+      doneRef,
+      "done",
+      10,
+      "none",
+      [],
+      "C:\\Users\\Demo\\Documents",
+      1,
+      finished("done", 10),
+    ),
+    terminal: finished("done", 10),
+    sequence: 10,
+    terminalReceived: true,
+    order: 3,
+  },
+];
+
+/** Fixed F24 examples for the gallery; they never reach the desktop IPC client. */
+export function jobCenterSnapshot(
+  scene: JobCenterGalleryScene,
+): JobCenterSnapshot {
+  const active = scene === "empty" ? [] : activeCards;
+  const recent = scene === "empty" ? [] : finishedCards;
+  const feedback = new Map<string, JobCenterFeedback>();
+  const pending = new Map<string, JobCenterCommand>();
+  if (scene === "request-pending") {
+    pending.set(runningRef, "pause");
+    feedback.set(queuedRef, {
+      id: 1,
+      command: "cancel",
+      kind: "neutral",
+    });
+  }
+  return {
+    cards: [...active, ...recent],
+    inProgress: [...active],
+    recentlyFinished: [...recent],
+    pending,
+    feedback,
+    loading: false,
+    resyncing: scene === "resync",
+    error: false,
+  };
+}
+
+export const jobCenterSceneJobRef = runningRef;
