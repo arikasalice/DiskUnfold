@@ -8,6 +8,7 @@ use du_core_contracts::settings::{
 };
 use std::collections::BTreeSet;
 
+pub use crate::settings_error::SettingsError;
 use crate::{CatalogEntry, Registry};
 mod restore_status;
 pub mod search;
@@ -46,22 +47,8 @@ pub fn builtin_descriptors_with_size_rules(
         .chain(crate::space::descriptors())
         .chain([crate::space::aggregation_rule_descriptor(size_rule_ids)])
         .chain(crate::startup_memory::descriptors())
+        .chain(crate::history_retention::descriptors())
         .collect())
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum SettingsError {
-    UnknownKey,
-    NotEditable,
-    InvalidValue,
-    StaleVersion,
-    StaleReview,
-    Store(SettingsStoreError),
-    Encoding,
-    SchemaNewer,
-    SchemaUnsupported,
-    InvalidStoredValue,
-    RestoreLocked,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -227,6 +214,17 @@ impl<S: SettingsStore> SettingsService<S> {
 
     pub fn snapshot(&self) -> &SettingsSnapshot {
         &self.snapshot
+    }
+
+    /// Reads the history retention policy from this validated settings snapshot.
+    pub fn history_retention_policy(
+        &self,
+    ) -> du_core_contracts::history_retention_ipc::HistoryRetentionPolicy {
+        crate::history_retention::policy(
+            &self.snapshot,
+            &self.restore_status.invalid_keys,
+            self.restore_status.failure_reason.is_some(),
+        )
     }
 
     /// Reads the stored settings again, after a commit answered `StaleVersion`

@@ -117,6 +117,25 @@ impl StartupSettings {
             .map(str::to_owned))
     }
 
+    /// Reads the current policy, failing closed if the settings lock is poisoned.
+    pub(super) fn history_retention_policy(
+        &self,
+    ) -> du_core_contracts::history_retention_ipc::HistoryRetentionPolicy {
+        self.service
+            .lock()
+            .map(|service| service.history_retention_policy())
+            .unwrap_or_else(|_| du_user_env::history_retention::unreadable_policy())
+    }
+
+    /// Supplies the current policy whenever the GUI reads it.
+    pub(super) fn history_retention_policy_source(
+        self: Arc<Self>,
+    ) -> Arc<
+        dyn Fn() -> du_core_contracts::history_retention_ipc::HistoryRetentionPolicy + Send + Sync,
+    > {
+        Arc::new(move || self.history_retention_policy())
+    }
+
     /// Supplies the validated setting when a scan is admitted.
     pub(super) fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
         Arc::new(move || {

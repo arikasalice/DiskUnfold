@@ -30,6 +30,8 @@ import type {
   HistoryItemsResponse,
   HistoryListRequest,
   HistoryListResponse,
+  HistoryRetentionGetRequest,
+  HistoryRetentionPolicy,
   Id,
   GroupCancelRequest,
   GroupCancelResponse,
@@ -347,6 +349,7 @@ type Commands = {
   "history.list": [HistoryListRequest, HistoryListResponse];
   "history.get": [HistoryDetailRequest, HistoryDetail];
   "history.items": [HistoryItemsRequest, HistoryItemsResponse];
+  "history.retention_get": [HistoryRetentionGetRequest, HistoryRetentionPolicy];
   "settings.restore_status": [SettingsRestoreRequest, SettingsRestoreStatus];
   "app.startup_status": [StartupStatusRequest, StartupStatus];
   "app.startup_access": [StartupAccessRequest, StartupAccessResponse];

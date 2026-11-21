@@ -90,7 +90,9 @@ fn builtin_catalog_declares_the_setting_but_no_listing_shows_it() -> TestResult 
         [
             AGGREGATION_RULE,
             crate::startup_memory::NOTICE_DISMISSED,
-            crate::startup_memory::REVIEW_SEEN
+            crate::startup_memory::REVIEW_SEEN,
+            crate::history_retention::ENABLED_KEY,
+            crate::history_retention::DAYS_KEY
         ]
     );
 

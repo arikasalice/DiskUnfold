@@ -3,6 +3,7 @@ use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::data_source::DataSource;
 use du_core_contracts::group_ipc::*;
 use du_core_contracts::history_ipc::*;
+use du_core_contracts::history_retention_ipc::*;
 use du_core_contracts::locale_bundle::*;
 use du_core_contracts::locale_ipc::*;
 use du_core_contracts::product_ipc::*;
@@ -179,6 +180,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         HistoryItemCounts::decl(&config),
         HistoryItemRecording::decl(&config),
         HistoryItemsResponse::decl(&config),
+        HistoryRetentionGetRequest::decl(&config),
+        HistoryRetentionPolicy::decl(&config),
         Id::decl(&config),
         ByteSize::decl(&config),
         Timestamp::decl(&config),

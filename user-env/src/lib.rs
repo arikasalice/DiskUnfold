@@ -8,10 +8,12 @@ pub use du_core_contracts::settings::{
 };
 use serde_json::Value;
 
+pub mod history_retention;
 pub mod i18n;
 pub mod locale;
 pub mod scope;
 pub mod settings;
+mod settings_error;
 pub mod space;
 pub mod space_format;
 pub mod startup_memory;
@@ -21,6 +23,9 @@ fn accepts(kind: &ValueKind, value: &Value) -> bool {
     match kind {
         ValueKind::Boolean => value.is_boolean(),
         ValueKind::Integer { min, max } => {
+            value.as_i64().is_some_and(|v| (*min..=*max).contains(&v))
+        }
+        ValueKind::OptionalInteger { min, max } => {
             value.as_i64().is_some_and(|v| (*min..=*max).contains(&v))
         }
         ValueKind::Choice(values) => values.contains(value),
@@ -50,7 +55,11 @@ impl Registry {
     pub fn new(descriptors: impl IntoIterator<Item = Descriptor>) -> Result<Self, RegistryError> {
         let mut result = BTreeMap::new();
         for descriptor in descriptors {
-            if !accepts(&descriptor.kind, &descriptor.default) {
+            let valid_default = matches!(
+                (&descriptor.kind, &descriptor.default),
+                (ValueKind::OptionalInteger { .. }, Value::Null)
+            ) || accepts(&descriptor.kind, &descriptor.default);
+            if !valid_default {
                 return Err(RegistryError::InvalidDefault);
             }
             if result.insert(descriptor.key.clone(), descriptor).is_some() {

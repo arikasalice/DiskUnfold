@@ -4,6 +4,8 @@ use crate::{Descriptor, ValueKind};
 use du_core_contracts::settings::{SettingsSource, SettingsStoreError};
 use serde_json::json;
 
+mod history_retention;
+
 struct Fake {
     snapshot: SettingsSnapshot,
     fail: Option<SettingsStoreError>,

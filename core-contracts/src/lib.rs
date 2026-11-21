@@ -7,6 +7,7 @@ pub mod change_notify;
 pub mod data_source;
 mod envelopes;
 pub mod history_ipc;
+pub mod history_retention_ipc;
 pub mod job;
 pub mod locale_bundle;
 pub mod locale_ipc;

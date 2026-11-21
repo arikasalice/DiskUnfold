@@ -17,6 +17,7 @@ use std::path::Path;
 mod display_preferences;
 mod recent_scope;
 mod recent_service;
+mod retention;
 mod rule_setting;
 mod schema;
 mod search;
