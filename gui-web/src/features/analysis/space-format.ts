@@ -6,9 +6,10 @@ import type { RegionalFormat } from "../../i18n/regional-format";
 import type { LocaleText } from "../../i18n/presentation";
 
 import type { SizeDisplay } from "../../i18n/bytes";
+import { defaultSizeDisplay } from "../../state/size-display";
 export type { SizeDisplay } from "../../i18n/bytes";
 
-export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
+export const windowsSizeDisplay: SizeDisplay = defaultSizeDisplay("windows");
 
 export type SizeBasisFilter = SizeValue["basis"];
 export const sizeLabels = {
@@ -343,7 +344,7 @@ export function formatSizeBytes(
 /** Preserves a lower bound or missing observation in the displayed size. */
 export function displaySize(
   size: SizeValue,
-  display: SizeDisplay = windowsSizeDisplay,
+  display: SizeDisplay,
   text?: LocaleText,
 ): string {
   if (size.state === "unknown")
