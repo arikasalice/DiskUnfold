@@ -16,6 +16,7 @@ import { Notice } from "../presentation";
 import { graphemes } from "../graphemes";
 import { NO_GRID, snap, useDeviceGrid, whole } from "./device-grid";
 import type { DeviceGrid } from "./device-grid";
+import { measuredWidth } from "./text-measure";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -478,20 +479,52 @@ function shorten(text: string, limit: number) {
 }
 
 /**
- * The label that fits `limit` characters. A shape that gives its name and
- * value apart shows both, or, when they do not fit, the name alone and shortened
- * if need be; the value is never cut in the middle.
+ * The label that fits `room` CSS px of text drawn at `px`. A shape that gives
+ * its name and value apart shows both, or, when they do not fit, the name alone
+ * and shortened if need be; the value is never cut in the middle.
+ *
+ * The drawn width of the text decides (README 51, #367): digits and symbols are
+ * narrower than Hangul, so counting characters cut labels that fit. Where text
+ * cannot be measured, `room` holds one character per `px`, as an estimate.
  */
-function fitLabel(shape: Shape, limit: number) {
+function fitLabel(shape: Shape, room: number, px: number) {
+  const limit = Math.max(4, Math.floor(room / px));
+  const measured = measuredWidth("", px) !== null;
+  const fits = (text: string) =>
+    measured
+      ? (measuredWidth(text, px) ?? Infinity) <= room
+      : graphemes(text).length <= limit;
   if (shape.displayName === undefined)
-    return shorten(shape.displayLabel ?? shape.accessibleLabel, limit);
+    return shortenToFit(
+      shape.displayLabel ?? shape.accessibleLabel,
+      limit,
+      measured ? fits : null,
+    );
   const whole =
     shape.displayValue === undefined
       ? shape.displayName
       : `${shape.displayName} · ${shape.displayValue}`;
-  return Array.from(whole).length <= limit
+  return fits(whole)
     ? whole
-    : shorten(shape.displayName, limit);
+    : shortenToFit(shape.displayName, limit, measured ? fits : null);
+}
+
+/**
+ * The text, or the longest middle shortening of it whose measured width fits;
+ * without a measurement, the shortening to `limit` characters.
+ */
+function shortenToFit(
+  text: string,
+  limit: number,
+  fits: ((text: string) => boolean) | null,
+) {
+  if (fits === null) return shorten(text, limit);
+  if (fits(text)) return text;
+  for (let kept = graphemes(text).length - 1; kept > 0; kept -= 1) {
+    const short = shorten(text, kept);
+    if (short === "" || fits(short)) return short;
+  }
+  return "";
 }
 
 /**
@@ -595,11 +628,10 @@ function rectangleLabel(
           "du-geometry-header",
           left + 4,
           top + 10,
-          fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12))),
+          fitLabel(shape, available - 8, 12),
         );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
-  const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const label = fitLabel(shape, limit);
+  const label = fitLabel(shape, available - 24, 14);
   const text = labelText("du-geometry-label", left + 12, top + 24, label);
   if (!plate || text === null) return text;
   return <PlatedLabel x={left + 12} y={top + 24} label={label} />;
