@@ -11,11 +11,7 @@ use du_core_contracts::{
     ports::PortError,
     volume::{Capability, CapabilityState},
 };
-use std::time::{Duration, Instant};
-
-const OS_CALL_SLOW: &str = "os.call_slow";
 const OS_UNSUPPORTED: &str = "os.unsupported";
-const OS_CALL_WARNING_AFTER: Duration = Duration::from_secs(30);
 
 /// Production F11 adapter. Trash moves remain unsupported on every volume.
 ///
@@ -27,7 +23,8 @@ pub struct SystemChangeOps;
 
 impl ItemIdentityPort for SystemChangeOps {
     fn lookup_no_follow(&self, path: &OsPath) -> Result<ChangeItemObservation, PortError> {
-        watch_os_call(|| lookup_platform(path))
+        // shortcut: route through the OS call watch frame (os.call_slow) once platform-os has one (architecture DLD 2.17).
+        lookup_platform(path)
     }
 }
 
@@ -61,15 +58,6 @@ impl ChangeOpsPort for SystemChangeOps {
             _ => TrashOutcomeQuery::OutcomeUnknown,
         })
     }
-}
-
-fn watch_os_call<T>(call: impl FnOnce() -> T) -> T {
-    let started = Instant::now();
-    let result = call();
-    if started.elapsed() >= OS_CALL_WARNING_AFTER {
-        eprintln!("{OS_CALL_SLOW}");
-    }
-    result
 }
 
 #[cfg(target_os = "windows")]
