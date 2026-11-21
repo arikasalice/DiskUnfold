@@ -343,13 +343,14 @@ fn writer_open_error_is_preserved_when_read_only_fallback_passes() -> TestResult
 }
 
 #[test]
-fn plan_and_approval_migrations_preserve_schema_eight_rows() -> TestResult {
+fn latest_migrations_preserve_predecessor_schema_rows() -> TestResult {
     let dir = tempfile::tempdir()?;
-    let path = dir.path().join("schema-eight.db");
+    let predecessor_version = HISTORY_SCHEMA_VERSION - 2;
+    let path = dir.path().join(format!("schema-{predecessor_version}.db"));
     drop(AppDb::create_gui(&path).map_err(|error| format!("{error:?}"))?);
 
     for definition in HISTORY_DEFINITIONS.steps {
-        if definition.number > 8 {
+        if definition.number > predecessor_version {
             break;
         }
         let backup = dir.path().join(format!("before-{}.db", definition.number));
@@ -379,22 +380,28 @@ fn plan_and_approval_migrations_preserve_schema_eight_rows() -> TestResult {
         params![vec![2u8; 16], vec![3u8; 16]],
     )?;
     let old_version: u32 = legacy.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    assert_eq!(old_version, 8);
+    assert_eq!(old_version, predecessor_version);
     drop(legacy);
 
     assert_eq!(
-        migration::apply_next(&path, &dir.path().join("before-9.db"), &HISTORY_DEFINITIONS,)
-            .map_err(|error| format!("{error:?}"))?,
-        9
+        migration::apply_next(
+            &path,
+            &dir.path()
+                .join(format!("before-{}.db", predecessor_version + 1)),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|error| format!("{error:?}"))?,
+        predecessor_version + 1
     );
     assert_eq!(
         migration::apply_next(
             &path,
-            &dir.path().join("before-10.db"),
+            &dir.path()
+                .join(format!("before-{HISTORY_SCHEMA_VERSION}.db")),
             &HISTORY_DEFINITIONS,
         )
         .map_err(|error| format!("{error:?}"))?,
-        10
+        HISTORY_SCHEMA_VERSION
     );
 
     let migrated = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
