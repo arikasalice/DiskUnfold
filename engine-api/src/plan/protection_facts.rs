@@ -50,12 +50,7 @@ impl DomainPlatformFactsPort for ProtectionFactsAdapter {
             volume_role,
             os_component,
             item.descendants,
-            matches!(
-                identity,
-                du_change_planner::ports::Fact::Known(
-                    du_change_planner::ports::IdentityObservation::Matches
-                )
-            ),
+            &identity,
             is_root,
         );
         let user_rule = map_user_rule(ruleset.user_rules.is_empty());
@@ -82,15 +77,29 @@ fn classify_observed_item(
     role: du_change_planner::ports::Fact<du_change_planner::ports::ProtectionVolumeRole>,
     os_component: du_change_planner::ports::Fact<bool>,
     descendants: du_change_planner::ports::Fact<du_change_planner::ports::DescendantResult>,
-    identity_confirmed: bool,
+    identity: &du_change_planner::ports::Fact<du_change_planner::ports::IdentityObservation>,
     is_root: bool,
 ) -> Option<String> {
+    use du_change_planner::ports::{Fact, IdentityObservation};
+    use du_core_contracts::{
+        protection_facts::KnownLocationFact, ruleset::classification_id as class,
+    };
+
     if !matches!(
         descendants,
-        du_change_planner::ports::Fact::Known(du_change_planner::ports::DescendantResult::Clear)
+        Fact::Known(du_change_planner::ports::DescendantResult::Clear)
     ) {
         return None;
     }
+    if matches!(identity, Fact::Unknown(_)) {
+        return match location {
+            KnownLocationFact::Unknown(_) => None,
+            KnownLocationFact::Listed(_) | KnownLocationFact::NotListed => {
+                Some(class::COMPONENT_UNCONFIRMED.into())
+            }
+        };
+    }
+    let identity_confirmed = matches!(identity, Fact::Known(IdentityObservation::Matches));
     classification_id(
         path,
         location,
@@ -325,6 +334,9 @@ fn classification_id(
         return (!matches!(location, KnownLocationFact::Unknown(_)))
             .then(|| class::ROOT.to_owned());
     }
+    if let Some(specific_class) = specific_location_class(path, location) {
+        return Some(specific_class.into());
+    }
     if matches!(
         role,
         Fact::Known(ProtectionVolumeRole::OsOnly | ProtectionVolumeRole::SystemPartition)
@@ -341,9 +353,6 @@ fn classification_id(
     }
     if matches!(os_component, Fact::Known(true)) {
         return Some(class::OS_COMPONENT.into());
-    }
-    if let Some(specific_class) = specific_location_class(path, location) {
-        return Some(specific_class.into());
     }
     if matches!(
         location,

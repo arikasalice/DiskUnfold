@@ -1,5 +1,5 @@
 use super::{classification_id, classify_observed_item, specific_location_class};
-use du_change_planner::ports::{DescendantResult, Fact, ProtectionVolumeRole};
+use du_change_planner::ports::{DescendantResult, Fact, IdentityObservation, ProtectionVolumeRole};
 use du_core_contracts::{
     OsPath, PathBytes, PathEncoding,
     protection_facts::{KnownLocationFact, KnownLocationId},
@@ -78,6 +78,32 @@ fn virtual_filesystem_maps_to_memory_backed_temporary_class() {
 }
 
 #[test]
+fn fr28_specific_rows_precede_general_os_component_classification() {
+    assert_eq!(
+        classification_id(
+            &unix_path("/System/Temp/item"),
+            KnownLocationFact::Listed(KnownLocationId::Temp),
+            Fact::Known(ProtectionVolumeRole::OsOnly),
+            Fact::Known(true),
+            true,
+            false,
+        ),
+        Some(class::DIRECT_CLEANABLE.into())
+    );
+    assert_eq!(
+        classification_id(
+            &unix_path("/var/Logs/system.log"),
+            KnownLocationFact::NotListed,
+            Fact::Known(ProtectionVolumeRole::SystemPartition),
+            Fact::Known(true),
+            true,
+            false,
+        ),
+        Some(class::LOG_DIAGNOSTICS.into())
+    );
+}
+
+#[test]
 fn incomplete_folder_does_not_receive_a_classification_id() {
     assert_eq!(
         classify_observed_item(
@@ -86,7 +112,41 @@ fn incomplete_folder_does_not_receive_a_classification_id() {
             Fact::Known(ProtectionVolumeRole::Ordinary),
             Fact::Known(false),
             Fact::Known(DescendantResult::Incomplete),
-            true,
+            &Fact::Known(IdentityObservation::Matches),
+            false,
+        ),
+        None
+    );
+}
+
+#[test]
+fn unknown_identity_uses_component_unconfirmed_only_after_location_lookup() {
+    let path = unix_path("/home/u/AppData/item");
+    let role = Fact::Known(ProtectionVolumeRole::Ordinary);
+    let component = Fact::Known(false);
+    let descendants = Fact::Known(DescendantResult::Clear);
+    let unknown_identity = Fact::Unknown("protect.fact.partial");
+
+    assert_eq!(
+        classify_observed_item(
+            &path,
+            KnownLocationFact::Listed(KnownLocationId::AppData),
+            role,
+            component,
+            descendants,
+            &unknown_identity,
+            false,
+        ),
+        Some(class::COMPONENT_UNCONFIRMED.into())
+    );
+    assert_eq!(
+        classify_observed_item(
+            &path,
+            KnownLocationFact::Unknown("protect.fact.partial"),
+            role,
+            component,
+            descendants,
+            &unknown_identity,
             false,
         ),
         None
