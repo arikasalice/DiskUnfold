@@ -56,6 +56,7 @@ fn busy_replacement_keeps_the_previous_job() -> Result<(), String> {
             descending: false,
         }],
         count: None,
+        scope: None,
     };
     let caller = CallerCtx::new(Channel::Gui, id(90), None);
     let mut active = Vec::new();
@@ -149,6 +150,7 @@ fn simultaneous_same_sequence_accepts_only_one_job() -> Result<(), String> {
                     descending: false,
                 }],
                 count: None,
+                scope: None,
             };
             barrier.wait();
             entry.execute_async(request, &CallerCtx::new(Channel::Gui, id(90), None))
@@ -188,6 +190,7 @@ fn simultaneous_same_sequence_accepts_only_one_job() -> Result<(), String> {
             descending: false,
         }],
         count: None,
+        scope: None,
     };
     let caller = CallerCtx::new(Channel::Gui, id(90), None);
     assert!(matches!(

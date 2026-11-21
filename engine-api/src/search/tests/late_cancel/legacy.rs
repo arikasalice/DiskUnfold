@@ -88,6 +88,7 @@ fn legacy_region_stop_before_f24_gate_reproduces_failed_search_terminal() -> Res
                     descending: false,
                 }],
                 count: None,
+                scope: None,
             },
             &CallerCtx::new(Channel::Gui, id(3), None),
         )

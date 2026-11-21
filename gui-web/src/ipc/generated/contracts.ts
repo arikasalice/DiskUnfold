@@ -1608,6 +1608,49 @@ export type QueryRegionOpenRequest = { kind: QueryRegionKind, };
 export type QueryRegionOpened = { regionRef: Id, };
 export type QueryRegionCloseRequest = { regionRef: Id, };
 export type QueryRegionClosed = Record<string, never>;
+export type QueryRunRequest = {
+/**
+ * A query region opened with kind `search`.
+ */
+regionRef: Id,
+/**
+ * Strictly increasing per region; an equal or lower value is `command.body_invalid`.
+ */
+requestSeq: number,
+/**
+ * Absent selects the current analysis, as `browse.open`.
+ */
+sourceRef?: BrowseSourceRef,
+/**
+ * The version the caller shows; another current version is `result.requery_required`.
+ */
+resultVersion?: Id,
+/**
+ * A folder of that version; candidates are the items below it at any depth.
+ * Absent: below every scope root. The folder itself is not a candidate.
+ */
+scope?: ItemRef, condition: QueryCondition,
+/**
+ * Absent: `sort.path` ascending. Ties follow the path, then the item number.
+ */
+sortKeys?: Array<BrowseSortKey>,
+/**
+ * Default 200, 1 to 1000; anything else is `cursor.limit_exceeded`.
+ */
+pageSize?: number, };
+export type QueryRunResponse = { "kind": "opened", requestSeq: number, resultVersion: Id, origin: ResultOrigin,
+/**
+ * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
+ */
+dataSource?: DataSource,
+/**
+ * The requested folder, or null for every scope root.
+ */
+scope: ItemRef | null, page: SearchQueryPage, } | { "kind": "job", requestSeq: number, jobRef: Id,
+/**
+ * Source result version pinned when the request was admitted.
+ */
+resultVersion: Id, };
 export type QueryCancelTarget = { "kind": "request", requestSeq: number, } | { "kind": "job", jobRef: Id, };
 export type QueryCancelRequest = { regionRef: Id, target: QueryCancelTarget, };
 export type QueryCancelOutcome = "accepted" | "no_effect" | "already_terminal";

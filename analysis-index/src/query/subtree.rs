@@ -38,7 +38,8 @@ pub fn run_subtree_with_sorts(
         sort_basis: first.basis,
         sort_descending: first.descending,
         sorts: Vec::new(),
-        folder: Some(location),
+        // A search result: rows come from many folders, so no folder location.
+        folder: None,
         row_kind: RowKind::Search,
         inherited_uncertainty: false,
         limitations: &[],

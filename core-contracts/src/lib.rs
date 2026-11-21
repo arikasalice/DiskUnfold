@@ -18,6 +18,7 @@ pub mod product_ports;
 pub mod product_support;
 pub mod query_page_ipc;
 pub mod query_region_ipc;
+pub mod query_run_ipc;
 pub mod result;
 pub mod result_events;
 pub mod result_freshness;
