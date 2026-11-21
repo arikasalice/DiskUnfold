@@ -27,6 +27,7 @@ import type { VizText } from "../../viz";
 import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
+import { UndrawnLine, useRowReveal } from "./UndrawnLine";
 import { useChartOffset } from "./chart-area";
 import {
   ClassChip,
@@ -141,12 +142,14 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     classes,
   );
   const autoPatterns = useAutoPatterns();
+  const rowReveal = useRowReveal(frame, page, props.onPage);
   const rowsContent =
     adapted.rowsMatch && page ? (
       <ModelRows
         page={page}
         model={frame.model}
         text={text}
+        reveal={rowReveal.reveal}
         // Collapsed now that the shapes have their info card (README 22).
         returnTargetRef={props.rowsReturnTargetRef}
         {...(props.onOpenGroup ? { onOpenGroup: props.onOpenGroup } : {})}
@@ -183,6 +186,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             text={text}
             scopeLine={narrowedScopeLine(props.narrowing, frame, text)}
           />
+          <UndrawnLine frame={frame} text={text} onOpen={rowReveal.open} />
           <StatusChoice
             narrowing={props.narrowing}
             frame={frame}

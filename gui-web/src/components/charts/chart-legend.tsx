@@ -127,8 +127,14 @@ export function ChartLegend({
                   </span>
                   <Swatch entry={entry} patterns={drawn} prefix={prefix} />
                   <span className="du-chart-legend__name">{entry.label}</span>
-                  <span className="du-chart-legend__number">{entry.count}</span>
-                  <span className="du-chart-legend__number">{entry.total}</span>
+                  <span className="du-chart-legend__numbers">
+                    <span className="du-chart-legend__number">
+                      {entry.count}
+                    </span>
+                    <span className="du-chart-legend__number">
+                      {entry.total}
+                    </span>
+                  </span>
                 </>
               )}
             </ListBoxItem>

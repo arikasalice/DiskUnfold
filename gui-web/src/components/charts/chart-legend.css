@@ -27,8 +27,11 @@
 
 .du-chart-legend__item {
   display: grid;
-  grid-template-columns: 12px 12px minmax(0, 1fr) auto auto;
-  gap: 8px;
+  /* The count and the total go on a line under the name, so long figures never
+     squeeze the name (F06 README 51, #349). */
+  grid-template-columns: 12px 12px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 2px;
   align-items: center;
   padding: 4px 6px;
   border-radius: 6px;
@@ -58,8 +61,17 @@
 }
 
 .du-chart-legend__name {
-  /* A name is never cut: a long one wraps (README 44.3 implementation check). */
+  /* A name is never cut and wraps between words only (README 44.3, 51); a
+     single word wider than the column is the last case that breaks. */
+  word-break: keep-all;
   overflow-wrap: anywhere;
+}
+
+.du-chart-legend__numbers {
+  grid-column: 3;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
 }
 
 /* Counts and totals line up in figures of one width (README 5). */

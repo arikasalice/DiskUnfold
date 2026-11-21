@@ -4,7 +4,11 @@ use super::{
 };
 use crate::{
     ResultVersion,
-    visualization::{geometry::Rect, model_links::validate_model_links, typed_layout::Dispatcher},
+    visualization::{
+        geometry::{NoArea, Rect},
+        model_links::validate_model_links,
+        typed_layout::Dispatcher,
+    },
 };
 use du_core_contracts::{
     ItemRef,
@@ -140,6 +144,16 @@ pub fn add_framed_child_partition(
         + level.skipped.len()
         + level.omitted;
     model.detail.unknown_items += level.unattributed.len() as u64;
+    // A root sibling without an area comes first; else the first folder holding one.
+    if !level.unattributed.is_empty() {
+        let current = model.detail.first_unknown_row;
+        let root_unknown = current
+            .and_then(|index| model.rows.get(index))
+            .is_some_and(|row| row.omission == Some(NoArea::Unknown));
+        if !root_unknown && current.is_none_or(|index| parent.row_index < index) {
+            model.detail.first_unknown_row = Some(parent.row_index);
+        }
+    }
     model.detail.groups.extend(added.group);
     model.descendants.extend(added.descendants);
     let previous = version.children(parent.item.item_no).len();

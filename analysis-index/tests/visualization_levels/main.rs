@@ -8,6 +8,7 @@ mod nested_lower_bound;
 mod reasons;
 mod scale;
 mod totals;
+mod unknown_share;
 mod unread;
 mod windows;
 
@@ -314,7 +315,9 @@ fn siblings_sharing_a_file_are_unattributed_whichever_is_read_first() {
         assert_eq!(model.totals.scope, version.space(0).unwrap().allocated);
         assert_eq!(model.totals.drawn_bytes, 10);
         assert_eq!(bytes_of(&model.totals.scope), 20);
-        assert_eq!(area(&model.shapes[0].geometry), 500_000_000_000);
+        // The unattributed share is not reserved (F06 README 51.2): the attributed
+        // sibling fills the chart, and the scope keeps the whole value.
+        assert_eq!(area(&model.shapes[0].geometry), 1_000_000_000_000);
     }
 }
 
