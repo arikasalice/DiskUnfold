@@ -1730,6 +1730,7 @@ function Test-CaptureTreemapLink {
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
     # #175: the folder items table fits the window without scrolling sideways.
     # The scroll area's name fills a template with the table's own (translated) name.
+    Open-FolderRows
     $tableName = Get-UiName 'Items in this folder'
     $areaName = (Get-UiName 'Items in this folder scroll area').Replace('Items in this folder', $tableName)
     $tableArea = Wait-UI 'folder items table' { Find-UI $areaName $null } 30
@@ -1802,6 +1803,15 @@ function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
   Wait-UI "$title $(if ($expanded) { 'expanded' } else { 'collapsed' }) by $how" {
     $toggle = Find-UI $title $button
     if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
+  }
+}
+# Under a chart the folder's rows open folded, since each shape has its info card (F06 README 22).
+function Open-FolderRows {
+  $title = Get-UiName 'Items in this folder'
+  $toggle = Wait-UI 'the folder rows toggle' { Find-UI $title $button }
+  if (-not (Get-SmokeExpanded $toggle)) {
+    Invoke-UI $toggle
+    $null = Wait-SmokeExpanded $title $true 'opening'
   }
 }
 # Chooses the unique physical size basis in the display options of a finished scan.
@@ -1959,6 +1969,8 @@ function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
   Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
   if ($Short) { return }
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
+  $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
+  Open-FolderRows
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
   Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
   # The bar chart narrows too: clip.mp4 and docs by their video bytes (#301).

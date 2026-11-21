@@ -1130,6 +1130,7 @@
     ["ui.visualization.shapeFolder","{name}, folder, {value}, {ratio} of {denominator}, {count} shown inside",[["name","name"],["value","name"],["ratio","name"],["denominator","name"],["count","count"]]],
     ["ui.visualization.shapeInFolder","{name}, in {folder}, {value}, {ratio} of {denominator}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeTop","{name}, {value}, {ratio} of {denominator}",[["name","name"],["value","name"],["ratio","name"],["denominator","name"]]],
+    ["ui.visualization.cardShare","{ratio} of {denominator}",[["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeClosedFolder","{name}, folder, {value}, {ratio} of {denominator}",[["name","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeClosedFolderInFolder","{name}, folder, in {folder}, {value}, {ratio} of {denominator}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.show_space_distribution","Show space distribution",[]],

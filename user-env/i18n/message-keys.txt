@@ -1113,6 +1113,7 @@ ui.visualization.selectionLost
 ui.visualization.shapeFolder name:name value:name ratio:name denominator:name count:count
 ui.visualization.shapeInFolder name:name folder:name value:name ratio:name denominator:name
 ui.visualization.shapeTop name:name value:name ratio:name denominator:name
+ui.visualization.cardShare ratio:name denominator:name
 ui.visualization.shapeClosedFolder name:name value:name ratio:name denominator:name
 ui.visualization.shapeClosedFolderInFolder name:name folder:name value:name ratio:name denominator:name
 ui.visualization.show_space_distribution

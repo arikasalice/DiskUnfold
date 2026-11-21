@@ -1130,6 +1130,7 @@
     ["ui.visualization.shapeFolder","{name}, 폴더, {value}, {denominator}의 {ratio}, 안에 {count}개 표시",[["name","name"],["value","name"],["ratio","name"],["denominator","name"],["count","count"]]],
     ["ui.visualization.shapeInFolder","{name}, {folder} 안, {value}, {denominator}의 {ratio}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeTop","{name}, {value}, {denominator}의 {ratio}",[["name","name"],["value","name"],["ratio","name"],["denominator","name"]]],
+    ["ui.visualization.cardShare","{denominator}의 {ratio}",[["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeClosedFolder","{name}, 폴더, {value}, {denominator}의 {ratio}",[["name","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.shapeClosedFolderInFolder","{name}, 폴더, {folder} 안, {value}, {denominator}의 {ratio}",[["name","name"],["folder","name"],["value","name"],["ratio","name"],["denominator","name"]]],
     ["ui.visualization.show_space_distribution","공간 분포 보기",[]],

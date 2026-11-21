@@ -73,6 +73,48 @@ export function rawSourceSize(
 }
 
 /**
+ * The info card says the same as the shape's name, a fact a line (README 8):
+ * the value, the share and what it is a share of, the class, the flags.
+ */
+function shapeCard(
+  shape: VizShape,
+  text: VizText,
+  facts: {
+    name: string;
+    value: string;
+    share: string | null;
+    said: readonly string[];
+    binCount: VizQuantity | undefined;
+  },
+) {
+  return {
+    title: facts.name,
+    lines: [
+      facts.binCount
+        ? `${binItems(facts.binCount, text)}, ${text.size(shape.size)}`
+        : cardValue(shape, facts.value, text),
+      ...(facts.share ? [facts.share] : []),
+      ...facts.said,
+      ...(shape.displayFlags.length
+        ? [shape.displayFlags.map(text.key).join(", ")]
+        : []),
+    ],
+  };
+}
+
+/** A card's value line: the shown value, and the raw bytes when they are known (README 8). */
+function cardValue(shape: VizShape, value: string, text: VizText) {
+  const size = shape.size;
+  if (shape.quantity || size.state === "unknown") return value;
+  const raw = vizMessage(
+    text,
+    size.state === "lower_bound" ? "rawBytesAtLeast" : "rawBytes",
+    { count: size.bytes },
+  );
+  return `${value} (${raw})`;
+}
+
+/**
  * Where a shape sits in a depth 2 treemap: an expanded folder holds `childCount`
  * drawn shapes, and a shape inside one has that folder's row (`undefined` while
  * it has not arrived). A top-level shape that holds nothing has no place.
@@ -132,8 +174,22 @@ export function shapeLabels(
     ...look.said,
     ...shape.displayFlags.map(text.key),
   ].join(", ");
+  const card = shapeCard(shape, text, {
+    name,
+    value,
+    share:
+      row && !binCount
+        ? vizMessage(text, "cardShare", {
+            ratio,
+            denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
+          })
+        : null,
+    said: look.said,
+    binCount,
+  });
   return {
     accessibleLabel,
+    card,
     ...look.drawn,
     ...(place.childCount ? { container: true } : {}),
     ...shapeMarks(shape),

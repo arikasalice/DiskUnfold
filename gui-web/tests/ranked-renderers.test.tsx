@@ -200,7 +200,10 @@ test("F06 README 47: the axis ends at the largest single bar and a larger Other 
     container.querySelectorAll(".du-geometry-bar-break-line"),
   ).toHaveLength(2);
   const other = container.querySelector('[aria-label="Other 80, 100 MiB"]');
-  expect(other?.getAttribute("title")).toBe("Drawn shorter than scale");
+  // The info card shows it on hover and focus; assistive technology hears it too.
+  expect(other?.getAttribute("aria-description")).toBe(
+    "Drawn shorter than scale",
+  );
   // Its value says it is not to scale; the single bars' values do not.
   const notes = container.querySelectorAll(".du-geometry-bar-note");
   expect(notes).toHaveLength(1);

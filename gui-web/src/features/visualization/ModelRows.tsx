@@ -1,6 +1,12 @@
-import { useLayoutEffect, useRef } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Action, DataTable, DetailDisclosure, Text } from "../../components";
+import {
+  Action,
+  ChartFallbackContext,
+  DataTable,
+  DetailDisclosure,
+  Text,
+} from "../../components";
 import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
 import {
   RowName,
@@ -68,6 +74,9 @@ export function ModelRows({
   expanded?: boolean;
 }) {
   const rowTitle = title ?? defaultTitle(model, text);
+  // In the chart's place the rows open expanded; under a chart they wait
+  // folded, since each shape has its info card (README 22, 24).
+  const open = useContext(ChartFallbackContext) || expanded;
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const { rows } = response;
@@ -180,7 +189,7 @@ export function ModelRows({
     >
       <DetailDisclosure
         title={rowTitle}
-        defaultExpanded={expanded}
+        defaultExpanded={open}
         key={`${request.modelRef}:${request.resultRevision}`}
       >
         {sharedDenominator !== null && (

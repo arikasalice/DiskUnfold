@@ -93,6 +93,7 @@ export function adaptVizModel(
     pattern?: ChartPattern | null;
     patternAlways?: boolean;
     legendClass?: string;
+    card?: { title: string; lines: readonly string[] };
   },
   folderRows: readonly VizRow[] = [],
 ) {

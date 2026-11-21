@@ -147,7 +147,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
         page={page}
         model={frame.model}
         text={text}
-        expanded
+        // Collapsed now that the shapes have their info card (README 22).
         returnTargetRef={props.rowsReturnTargetRef}
         {...(props.onOpenGroup ? { onOpenGroup: props.onOpenGroup } : {})}
         {...(props.onPage ? { onPage: props.onPage } : {})}

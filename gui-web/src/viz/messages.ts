@@ -143,6 +143,7 @@ export const visualizationMessages = {
       "{name}, folder, {value}, {ratio} of {denominator}, {count} shown inside",
     shapeInFolder: "{name}, in {folder}, {value}, {ratio} of {denominator}",
     shapeTop: "{name}, {value}, {ratio} of {denominator}",
+    cardShare: "{ratio} of {denominator}",
     shapeClosedFolder: "{name}, folder, {value}, {ratio} of {denominator}",
     shapeClosedFolderInFolder:
       "{name}, folder, in {folder}, {value}, {ratio} of {denominator}",
@@ -425,6 +426,7 @@ export const visualizationMessages = {
       "{name}, 폴더, {value}, {denominator}의 {ratio}, 안에 {count}개 표시",
     shapeInFolder: "{name}, {folder} 안, {value}, {denominator}의 {ratio}",
     shapeTop: "{name}, {value}, {denominator}의 {ratio}",
+    cardShare: "{denominator}의 {ratio}",
     shapeClosedFolder: "{name}, 폴더, {value}, {denominator}의 {ratio}",
     shapeClosedFolderInFolder:
       "{name}, 폴더, {folder} 안, {value}, {denominator}의 {ratio}",
