@@ -11,6 +11,8 @@ use du_core_contracts::{
 };
 
 /// Marks ancestors of unread ranges and indexes gaps with an exact observed item.
+///
+/// See [`mark_unread_folders`] for folders left unread without a range.
 pub(crate) fn mark_gaps(
     built: &BuiltItems,
     store: &ObservationStore,
@@ -42,6 +44,27 @@ pub(crate) fn mark_gaps(
         space::mark_inaccessible(&mut aggregates[index], count);
     }
     Ok(exact)
+}
+
+/// Folders left unread by a cancellation or disconnection mark, and every folder
+/// above them, are at least the bytes read below (#341).
+pub(crate) fn mark_unread_folders<'a>(
+    built: &BuiltItems,
+    nodes: impl Iterator<Item = &'a u32>,
+    aggregates: &mut [SpaceAggregate],
+) {
+    for &node in nodes {
+        let mut current = built
+            .item_of_node
+            .get(node as usize)
+            .map(|&index| index as usize);
+        while let Some(index) = current {
+            if let Some(aggregate) = aggregates.get_mut(index) {
+                space::mark_unread(aggregate);
+            }
+            current = built.items[index].parent.map(|parent| parent as usize);
+        }
+    }
 }
 
 impl BuildHandle {

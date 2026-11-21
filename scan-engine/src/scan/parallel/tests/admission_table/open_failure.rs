@@ -9,6 +9,7 @@
 //! Both collectors keep the refused range as a scope gap, so the result has
 //! missing ranges (DEC-006), and the sequential result is compared whole.
 use super::*;
+use du_core_contracts::{ByteSize, SizeAmount, SizeBasis};
 use std::{
     sync::atomic::{AtomicBool, Ordering::SeqCst},
     time::Instant,
@@ -193,5 +194,44 @@ fn a_failed_open_keeps_the_admitted_identity_reserved() -> Result<(), String> {
         );
         assert_eq!(counts, expected, "{label}");
     }
+    Ok(())
+}
+
+#[test]
+fn a_denied_directory_with_no_observed_contents_has_a_zero_lower_bound() -> Result<(), String> {
+    let _guard = worker_test_lock();
+    let tree = tree_of(aliased(), 0);
+    let refusals = Arc::new(Refusals::default());
+    let ids = Ids(AtomicUsize::new(1));
+    let sink = IngestSink::default();
+    let outcome = crate::scan::collect(
+        &sink,
+        ids.next_id(),
+        Refusing::root(&tree, &refusals),
+        &ids,
+        || Checkpoint::Continue,
+        |_| true,
+    );
+    let version = sink
+        .pin()
+        .map_err(|error| format!("{error:?}"))?
+        .ok_or("missing result")?;
+    if outcome.result_version_id.as_ref() != Some(version.version_id()) {
+        return Err("the refused scan did not publish its result".into());
+    }
+    let folder = version
+        .items()
+        .iter()
+        .find(|item| item.name == b"a" && item.parent.is_some())
+        .ok_or("missing refused directory")?;
+    let actual = version
+        .item_size(folder.item_no, SizeBasis::Logical)
+        .map(|size| size.amount.clone());
+    assert_eq!(
+        actual,
+        Some(SizeAmount::LowerBound {
+            bytes: ByteSize::from(0),
+        })
+    );
     Ok(())
 }
