@@ -125,7 +125,7 @@ fn a_placeholder_without_local_occupancy_is_missing_and_named() -> TestResult {
         .ok_or("folder")?;
     for aggregate in [
         version.space(folder.item_no).ok_or("folder total")?,
-        version.scope_total(),
+        version.scope_total().clone(),
     ] {
         // The logical size counts the placeholder in full.
         assert_eq!(
