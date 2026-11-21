@@ -1,9 +1,8 @@
 .du-history-retention {
   --du-history-retention-size: min(360px, calc(100vw - 48px));
-  position: fixed;
+  position: absolute;
   z-index: 20;
-  inset-block-start: calc(var(--du-titlebar-height) + 60px);
-  inset-block-end: 0;
+  inset-block: 0;
   inset-inline-end: 0;
   display: flex;
   flex-direction: column;

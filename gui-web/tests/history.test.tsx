@@ -466,6 +466,65 @@ test("history is a separate screen and closing returns focus", async () => {
   );
 });
 
+test("keeps Tasks on history and switches between the right-side panels", async () => {
+  const call = vi.fn((name: string) =>
+    name === "history.list"
+      ? Promise.resolve(response())
+      : new Promise(() => {}),
+  );
+  const client = historyEvents(call).client;
+  render(<App analysis={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "View all task history" }),
+  );
+  await screen.findByText("No operations recorded yet.");
+  const tasksEntry = screen.getByRole("button", { name: "Tasks" });
+  expect(tasksEntry).toBeDefined();
+
+  fireEvent.click(tasksEntry);
+  await screen.findByRole("heading", { name: "Tasks" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "View all task history" }),
+  );
+  expect(
+    screen.getByRole("heading", { name: "Operation history" }),
+  ).toBeDefined();
+  expect(screen.getByRole("button", { name: "Tasks" })).toBeDefined();
+  expect(
+    document.querySelector("#du-job-center-panel")?.hasAttribute("data-open"),
+  ).toBe(false);
+
+  const retentionEntry = screen.getByRole("button", { name: "Retention" });
+  fireEvent.click(retentionEntry);
+  const retentionTitle = await screen.findByRole("heading", {
+    name: "History retention",
+  });
+  await waitFor(() => expect(document.activeElement).toBe(retentionTitle));
+
+  fireEvent.click(tasksEntry);
+  const tasksTitle = await screen.findByRole("heading", { name: "Tasks" });
+  await waitFor(() => expect(document.activeElement).toBe(tasksTitle));
+  expect(
+    document
+      .querySelector("#du-history-retention-panel")
+      ?.hasAttribute("data-open"),
+  ).toBe(false);
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(tasksEntry));
+  fireEvent.click(retentionEntry);
+  const reopenedRetentionTitle = await screen.findByRole("heading", {
+    name: "History retention",
+  });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(reopenedRetentionTitle),
+  );
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(retentionEntry));
+});
+
 test("keeps secondary filters collapsed and preserves their active state", async () => {
   document.documentElement.lang = "en";
   const call = vi.fn().mockResolvedValue(response());

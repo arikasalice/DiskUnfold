@@ -5,21 +5,19 @@ import { useLocaleText } from "../../i18n/presentation";
 /** The app-header action that opens or closes the Job Center. */
 export function JobCenterEntry({
   clientAvailable,
-  historyOpen,
   count,
   expanded,
   trigger,
   onPress,
 }: {
   clientAvailable: boolean;
-  historyOpen: boolean;
   count: number;
   expanded: boolean;
   trigger: RefObject<HTMLButtonElement | null>;
   onPress: () => void;
 }) {
   const text = useLocaleText();
-  if (!clientAvailable || historyOpen) return null;
+  if (!clientAvailable) return null;
 
   return (
     <Action
