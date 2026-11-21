@@ -48,11 +48,16 @@ export function useClassChoice(
     () =>
       selected === null
         ? shapes
-        : shapes.map((shape) =>
-            shape.legendClass !== undefined && shape.legendClass !== selected
+        : shapes.map((shape) => {
+            // A folder holding the chosen type keeps it bright among its
+            // slices and fades the others (README 54).
+            if (shape.slices?.some((slice) => slice.key === selected))
+              return { ...shape, chosenSlice: selected };
+            return shape.legendClass !== undefined &&
+              shape.legendClass !== selected
               ? { ...shape, dimmed: true }
-              : shape,
-          ),
+              : shape;
+          }),
     [selected, shapes],
   );
   return { selected, choose: setChosen, shapes: drawn };

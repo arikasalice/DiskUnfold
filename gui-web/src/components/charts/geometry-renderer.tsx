@@ -17,6 +17,8 @@ import { graphemes } from "../graphemes";
 import { NO_GRID, snap, useDeviceGrid, whole } from "./device-grid";
 import type { DeviceGrid } from "./device-grid";
 import { measuredWidth } from "./text-measure";
+import { SliceStack } from "./slice-stack";
+import type { StackedBarSlice } from "./stacked-bar";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -69,6 +71,15 @@ type Shape = {
   dimmed?: boolean;
   /** The key of its legend class, for choosing a class in the legend. */
   legendClass?: string;
+  /**
+   * A closed folder's files by type, in legend order (F06 README 54): across its
+   * bar, or as a strip along the bottom of its rectangle.
+   */
+  slices?: readonly StackedBarSlice[];
+  /** The folder's bytes: what they hold beyond the slices is drawn last. */
+  slicesTotal?: number;
+  /** The slice of the class chosen in the legend; the others are drawn faded. */
+  chosenSlice?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -689,6 +700,48 @@ function labelText(className: string, x: number, y: number, label: string) {
 /** Below this size in CSS px a pattern is not drawn (F06 README 4.1). */
 const PATTERN_MIN = 24;
 
+/** A rectangle lower than this has no type strip (README 54, 7B). */
+const STRIP_MIN_HEIGHT = 24;
+
+/**
+ * A closed folder's type slices (README 54): across the whole bar, or an 8 px
+ * strip 4 px inside the bottom of its rectangle that never runs into its label.
+ */
+function folderSlices(
+  shape: Shape,
+  ranked: boolean,
+  patterns: boolean | undefined,
+  prefix: string,
+  at: { viewport: Viewport; width: number; height: number; grid: DeviceGrid },
+) {
+  if (!shape.slices || shape.container) return null;
+  const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
+  if (!edges) return null;
+  const width = edges.right - edges.left;
+  const height = edges.bottom - edges.top;
+  const strip = { x: edges.left + 4, y: edges.bottom - 12, width: width - 8 };
+  // The label sits in the top 30 px of a rectangle at least 70 by 36 px.
+  const labelled = width >= 70 && height >= 36;
+  if (
+    !ranked &&
+    (height < STRIP_MIN_HEIGHT || (labelled && strip.y < edges.top + 30))
+  )
+    return null;
+  const box = ranked
+    ? { x: edges.left, y: edges.top, width, height }
+    : { ...strip, height: 8 };
+  return (
+    <SliceStack
+      slices={shape.slices}
+      total={shape.slicesTotal}
+      box={box}
+      patterns={patterns ?? false}
+      prefix={prefix}
+      chosen={shape.chosenSlice}
+    />
+  );
+}
+
 /**
  * The pattern of a shape's legend class over its fill, inside its gap: for every
  * class while patterns are on, and always for the neutral classes and the ninth
@@ -959,6 +1012,13 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                 >
                   {drawing}
                   {overlay}
+                  {folderSlices(
+                    shape,
+                    props.variant === "ranked",
+                    props.patterns,
+                    clip,
+                    { viewport, width, height, grid },
+                  )}
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}

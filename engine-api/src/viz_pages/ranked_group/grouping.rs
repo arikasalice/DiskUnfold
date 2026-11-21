@@ -94,6 +94,18 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         ),
         item_kind: None,
         condition: None,
+        unread: None,
+        type_slices: crate::viz_pages::type_slices::group_slices(
+            source,
+            &members,
+            basis,
+            other.type_slices && filter.is_none(),
+            cancelled,
+        )
+        .map_err(|error| match error {
+            crate::viz_pages::type_slices::SlicesError::Cancelled => Error::Cancelled,
+            crate::viz_pages::type_slices::SlicesError::Invalid => Error::InvalidModel,
+        })?,
     };
     Ok((
         row,

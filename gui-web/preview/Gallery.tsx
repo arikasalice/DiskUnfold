@@ -43,6 +43,7 @@ import { JobCenterPreview } from "./JobCenterPreview";
 import { HistoryRetentionPreview } from "./HistoryRetentionPreview";
 import { SpaceUndrawnPreview } from "./SpaceUndrawnPreview";
 import { HistogramListPreview } from "./HistogramListPreview";
+import { TypeSlicesPreview } from "./TypeSlicesPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -79,7 +80,11 @@ const stateOptions: { value: SurfaceState; label: string }[] = [
 ];
 
 type GallerySurface =
-  SurfaceId | "history-retention" | "space-undrawn" | "histogram-list";
+  | SurfaceId
+  | "history-retention"
+  | "space-undrawn"
+  | "histogram-list"
+  | "type-slices";
 
 /** The surface and theme named in the address, for a capture that opens on them. */
 function requested(): {
@@ -94,7 +99,8 @@ function requested(): {
     surface:
       surface === "history-retention" ||
       surface === "space-undrawn" ||
-      surface === "histogram-list"
+      surface === "histogram-list" ||
+      surface === "type-slices"
         ? surface
         : surface !== null && Object.hasOwn(fixtures, surface)
           ? (surface as SurfaceId)
@@ -145,6 +151,9 @@ export function Gallery() {
   }
   if (surface === "histogram-list") {
     return <HistogramListPreview />;
+  }
+  if (surface === "type-slices") {
+    return <TypeSlicesPreview scene={scene} />;
   }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;
