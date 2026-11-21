@@ -174,6 +174,28 @@ pub struct ScopeReview {
     pub review_fingerprint: String,
     pub observed_at: Timestamp,
     pub request_seq: u32,
+    /// The macOS root volume group the reviewed scope analyses as one volume (#263).
+    /// Omitted when the scope is not a volume group. GUI channel only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub volume_group: Option<ScopeVolumeGroup>,
+}
+
+/// A root volume group in a reviewed scope (#263).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeVolumeGroup {
+    /// Mount path of the data volume, counted together with `/`.
+    pub data_mount: OsPath,
+}
+
+impl ScopeVolumeGroup {
+    /// Notice: the system and data volumes are analysed together, each file once.
+    pub const NOTICE_MERGED: &'static str = "scope.volume_group_merged";
+    /// Notice: the data volume could not be confirmed, only the system volume is
+    /// analysed. Neither notice is an error or blocks a selection.
+    pub const NOTICE_UNVERIFIED: &'static str = "scope.volume_group_unverified";
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -180,6 +180,7 @@ fn parse_mounts(data: &[u8]) -> Result<Vec<VolumeMount>, io::Error> {
                 volume_id: None,
                 local: None,
                 listed_capacity: None,
+                ..VolumeMount::default()
             })
         })
         .collect()

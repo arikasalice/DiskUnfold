@@ -285,6 +285,18 @@ fn valid_final(
                     ResultItemKind::UntraversedLink | ResultItemKind::Unknown
                 ) && child_attempt.is_none()
             }
+            // A firmlink of the confirmed root volume group is entered once like a
+            // directory; anywhere else it stays an untraversed link (#263).
+            ObservedKind::Firmlink => match child_attempt {
+                Some(token) => {
+                    stored.kind == ResultItemKind::Directory
+                        && child_token_matches(parent, token, child_node, attempts)
+                }
+                None => matches!(
+                    stored.kind,
+                    ResultItemKind::UntraversedLink | ResultItemKind::Unknown
+                ),
+            },
             ObservedKind::Other | ObservedKind::Unknown => {
                 matches!(
                     stored.kind,

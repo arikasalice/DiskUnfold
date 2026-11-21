@@ -13,6 +13,7 @@ fn flags(unread_inside: Option<BrowseValue<UnreadInside>>) -> FolderFlags {
         excluded: BrowseValue::Present { value: false },
         boundary: Some(BrowseValue::Absent),
         unread_inside,
+        counted_at: None,
     }
 }
 

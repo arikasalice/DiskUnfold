@@ -348,6 +348,14 @@ pub enum ObservedKind {
     File,
     Directory,
     Link,
+    /// A macOS firmlink: a directory entry of the system volume that leads to a
+    /// directory of the data volume in the same root volume group (#263).
+    ///
+    /// Only the macOS adapter reports it. In a scope of the confirmed root volume
+    /// group, a firmlink listed in the group is entered once like a directory;
+    /// everywhere else it is an untraversed link, exactly like `Link`. The metadata
+    /// describes the target directory, so its inode differs from the enumerated one.
+    Firmlink,
     /// A directory entry at which another volume is mounted.
     ///
     /// An adapter reports it only when its own observation of the entry

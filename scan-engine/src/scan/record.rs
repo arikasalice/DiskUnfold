@@ -297,7 +297,8 @@ fn record_at(
     };
     match meta.kind {
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
-        ObservedKind::Link => {
+        // A firmlink that the admission table did not enter is an untraversed link.
+        ObservedKind::Link | ObservedKind::Firmlink => {
             let (observation, space) = observation_and_space(meta, path.to_vec(), sharing);
             build.add_observed_untraversed_link_at(root_index, observation, space)?;
         }

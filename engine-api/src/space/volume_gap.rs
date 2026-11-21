@@ -108,6 +108,7 @@ fn response(result: PinnedVolumeGap, request_seq: u32) -> VolumeGapResponse {
         os_categories: VolumeGapCategories::Unavailable {
             reason_key: UNAVAILABLE.into(),
         },
+        other_volumes: None,
     }
 }
 

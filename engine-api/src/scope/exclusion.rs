@@ -300,6 +300,7 @@ pub(super) fn review(
         observed_at: Timestamp::from_unix_millis(clock.now_ms())
             .ok_or_else(|| EngineError::reason("support.internal_error"))?,
         request_seq: seq,
+        volume_group: None,
     })
 }
 

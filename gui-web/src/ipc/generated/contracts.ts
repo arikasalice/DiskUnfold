@@ -1135,7 +1135,12 @@ export type RecentScopeListRequest = Record<string, never>;
 export type RecentScopeListRow = { recentScopeRef: Id, includeCount: number, lastUsedAt: Timestamp, };
 export type RecentScopeList = { rows: Array<RecentScopeListRow>, };
 export type ScopeCorrespondence = { path: OsPath, access: TargetAccess, reasonKey: string | null, };
-export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: Array<ScopeCorrespondence>, reviewFingerprint: string, observedAt: Timestamp, requestSeq: number, };
+export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: Array<ScopeCorrespondence>, reviewFingerprint: string, observedAt: Timestamp, requestSeq: number,
+/**
+ * The macOS root volume group the reviewed scope analyses as one volume (#263).
+ * Omitted when the scope is not a volume group. GUI channel only.
+ */
+volumeGroup?: ScopeVolumeGroup, };
 export type RecentScopeOpenRequest = { recentScopeRef: Id, requestSeq: number, };
 export type RecentScopeTargetState = "matched" | "moved" | "disconnected" | "unverifiable";
 export type RecentScopeOpenTarget = { path: OsPath, state: RecentScopeTargetState, proposedEntry: OsPath | null, };
@@ -1440,7 +1445,13 @@ export type VolumeGapSize = { size: SizeValue, completeness: ResultCompleteness,
 export type VolumeGapAmount = { "state": "exact", bytes: ByteSize, evidence: SizeEvidence, } | { "state": "unknown", reasonKey: string, };
 export type VolumeGapRow = { key: string, value: VolumeGapAmount, };
 export type VolumeGapCategories = { "state": "unavailable", reasonKey: string, } | { "state": "available", rows: Array<VolumeGapRow>, };
-export type VolumeGapResponse = { resultVersion: Id, requestSeq: number, volumeId: PathBytes | null, start: VolumeGapObservation, end: VolumeGapObservation, allocated: VolumeGapSize, uniquePhysical: VolumeGapSize, factors: Array<VolumeGapRow>, remainder: VolumeGapAmount, osCategories: VolumeGapCategories, };
+export type VolumeGapResponse = { resultVersion: Id, requestSeq: number, volumeId: PathBytes | null, start: VolumeGapObservation, end: VolumeGapObservation, allocated: VolumeGapSize, uniquePhysical: VolumeGapSize, factors: Array<VolumeGapRow>, remainder: VolumeGapAmount, osCategories: VolumeGapCategories,
+/**
+ * The system volumes sharing the container of a root volume group target,
+ * one row each (#263). Their amounts add up to the `gap.out_of_scope` factor.
+ * Omitted when the target is not a root volume group.
+ */
+otherVolumes?: Array<VolumeGapVolumeRow>, };
 export type ResultItemKind = "directory" | "file" | "untraversed_link" | "unknown" | "unknown_structure";
 export type BrowseValue<T> = { "state": "present", value: T, } | { "state": "absent" } | { "state": "unknown", reasonKey: string, };
 export type BrowseOrigin = "scan";
@@ -1489,6 +1500,15 @@ excluded: BrowseValue<boolean>,
  * scan lineage and for file rows.
  */
 boundary?: BrowseValue<FolderBoundary>,
+/**
+ * Where a folder that was `already_counted` through a confirmed firmlink was
+ * counted, such as `/Users` for `/System/Volumes/Data/Users` (#263).
+ *
+ * For navigation only: never add or subtract sizes with it. Present only with a
+ * present `already_counted` boundary whose cause is a firmlink of the confirmed
+ * group; omitted otherwise. `null` is rejected. GUI channel only.
+ */
+countedAt?: OsPath,
 /**
  * Unread ranges inside a folder that was itself read (#226).
  *

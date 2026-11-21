@@ -82,6 +82,7 @@ fn flags(collection: FolderCollection<'_>, inside: Option<Inside>) -> FolderFlag
             excluded,
             boundary: None,
             unread_inside: None,
+            counted_at: None,
         },
         FolderCollection::Folder {
             unenumerated,
@@ -91,6 +92,7 @@ fn flags(collection: FolderCollection<'_>, inside: Option<Inside>) -> FolderFlag
             excluded,
             boundary: boundary_value(boundary),
             unread_inside: inside.map(unread_inside_value),
+            counted_at: None,
         },
     }
 }
@@ -138,5 +140,6 @@ fn not_provided() -> FolderFlags {
         excluded: super::super::unknown("ref.unavailable"),
         boundary: None,
         unread_inside: None,
+        counted_at: None,
     }
 }

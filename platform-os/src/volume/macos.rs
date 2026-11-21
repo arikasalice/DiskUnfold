@@ -121,6 +121,7 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
         browsable: Some(flags & libc::MNT_DONTBROWSE.cast_unsigned() == 0),
         local: Some(flags & libc::MNT_LOCAL.cast_unsigned() != 0),
         listed_capacity: listed_capacity(entry),
+        ..VolumeMount::default()
     })
 }
 

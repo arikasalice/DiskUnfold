@@ -141,6 +141,7 @@ impl Review {
             review_fingerprint,
             observed_at,
             request_seq: request.request_seq,
+            volume_group: None,
         })
     }
 }
@@ -205,6 +206,7 @@ fn review_multiple(
         review_fingerprint,
         observed_at,
         request_seq,
+        volume_group: None,
     })
 }
 
