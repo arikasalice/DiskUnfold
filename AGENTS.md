@@ -112,7 +112,7 @@ business components and adapters -> core-contracts (shared types and ports)
 
 Work from the repository root. Read `rust-toolchain.toml` and `.node-version` for the pinned versions. Follow the [README](README.md) for the native platform prerequisites. Use a permitted development environment for native toolchains. If Windows Application Control blocks generated binaries or native modules, record the failed native check and use the applicable GitHub-hosted Actions runner for supported checks.
 
-Use GitHub-hosted runners only. PR and merge build and test evidence comes from GitHub-hosted Actions runners; do not use or configure self-hosted runners or runner overrides.
+Use the repository's configured hybrid runner matrix. Platform-independent checks and official release builds use GitHub-hosted runners, while native OS/CPU quality checks and Windows UI smoke use online self-hosted runners and automatically fall back to GitHub-hosted runners when a self-hosted runner is offline or unavailable.
 
 1. Install web dependencies from the lockfile with lifecycle scripts disabled.
 2. Generate TypeScript bindings from Rust when shared contracts change. Review and commit the resulting diff.

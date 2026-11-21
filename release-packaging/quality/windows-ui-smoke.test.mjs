@@ -27,12 +27,17 @@ test('scenario arguments are switches that smoke-windows.ps1 declares', () => {
   }
 });
 
-test('scenario language, theme and window size are values smoke-windows.ps1 accepts', () => {
+test('scenario language, theme, tier and window size are values smoke-windows.ps1 accepts', () => {
   for (const scenario of list.scenarios) {
+    assert.ok(['smoke', 'gallery'].includes(scenario.tier), `${scenario.name}: invalid tier`);
     if (scenario.locale !== undefined) assert.ok(['en', 'ko'].includes(scenario.locale), scenario.name);
     if (scenario.theme !== undefined) assert.ok(['light', 'dark', 'contrast'].includes(scenario.theme), scenario.name);
     if (scenario.windowSize !== undefined) assert.match(scenario.windowSize, /^\d+x\d+$/, scenario.name);
     if (scenario.appScale !== undefined) assert.ok([100, 125, 150, 200].includes(scenario.appScale), scenario.name);
+  }
+  const smokeNames = new Set(list.scenarios.filter((s) => s.tier === 'smoke').map((s) => s.name));
+  for (const required of ['functional', 'virtual-groups', 'virtual-groups-sample']) {
+    assert.ok(smokeNames.has(required), `smoke tier must include ${required}`);
   }
   assert.match(smoke, /ValidateSet\('en', 'ko'\)\]\[string\]\$Locale/);
   assert.match(smoke, /ValidateSet\('light', 'dark', 'contrast'\)\]\[string\]\$Theme/);

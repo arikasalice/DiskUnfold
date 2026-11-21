@@ -1,11 +1,12 @@
 #Requires -Version 7.4
-# Runs the Windows UI smoke scenarios listed in windows-ui-smoke.json, one fresh smoke-windows.ps1
-# process per scenario with isolated data, and keeps each scenario's log and review captures.
-# A scenario has a unique lower-case name, the switches of smoke-windows.ps1 to pass ("arguments"),
-# and optionally "locale" (en or ko), "theme" (light or dark), "windowSize" (WIDTHxHEIGHT) and
-# "appScale" (125, 150 or 200, the app's CSS zoom; the runner's display scale stays 100%).
+# Runs the Windows UI smoke scenarios listed in windows-ui-smoke.json, one isolated
+# smoke-windows.ps1 invocation per scenario, and keeps each scenario's log and review captures.
+# A scenario has a unique lower-case name, a tier ("smoke" or "gallery"), the switches of
+# smoke-windows.ps1 to pass ("arguments"), and optionally "locale" (en or ko), "theme" (light,
+# dark or contrast), "windowSize" (WIDTHxHEIGHT) and "appScale" (125, 150 or 200, the app's CSS
+# zoom; the runner's display scale stays 100%).
 # Captures go to a folder named <name>-<locale>-<theme>-<size>, with -scale<n> when the app scale
-# is not 100. Use -Only to run some scenarios.
+# is not 100. Use -Only to run specific scenarios, or -Tier smoke to run the PR smoke subset.
 # -Repeat runs each scenario that many times, each run in its own folder and log with -run<n>, to
 # look for intermittent failures.
 # -ScreenSize switches the display to a mode at least that large first, for window sizes the
@@ -16,11 +17,13 @@ param(
   [Parameter(Mandatory)][string]$OutputDirectory,
   [string]$ScenarioFile = (Join-Path $PSScriptRoot 'windows-ui-smoke.json'),
   [string[]]$Only = @(),
+  [ValidateSet('all', 'smoke')][string]$Tier = 'all',
   [ValidateRange(1, 20)][int]$Repeat = 1,
   [string]$ScreenSize
 )
 $ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @'
+if (-not ('SmokeDisplay' -as [type])) {
+  Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -75,6 +78,7 @@ public static class SmokeDisplay {
   }
 }
 '@
+}
 if ($ScreenSize) {
   $modes = [SmokeDisplay]::Modes()
   "Display now $([SmokeDisplay]::Current()); modes: $($modes -join ' ')"
@@ -84,47 +88,82 @@ if ($ScreenSize) {
       Sort-Object { [int](($_ -split 'x')[0]) * [int](($_ -split 'x')[1]) } | Select-Object -First 1
   }
   if (-not $wanted) { throw "No display mode of at least 1440x900 is available (modes: $($modes -join ' '))" }
-  $size = $wanted -split 'x'
-  $code = [SmokeDisplay]::Set([int]$size[0], [int]$size[1])
-  if ($code -ne 0) { throw "Could not switch the display to $wanted (code $code)" }
-  Start-Sleep -Seconds 2
-  "Display switched to $([SmokeDisplay]::Current())"
+  if ([SmokeDisplay]::Current() -ne $wanted) {
+    $size = $wanted -split 'x'
+    $code = [SmokeDisplay]::Set([int]$size[0], [int]$size[1])
+    if ($code -ne 0) { throw "Could not switch the display to $wanted (code $code)" }
+    Start-Sleep -Milliseconds 500
+    "Display switched to $([SmokeDisplay]::Current())"
+  }
 }
+# Clean up any stale DiskUnfold processes or temporary smoke fixtures left by a cancelled run on a
+# persistent self-hosted runner.
+Get-Process -Name diskunfold -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'diskunfold-smoke-*' -ErrorAction SilentlyContinue |
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
 $smoke = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\launcher\smoke-windows.ps1')).Path
 $exe = (Resolve-Path -LiteralPath $Binary).Path
 $scenarios = @((Get-Content -Raw -LiteralPath $ScenarioFile | ConvertFrom-Json).scenarios)
 if ($Only.Count) {
   $scenarios = @($scenarios | Where-Object { $Only -contains $_.name })
   if (-not $scenarios.Count) { throw "No scenario matches: $($Only -join ', ')" }
+} elseif ($Tier -eq 'smoke') {
+  $scenarios = @($scenarios | Where-Object { ($null -eq $_.tier) -or ($_.tier -eq 'smoke') })
+  if (-not $scenarios.Count) { throw "No scenario matches tier '$Tier'" }
 }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $out = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $runs = foreach ($scenario in $scenarios) {
   foreach ($run in 1..$Repeat) { [pscustomobject]@{ Scenario = $scenario; Run = $run } }
 }
-$results = foreach ($entry in $runs) {
-  $scenario = $entry.Scenario
-  $runSuffix = if ($Repeat -gt 1) { "-run$($entry.Run)" } else { '' }
-  $locale = if ($scenario.locale) { $scenario.locale } else { 'en' }
-  $theme = if ($scenario.theme) { $scenario.theme } else { 'light' }
-  $size = if ($scenario.windowSize) { $scenario.windowSize } else { 'default' }
-  $scale = if ($scenario.appScale) { [string]$scenario.appScale } else { '100' }
-  $folderName = "$($scenario.name)-$locale-$theme-$size" + $(if ($scale -ne '100') { "-scale$scale" } else { '' }) + $runSuffix
-  $captures = Join-Path $out $folderName
-  New-Item -ItemType Directory -Force -Path $captures | Out-Null
-  $log = Join-Path $out "$($scenario.name)$runSuffix.log"
-  $started = Get-Date
-  $arguments = @($scenario.arguments) + @('-Locale', $locale, '-Theme', $theme)
-  if ($scenario.windowSize) { $arguments += @('-WindowSize', $scenario.windowSize) }
-  if ($scale -ne '100') { $arguments += @('-AppScale', $scale) }
-  & pwsh -NoProfile -File $smoke -Binary $exe -CaptureDirectory $captures -KeepFixture @arguments *>&1 | Tee-Object -FilePath $log | Out-Host
-  [pscustomobject]@{
-    name = $scenario.name
-    folder = $folderName
-    passed = ($LASTEXITCODE -eq 0)
-    seconds = [int]((Get-Date) - $started).TotalSeconds
-    captures = @(Get-ChildItem -LiteralPath $captures -Filter *.png | ForEach-Object Name)
+$sharedCache = Join-Path ([IO.Path]::GetTempPath()) ('diskunfold-smoke-cache-' + [guid]::NewGuid())
+New-Item -ItemType Directory -Force -Path $sharedCache | Out-Null
+$env:DISKUNFOLD_SMOKE_CACHE_DIR = $sharedCache
+try {
+  $results = foreach ($entry in $runs) {
+    $scenario = $entry.Scenario
+    $runSuffix = if ($Repeat -gt 1) { "-run$($entry.Run)" } else { '' }
+    $locale = if ($scenario.locale) { $scenario.locale } else { 'en' }
+    $theme = if ($scenario.theme) { $scenario.theme } else { 'light' }
+    $size = if ($scenario.windowSize) { $scenario.windowSize } else { 'default' }
+    $scale = if ($scenario.appScale) { [string]$scenario.appScale } else { '100' }
+    $folderName = "$($scenario.name)-$locale-$theme-$size" + $(if ($scale -ne '100') { "-scale$scale" } else { '' }) + $runSuffix
+    $captures = Join-Path $out $folderName
+    New-Item -ItemType Directory -Force -Path $captures | Out-Null
+    $log = Join-Path $out "$($scenario.name)$runSuffix.log"
+    $started = Get-Date
+    $arguments = @{
+      Binary = $exe
+      CaptureDirectory = $captures
+      Locale = $locale
+      Theme = $theme
+    }
+    if ($scenario.windowSize) { $arguments['WindowSize'] = $scenario.windowSize }
+    if ($scale -ne '100') { $arguments['AppScale'] = $scale }
+    foreach ($switchArg in @($scenario.arguments)) {
+      $switchName = $switchArg.TrimStart('-')
+      if ($switchName) { $arguments[$switchName] = $true }
+    }
+    $passed = $true
+    try {
+      & $smoke @arguments *>&1 | Tee-Object -FilePath $log | Out-Host
+    } catch {
+      $_ | Out-String | Tee-Object -FilePath $log -Append | Out-Host
+      $passed = $false
+      Get-Process -Name diskunfold -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    [pscustomobject]@{
+      name = $scenario.name
+      folder = $folderName
+      passed = $passed
+      seconds = [int]((Get-Date) - $started).TotalSeconds
+      captures = @(Get-ChildItem -LiteralPath $captures -Filter *.png | ForEach-Object Name)
+    }
   }
+} finally {
+  Remove-Item Env:\DISKUNFOLD_SMOKE_CACHE_DIR -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $sharedCache -Recurse -Force -ErrorAction SilentlyContinue
 }
 $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'summary.json') -Encoding utf8
 $lines = @('| Scenario | Folder | Result | Seconds | Captures |', '| --- | --- | --- | --- | --- |')

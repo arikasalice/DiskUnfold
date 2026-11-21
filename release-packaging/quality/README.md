@@ -14,15 +14,14 @@ The npm gate uses the complete CycloneDX output from `npm sbom --sbom-format=cyc
 
 ## CI layout and caching policy
 
-`quality.yml` runs these jobs. `lint` and `native` are matrices over the six native targets in `targets.json` and run in parallel on each runner, so clippy and the GUI checks no longer queue in front of the test build. The `native` job names are unchanged, so existing required checks keep matching. The new `lint` and `policy` jobs are not required checks until a maintainer adds them to branch protection.
+`quality.yml` runs these jobs. Platform-independent checks and the GUI asset build run once on GitHub-hosted `ubuntu-24.04`, while the six native OS/CPU targets in `targets.json` run a single unified `native` job per target (reusing the pre-built `gui-dist` artifact). The `native` job names are unchanged, so existing required checks keep matching.
 
 | Job | Work |
 | --- | --- |
-| `targets` | Reads `targets.json` and emits the matrix. |
-| `lint` (per target) | `cargo fmt --check`, clippy, GUI `npm run check` and `npm run test`, Windows folder-drop bridge test. |
-| `native` (per target) | Workspace tests, Linux launch and WebKit smoke under Xvfb, architecture checker, generated-contract diff. |
-| `policy` | cargo-deny, npm licenses, dependency register, release workflow policy, fuzz registry check, duplication report. Needs no GTK/WebKit packages and no GUI build. Artifact `quality-policy`. |
-| `ui-smoke` | Windows UI smoke scenarios and review captures on `windows-2022`. Not a required check. Artifact `ui-smoke-windows`. |
+| `targets` | Resolves the six-target matrix and `ui_smoke_runner` (selecting online self-hosted runners and falling back automatically to GitHub-hosted runners), builds `gui-web/dist` once, and uploads `targets` and `gui-dist`. |
+| `native` (per target) | Reuses `gui-dist`, runs clippy (`--all-features` and CLI-only `--no-default-features`), workspace tests, Linux launch and WebKit smoke under Xvfb, Windows NTFS mount-point and Linux btrfs checks, and uploads `arch-report.json`. |
+| `policy` | `cargo fmt --check`, architecture checker, generated-contract diff, GUI `npm run check` and `npm run test`, Windows folder-drop bridge test, cargo-deny, npm licenses, dependency register, release workflow policy, fuzz registry check, duplication report. Artifact `quality-policy`. |
+| `ui-smoke` | Windows UI smoke scenarios and review captures on the Windows x64 runner (`smoke` tier on pull requests, `all` tier on pushes and manual runs). Artifact `ui-smoke-windows`. |
 | `reports` | Rust and GUI coverage, base-commit comparison. Artifacts `quality-reports` and `coverage-baseline`. |
 
 Evidence behind the layout (run 43363082548): on macOS x64 the test profile built for 8 min 39 s and ran for about 55 s; clippy built for 5 min; the other checks took about 4 min. Compilation dominates every native job, and tests, `cargo nextest` included, are not the bottleneck, so nextest is not used. `cargo-deny` and `cargo-llvm-cov` were compiled from source on every run (170 s and 71 s).
@@ -100,7 +99,7 @@ node --test release-packaging/quality/
 
 `--check` validates the list definition without release results; the measure is then null (not available), not zero. `--results` evaluates a results file and exits 0 only when the review passes. Both modes write `quality-output/accessibility-review-report.json`. Today a person runs `--check` and the tests by hand; no workflow under `.github` runs either of them, and no workflow runs the release review. Connecting `--check` and the tests to the merge stage and the combination review to the release tag is release owner work. This tool does not drive assistive technology; a person or a separate automated run produces the results file.
 
-## GitHub-hosted runners only
+## Runner selection and fallback
 
-All CI build and test jobs in `quality.yml`, `fuzz.yml` and `release.yml` use GitHub-hosted Actions runners. Do not use or configure self-hosted runners or runner overrides. The six quality matrix targets keep their fixed runner labels in `targets.json`; `matrix.mjs` rejects labels that do not match the approved GitHub-hosted OS/CPU mapping. No repository variable or workflow input can change runner selection.
+`targets.json` defines both the default GitHub-hosted `runner` and the `selfHostedRunner` label set (`["self-hosted", "<OS>", "<CPU>"]`) for each of the six native OS/CPU targets. Platform-independent jobs (`targets`, `policy`, `reports`) always run on GitHub-hosted `ubuntu-24.04` runners. For `native` and `ui-smoke`, `matrix.mjs` probes the GitHub Actions runners API in real time using `RUNNER_STATUS_TOKEN`, selects the target's self-hosted runner when an online runner matches its labels, and automatically falls back to the target's GitHub-hosted runner when the self-hosted runner is offline, unregistered or unreachable. `release.yml` and `fuzz.yml` continue to use GitHub-hosted runners.
 

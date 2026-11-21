@@ -1,27 +1,96 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { buildManifest } from './matrix.mjs';
+import {
+  HOSTED_RUNNERS,
+  SELF_HOSTED_RUNNERS,
+  buildManifest,
+  buildMatrixOutputs,
+  queryOnlineRunners,
+} from './matrix.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./targets.json', import.meta.url), 'utf8'));
-const expectedRunners = {
-  'linux-x64': 'ubuntu-24.04',
-  'linux-arm64': 'ubuntu-24.04-arm',
-  'windows-x64': 'windows-2022',
-  'windows-arm64': 'windows-11-arm',
-  'macos-x64': 'macos-15-intel',
-  'macos-arm64': 'macos-15',
-};
 
-test('the six-target manifest keeps its GitHub-hosted runner matrix', () => {
+test('the six-target manifest defaults to GitHub-hosted runners when no self-hosted runner is online', () => {
   assert.deepEqual(
     Object.fromEntries(manifest.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner])),
-    expectedRunners,
+    HOSTED_RUNNERS,
   );
-  assert.deepEqual(buildManifest(manifest), manifest);
+  assert.deepEqual(
+    Object.fromEntries(
+      manifest.targets.map((target) => [`${target.os}-${target.cpu}`, target.selfHostedRunner]),
+    ),
+    SELF_HOSTED_RUNNERS,
+  );
+  const resolved = buildManifest(manifest, { runnerMode: 'auto' });
+  assert.deepEqual(resolved, manifest);
+  const outputs = buildMatrixOutputs(resolved);
+  assert.equal(outputs.uiSmokeRunner, 'windows-2022');
+  assert.equal(outputs.matrix.include.length, 6);
+  for (const entry of outputs.matrix.include) {
+    assert.equal(entry.selfHostedRunner, undefined);
+  }
 });
 
-test('self-hosted and unknown runner labels are rejected', () => {
+test('online self-hosted runners are selected automatically in real time while offline targets fall back to GitHub-hosted', () => {
+  const onlineRunners = [
+    {
+      status: 'online',
+      labels: [{ name: 'self-hosted' }, { name: 'Windows' }, { name: 'X64' }],
+    },
+    {
+      status: 'offline',
+      labels: [{ name: 'self-hosted' }, { name: 'Linux' }, { name: 'X64' }],
+    },
+    {
+      status: 'online',
+      labels: [{ name: 'self-hosted' }, { name: 'macOS' }, { name: 'ARM64' }],
+    },
+  ];
+  const resolved = buildManifest(manifest, { runnerMode: 'auto', onlineRunners });
+  const byKey = Object.fromEntries(
+    resolved.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner]),
+  );
+  assert.deepEqual(byKey['windows-x64'], ['self-hosted', 'Windows', 'X64']);
+  assert.deepEqual(byKey['macos-arm64'], ['self-hosted', 'macOS', 'ARM64']);
+  assert.equal(byKey['linux-x64'], 'ubuntu-24.04');
+  assert.equal(byKey['linux-arm64'], 'ubuntu-24.04-arm');
+  assert.equal(byKey['windows-arm64'], 'windows-11-arm');
+  assert.equal(byKey['macos-x64'], 'macos-15-intel');
+
+  const outputs = buildMatrixOutputs(resolved);
+  assert.deepEqual(outputs.uiSmokeRunner, ['self-hosted', 'Windows', 'X64']);
+
+  const forcedHosted = buildManifest(manifest, {
+    runnerMode: 'github-hosted',
+    onlineRunners,
+  });
+  for (const target of forcedHosted.targets) {
+    assert.equal(target.runner, HOSTED_RUNNERS[`${target.os}-${target.cpu}`]);
+  }
+});
+
+test('queryOnlineRunners returns null on error or missing repository and parses runner lists', () => {
+  assert.equal(queryOnlineRunners({ repository: '', token: '' }), null);
+  assert.equal(
+    queryOnlineRunners({
+      repository: 'owner/repo',
+      token: 'tok',
+      run: () => {
+        throw new Error('403 Forbidden');
+      },
+    }),
+    null,
+  );
+  const runners = queryOnlineRunners({
+    repository: 'owner/repo',
+    token: 'tok',
+    run: () => JSON.stringify({ runners: [{ id: 1, status: 'online', labels: [] }] }),
+  });
+  assert.equal(runners?.length, 1);
+});
+
+test('unknown runner labels and malformed self-hosted definitions are rejected', () => {
   for (const runner of ['self-hosted', ['self-hosted', 'macOS', 'ARM64'], 'custom']) {
     const candidate = {
       ...manifest,
@@ -32,4 +101,14 @@ test('self-hosted and unknown runner labels are rejected', () => {
     };
     assert.throws(() => buildManifest(candidate), /Invalid target: macos-arm64/);
   }
+  const badSelfHosted = {
+    ...manifest,
+    targets: manifest.targets.map((target) => ({
+      ...target,
+      selfHostedRunner:
+        target.os === 'linux' && target.cpu === 'x64' ? ['self-hosted', 'custom'] : target.selfHostedRunner,
+    })),
+  };
+  assert.throws(() => buildManifest(badSelfHosted), /Invalid target: linux-x64/);
+  assert.throws(() => buildManifest(manifest, { runnerMode: 'invalid' }), /Invalid runner mode/);
 });

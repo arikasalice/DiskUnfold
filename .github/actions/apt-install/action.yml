@@ -20,11 +20,25 @@ runs:
       # an earlier image, and apt only downloads the packages whose versions differ.
       run: |
         set -euo pipefail
+        missing=0
+        for pkg in $PACKAGES; do
+          if ! dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -qx 'install ok installed'; then
+            missing=1
+            break
+          fi
+        done
+        if [[ "$missing" -eq 0 ]]; then
+          echo "All requested apt packages are already installed: $PACKAGES"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "installed=false" >> "$GITHUB_OUTPUT"
         digest="$(printf '%s\n' $PACKAGES | sort -u | sha256sum | cut -c1-16)"
         prefix="apt-debs-v2-$RUNNER_OS-$RUNNER_ARCH-$digest-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: steps.key.outputs.installed != 'true'
       env:
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: "5"
       with:
@@ -32,6 +46,7 @@ runs:
         key: ${{ steps.key.outputs.key }}
         restore-keys: ${{ steps.key.outputs.prefix }}
     - name: Install packages
+      if: steps.key.outputs.installed != 'true'
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}

@@ -1,4 +1,4 @@
-#Requires -Version 7.4
+﻿#Requires -Version 7.4
 # Runs the installed Windows UI Automation client against one real WebView2 window.
 # Use a GUI build and an interactive Windows session with WebView2 installed.
 [CmdletBinding()]
@@ -79,13 +79,27 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
-Add-Type -TypeDefinition @'
+if (-not ('System.Windows.Automation.AutomationElement' -as [type])) {
+  Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+}
+if (-not ('DiskUnfoldSmoke.Keyboard' -as [type])) {
+  Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace DiskUnfoldSmoke {
+  public static class FastFixtures {
+    public static void CreateEmptyFiles(string directory, int count) {
+      Directory.CreateDirectory(directory);
+      Parallel.For(0, count, index => {
+        File.WriteAllBytes(Path.Combine(directory, "f" + index + ".bin"), Array.Empty<byte>());
+      });
+    }
+  }
+
   public static class Keyboard {
     [StructLayout(LayoutKind.Sequential)]
     private struct KeyboardInput {
@@ -174,6 +188,7 @@ namespace DiskUnfoldSmoke {
   }
 }
 '@
+}
 if (Get-CimInstance Win32_Process -Filter "Name = 'diskunfold.exe' AND ThreadCount > 0") { throw 'DiskUnfold already running' }
 $exe = (Resolve-Path -LiteralPath $Binary).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) ('diskunfold-smoke-' + [guid]::NewGuid())
@@ -194,9 +209,33 @@ if ($VerifyCancellation -or $VerifySuspension) {
     }
   }
 }
+function Get-SharedSmokeFixture([string]$name, [scriptblock]$populate) {
+  if ($env:DISKUNFOLD_SMOKE_CACHE_DIR -and (Test-Path -LiteralPath $env:DISKUNFOLD_SMOKE_CACHE_DIR)) {
+    $shared = Join-Path $env:DISKUNFOLD_SMOKE_CACHE_DIR $name
+    $marker = Join-Path $shared '.ready'
+    if (-not (Test-Path -LiteralPath $marker)) {
+      if (Test-Path -LiteralPath $shared) { Remove-Item -LiteralPath $shared -Recurse -Force }
+      [IO.Directory]::CreateDirectory($shared) | Out-Null
+      & $populate $shared
+      [IO.File]::WriteAllBytes($marker, [byte[]]::new(0))
+    }
+    return $shared
+  }
+  $local = Join-Path $root $name
+  [IO.Directory]::CreateDirectory($local) | Out-Null
+  & $populate $local
+  return $local
+}
 # The UIA names in this script are English. For another display language they are mapped through the
 # message bundles of the repository (the same text the screens show).
 function Initialize-UiNames([string]$language) {
+  if ($null -eq $global:DiskUnfoldSmokeUiCache) { $global:DiskUnfoldSmokeUiCache = @{} }
+  if ($global:DiskUnfoldSmokeUiCache.ContainsKey($language)) {
+    $cached = $global:DiskUnfoldSmokeUiCache[$language]
+    $script:UiExact = $cached.Exact
+    $script:UiTemplates = $cached.Templates
+    return
+  }
   $directory = Join-Path $PSScriptRoot '..\..\user-env\i18n'
   $read = {
     param($file)
@@ -223,6 +262,7 @@ function Initialize-UiNames([string]$language) {
       } catch { continue }
     } elseif (-not $script:UiExact.ContainsKey($source)) { $script:UiExact[$source] = $target[$key] }
   }
+  $global:DiskUnfoldSmokeUiCache[$language] = [pscustomobject]@{ Exact = $script:UiExact; Templates = $script:UiTemplates }
 }
 function Get-UiName([string]$name) {
   if ($null -eq $script:UiExact) { return $name }
@@ -233,27 +273,42 @@ function Get-UiName([string]$name) {
   }
   $name
 }
-# The settings database exists only after a first start: start the app once, close it, then store the
-# display language in it with python's sqlite3 and let the real start read it.
+# The settings database exists only after a first start: start the app once (or copy a cached clean
+# template database created on the first scenario of a batch), then store the display language in it
+# with python's sqlite3 and let the real start read it.
 function Initialize-SmokeLocale([string]$language, [string]$scale = '100', [switch]$SeedHistory) {
   $python = Get-Command python -ErrorAction SilentlyContinue
   if (-not $python) { throw 'python is needed to store the display language in the isolated profile' }
-  $database = Join-Path $profile 'DiskUnfold\diskunfold.db'
-  $first = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment
-  try {
-    $deadline = [DateTime]::UtcNow.AddSeconds(60)
-    while ($true) {
-      $first.Refresh()
-      if ($first.HasExited) { throw 'DiskUnfold exited before it created its settings database' }
-      if ((Test-Path -LiteralPath $database) -and $first.MainWindowHandle -ne 0) { break }
-      if ([DateTime]::UtcNow -gt $deadline) { throw 'Timed out waiting for the settings database' }
-      Start-Sleep -Milliseconds 200
+  $databaseDir = Join-Path $profile 'DiskUnfold'
+  $database = Join-Path $databaseDir 'diskunfold.db'
+  $templateDb = if ($env:DISKUNFOLD_SMOKE_CACHE_DIR -and (Test-Path -LiteralPath $env:DISKUNFOLD_SMOKE_CACHE_DIR)) {
+    Join-Path $env:DISKUNFOLD_SMOKE_CACHE_DIR 'template-diskunfold.db'
+  } else { $null }
+  if ($templateDb -and (Test-Path -LiteralPath $templateDb)) {
+    [IO.Directory]::CreateDirectory($databaseDir) | Out-Null
+    Copy-Item -LiteralPath $templateDb -Destination $database -Force
+  } else {
+    $first = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment
+    try {
+      $deadline = [DateTime]::UtcNow.AddSeconds(60)
+      while ($true) {
+        $first.Refresh()
+        if ($first.HasExited) { throw 'DiskUnfold exited before it created its settings database' }
+        if ((Test-Path -LiteralPath $database) -and $first.MainWindowHandle -ne 0) { break }
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'Timed out waiting for the settings database' }
+        Start-Sleep -Milliseconds 100
+      }
+      Start-Sleep -Milliseconds 300
+    } finally {
+      if (-not $first.HasExited) {
+        $null = $first.CloseMainWindow()
+        if (-not $first.WaitForExit(15000)) { Stop-Process -Id $first.Id -Force; $first.WaitForExit() }
+      }
     }
-    Start-Sleep -Seconds 2
-  } finally {
-    if (-not $first.HasExited) {
-      $null = $first.CloseMainWindow()
-      if (-not $first.WaitForExit(15000)) { Stop-Process -Id $first.Id -Force; $first.WaitForExit() }
+    if ($templateDb -and (Test-Path -LiteralPath $database)) {
+      'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()' |
+        & $python.Source - $database
+      Copy-Item -LiteralPath $database -Destination $templateDb -Force
     }
   }
   # History captures seed one old completed record using a different kind than the fresh scan.
@@ -312,7 +367,8 @@ connection.close()
   $seed | & $python.Source - $database $language $scale $seedHistoryValue
   if ($LASTEXITCODE -ne 0) { throw "Could not store the display language and app scale (python exit code $LASTEXITCODE)" }
 }
-Add-Type -TypeDefinition @'
+if (-not ('DiskUnfoldSmokeWindow' -as [type])) {
+  Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class DiskUnfoldSmokeWindow {
@@ -322,6 +378,7 @@ public static class DiskUnfoldSmokeWindow {
   public static bool Place(IntPtr window, int width, int height) { return SetWindowPos(window, IntPtr.Zero, 0, 0, width, height, 0x0014); }
 }
 '@
+}
 # Put the window at the top left corner with the requested outer size: UI Automation first, then the
 # window API when the window ignores it. The measured size is printed.
 function Set-SmokeWindowSize([string]$size) {
@@ -338,13 +395,19 @@ function Set-SmokeWindowSize([string]$size) {
   "Window size: before $((& $measure).Text); UI Automation can resize: $($transform.Current.CanResize)"
   $transform.Move(0, 0)
   $transform.Resize($width, $height)
-  Start-Sleep -Milliseconds 1000
-  $state = & $measure
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    $state = & $measure
+    if ($state.Fits) { break }
+    Start-Sleep -Milliseconds 50
+  }
   if (-not $state.Fits) {
     "Window size: UI Automation left $($state.Text); using SetWindowPos"
     $null = [DiskUnfoldSmokeWindow]::Place([IntPtr]$window.Current.NativeWindowHandle, $width, $height)
-    Start-Sleep -Milliseconds 1000
-    $state = & $measure
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+      $state = & $measure
+      if ($state.Fits) { break }
+      Start-Sleep -Milliseconds 50
+    }
   }
   "Window size: requested $size, measured $($state.Text)"
   if (-not $state.Fits) { throw "The window did not take the size $size (measured $($state.Text)); the screen may be too small" }
@@ -367,7 +430,8 @@ if ($Theme -eq 'dark') {
 }
 # High contrast is a session-wide setting; it is turned off again in the final block below.
 if ($Theme -eq 'contrast') {
-  Add-Type -TypeDefinition @'
+  if (-not ('SmokeContrast' -as [type])) {
+    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class SmokeContrast {
@@ -382,9 +446,10 @@ public static class SmokeContrast {
   public static bool Set(bool on) { var value = Blank(); value.Flags = on ? 1 : 0; return SystemParametersInfo(0x43, value.Size, ref value, 3); }
 }
 '@
+  }
   $originalContrast = [SmokeContrast]::IsOn()
   if (-not [SmokeContrast]::Set($true) -or -not [SmokeContrast]::IsOn()) { throw 'Windows high contrast could not be turned on' }
-  Start-Sleep -Seconds 3
+  Start-Sleep -Seconds 1
   'Windows high contrast is on for this run'
 }
 $process = Start-Process -FilePath $exe -PassThru -Environment $appEnvironment -RedirectStandardError (Join-Path $root 'stderr.txt') -RedirectStandardOutput (Join-Path $root 'stdout.txt')
@@ -1346,14 +1411,16 @@ function Save-SmokeCapture($name, [switch]$Now, [scriptblock]$Prepare) {
     if (-not $WindowSize -and $windowPattern.Current.WindowVisualState -ne [Windows.Automation.WindowVisualState]::Maximized) {
       $restore = $windowPattern.Current.WindowVisualState
       $windowPattern.SetWindowVisualState([Windows.Automation.WindowVisualState]::Maximized)
-      Start-Sleep -Milliseconds 800
+      Start-Sleep -Milliseconds 300
     }
     # Let entrance transitions (dialogs, panels) finish painting before the pixels are copied.
     # A progress capture skips this: its bar may be gone by then.
-    if (-not $Now) { Start-Sleep -Milliseconds 700 }
+    if (-not $Now) { Start-Sleep -Milliseconds 200 }
     # A preparation that depends on the final layout (a scroll) runs after the resize above.
-    if ($Prepare) { & $Prepare; Start-Sleep -Milliseconds 400 }
-    Add-Type -AssemblyName System.Drawing
+    if ($Prepare) { & $Prepare; Start-Sleep -Milliseconds 150 }
+    if (-not ('System.Drawing.Bitmap' -as [type])) {
+      Add-Type -AssemblyName System.Drawing
+    }
     $bounds = $window.Current.BoundingRectangle
     $directory = if ($CaptureDirectory) { $CaptureDirectory } else { Join-Path ([IO.Path]::GetTempPath()) 'diskunfold-virtual-groups-captures' }
     [IO.Directory]::CreateDirectory($directory) | Out-Null
@@ -1368,7 +1435,7 @@ function Save-SmokeCapture($name, [switch]$Now, [scriptblock]$Prepare) {
   } catch { Write-Warning "Capture '$name' failed: $($_.Exception.Message)" }
   finally {
     if ($null -ne $restore) {
-      try { $windowPattern.SetWindowVisualState($restore); Start-Sleep -Milliseconds 500 }
+      try { $windowPattern.SetWindowVisualState($restore); Start-Sleep -Milliseconds 200 }
       catch { Write-Warning "Restoring the window after '$name' failed: $($_.Exception.Message)" }
     }
   }
@@ -1510,22 +1577,24 @@ function Get-ButtonCount($buttonName) {
 # of 16 inside Photos at 1280x800), while the 400 of them make a group wide enough to see.
 # The group's lower-bound and unknown states need unreadable members and stay with the GUI tests.
 function Test-CaptureTreemap {
-  $scope = Join-Path $root 'treemap-scope'
-  $photos = Join-Path $scope 'Photos'
-  $videos = Join-Path $scope 'Videos'
-  $tiny = Join-Path $scope 'Tiny'
-  [IO.Directory]::CreateDirectory($photos) | Out-Null
-  [IO.Directory]::CreateDirectory($videos) | Out-Null
-  [IO.Directory]::CreateDirectory($tiny) | Out-Null
-  [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
-  [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
-  for ($index = 0; $index -lt 400; $index++) {
-    [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(8000))
+  $scope = Get-SharedSmokeFixture 'treemap-scope' {
+    param($dir)
+    $photos = Join-Path $dir 'Photos'
+    $videos = Join-Path $dir 'Videos'
+    $tiny = Join-Path $dir 'Tiny'
+    [IO.Directory]::CreateDirectory($photos) | Out-Null
+    [IO.Directory]::CreateDirectory($videos) | Out-Null
+    [IO.Directory]::CreateDirectory($tiny) | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $photos 'album-a.bin'), [byte[]]::new(64MB))
+    [IO.File]::WriteAllBytes((Join-Path $photos 'album-b.bin'), [byte[]]::new(48MB))
+    for ($index = 0; $index -lt 400; $index++) {
+      [IO.File]::WriteAllBytes((Join-Path $photos "small-$index.bin"), [byte[]]::new(8000))
+    }
+    [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
+    [IO.File]::WriteAllBytes((Join-Path $dir 'notes.bin'), [byte[]]::new(16MB))
+    [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-a.bin'), [byte[]]::new(512KB))
+    [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-b.bin'), [byte[]]::new(512KB))
   }
-  [IO.File]::WriteAllBytes((Join-Path $videos 'clip.bin'), [byte[]]::new(128MB))
-  [IO.File]::WriteAllBytes((Join-Path $scope 'notes.bin'), [byte[]]::new(16MB))
-  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-a.bin'), [byte[]]::new(512KB))
-  [IO.File]::WriteAllBytes((Join-Path $tiny 'tiny-b.bin'), [byte[]]::new(512KB))
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -1631,7 +1700,7 @@ function Test-CaptureTreemap {
     $radio.SetFocus()
     if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
     else { Invoke-UI $radio }
-    Start-Sleep -Milliseconds 2000
+    Start-Sleep -Milliseconds 400
     if (Find-UI 'The chart could not be loaded.' $null) { throw "The $($step[0]) request was refused" }
     "Format $($step[0]): selected as '$($radio.Current.Name)'"
     Save-SmokeCapture $step[1]
@@ -1650,7 +1719,7 @@ function Test-CaptureTreemap {
   $sizeAxis.SetFocus()
   if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
   else { Invoke-UI $sizeAxis }
-  Start-Sleep -Milliseconds 2000
+  Start-Sleep -Milliseconds 400
   if (Find-UI 'The chart could not be loaded.' $null) { throw 'The size axis request was refused' }
   "Histogram axis: '$($sizeAxis.Current.Name)' selected"
   Save-SmokeCapture '11-histogram-size'
@@ -1678,13 +1747,12 @@ function Save-ProgressCapture([string]$name, [string]$capture, [int]$seconds = 4
 # so this scope holds 40,000 empty files: the analysis, the chart and its table take long enough to be
 # seen. Each capture is taken the moment its progress bar shows; one not seen in time is logged.
 function Test-CaptureProgress {
-  $scope = Join-Path $root 'progress-scope'
-  $many = Join-Path $scope 'many'
-  [IO.Directory]::CreateDirectory($many) | Out-Null
-  for ($index = 0; $index -lt 40000; $index++) {
-    [IO.File]::Create((Join-Path $many "f$index.bin")).Dispose()
+  $scope = Get-SharedSmokeFixture 'progress-scope' {
+    param($dir)
+    $many = Join-Path $dir 'many'
+    [DiskUnfoldSmoke.FastFixtures]::CreateEmptyFiles($many, 40000)
+    [IO.File]::WriteAllBytes((Join-Path $dir 'large.bin'), [byte[]]::new(8MB))
   }
-  [IO.File]::WriteAllBytes((Join-Path $scope 'large.bin'), [byte[]]::new(8MB))
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -1748,7 +1816,8 @@ function Test-CaptureTreemapLink {
     $lastSeen = $null
     $shown = $false
     $started = [DateTime]::UtcNow
-    while ([DateTime]::UtcNow -lt $started.AddSeconds(6)) {
+    $watchSeconds = if ($Theme -eq 'light' -and $AppScale -eq '100' -and $WindowSize -eq '1280x800') { 3 } else { 1.5 }
+    while ([DateTime]::UtcNow -lt $started.AddSeconds($watchSeconds)) {
       $now = @($window.FindAll($scopeTree, $progress) | Where-Object { $_.Current.Name -eq $loading }).Count -gt 0
       if ($now -and -not $shown) { $requests++; $lastSeen = [DateTime]::UtcNow }
       $shown = $now
@@ -1756,7 +1825,7 @@ function Test-CaptureTreemapLink {
     }
     "Chart requests after it was shown: $requests"
     if ($shown -or $requests -gt 2 -or ($lastSeen -and $lastSeen -gt $started.AddSeconds(3))) {
-      throw "The chart kept being requested: $requests loading rows in 6 s, still loading: $shown"
+      throw "The chart kept being requested: $requests loading rows in $watchSeconds s, still loading: $shown"
     }
     Save-SmokeCapture '01-treemap-link'
     # README 32: at 150% and above the head and the banner scroll with the page. Focusing the
@@ -1938,7 +2007,7 @@ function Select-SmokeRadio($radio) {
   $radio.SetFocus()
   if ($radio.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
   else { Invoke-UI $radio }
-  Start-Sleep -Milliseconds 1500
+  Start-Sleep -Milliseconds 250
 }
 # The type chip is named by its words, then "Clear type filter" (F06 README 46.2).
 function Find-TypeChip {
@@ -1951,10 +2020,12 @@ function Find-TypeChip {
 # the narrowed treemap, its table, a folder without videos, and the histogram with the chip
 # inactive. With -Short only the narrowed treemap, for the dark and narrow runs.
 function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
-  $scope = Join-Path $root 'type-narrowing-scope'
-  foreach ($folder in 'docs', 'songs') { [IO.Directory]::CreateDirectory((Join-Path $scope $folder)) | Out-Null }
-  $files = [ordered]@{ 'clip.mp4' = 6MB; 'notes.txt' = 1MB; 'docs\report.pdf' = 10MB; 'docs\talk.mp4' = 4MB; 'songs\song.mp3' = 2MB }
-  foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new($files[$name])) }
+  $scope = Get-SharedSmokeFixture 'type-narrowing-scope' {
+    param($dir)
+    foreach ($folder in 'docs', 'songs') { [IO.Directory]::CreateDirectory((Join-Path $dir $folder)) | Out-Null }
+    $files = [ordered]@{ 'clip.mp4' = 6MB; 'notes.txt' = 1MB; 'docs\report.pdf' = 10MB; 'docs\talk.mp4' = 4MB; 'songs\song.mp3' = 2MB }
+    foreach ($name in $files.Keys) { [IO.File]::WriteAllBytes((Join-Path $dir $name), [byte[]]::new($files[$name])) }
+  }
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
   Invoke-UI (Wait-Enabled 'Start analysis' $true)
@@ -2039,11 +2110,12 @@ function Save-TypeListCaptures([switch]$Short) {
 # is larger than any single bar and so drawn to the end with a break. Narrowed to videos, the
 # Other of the remaining videos takes their colour with a dashed border.
 function Test-CaptureTypeNarrowingMany {
-  $scope = Join-Path $root 'type-narrowing-many-scope'
-  [IO.Directory]::CreateDirectory($scope) | Out-Null
-  for ($index = 0; $index -lt 2100; $index++) {
-    $name = if ($index -lt 100) { "clip-$index.mp4" } else { "note-$index.txt" }
-    [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new(4096 + $index))
+  $scope = Get-SharedSmokeFixture 'type-narrowing-many-scope' {
+    param($dir)
+    for ($index = 0; $index -lt 2100; $index++) {
+      $name = if ($index -lt 100) { "clip-$index.mp4" } else { "note-$index.txt" }
+      [IO.File]::WriteAllBytes((Join-Path $dir $name), [byte[]]::new(4096 + $index))
+    }
   }
   Set-Scope $scope
   Invoke-UI (Wait-Enabled 'Review scope' $true)
@@ -2248,7 +2320,7 @@ function Test-CaptureHistogramGaps {
   $sizeAxis.SetFocus()
   if ($sizeAxis.TryGetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { $pattern.Select() }
   else { Invoke-UI $sizeAxis }
-  Start-Sleep -Milliseconds 2000
+  Start-Sleep -Milliseconds 400
   if (Find-UI 'The chart could not be loaded.' $null) { throw 'The size axis request was refused' }
   $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
   "Empty interval on the size axis: '$($empty.Current.Name)'"
