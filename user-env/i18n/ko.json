@@ -1056,6 +1056,7 @@
     ["ui.visualization.undrawnTooltip","크기를 항목에 나눌 수 없어 그래프에 그리지 않았습니다. 그래프의 넓이는 그린 항목끼리의 비율입니다.",[]],
     ["ui.visualization.undrawnShowInList","목록에서 보기",[]],
     ["ui.visualization.undrawnShowInListName","{summary}, 목록에서 보기",[["summary","name"]]],
+    ["ui.visualization.noCategory","분류 해당 없음",[]],
     ["ui.visualization.legend.unclassified","분류 없음",[]],
     ["ui.visualization.loadNewer","최신 결과의 항목 불러오기",[]],
     ["ui.visualization.loadRangeFailed","이 구간을 불러오지 못했습니다.",[]],

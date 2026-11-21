@@ -117,3 +117,28 @@ test("a row on another page asks for that page", () => {
     expect.objectContaining({ start: 40, count: 20 }),
   );
 });
+
+test("the button carries the sentence of the tooltip as its description", () => {
+  presenter(undrawn(2));
+  const button = screen.getByRole("button", { name: /View in list$/ });
+  const id = button.getAttribute("aria-describedby");
+  expect(id).toBeTruthy();
+  expect(document.getElementById(id!)?.textContent).toBe(
+    visualizationMessage("en", "undrawnTooltip"),
+  );
+});
+
+test("a row the type does not apply to reads a dash, named No category", () => {
+  presenter((input) => {
+    undrawn(2)(input);
+    input.frame.model.representation.colorCriterion = "type";
+    input.page.response.rows[2]!.legendClassKey = "unclassified";
+  });
+  fireEvent.click(screen.getByRole("button", { name: /View in list$/ }));
+  const row = document.activeElement as HTMLElement;
+  expect(row.textContent).toContain("—");
+  expect(row.textContent).toContain(visualizationMessage("en", "noCategory"));
+  expect(
+    screen.queryByText(visualizationMessage("en", "legend.unclassified")),
+  ).toBeNull();
+});

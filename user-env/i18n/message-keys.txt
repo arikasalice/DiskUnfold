@@ -1060,6 +1060,7 @@ ui.visualization.nextRows
 ui.visualization.nextSelection
 ui.visualization.noAttribution
 ui.visualization.noBaseline
+ui.visualization.noCategory
 ui.visualization.noDrawableItems
 ui.visualization.noFormats
 ui.visualization.noGraphTargets

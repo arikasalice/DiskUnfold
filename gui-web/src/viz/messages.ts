@@ -290,6 +290,7 @@ export const visualizationMessages = {
       "These couldn't be assigned to items, so they aren't drawn. Areas show proportions among the drawn items.",
     undrawnShowInList: "View in list",
     undrawnShowInListName: "{summary}, View in list",
+    noCategory: "No category",
   },
   ko: {
     loading: "그래프 불러오는 중",
@@ -577,6 +578,7 @@ export const visualizationMessages = {
       "크기를 항목에 나눌 수 없어 그래프에 그리지 않았습니다. 그래프의 넓이는 그린 항목끼리의 비율입니다.",
     undrawnShowInList: "목록에서 보기",
     undrawnShowInListName: "{summary}, 목록에서 보기",
+    noCategory: "분류 해당 없음",
   },
 } as const;
 export type VisualizationMessageKey = keyof typeof visualizationMessages.en;

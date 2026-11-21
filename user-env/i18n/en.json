@@ -1056,6 +1056,7 @@
     ["ui.visualization.undrawnTooltip","These couldn't be assigned to items, so they aren't drawn. Areas show proportions among the drawn items.",[]],
     ["ui.visualization.undrawnShowInList","View in list",[]],
     ["ui.visualization.undrawnShowInListName","{summary}, View in list",[["summary","name"]]],
+    ["ui.visualization.noCategory","No category",[]],
     ["ui.visualization.legend.unclassified","Unclassified",[]],
     ["ui.visualization.loadNewer","Load items in the latest result",[]],
     ["ui.visualization.loadRangeFailed","Could not load this range.",[]],

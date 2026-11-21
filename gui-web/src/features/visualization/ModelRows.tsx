@@ -168,7 +168,7 @@ export function ModelRows({
       ? [
           {
             header: text.message("classification"),
-            cell: (row: VizRow) => classCell(model, row.legendClassKey, text),
+            cell: (row: VizRow) => classification(model, row, text),
           },
         ]
       : []),
@@ -260,6 +260,25 @@ function revealInPage(
     key: String(reveal.token),
     focusRow: { index: reveal.row - start, token: reveal.token },
   };
+}
+
+/**
+ * The classification cell. A row the type does not apply to reads "—", named
+ * "No category" for assistive technology (F06 README 51, TERMS 「유형」).
+ */
+function classification(
+  model: VizModel | undefined,
+  row: VizRow,
+  text: VizText,
+) {
+  if (!UNCLASSIFIED.has(row.legendClassKey))
+    return classCell(model, row.legendClassKey, text);
+  return (
+    <>
+      <div aria-hidden="true">—</div>
+      <div className="du-visually-hidden">{text.message("noCategory")}</div>
+    </>
+  );
 }
 
 /**

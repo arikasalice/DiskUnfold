@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Action, Text } from "../../components";
 import type { VizRowsRequest } from "../../ipc";
 import { vizMessage } from "../../viz";
@@ -58,6 +58,7 @@ export function UndrawnLine({
   text: VizText;
   onOpen: (row: number) => void;
 }) {
+  const descriptionId = useId();
   const { unknownItems, unknownSize, firstUnknownRow } = frame.model.summary;
   if (firstUnknownRow === undefined || unknownItems.state === "unknown")
     return null;
@@ -73,9 +74,14 @@ export function UndrawnLine({
   return (
     <div className="du-undrawn-line" title={text.message("undrawnTooltip")}>
       <Text>{summary}</Text>
+      {/* The tooltip's sentence, also for keyboard and screen reader users (51.4). */}
+      <div id={descriptionId} className="du-visually-hidden">
+        {text.message("undrawnTooltip")}
+      </div>
       <Action
         variant="quiet"
         aria-label={vizMessage(text, "undrawnShowInListName", { summary })}
+        aria-describedby={descriptionId}
         onPress={() => onOpen(firstUnknownRow)}
       >
         {text.message("undrawnShowInList")}
