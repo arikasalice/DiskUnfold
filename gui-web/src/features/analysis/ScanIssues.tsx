@@ -58,6 +58,13 @@ type StorageFilter = {
   storagePaths: string[];
 };
 
+function selectedIssueKind(
+  filter: ScanIssueFilter,
+): ScanFailureKind | undefined {
+  if (filter === "all" || filter === "unreadable_locations") return undefined;
+  return filter;
+}
+
 /** Exposes issues for the displayed result without changing the analysis scope. */
 export function ScanIssues({
   client,
@@ -70,7 +77,6 @@ export function ScanIssues({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<ScanIssueFilter>("all");
   const [storageFilter, setStorageFilter] = useState<StorageFilter>();
-  const [kindFilter, setKindFilter] = useState(false);
   const [allStorageNotice, setAllStorageNotice] = useState(false);
   const [focusTitleToken, setFocusTitleToken] = useState(0);
   const [listReady, setListReady] = useState(false);
@@ -78,17 +84,15 @@ export function ScanIssues({
   const section = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const storageChip = useRef<HTMLButtonElement>(null);
-  const kindChip = useRef<HTMLButtonElement>(null);
   const seenLaneRequest = useRef(0);
   const focusedTitleToken = useRef(0);
-  const focusAfterFilter = useRef<"storage" | "kind" | null>(null);
 
   useEffect(() => {
     if (!laneRequest || laneRequest.requestId === seenLaneRequest.current)
       return;
     seenLaneRequest.current = laneRequest.requestId;
     setOpen(true);
-    setFilter("all");
+    setFilter("unreadable_locations");
     setStorageFilter(
       laneRequest.rootIndexes
         ? {
@@ -100,7 +104,6 @@ export function ScanIssues({
           }
         : undefined,
     );
-    setKindFilter(true);
     setAllStorageNotice(laneRequest.allStorages);
     setListReady(false);
     setCountText("");
@@ -126,37 +129,21 @@ export function ScanIssues({
   }, []);
 
   const clearStorage = () => {
-    focusAfterFilter.current = kindFilter ? "kind" : null;
-    if (!kindFilter) setFocusTitleToken((value) => value + 1);
+    setFocusTitleToken((value) => value + 1);
     setListReady(false);
     setCountText("");
     setStorageFilter(undefined);
   };
 
-  const clearKind = () => {
-    focusAfterFilter.current = storageFilter ? "storage" : null;
-    if (!storageFilter) setFocusTitleToken((value) => value + 1);
-    setListReady(false);
-    setCountText("");
-    setKindFilter(false);
-    setAllStorageNotice(false);
-  };
-
-  useLayoutEffect(() => {
-    const focus = focusAfterFilter.current;
-    if (!focus) return;
-    (focus === "storage" ? storageChip.current : kindChip.current)?.focus();
-    focusAfterFilter.current = null;
-  }, [kindFilter, storageFilter]);
-
-  const changeIssueKind = (value: ScanIssueFilter) => {
+  const changeProblemType = (value: ScanIssueFilter) => {
     setFilter(value);
     setListReady(false);
     setCountText("");
   };
 
   const rootIndexes = storageFilter?.rootIndexes;
-  const kind = filter === "all" ? undefined : filter;
+  const kind = selectedIssueKind(filter);
+  const failuresOnly = filter === "unreadable_locations";
   const storageTooltip = storageFilter
     ? [
         ...storageFilter.storagePaths.slice(0, 5),
@@ -176,11 +163,6 @@ export function ScanIssues({
         { value: storageFilter.storageLabel },
       )
     : "";
-  const kindChipLabel = text(
-    "ui.analysis.issues_filter_kind_name",
-    "Kind: unreadable locations, clear kind filter",
-  );
-
   return (
     <section
       ref={section}
@@ -206,7 +188,7 @@ export function ScanIssues({
           >
             {text("ui.analysis.issues_title", "Scan issues")}
           </Heading>
-          {(storageFilter || kindFilter) && (
+          {(storageFilter || (allStorageNotice && failuresOnly)) && (
             <div className="du-scan-issues__conditions">
               {storageFilter && (
                 <div className="du-scan-issues__chip">
@@ -238,22 +220,7 @@ export function ScanIssues({
                   </Action>
                 </div>
               )}
-              {kindFilter && (
-                <div className="du-scan-issues__chip">
-                  <Action
-                    ref={kindChip}
-                    aria-label={kindChipLabel}
-                    onPress={clearKind}
-                  >
-                    {text(
-                      "ui.analysis.issues_filter_kind",
-                      "Kind: unreadable locations",
-                    )}
-                    <Text inline>×</Text>
-                  </Action>
-                </div>
-              )}
-              {allStorageNotice && kindFilter && (
+              {allStorageNotice && failuresOnly && (
                 <Text kind="muted" className="du-scan-issues__notice">
                   {text(
                     "ui.analysis.issues_filter_all_storages",
@@ -270,20 +237,20 @@ export function ScanIssues({
             )}
           </Text>
           <SelectField
-            label={text("ui.analysis.issue_type", "Issue type")}
+            label={text("ui.analysis.issue_type", "Problem type")}
             value={filter}
             options={SCAN_ISSUE_FILTERS.map(({ value, key, fallback }) => ({
               value,
               label: text(key, fallback),
             }))}
-            onChange={changeIssueKind}
+            onChange={changeProblemType}
           />
           <IssuePages
             client={client}
             resultVersion={resultVersion}
             kind={kind}
             rootIndexes={rootIndexes}
-            failuresOnly={kindFilter}
+            failuresOnly={failuresOnly}
             refreshKey={laneRequest?.requestId ?? 0}
             running={running}
             onReopenLatest={onReopenLatest}

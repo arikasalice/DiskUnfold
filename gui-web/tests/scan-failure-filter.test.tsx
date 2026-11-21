@@ -154,7 +154,7 @@ async function openLaneIssues(laneIndex = 0) {
   await screen.findByRole("heading", { name: /Scan issues/ });
 }
 
-test("lane link requests unreadable rows for that lane and shows the filter names", async () => {
+test("lane link selects unreadable problems and shows only the storage chip", async () => {
   const { client, requests } = clientWith();
   render(<FilterHarness client={client} />);
 
@@ -174,52 +174,62 @@ test("lane link requests unreadable rows for that lane and shows the filter name
       name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
     }),
   ).toBeTruthy();
-  expect(
-    screen.getByRole("button", {
-      name: "Kind: unreadable locations, clear kind filter",
-    }),
-  ).toBeTruthy();
+  const problemType = screen.getByRole("combobox", {
+    name: "Problem type",
+  }) as HTMLSelectElement;
+  expect(problemType.value).toBe("unreadable_locations");
+  expect(problemType.selectedOptions[0]?.textContent).toBe(
+    "Unreadable locations",
+  );
+  expect(screen.queryByRole("button", { name: /Kind:/ })).toBeNull();
   const heading = await screen.findByRole("heading", {
     name: /Scan issues.*Showing 1 of 2 issues/,
   });
   expect(document.activeElement).toBe(heading);
 });
 
-test("removing Storage keeps the unreadable-only filter and focuses Kind", async () => {
+test("selecting unreadable locations replaces an existing problem kind", async () => {
   const { client, requests } = clientWith();
   render(<FilterHarness client={client} />);
-  await openLaneIssues();
+  fireEvent.click(screen.getByRole("button", { name: "View scan issues" }));
+  await screen.findByText("C:\\Users\\minseo\\Documents\\blocked");
+  const problemType = screen.getByRole("combobox", {
+    name: "Problem type",
+  });
 
-  const storage = screen.getByRole("button", {
-    name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
-  });
-  fireEvent.click(storage);
-  const kind = screen.getByRole("button", {
-    name: "Kind: unreadable locations, clear kind filter",
-  });
-  await waitFor(() => expect(document.activeElement).toBe(kind));
+  fireEvent.change(problemType, { target: { value: "collection_failed" } });
   await waitFor(() => expect(requests).toHaveLength(2));
-  expect(requests[1]).toEqual({ resultVersion: "v1", failuresOnly: true });
+  expect(requests[1]).toEqual({
+    resultVersion: "v1",
+    kind: "collection_failed",
+  });
+
+  fireEvent.change(problemType, { target: { value: "unreadable_locations" } });
+  await waitFor(() => expect(requests).toHaveLength(3));
+  expect(requests[2]).toEqual({ resultVersion: "v1", failuresOnly: true });
+  expect((problemType as HTMLSelectElement).value).toBe("unreadable_locations");
 });
 
-test("removing Kind keeps all issues for Storage and focuses Storage", async () => {
+test("changing Problem type to All problems keeps the storage filter", async () => {
   const { client, requests } = clientWith();
   render(<FilterHarness client={client} />);
   await openLaneIssues();
 
-  const kind = screen.getByRole("button", {
-    name: "Kind: unreadable locations, clear kind filter",
+  const problemType = screen.getByRole("combobox", {
+    name: "Problem type",
   });
-  fireEvent.click(kind);
-  const storage = screen.getByRole("button", {
-    name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
-  });
-  await waitFor(() => expect(document.activeElement).toBe(storage));
+  fireEvent.change(problemType, { target: { value: "all" } });
   await waitFor(() => expect(requests).toHaveLength(2));
   expect(requests[1]).toEqual({ resultVersion: "v1", rootIndexes: [0, 1] });
+  expect((problemType as HTMLSelectElement).value).toBe("all");
+  expect(
+    screen.getByRole("button", {
+      name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
+    }),
+  ).toBeTruthy();
 });
 
-test("clearing the last condition requests all issues and focuses the title", async () => {
+test("removing Storage requests unreadable locations without roots and focuses the title", async () => {
   const { client, requests } = clientWith();
   render(<FilterHarness client={client} />);
   await openLaneIssues();
@@ -228,16 +238,19 @@ test("clearing the last condition requests all issues and focuses the title", as
       name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
     }),
   );
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "Kind: unreadable locations, clear kind filter",
-    }),
-  );
-
-  await waitFor(() => expect(requests).toHaveLength(3));
+  await waitFor(() => expect(requests).toHaveLength(2));
   const heading = screen.getByRole("heading", { name: /Scan issues/ });
   await waitFor(() => expect(document.activeElement).toBe(heading));
-  expect(requests[2]).toEqual({ resultVersion: "v1" });
+  expect(requests[1]).toEqual({ resultVersion: "v1", failuresOnly: true });
+  expect(screen.queryByRole("button", { name: /Storage:/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Kind:/ })).toBeNull();
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Problem type",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("unreadable_locations");
 });
 
 test("a cut lane opens with only the unreadable filter and the all-storage notice", async () => {
@@ -266,11 +279,11 @@ test("a cut lane opens with only the unreadable filter and the all-storage notic
     "이 저장소만 거를 수 없어 모든 저장소의 읽지 못한 위치를 보입니다",
   );
   expect(requests[0]).toEqual({ resultVersion: "v1", failuresOnly: true });
-  expect(
-    screen.getByRole("button", {
-      name: "종류: 읽지 못한 위치, 종류 조건 지우기",
-    }),
-  ).toBeTruthy();
+  const problemType = screen.getByRole("combobox", {
+    name: "문제 유형",
+  }) as HTMLSelectElement;
+  expect(problemType.value).toBe("unreadable_locations");
+  expect(problemType.selectedOptions[0]?.textContent).toBe("읽지 못한 위치");
   expect(screen.queryByRole("button", { name: /저장소:/ })).toBeNull();
 });
 
@@ -310,6 +323,18 @@ test.each(["STALE_VERSION", "cursor.stale", "cursor.invalid"] as const)(
       rootIndexes: [0, 1],
       failuresOnly: true,
     });
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: "Problem type",
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("unreadable_locations");
+    expect(
+      screen.getByRole("button", {
+        name: "Storage: C:\\Users\\minseo\\Documents and 1 more, clear storage filter",
+      }),
+    ).toBeTruthy();
   },
 );
 
@@ -365,6 +390,18 @@ test("a running scan follows a stale result without showing the reopen notice", 
   );
 
   await screen.findByText("C:\\Users\\minseo\\Documents\\blocked");
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Problem type",
+      }) as HTMLSelectElement
+    ).value,
+  ).toBe("unreadable_locations");
+  expect(
+    screen.getByRole("button", {
+      name: "Storage: C:\\Users\\minseo\\Documents, clear storage filter",
+    }),
+  ).toBeTruthy();
   expect(reopen).toHaveBeenCalledTimes(1);
   expect(
     screen.queryByRole("button", { name: "Reopen with the new result" }),
@@ -375,7 +412,7 @@ test("a running scan follows a stale result without showing the reopen notice", 
   ]);
 });
 
-test("the Korean lane link and filter chips use the approved accessible names", async () => {
+test("the Korean lane link, selector and storage chip use approved accessible names", async () => {
   const { client } = clientWith();
   render(<FilterHarness client={client} locale="ko" />);
   fireEvent.click(
@@ -384,9 +421,9 @@ test("the Korean lane link and filter chips use the approved accessible names", 
   await screen.findByRole("button", {
     name: "저장소: C:\\Users\\minseo\\Documents 외 1개, 저장소 조건 지우기",
   });
-  expect(
-    screen.getByRole("button", {
-      name: "종류: 읽지 못한 위치, 종류 조건 지우기",
-    }),
-  ).toBeTruthy();
+  const problemType = screen.getByRole("combobox", {
+    name: "문제 유형",
+  }) as HTMLSelectElement;
+  expect(problemType.value).toBe("unreadable_locations");
+  expect(problemType.selectedOptions[0]?.textContent).toBe("읽지 못한 위치");
 });

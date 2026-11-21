@@ -241,7 +241,7 @@ test("F02 FR3.HD1.gui-web.DD1: a filter change stops the pages of the read it re
   await loadRows(3);
   list.show("v2");
   await waitFor(() => expect(list.asked("v2")).toEqual([null]));
-  fireEvent.change(screen.getByRole("combobox", { name: "Issue type" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Problem type" }), {
     target: { value: "unread_range" },
   });
   await screen.findByText("v2-0");

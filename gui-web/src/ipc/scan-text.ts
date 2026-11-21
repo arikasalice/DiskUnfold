@@ -21,9 +21,14 @@ function lookup(
   return text(key, fallback);
 }
 
-/** Issue-list filters in display order; "all" omits the request filter. */
+/** Issue-list filters in display order; unreadable locations sets failuresOnly. */
 export const SCAN_ISSUE_FILTERS = [
-  { value: "all", key: "ui.analysis.issues_all", fallback: "All issues" },
+  { value: "all", key: "ui.analysis.issues_all", fallback: "All problems" },
+  {
+    value: "unreadable_locations",
+    key: "ui.analysis.issues_unreadable_locations",
+    fallback: "Unreadable locations",
+  },
   {
     value: "collection_failed",
     key: "ui.analysis.issues_collection_failures",
@@ -50,9 +55,9 @@ export const SCAN_ISSUE_FILTERS = [
 export type ScanIssueFilter = (typeof SCAN_ISSUE_FILTERS)[number]["value"];
 
 const issueKinds = new Map<string, Message>(
-  SCAN_ISSUE_FILTERS.filter(({ value }) => value !== "all").map(
-    ({ value, key, fallback }) => [value, [key, fallback]],
-  ),
+  SCAN_ISSUE_FILTERS.filter(
+    ({ value }) => value !== "all" && value !== "unreadable_locations",
+  ).map(({ value, key, fallback }) => [value, [key, fallback]]),
 );
 const issueStages = new Map<string, Message>([
   ["metadata", ["ui.analysis.issue_stage_metadata", "Metadata"]],

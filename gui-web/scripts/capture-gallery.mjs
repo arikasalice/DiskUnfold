@@ -22,8 +22,8 @@
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error |
-//            failure-lanes | failure-list | failure-narrow |
-//            failure-storage-only | failure-dark
+//            failure-lanes | failure-list | failure-all-problems |
+//            failure-narrow | failure-dark
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -80,8 +80,8 @@ const scanLaneScenes = [
   "progress-limit-error",
   "failure-lanes",
   "failure-list",
+  "failure-all-problems",
   "failure-narrow",
-  "failure-storage-only",
   "failure-dark",
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
@@ -114,11 +114,15 @@ const scanFailureShots = {
   "failure-list": [
     { name: "failure-list-light-1280", theme: "light", width: 1280 },
   ],
+  "failure-all-problems": [
+    {
+      name: "failure-all-problems-light-1280",
+      theme: "light",
+      width: 1280,
+    },
+  ],
   "failure-narrow": [
     { name: "failure-list-light-700", theme: "light", width: 700 },
-  ],
-  "failure-storage-only": [
-    { name: "failure-storage-only-light-1280", theme: "light", width: 1280 },
   ],
   "failure-dark": [
     { name: "failure-list-dark-1280", theme: "dark", width: 1280 },
@@ -888,8 +892,8 @@ try {
           });
           if (!activated)
             throw new Error("The lane failure link was not found");
-          if ((await session.run(drawn, ".du-scan-issues__chip", 2)) !== 2)
-            throw new Error("The two lane filters were not drawn");
+          if ((await session.run(drawn, ".du-scan-issues__chip", 1)) !== 1)
+            throw new Error("The storage filter chip was not drawn");
           let focusedTitle = false;
           for (let attempt = 0; attempt < 40 && !focusedTitle; attempt += 1) {
             await sleep(50);
@@ -906,33 +910,48 @@ try {
           }
           if (!focusedTitle)
             throw new Error("The filtered scan issues title was not focused");
-          if (scene === "failure-storage-only") {
-            const removed = await session.run(() => {
-              const button = Array.from(
-                document.querySelectorAll(".du-scan-issues__chip button"),
-              ).find(
-                (candidate) =>
-                  candidate.getAttribute("aria-label") ===
-                  "종류: 읽지 못한 위치, 종류 조건 지우기",
-              );
-              if (!(button instanceof HTMLElement)) return false;
-              button.click();
+          const unreadableSelected = await session.run(() => {
+            const select = document.querySelector(".du-scan-issues select");
+            return (
+              select instanceof HTMLSelectElement &&
+              select.value === "unreadable_locations"
+            );
+          });
+          if (!unreadableSelected)
+            throw new Error("The unreadable locations option was not selected");
+          if (scene === "failure-all-problems") {
+            const changed = await session.run(() => {
+              const select = document.querySelector(".du-scan-issues select");
+              if (!(select instanceof HTMLSelectElement)) return false;
+              Object.getOwnPropertyDescriptor(
+                HTMLSelectElement.prototype,
+                "value",
+              )?.set?.call(select, "all");
+              select.dispatchEvent(new Event("change", { bubbles: true }));
               return true;
             });
-            if (!removed) throw new Error("The Kind filter chip was not found");
+            if (!changed)
+              throw new Error("The Problem type selector was not found");
+            const allSelected = await session.run(() => {
+              const select = document.querySelector(".du-scan-issues select");
+              return (
+                select instanceof HTMLSelectElement &&
+                select.value === "all" &&
+                select.selectedOptions[0]?.textContent === "모든 문제"
+              );
+            });
+            if (!allSelected)
+              throw new Error("The All problems option was not selected");
             if ((await session.run(drawn, ".du-scan-issues__chip", 1)) !== 1)
               throw new Error("The Storage filter chip did not remain");
           }
           if (scene === "failure-narrow") {
-            const wrapped = await session.run(() => {
+            const singleStorageChip = await session.run(() => {
               const chips = document.querySelectorAll(".du-scan-issues__chip");
-              return (
-                chips.length === 2 &&
-                chips[1].getBoundingClientRect().top >
-                  chips[0].getBoundingClientRect().top
-              );
+              return chips.length === 1;
             });
-            if (!wrapped) throw new Error("The filters did not wrap at 700 px");
+            if (!singleStorageChip)
+              throw new Error("The storage chip was not shown at 700 px");
           }
         }
         await saveFailureScene(session, shot.name);
