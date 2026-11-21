@@ -18,6 +18,8 @@
 //   npm run capture:browse-gallery -- [output folder] [scene]
 //     scene: scan-status | lower-bounds | lower-bounds-notice
 //   npm run capture:date-picker-gallery -- [output folder]
+//   node scripts/capture-gallery.mjs target-picker <output folder> [scene]
+//     scene: default | checking | hidden-all   (F02 #350)
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error
@@ -62,6 +64,8 @@ const surfaces = {
     count: 1,
     pointer: false,
   },
+  // F02 #350: the location picker with a network volume and 9 hidden volumes.
+  "target-picker": { ready: ".du-drive-picker", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -77,6 +81,7 @@ const scanLaneScenes = [
   "progress-limit-error",
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
+const targetPickerScenes = ["default", "checking", "hidden-all"];
 const requestedScanLaneScene =
   surface === "scan-lanes" ? process.argv[4] : undefined;
 const selectedBrowseScene =
@@ -94,7 +99,11 @@ const captureScenes =
       : browseScenes
     : surface === "scan-lanes" && requestedScanLaneScene
       ? [requestedScanLaneScene]
-      : [undefined];
+      : surface === "target-picker"
+        ? process.argv[4]
+          ? [process.argv[4]]
+          : targetPickerScenes
+        : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -373,7 +382,9 @@ const shots =
           locale: "en",
         },
       ]
-    : galleryShots;
+    : surface === "target-picker"
+      ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
+      : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -945,7 +956,24 @@ try {
           );
         await saveLanes(session, shot.name, shot.locale);
       } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
-      else if (surface === "history-retention") {
+      else if (surface === "target-picker") {
+        if (!targetPickerScenes.includes(scene))
+          throw new Error("Unknown target-picker scene: " + scene);
+        if (scene === "hidden-all") {
+          const opened = await session.run(function showHiddenVolumes() {
+            const toggle = Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.includes("모두 보기"),
+            );
+            if (!toggle) return false;
+            toggle.click();
+            return true;
+          });
+          if (!opened)
+            throw new Error("The hidden volumes toggle was not found");
+          await sleep(150);
+        }
+        await save(session, shot.name, false, scene);
+      } else if (surface === "history-retention") {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);

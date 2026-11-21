@@ -1,0 +1,34 @@
+/* A choice on one line, for the volumes outside the default list (F02 #350). */
+.du-choices__more {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0;
+  margin-block-start: 4px;
+}
+
+.du-choice.du-line-choice {
+  grid-template-columns: 16px 18px minmax(0, 1fr) auto;
+  gap: 0 8px;
+  padding-block: 4px;
+  color: var(--du-muted);
+}
+
+.du-line-choice__label {
+  grid-area: 1 / 3;
+  min-inline-size: 0;
+  font-size: 13px;
+}
+
+.du-line-choice__description {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.du-choice.du-line-choice[data-selected]:not([data-disabled])
+  .du-line-choice__label {
+  color: var(--du-selected-text);
+}

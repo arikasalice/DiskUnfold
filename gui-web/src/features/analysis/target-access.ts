@@ -37,7 +37,9 @@ export function defaultListing(
  *
  * A network volume is not opened before it is selected, so the scope review that a
  * selection starts is its check (F01 #266): it reads as checking while that review
- * runs and then shows the review's result for the selected path.
+ * is due or running and then shows the review's result for the selected path. The
+ * review starts a moment after the selection, so a selected card never goes back to
+ * "checked when selected" while its check is still to come (F02 #350).
  */
 export function shownAccess(
   target: AnalysisTarget,
@@ -46,6 +48,8 @@ export function shownAccess(
   selection: {
     selected: boolean;
     reviewing: boolean;
+    /** A review of the selection is still to run: scheduled, not failed or blocked. */
+    awaiting: boolean;
     reviewed: readonly ScopeCorrespondence[] | undefined;
   },
 ): { access: ShownAccess; deferred: boolean } {
@@ -60,7 +64,11 @@ export function shownAccess(
   const reviewed = selection.reviewed?.find(
     ({ path }) => path.raw === target.path.raw,
   );
-  return { access: reviewed?.access ?? "not_checked", deferred: true };
+  if (reviewed) return { access: reviewed.access, deferred: true };
+  return {
+    access: selection.awaiting ? "checking" : "not_checked",
+    deferred: true,
+  };
 }
 
 /** The status text of a target card. */

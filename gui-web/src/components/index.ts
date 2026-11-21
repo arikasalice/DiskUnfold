@@ -9,6 +9,7 @@ export {
   SelectField,
   SwitchField,
 } from "./controls";
+export { LineChoice } from "./line-choice";
 export {
   BrandMark,
   CountPill,
