@@ -137,6 +137,32 @@
   font-weight: 700;
 }
 
+/* In forced colors the browser draws a Canvas backplate behind text, so a
+   Highlight row leaves its values as dark text on dark boxes (#201). A user
+   of high contrast finds the selection by the whole row turning Highlight,
+   as in Windows Explorer, so the selected row alone opts out of the forced
+   palette and sets Highlight and HighlightText itself. That draws no
+   backplate. The inner buttons and the focus ring use HighlightText so they
+   show on the Highlight row. */
+@media (forced-colors: active) {
+  .du-browse-grid [aria-selected="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border-inline-start-color: Highlight;
+  }
+
+  .du-browse-grid [aria-selected="true"] .du-action {
+    border-color: HighlightText;
+    color: HighlightText;
+    background: transparent;
+  }
+
+  .du-browse-grid [aria-selected="true"] :focus-visible {
+    outline-color: HighlightText;
+  }
+}
+
 .du-browse-grid:focus-visible,
 .du-browse-grid :focus-visible {
   outline: 2px solid var(--du-focus);
