@@ -33,6 +33,7 @@ pub(super) fn consume(
             progress.publish(build, services.context, services.ids, services.clock)?;
             continue;
         }
+        sample_buffered(services.observation_metrics);
         let event = match wait {
             Some(wait) => match receiver.recv_timeout(wait) {
                 Ok(event) => event,
@@ -76,7 +77,10 @@ fn drain_aborted(
     services: &Services<'_>,
 ) -> Result<(), BuildError> {
     let mut first_error = None;
-    while let Ok(event) = receiver.recv() {
+    while let Ok(event) = {
+        sample_buffered(services.observation_metrics);
+        receiver.recv()
+    } {
         record_received(&event, services.observation_metrics);
         match event {
             Event::FolderAttemptBegin { reply, _permit, .. } => {
@@ -127,6 +131,13 @@ fn drain_aborted(
 fn record_received(event: &Event, metrics: Option<&crate::scan_diagnostics::ObservationMetrics>) {
     if let Some(metrics) = metrics {
         metrics.received(event.estimated_buffer_bytes());
+    }
+}
+
+/// Samples the channel peaks while the collector holds no event (see ObservationMetrics).
+fn sample_buffered(metrics: Option<&crate::scan_diagnostics::ObservationMetrics>) {
+    if let Some(metrics) = metrics {
+        metrics.sample();
     }
 }
 

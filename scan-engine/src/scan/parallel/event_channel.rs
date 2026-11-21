@@ -211,17 +211,21 @@ mod tests {
             Ok(())
         });
         started.recv().map_err(|_| "producer did not start")?;
+        // The test plays the collector: it samples only while it holds no event.
         let deadline = Instant::now() + std::time::Duration::from_secs(10);
         while diagnostics.observation_channel_peak_events() < capacity && Instant::now() < deadline
         {
+            metrics.sample();
             thread::yield_now();
         }
         assert_eq!(diagnostics.observation_channel_peak_events(), capacity);
 
         for _ in 0..=capacity {
+            metrics.sample();
             let event = receiver.recv().map_err(|_| "observation channel closed")?;
             metrics.received(event.estimated_buffer_bytes());
         }
+        metrics.sample();
         producer
             .join()
             .map_err(|_| "observation producer panicked")??;

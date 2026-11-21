@@ -23,13 +23,18 @@ impl ScanDiagnostics {
         self.ready_peak.lock().ok().and_then(|peak| *peak)
     }
 
-    /// Greatest number of events successfully sent but not yet received from the observation
-    /// channel. A send that is still blocked waiting for capacity is not counted.
+    /// Greatest number of events waiting in the observation channel, sampled by the collector
+    /// right before it takes the next event. Only the collector removes events, so the channel
+    /// only grows between two of its receives and each sample sees that interval's largest
+    /// value; the collector then holds no event, so the value never exceeds the channel
+    /// capacity. A send still blocked for capacity, or one whose success is not yet counted, is
+    /// not included.
     pub fn observation_channel_peak_events(&self) -> usize {
         self.observations.peak_events.load(Ordering::Acquire)
     }
 
-    /// Greatest estimated bytes held by events in the observation channel. The estimate adds
+    /// Greatest estimated bytes held by events in the observation channel, sampled like the
+    /// event peak above. The estimate adds
     /// `size_of::<Event>()`, path component vector capacities and byte capacities, boxed
     /// observation/input values and their known owned capacities, and directory-case reason-key
     /// capacity. It excludes allocator bookkeeping, pending sends and scan-side values outside
@@ -108,8 +113,10 @@ impl ScanDiagnostics {
     }
 }
 
-/// Channel event totals let a receiver that wins a scheduling race avoid underflowing the
-/// buffered estimate before the sender records its successful send.
+/// Sent and received totals of the observation channel. Senders count a send after it
+/// succeeds; only the collector counts receives and samples the peaks, right before it takes
+/// the next event. Every counted send is then either in the channel or already counted as
+/// received, so a sample never exceeds the channel capacity.
 #[derive(Default)]
 pub(crate) struct ObservationMetrics {
     sent_events: AtomicUsize,
@@ -124,15 +131,16 @@ impl ObservationMetrics {
     pub(crate) fn sent(&self, bytes: usize) {
         self.sent_events.fetch_add(1, Ordering::Relaxed);
         self.sent_bytes.fetch_add(bytes, Ordering::Relaxed);
-        self.record_peaks();
     }
 
+    /// Called by the collector only, right after it takes an event.
     pub(crate) fn received(&self, bytes: usize) {
         self.received_events.fetch_add(1, Ordering::Relaxed);
         self.received_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    fn record_peaks(&self) {
+    /// Called by the collector only, while it holds no event, before each receive.
+    pub(crate) fn sample(&self) {
         let events = self
             .sent_events
             .load(Ordering::Relaxed)
