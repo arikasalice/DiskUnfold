@@ -76,17 +76,14 @@ impl Record {
     /// Kind for both views of the record.
     ///
     /// A directory whose mount status says that a file system is mounted on
-    /// it is a mount point. Firmlinks and automount triggers that are not
-    /// mounted lead elsewhere too, but the record does not establish another
-    /// volume: a firmlink reports no mount status and its target may share the
-    /// volume group, and a trigger mounts a file system only when it is
-    /// crossed. They cannot be told apart from links and are links.
+    /// it is a mount point. Firmlinks have a distinct kind because the confirmed
+    /// root volume group can establish their targets; triggers remain links.
     pub(super) fn kind(&self) -> ObservedKind {
         let status = self.mount_status.unwrap_or(0);
         let firmlink = self.flags.is_some_and(|flags| flags & SF_FIRMLINK != 0);
         match self.object_type {
             Some(VREG) => ObservedKind::File,
-            Some(VDIR) if firmlink => ObservedKind::Link,
+            Some(VDIR) if firmlink => ObservedKind::Firmlink,
             Some(VDIR) if status & DIR_MNTSTATUS_MNTPOINT != 0 => ObservedKind::MountPoint,
             Some(VDIR) if status & DIR_MNTSTATUS_TRIGGER != 0 => ObservedKind::Link,
             Some(VDIR) => ObservedKind::Directory,

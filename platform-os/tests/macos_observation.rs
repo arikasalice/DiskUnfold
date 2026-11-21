@@ -386,7 +386,7 @@ fn missing_system_layout() -> Option<&'static str> {
 /// whose disks are laid out otherwise prints the reason and skips the checks
 /// (on CI the skip fails).
 #[test]
-fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> TestResult {
+fn firmlinks_are_classified_and_mount_points_are_reported() -> TestResult {
     if let Some(reason) = missing_system_layout() {
         return machine::skip(reason);
     }
@@ -394,9 +394,8 @@ fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> Test
     assert_eq!(system.directory.ancestor_file_ids(), Some(&[][..]));
     let entries = all(&mut *system.directory)?;
     let users = find(&entries, b"Users")?;
-    assert_eq!(users.enumerated_kind, ObservedKind::Link);
-    assert_eq!(kind(users), Some(ObservedKind::Link));
-    assert!(system.directory.open_child(users).is_err());
+    assert_eq!(users.enumerated_kind, ObservedKind::Firmlink);
+    assert_eq!(kind(users), Some(ObservedKind::Firmlink));
     assert_eq!(
         kind(find(&entries, b"System")?),
         Some(ObservedKind::Directory)
@@ -406,7 +405,15 @@ fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> Test
     let data = find(&entries, b"Data")?;
     assert_eq!(data.enumerated_kind, ObservedKind::MountPoint);
     assert_eq!(kind(data), Some(ObservedKind::MountPoint));
-    assert!(volumes.directory.open_child(data).is_err());
+    // The data mount opens as the root of the same volume group; whether a scan
+    // enters it is the admission table's decision (#263).
+    let opened = volumes
+        .directory
+        .open_child(data)
+        .map_err(|error| format!("{error:?}"))?;
+    let opened = opened.observed_identity().ok_or("no identity")?;
+    let system_identity = system.directory.observed_identity().ok_or("no identity")?;
+    assert_eq!(opened.device, system_identity.device);
     let data_root = open(Path::new("/System/Volumes/Data"))?;
     assert_eq!(data_root.directory.ancestor_file_ids(), Some(&[][..]));
     assert_ne!(data_root.volume_id, system.volume_id);

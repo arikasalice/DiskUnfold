@@ -20,6 +20,7 @@ use du_core_contracts::{
     OsPath,
     analysis_ipc::ScopeExclusion,
     scan_observation::{OpenedScopeRoot, ScopeRootPort},
+    volume::RootVolumeGroupObservation,
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::scan::PreMetadataFilter;
@@ -115,6 +116,7 @@ pub(crate) struct BoundScopeProof {
     boundary: du_core_contracts::analysis_ipc::ScopeBoundary,
     included_mounts: Vec<OsPath>,
     source: du_core_contracts::analysis_ipc::ScopeSource,
+    group: RootVolumeGroupObservation,
 }
 
 impl BoundScopeProof {
@@ -144,7 +146,9 @@ impl BoundScopeProof {
 
     /// Derives the exact scope digest from the immutable admitted conditions.
     pub(crate) fn fingerprint(&self) -> Result<String, EngineError> {
-        Ok(digest::scope(&self.draft(true))?.to_hex().to_string())
+        Ok(digest::scope_observed(&self.draft(true), &self.group)?
+            .to_hex()
+            .to_string())
     }
 }
 
@@ -153,6 +157,7 @@ fn prepare_scope(
     roots: &dyn ScopeRootPort,
     keys: &dyn RuleKeys,
     include_recent: bool,
+    group: &RootVolumeGroupObservation,
 ) -> Result<PreparedScope, EngineError> {
     let unavailable = || EngineError::reason("scope.target_unavailable");
     let mut plain = draft.clone();
@@ -200,8 +205,9 @@ fn prepare_scope(
         boundary: draft.boundary,
         included_mounts: draft.included_mounts.clone(),
         source: draft.source,
+        group: group.clone(),
     };
-    let scope = digest::scope(&proof.draft(true))?;
+    let scope = digest::scope_observed(&proof.draft(true), group)?;
     let witnesses = prepared
         .selected_roots()
         .map(|root| {
@@ -289,17 +295,26 @@ pub(super) fn review(
     roots: &dyn ScopeRootPort,
     clock: &dyn JobClock,
     comparison: Option<Arc<dyn PathComparison>>,
+    group: &RootVolumeGroupObservation,
 ) -> Result<ScopeReview, EngineError> {
     let keys = admit(&draft, comparison)?;
-    let prepared = prepare_scope(&draft, roots, &*keys, false)?;
+    let prepared = prepare_scope(&draft, roots, &*keys, false, group)?;
     Ok(ScopeReview {
         scope: prepared.proof.draft(false),
-        notices: prepared.notices,
+        notices: prepared
+            .notices
+            .into_iter()
+            .chain(super::group_notice(group).map(str::to_owned))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect(),
         targets: prepared.targets,
         review_fingerprint: prepared.review,
         observed_at: Timestamp::from_unix_millis(clock.now_ms())
             .ok_or_else(|| EngineError::reason("support.internal_error"))?,
         request_seq: seq,
+        volume_group: super::group_wire(group),
+        suggested_include: None,
     })
 }
 
@@ -309,10 +324,12 @@ pub(super) fn verify(
     roots: &dyn ScopeRootPort,
     comparison: Option<Arc<dyn PathComparison>>,
     include_recent: bool,
+    group: &RootVolumeGroupObservation,
 ) -> Result<super::VerifiedScope, EngineError> {
     let changed = || EngineError::reason("scope.changed");
     let keys = admit(draft, comparison).map_err(|_| changed())?;
-    let prepared = prepare_scope(draft, roots, &*keys, include_recent).map_err(|_| changed())?;
+    let prepared =
+        prepare_scope(draft, roots, &*keys, include_recent, group).map_err(|_| changed())?;
     if prepared.review != expected {
         return Err(changed());
     }
@@ -321,6 +338,7 @@ pub(super) fn verify(
         recent_observers: prepared.recent_observers,
         normalized_draft: prepared.proof.draft(false),
         scope_fingerprint: super::ScopeFingerprint::Bound(prepared.proof),
+        volume_group: super::group_value(group),
         filter: Some(prepared.filter),
     })
 }

@@ -54,6 +54,29 @@ pub enum VolumeTargetKind {
     FolderMount,
 }
 
+/// The place of a mount in the macOS root volume group (F01 #263).
+///
+/// Only the OS establishes it: the data volume carries `MNT_EXT_ROOT_DATA_VOL`
+/// and the system volume is mounted at `/`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VolumeGroupRole {
+    System,
+    Data,
+}
+
+/// What a system volume next to the root volume group is for (F03 IF-03, #263).
+///
+/// A display classification decided by the adapter; a screen never derives it from
+/// a path. `Other` is a system volume without a known purpose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemVolumeRole {
+    Vm,
+    Preboot,
+    Recovery,
+    Update,
+    Other,
+}
+
 /// A mount observation, retaining the OS path bytes without loss.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VolumeMount {
@@ -79,6 +102,16 @@ pub struct VolumeMount {
     pub local: Option<bool>,
     /// Capacity reported with the listing itself, read without opening the mount.
     pub listed_capacity: Option<VolumeCapacity>,
+    /// The mount's place in the root volume group; `None` outside it or without evidence.
+    pub group_role: Option<VolumeGroupRole>,
+    /// The purpose of a system volume (F03 IF-03); `None` for other mounts.
+    pub system_role: Option<SystemVolumeRole>,
+    /// Opaque identity of the storage container whose space the mount shares, such
+    /// as an APFS container. Mounts with equal values share free space. `None` is no
+    /// evidence and never matches another mount.
+    pub container: Option<Vec<u8>>,
+    /// Bytes the OS reports as used by this volume alone, read with the listing.
+    pub used_bytes: Option<u64>,
 }
 
 /// One observation: a failed enumeration is not an empty successful list.
@@ -99,8 +132,63 @@ pub struct VolumeProbe {
     pub capacity: Option<Result<VolumeCapacity, PortError>>,
 }
 
+/// A firmlink of the root volume group whose two ends were confirmed to be one
+/// directory: opening `source` and `target` gave the same device and inode.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedFirmlink {
+    /// Absolute path of the firmlink on the system volume, such as `/Users`.
+    pub source: Vec<u8>,
+    /// Absolute path of the same directory below the data mount, such as
+    /// `/System/Volumes/Data/Users`.
+    pub target: Vec<u8>,
+    pub device: u64,
+    pub inode: u64,
+}
+
+/// The macOS root volume group as confirmed for one scan (F01 #263).
+///
+/// Present only when all three conditions hold: exactly one mount carries
+/// `MNT_EXT_ROOT_DATA_VOL` and shares the device of `/`, `/usr/share/firmlinks`
+/// was read, and every listed pair was confirmed as one directory. Any mismatch or
+/// failed read yields no group. It is observed again for every scan and never cached,
+/// and no user file is opened to establish it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RootVolumeGroup {
+    /// Mount path of the data volume, such as `/System/Volumes/Data`.
+    pub data_mount: Vec<u8>,
+    /// The device that `/` and the data volume both report.
+    pub device: u64,
+    /// Inode reported for the Data mount point entry by its parent directory's enumeration.
+    pub data_inode: u64,
+    /// Confirmed firmlinks, sorted by `source` bytes.
+    pub firmlinks: Vec<ConfirmedFirmlink>,
+}
+
+/// One observation of the root volume group.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootVolumeGroupObservation {
+    /// The OS has no root volume groups (every adapter but macOS).
+    NotApplicable,
+    /// The OS has root volume groups, but this one could not be confirmed. The scope
+    /// covers the system volume only and the review says so.
+    Unconfirmed,
+    Confirmed(RootVolumeGroup),
+}
+
 pub trait VolumePort: Send + Sync {
     fn enumerate(&self) -> VolumeEnumeration;
+    /// Confirms the root volume group now, for one scope review or scan. Adapters
+    /// without volume groups keep this default.
+    fn root_volume_group(&self) -> RootVolumeGroupObservation {
+        RootVolumeGroupObservation::NotApplicable
+    }
+    /// The current user's home folder from the OS user database, offered when the
+    /// root volume group cannot be confirmed (#263). A suggestion only: it is never
+    /// stored, logged or used as an authorization. `None` when unknown or not a
+    /// directory; adapters without one keep this default.
+    fn home_directory(&self) -> Option<Vec<u8>> {
+        None
+    }
     /// Verify read and search access to a directory without listing its entries.
     fn path_access(&self, path: &[u8]) -> Result<(), PortError>;
     /// Read current capacity for the requested directory, without caching observations.

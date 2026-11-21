@@ -10,7 +10,11 @@ use du_core_contracts::{
         attribute_reason,
     },
 };
-use std::os::fd::AsFd;
+use rustix::fs::{AtFlags, FileType, statat};
+use std::{
+    ffi::CString,
+    os::fd::{AsFd, BorrowedFd},
+};
 
 /// Largest number of entries one batch returns.
 const BATCH_SIZE: usize = 256;
@@ -112,7 +116,12 @@ impl MacDirectory {
         if let Some(code) = record.error.filter(|&code| code != 0) {
             return Err(self.after_failure(errors::errno(code.cast_signed())));
         }
-        let device = record.device.ok_or_else(errors::unavailable)?;
+        let (device, inode) = if *kind == ObservedKind::Firmlink {
+            firmlink_target_identity(self.fd.as_fd(), &record.name)
+                .map_err(|error| self.after_failure(error))?
+        } else {
+            (record.device.ok_or_else(errors::unavailable)?, inode)
+        };
         if device != self.device || *kind == ObservedKind::MountPoint {
             return Ok(other_volume(kind.clone(), device, inode));
         }
@@ -279,6 +288,15 @@ impl MacDirectory {
 /// and inode of the directory it covers, which is what the record reports.
 pub(super) fn other_volume(kind: ObservedKind, device: u64, inode: u64) -> MetadataObservation {
     MetadataObservation::other_volume(kind, device, inode, errors::unavailable())
+}
+
+fn firmlink_target_identity(parent: BorrowedFd<'_>, name: &[u8]) -> Result<(u64, u64), PortError> {
+    let name = CString::new(name).map_err(|_| errors::invalid())?;
+    let stat = statat(parent, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW).map_err(errors::os)?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory {
+        return Err(errors::unavailable());
+    }
+    Ok((u64::from(stat.st_dev.cast_unsigned()), stat.st_ino))
 }
 
 /// Adds the observation time and the dataless placeholder observation of a file whose

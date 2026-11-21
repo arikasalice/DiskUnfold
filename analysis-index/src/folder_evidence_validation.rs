@@ -266,34 +266,13 @@ fn valid_final(
         Err(_) => &observed.entry.enumerated_kind,
     };
     match outcome {
-        FolderAttemptFinal::Recorded { child_attempt } => match observed_kind {
-            ObservedKind::Directory => {
-                stored.kind == ResultItemKind::Directory
-                    && child_attempt.is_some_and(|token| {
-                        child_token_matches(parent, token, child_node, attempts)
-                    })
-            }
-            ObservedKind::MountPoint | ObservedKind::MountedFile => false,
-            ObservedKind::File => {
-                matches!(stored.kind, ResultItemKind::File | ResultItemKind::Unknown)
-                    && child_attempt.is_none()
-                    && !store.is_boundary(child_node)
-            }
-            ObservedKind::Link => {
-                matches!(
-                    stored.kind,
-                    ResultItemKind::UntraversedLink | ResultItemKind::Unknown
-                ) && child_attempt.is_none()
-            }
-            ObservedKind::Other | ObservedKind::Unknown => {
-                matches!(
-                    stored.kind,
-                    ResultItemKind::File
-                        | ResultItemKind::Unknown
-                        | ResultItemKind::UnknownStructure
-                ) && child_attempt.is_none()
-            }
-        },
+        FolderAttemptFinal::Recorded { child_attempt } => valid_recorded(
+            observed_kind,
+            &stored.kind,
+            child_attempt,
+            |token| child_token_matches(parent, token, child_node, attempts),
+            store.is_boundary(child_node),
+        ),
         FolderAttemptFinal::Boundary => {
             observed.entry.metadata.is_ok()
                 && boundary_item(observed_kind, &stored.kind, store.is_boundary(child_node))
@@ -304,6 +283,46 @@ fn valid_final(
                 && observed_kind == &ObservedKind::Directory
         }
         FolderAttemptFinal::Unresolved => false,
+    }
+}
+
+/// Whether a recorded final outcome agrees with the observed and stored kinds.
+fn valid_recorded(
+    observed_kind: &ObservedKind,
+    stored: &ResultItemKind,
+    child_attempt: Option<FolderAttemptToken>,
+    entered: impl Fn(FolderAttemptToken) -> bool,
+    boundary: bool,
+) -> bool {
+    let untraversed = || {
+        matches!(
+            stored,
+            ResultItemKind::UntraversedLink | ResultItemKind::Unknown
+        )
+    };
+    match observed_kind {
+        ObservedKind::Directory => {
+            *stored == ResultItemKind::Directory && child_attempt.is_some_and(entered)
+        }
+        ObservedKind::MountPoint | ObservedKind::MountedFile => false,
+        ObservedKind::File => {
+            matches!(stored, ResultItemKind::File | ResultItemKind::Unknown)
+                && child_attempt.is_none()
+                && !boundary
+        }
+        ObservedKind::Link => untraversed() && child_attempt.is_none(),
+        // A firmlink of the confirmed root volume group is entered once like a
+        // directory; anywhere else it stays an untraversed link (#263).
+        ObservedKind::Firmlink => match child_attempt {
+            Some(token) => *stored == ResultItemKind::Directory && entered(token),
+            None => untraversed(),
+        },
+        ObservedKind::Other | ObservedKind::Unknown => {
+            matches!(
+                stored,
+                ResultItemKind::File | ResultItemKind::Unknown | ResultItemKind::UnknownStructure
+            ) && child_attempt.is_none()
+        }
     }
 }
 

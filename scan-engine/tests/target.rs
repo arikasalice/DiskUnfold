@@ -39,6 +39,7 @@ fn mount(path: &[u8]) -> VolumeMount {
         browsable: None,
         local: None,
         listed_capacity: None,
+        ..VolumeMount::default()
     }
 }
 fn error(kind: PortErrorKind, reason: &str) -> PortError {

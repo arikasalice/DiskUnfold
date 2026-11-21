@@ -139,6 +139,40 @@ fn scope_review_rejects_unknown_fields_and_keeps_native_paths() {
 }
 
 #[test]
+fn optional_scope_review_suggestion_is_omitted_or_a_path_never_null() {
+    use du_core_contracts::analysis_ipc::ScopeReview;
+    let path =
+        json!({"encoding": "unix", "raw": "L1VzZXJzL20", "display": "/Users/m", "lossy": false});
+    let review = |extra: serde_json::Value| {
+        let mut body = json!({
+            "scope": {"includes": [path], "exclusions": [], "boundary": "current_volume",
+                      "includedMounts": [], "source": "gui"},
+            "notices": ["scope.volume_group_unverified"], "targets": [],
+            "reviewFingerprint": "f", "observedAt": "2026-11-21T00:00:00.000Z", "requestSeq": 1,
+        });
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        body
+    };
+    let omitted: ScopeReview = from_value(review(json!({}))).unwrap();
+    assert!(omitted.suggested_include.is_none() && omitted.volume_group.is_none());
+    assert!(
+        !to_value(&omitted)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("suggestedInclude")
+    );
+    let offered: ScopeReview = from_value(review(json!({"suggestedInclude": path}))).unwrap();
+    assert_eq!(
+        offered.suggested_include.unwrap().raw.bytes().unwrap(),
+        b"/Users/m"
+    );
+    assert!(from_value::<ScopeReview>(review(json!({"suggestedInclude": null}))).is_err());
+}
+
+#[test]
 fn space_total_request_rejects_extensions_conflicts_and_arrays()
 -> Result<(), Box<dyn std::error::Error>> {
     use du_core_contracts::analysis_ipc::{SpaceTarget, SpaceTotalRequest};

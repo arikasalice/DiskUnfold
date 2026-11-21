@@ -4,8 +4,10 @@
 //! its kind, sizes, identity and modification time in one record, so no item
 //! is opened to read its metadata. Child directories are opened relative to the
 //! parent descriptor with `O_NOFOLLOW` and must match the enumerated identity.
-//! Mount points are reported as such; symbolic links, firmlinks and automount
-//! triggers are reported as links. None of them is ever entered. Directory
+//! Mount points are reported as such, firmlinks as firmlinks, and symbolic links
+//! and automount triggers as links. The collector enters a firmlink or the data
+//! mount only in a scope of the confirmed root volume group (#263); everything else
+//! of these is never entered. Directory
 //! reads and opens refuse dataless-object
 //! materialization on the calling thread, so no file provider is asked to
 //! download content.
@@ -105,22 +107,32 @@ impl AnchoredDirectory for MacDirectory {
 
     fn open_child(&self, entry: &ObservedEntry) -> Result<Box<dyn AnchoredDirectory>, PortError> {
         let meta = entry.metadata.as_ref().map_err(Clone::clone)?;
-        if meta.kind != ObservedKind::Directory
-            || meta.device != self.device
-            || meta.inode == 0
-            || entry.enumerated_inode != meta.inode
-        {
+        // A firmlink's metadata already names the directory it leads to, and the
+        // data mount of the root volume group shares the system volume's device.
+        let expected = match meta.kind {
+            ObservedKind::Directory if entry.enumerated_inode == meta.inode => Some(meta.inode),
+            ObservedKind::Firmlink => Some(meta.inode),
+            ObservedKind::MountPoint => None,
+            _ => return Err(errors::invalid()),
+        };
+        if meta.device != self.device || meta.inode == 0 {
             return Err(errors::invalid());
         }
         let name = scope::component(&entry.name)?;
         let (fd, stat) = scope::open_directory(self.fd.as_fd(), &name)
             .map_err(|error| self.after_failure(error))?;
-        if scope::device(&stat) != self.device || stat.st_ino != meta.inode {
+        let same = scope::device(&stat) == self.device
+            && match expected {
+                Some(inode) => stat.st_ino == inode,
+                // The mounted root reports its own inode; it must be a mount root.
+                None => volume::is_mount_root(fd.as_fd()).unwrap_or(false),
+            };
+        if !same {
             return Err(errors::changed());
         }
         Ok(Box::new(Self::new(
             fd,
-            (self.device, meta.inode),
+            (self.device, stat.st_ino),
             Arc::clone(&self.volume_id),
             None,
         )))

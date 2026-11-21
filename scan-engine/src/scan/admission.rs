@@ -81,11 +81,20 @@ impl Unread {
 pub(super) enum Boundary {
     /// The observed volume identity of the directory.
     Volume(u64),
+    /// Entries beneath the confirmed data mount retain the group boundary.
+    Data(u64),
     /// The identity of the root could not be observed or verified.
     Unknown,
 }
 
 impl Boundary {
+    pub(super) fn device(self) -> Option<u64> {
+        match self {
+            Self::Volume(device) | Self::Data(device) => Some(device),
+            Self::Unknown => None,
+        }
+    }
+
     /// The boundary of a child directory admitted with [`Admission::Enter`].
     pub(super) fn child(entry: &ObservedEntry) -> Self {
         entry
@@ -161,8 +170,8 @@ fn decide_with(
     else {
         return Admission::Record;
     };
-    if meta.kind == ObservedKind::Link {
-        return Admission::UntraversedLink;
+    if let Some(row) = group_row(entry, meta, parent, visited, reserve) {
+        return row;
     }
     // The adapter established another volume even when the parent's is unknown.
     if matches!(
@@ -171,8 +180,14 @@ fn decide_with(
     ) {
         return Admission::OutsideBoundary;
     }
-    if let Boundary::Volume(device) = parent.boundary
-        && meta.device != device
+    // Outside a confirmed group, a firmlink is an untraversed link like any other.
+    if matches!(meta.kind, ObservedKind::Link | ObservedKind::Firmlink) {
+        return Admission::UntraversedLink;
+    }
+    if parent
+        .boundary
+        .device()
+        .is_some_and(|device| meta.device != device)
     {
         return Admission::OutsideBoundary;
     }
@@ -180,15 +195,51 @@ fn decide_with(
         return Admission::Record;
     }
     let (root, device, inode) = (parent.root, meta.device, meta.inode);
+    if matches!(parent.boundary, Boundary::Data(_)) && visited.group_firmlink(meta) {
+        return Admission::Revisit;
+    }
     let first = match parent.boundary {
-        Boundary::Volume(_) if reserve => visited.reserve(root, device, inode),
+        Boundary::Volume(_) | Boundary::Data(_) if reserve => visited.reserve(root, device, inode),
         _ => !visited.known(root, device, inode),
     };
     match (first, parent.boundary) {
         (false, _) => Admission::Revisit,
-        (true, Boundary::Volume(_)) => Admission::Enter,
+        (true, Boundary::Volume(_) | Boundary::Data(_)) => Admission::Enter,
         (true, Boundary::Unknown) => Admission::Unverifiable,
     }
+}
+
+/// The rows of a confirmed root volume group scope (#263), ahead of the general
+/// rows: a confirmed firmlink and the data mount are entered once.
+fn group_row(
+    entry: &ObservedEntry,
+    meta: &MetadataObservation,
+    parent: Parent,
+    visited: &Visited,
+    reserve: bool,
+) -> Option<Admission> {
+    let group = visited.group.as_ref()?;
+    if parent.boundary.device() != Some(group.device) {
+        return None;
+    }
+    let enters = match meta.kind {
+        ObservedKind::Firmlink => visited.group_firmlink(meta),
+        ObservedKind::MountPoint => visited.group_data_mount(entry),
+        _ => false,
+    };
+    if !enters {
+        return None;
+    }
+    let first = if reserve {
+        visited.reserve(parent.root, meta.device, meta.inode)
+    } else {
+        !visited.known(parent.root, meta.device, meta.inode)
+    };
+    Some(if first {
+        Admission::Enter
+    } else {
+        Admission::Revisit
+    })
 }
 
 fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
@@ -204,6 +255,10 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
             entry.enumerated_kind,
             ObservedKind::Unknown | ObservedKind::File | ObservedKind::MountedFile
         ),
+        // A firmlink's metadata describes its target, not its directory entry.
+        ObservedKind::Firmlink => {
+            entry.enumerated_kind == ObservedKind::Firmlink && meta.inode != 0
+        }
         ObservedKind::Unknown | ObservedKind::Other => false,
         _ => {
             meta.inode != 0
@@ -225,9 +280,7 @@ fn other_volume_directory(
     entry: &ObservedEntry,
     boundary: Boundary,
 ) -> Option<&MetadataObservation> {
-    let Boundary::Volume(device) = boundary else {
-        return None;
-    };
+    let device = boundary.device()?;
     entry.metadata.as_ref().ok().filter(|meta| {
         meta.kind == ObservedKind::Directory
             && meta.device != device
@@ -322,7 +375,7 @@ pub(super) fn record_root_start(
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
     let unread = match start {
-        RootStart::Collect(Boundary::Volume(_)) => {
+        RootStart::Collect(Boundary::Volume(_) | Boundary::Data(_)) => {
             counts.completed += 1;
             return Ok(());
         }

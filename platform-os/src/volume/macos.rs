@@ -5,11 +5,13 @@
 //! identities come from the same function, so a listed mount, an observed path
 //! and a scope root on one volume report equal volume identities.
 use crate::macos_observation::{errors, scope, volume};
+mod group;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     volume::{
-        Capability, CapabilityState, VolumeCapabilities, VolumeCapacity, VolumeEnumeration,
-        VolumeMount, VolumePort, VolumeProbe, VolumeRole,
+        Capability, CapabilityState, RootVolumeGroupObservation, SystemVolumeRole,
+        VolumeCapabilities, VolumeCapacity, VolumeEnumeration, VolumeGroupRole, VolumeMount,
+        VolumePort, VolumeProbe, VolumeRole,
     },
 };
 use std::{
@@ -108,6 +110,15 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
         return Err(malformed());
     }
     let flags = entry.f_flags;
+    let group_role = if entry.f_flags_ext & group::MNT_EXT_ROOT_DATA_VOL != 0 {
+        Some(VolumeGroupRole::Data)
+    } else if mount_path == b"/" {
+        Some(VolumeGroupRole::System)
+    } else {
+        None
+    };
+    let system_role = system_role(&mount_path, flags);
+    let container = container(&mount_source);
     Ok(VolumeMount {
         display_path: String::from_utf8_lossy(&mount_path).into_owned(),
         volume_id: identity(entry, &mount_path),
@@ -121,7 +132,49 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
         browsable: Some(flags & libc::MNT_DONTBROWSE.cast_unsigned() == 0),
         local: Some(flags & libc::MNT_LOCAL.cast_unsigned() != 0),
         listed_capacity: listed_capacity(entry),
+        group_role,
+        system_role,
+        container,
+        used_bytes: entry
+            .f_blocks
+            .checked_sub(entry.f_bfree)
+            .and_then(|blocks| blocks.checked_mul(u64::from(entry.f_bsize))),
     })
+}
+
+fn system_role(path: &[u8], flags: u32) -> Option<SystemVolumeRole> {
+    if path == b"/System/Volumes/VM" {
+        Some(SystemVolumeRole::Vm)
+    } else if path == b"/System/Volumes/Preboot" {
+        Some(SystemVolumeRole::Preboot)
+    } else if path == b"/System/Volumes/Recovery" {
+        Some(SystemVolumeRole::Recovery)
+    } else if path == b"/System/Volumes/Update" {
+        Some(SystemVolumeRole::Update)
+    } else if path != b"/System/Volumes/Data"
+        && path.starts_with(b"/System/Volumes/")
+        && flags & libc::MNT_DONTBROWSE.cast_unsigned() != 0
+    {
+        Some(SystemVolumeRole::Other)
+    } else {
+        None
+    }
+}
+
+fn container(source: &[u8]) -> Option<Vec<u8>> {
+    let name = source.strip_prefix(b"/dev/")?;
+    let rest = name.strip_prefix(b"disk")?;
+    let separator = rest.iter().position(|&byte| byte == b's')?;
+    let (number, suffix) = rest.split_at(separator);
+    let slice = suffix.get(1..)?;
+    if number.is_empty()
+        || slice.is_empty()
+        || !number.iter().all(u8::is_ascii_digit)
+        || !slice.iter().all(u8::is_ascii_digit)
+    {
+        return None;
+    }
+    Some([b"disk".as_slice(), number].concat())
 }
 
 /// The capacity in the listing's own record, so a network volume needs no open (#266).
@@ -206,6 +259,22 @@ impl VolumePort for MacVolumes {
         }
     }
 
+    fn root_volume_group(&self) -> RootVolumeGroupObservation {
+        listed()
+            .map(|entries| group::observe(&entries))
+            .unwrap_or(RootVolumeGroupObservation::Unconfirmed)
+    }
+
+    fn home_directory(&self) -> Option<Vec<u8>> {
+        use std::os::unix::ffi::OsStrExt;
+        // The user database answers, not `HOME`; a missing or non-directory home
+        // is no suggestion (#263).
+        let home = crate::startup::fda::passwd::home_directory()?;
+        std::fs::metadata(&home)
+            .is_ok_and(|meta| meta.is_dir())
+            .then(|| home.as_os_str().as_bytes().to_vec())
+    }
+
     fn path_access(&self, path: &[u8]) -> Result<(), PortError> {
         open_checked(path).map(|_| ())
     }
@@ -279,5 +348,33 @@ mod tests {
         let (mounts, skipped) = readable(&entries);
         assert!(!skipped);
         assert_eq!(mounts.len(), 2);
+    }
+
+    #[test]
+    fn mount_metadata_uses_checked_space_and_extracts_container()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut entry = entry(b"/System/Volumes/VM", b"apfs");
+        entry.f_mntfromname.fill(0);
+        for (slot, byte) in entry.f_mntfromname.iter_mut().zip(b"/dev/disk3s1") {
+            *slot = c_char::from_ne_bytes([*byte]);
+        }
+        entry.f_blocks = 10;
+        entry.f_bfree = 4;
+        entry.f_bsize = 4096;
+        let mounted = match mount(&entry) {
+            Ok(mounted) => mounted,
+            Err(error) => return Err(format!("mount observation failed: {error:?}").into()),
+        };
+        assert_eq!(mounted.container.as_deref(), Some(b"disk3".as_slice()));
+        assert_eq!(mounted.used_bytes, Some(24_576));
+        assert_eq!(mounted.system_role, Some(SystemVolumeRole::Vm));
+
+        entry.f_bfree = 11;
+        let mounted = match mount(&entry) {
+            Ok(mounted) => mounted,
+            Err(error) => return Err(format!("mount observation failed: {error:?}").into()),
+        };
+        assert_eq!(mounted.used_bytes, None);
+        Ok(())
     }
 }

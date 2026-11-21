@@ -1,6 +1,9 @@
 //! Directory identities reserved during one job, with every root first.
 use super::Boundary;
-use du_core_contracts::scan_observation::HandleIdentity;
+use du_core_contracts::{
+    scan_observation::{HandleIdentity, MetadataObservation, ObservedEntry, ObservedKind},
+    volume::RootVolumeGroup,
+};
 use std::{
     collections::HashSet,
     sync::{Mutex, MutexGuard, PoisonError},
@@ -34,6 +37,7 @@ pub(in crate::scan) enum RootStart {
 pub(in crate::scan) struct Visited {
     entered: Mutex<HashSet<(u64, u64)>>,
     ancestors: Vec<HashSet<(u64, u64)>>,
+    pub(super) group: Option<RootVolumeGroup>,
 }
 
 impl Visited {
@@ -43,6 +47,13 @@ impl Visited {
     /// that root unknown. The returned starts follow the same order.
     pub(in crate::scan) fn reserve_roots(
         identities: Vec<Option<HandleIdentity>>,
+    ) -> (Self, Vec<RootStart>) {
+        Self::reserve_roots_with_group(identities, None)
+    }
+
+    pub(in crate::scan) fn reserve_roots_with_group(
+        identities: Vec<Option<HandleIdentity>>,
+        group: Option<RootVolumeGroup>,
     ) -> (Self, Vec<RootStart>) {
         let mut entered = HashSet::new();
         let mut ancestors = Vec::with_capacity(identities.len());
@@ -64,8 +75,43 @@ impl Visited {
         let visited = Self {
             entered: Mutex::new(entered),
             ancestors,
+            group,
         };
         (visited, starts)
+    }
+
+    pub(in crate::scan) fn child_boundary(
+        &self,
+        entry: &ObservedEntry,
+        parent: Boundary,
+    ) -> Boundary {
+        let Some(group) = &self.group else {
+            return Boundary::child(entry);
+        };
+        if matches!(parent, Boundary::Data(_)) {
+            return Boundary::Data(group.device);
+        }
+        if is_data_mount(entry, group) {
+            return Boundary::Data(group.device);
+        }
+        Boundary::child(entry)
+    }
+
+    /// Whether the directory is one end of a confirmed firmlink: the entry on the
+    /// system volume and its target below the data mount share this identity.
+    pub(super) fn group_firmlink(&self, meta: &MetadataObservation) -> bool {
+        self.group.as_ref().is_some_and(|group| {
+            group
+                .firmlinks
+                .iter()
+                .any(|link| link.device == meta.device && link.inode == meta.inode)
+        })
+    }
+
+    pub(super) fn group_data_mount(&self, entry: &ObservedEntry) -> bool {
+        self.group
+            .as_ref()
+            .is_some_and(|group| is_data_mount(entry, group))
     }
 
     /// True when the directory was reserved or is a verified ancestor of `root`.
@@ -88,4 +134,16 @@ impl Visited {
     fn entered(&self) -> MutexGuard<'_, HashSet<(u64, u64)>> {
         self.entered.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+fn is_data_mount(entry: &ObservedEntry, group: &RootVolumeGroup) -> bool {
+    entry.metadata.as_ref().is_ok_and(|meta| {
+        meta.kind == ObservedKind::MountPoint
+            && meta.device == group.device
+            && meta.inode == group.data_inode
+            && matches!(
+                entry.enumerated_kind,
+                ObservedKind::Unknown | ObservedKind::Directory | ObservedKind::MountPoint
+            )
+    })
 }

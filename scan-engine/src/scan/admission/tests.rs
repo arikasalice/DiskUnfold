@@ -3,6 +3,7 @@ use du_core_contracts::scan_observation::ObservedValue;
 use du_core_contracts::{
     ports::{PortError, PortErrorKind},
     scan_observation::HandleIdentity,
+    volume::{ConfirmedFirmlink, RootVolumeGroup},
 };
 
 fn entry(kind: ObservedKind, device: u64, inode: u64) -> ObservedEntry {
@@ -288,4 +289,104 @@ fn undecidable_exclusion_is_withheld_and_kept() {
         FilterDecision::Exclude
     );
     assert_eq!(undecided, [b"unknown".to_vec()]);
+}
+
+fn volume_group() -> RootVolumeGroup {
+    RootVolumeGroup {
+        data_mount: b"/System/Volumes/Data".to_vec(),
+        device: 1,
+        data_inode: 20,
+        firmlinks: vec![ConfirmedFirmlink {
+            source: b"/Users".to_vec(),
+            target: b"/System/Volumes/Data/Users".to_vec(),
+            device: 1,
+            inode: 99,
+        }],
+    }
+}
+
+fn firmlink(enumerated_inode: u64, target_inode: u64) -> ObservedEntry {
+    let mut observed = entry(ObservedKind::Firmlink, 1, target_inode);
+    observed.enumerated_inode = enumerated_inode;
+    observed
+}
+
+#[test]
+fn only_a_listed_group_firmlink_identity_is_entered_once() {
+    let (visited, _) =
+        Visited::reserve_roots_with_group(vec![identity(1, 10, &[])], Some(volume_group()));
+    let listed = firmlink(40, 99);
+    assert_eq!(
+        decide(false, &listed, at(0, Boundary::Volume(1)), &visited),
+        Admission::Enter
+    );
+    assert_eq!(
+        decide(false, &listed, at(0, Boundary::Volume(1)), &visited),
+        Admission::Revisit
+    );
+    let unlisted = firmlink(41, 100);
+    assert_eq!(
+        decide(false, &unlisted, at(0, Boundary::Volume(1)), &visited),
+        Admission::UntraversedLink
+    );
+    let without_group = Visited::default();
+    assert_eq!(
+        decide(false, &listed, at(0, Boundary::Volume(1)), &without_group),
+        Admission::UntraversedLink
+    );
+}
+
+#[test]
+fn confirmed_data_mount_enters_with_the_group_device_boundary() {
+    let (visited, _) =
+        Visited::reserve_roots_with_group(vec![identity(1, 10, &[])], Some(volume_group()));
+    let mut mount = entry(ObservedKind::MountPoint, 1, 20);
+    mount.enumerated_inode = 40;
+    mount.enumerated_kind = ObservedKind::Directory;
+    assert_eq!(
+        decide(false, &mount, at(0, Boundary::Volume(1)), &visited),
+        Admission::Enter
+    );
+    assert_eq!(
+        visited.child_boundary(&mount, Boundary::Volume(1)),
+        Boundary::Data(1)
+    );
+    assert_eq!(
+        decide(
+            false,
+            &mount,
+            at(0, Boundary::Volume(1)),
+            &Visited::default()
+        ),
+        Admission::OutsideBoundary
+    );
+}
+
+#[test]
+fn data_target_is_not_reserved_so_firmlink_wins_in_either_order() {
+    let data_alias = entry(ObservedKind::Directory, 1, 99);
+    let link = firmlink(40, 99);
+    let (data_first, _) =
+        Visited::reserve_roots_with_group(vec![identity(1, 10, &[])], Some(volume_group()));
+    assert_eq!(
+        decide(false, &data_alias, at(0, Boundary::Data(1)), &data_first),
+        Admission::Revisit
+    );
+    assert!(!data_first.known(0, 1, 99));
+    assert_eq!(
+        decide(false, &link, at(0, Boundary::Volume(1)), &data_first),
+        Admission::Enter
+    );
+
+    let (link_first, _) =
+        Visited::reserve_roots_with_group(vec![identity(1, 10, &[])], Some(volume_group()));
+    assert_eq!(
+        decide(false, &link, at(0, Boundary::Volume(1)), &link_first),
+        Admission::Enter
+    );
+    assert_eq!(
+        decide(false, &data_alias, at(0, Boundary::Data(1)), &link_first),
+        Admission::Revisit
+    );
+    assert_eq!(Admission::Revisit.unread(), Some(Unread::Revisit));
 }

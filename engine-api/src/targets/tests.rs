@@ -130,6 +130,7 @@ impl VolumePort for Volumes {
                 browsable: None,
                 local: None,
                 listed_capacity: None,
+                ..VolumeMount::default()
             }]),
             capabilities: VolumeCapabilities {
                 enumerate: supported.clone(),
@@ -254,6 +255,7 @@ fn only_a_mount_the_file_manager_hides_leaves_the_default_list() {
         browsable,
         local: None,
         listed_capacity: None,
+        ..VolumeMount::default()
     };
     for (browsable, listed) in [(Some(false), false), (Some(true), true), (None, true)] {
         assert_eq!(

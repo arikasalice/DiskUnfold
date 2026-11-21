@@ -1144,7 +1144,25 @@ export type RecentScopeListRequest = Record<string, never>;
 export type RecentScopeListRow = { recentScopeRef: Id, includeCount: number, lastUsedAt: Timestamp, };
 export type RecentScopeList = { rows: Array<RecentScopeListRow>, };
 export type ScopeCorrespondence = { path: OsPath, access: TargetAccess, reasonKey: string | null, };
-export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: Array<ScopeCorrespondence>, reviewFingerprint: string, observedAt: Timestamp, requestSeq: number, };
+export type ScopeVolumeGroup = {
+/**
+ * Mount path of the data volume, counted together with `/`.
+ */
+dataMount: OsPath, };
+export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: Array<ScopeCorrespondence>, reviewFingerprint: string, observedAt: Timestamp, requestSeq: number,
+/**
+ * The macOS root volume group the reviewed scope analyses as one volume (#263).
+ * Omitted when the scope is not a volume group. GUI channel only.
+ */
+volumeGroup?: ScopeVolumeGroup,
+/**
+ * The user's home folder, offered only with
+ * [`ScopeVolumeGroup::NOTICE_UNVERIFIED`] so the user can pick their own files
+ * in one step (#263). A suggestion, not a permission: choosing it replaces the
+ * draft and the new draft is reviewed as usual. It never changes a fingerprint.
+ * Omitted otherwise; `null` is rejected. GUI channel only.
+ */
+suggestedInclude?: OsPath, };
 export type RecentScopeOpenRequest = { recentScopeRef: Id, requestSeq: number, };
 export type RecentScopeTargetState = "matched" | "moved" | "disconnected" | "unverifiable";
 export type RecentScopeOpenTarget = { path: OsPath, state: RecentScopeTargetState, proposedEntry: OsPath | null, };
@@ -1448,8 +1466,24 @@ export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "un
 export type VolumeGapSize = { size: SizeValue, completeness: ResultCompleteness, };
 export type VolumeGapAmount = { "state": "exact", bytes: ByteSize, evidence: SizeEvidence, } | { "state": "unknown", reasonKey: string, };
 export type VolumeGapRow = { key: string, value: VolumeGapAmount, };
+export type VolumeGapVolumeRow = {
+/**
+ * Human-readable volume name as the OS reports it.
+ */
+volumeName: string,
+/**
+ * Display role, an open set of keys; see [`VolumeGapVolumeRow::ROLE_VM`]. A
+ * receiver shows an unknown or omitted role like `volume_role.other`.
+ */
+role?: string, amount: VolumeGapAmount, };
 export type VolumeGapCategories = { "state": "unavailable", reasonKey: string, } | { "state": "available", rows: Array<VolumeGapRow>, };
-export type VolumeGapResponse = { resultVersion: Id, requestSeq: number, volumeId: PathBytes | null, start: VolumeGapObservation, end: VolumeGapObservation, allocated: VolumeGapSize, uniquePhysical: VolumeGapSize, factors: Array<VolumeGapRow>, remainder: VolumeGapAmount, osCategories: VolumeGapCategories, };
+export type VolumeGapResponse = { resultVersion: Id, requestSeq: number, volumeId: PathBytes | null, start: VolumeGapObservation, end: VolumeGapObservation, allocated: VolumeGapSize, uniquePhysical: VolumeGapSize, factors: Array<VolumeGapRow>, remainder: VolumeGapAmount, osCategories: VolumeGapCategories,
+/**
+ * The system volumes sharing the container of a root volume group target,
+ * one row each (#263). Their amounts add up to the `gap.out_of_scope` factor.
+ * Omitted when the target is not a root volume group.
+ */
+otherVolumes?: Array<VolumeGapVolumeRow>, };
 export type ResultItemKind = "directory" | "file" | "untraversed_link" | "unknown" | "unknown_structure";
 export type BrowseValue<T> = { "state": "present", value: T, } | { "state": "absent" } | { "state": "unknown", reasonKey: string, };
 export type BrowseOrigin = "scan";
@@ -1498,6 +1532,15 @@ excluded: BrowseValue<boolean>,
  * scan lineage and for file rows.
  */
 boundary?: BrowseValue<FolderBoundary>,
+/**
+ * Where a folder that was `already_counted` through a confirmed firmlink was
+ * counted, such as `/Users` for `/System/Volumes/Data/Users` (#263).
+ *
+ * For navigation only: never add or subtract sizes with it. Present only with a
+ * present `already_counted` boundary whose cause is a firmlink of the confirmed
+ * group; omitted otherwise. `null` is rejected. GUI channel only.
+ */
+countedAt?: OsPath,
 /**
  * Unread ranges inside a folder that was itself read (#226).
  *

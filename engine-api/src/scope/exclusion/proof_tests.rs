@@ -32,6 +32,7 @@ fn original_and_fingerprint_are_derived_from_same_bound_conditions() -> Result<(
         boundary: ScopeBoundary::CurrentVolume,
         included_mounts: vec![],
         source: ScopeSource::Gui,
+        group: du_core_contracts::volume::RootVolumeGroupObservation::NotApplicable,
     };
     assert_eq!(
         proof.draft(false).exclusions,

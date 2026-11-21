@@ -29,6 +29,7 @@ fn every_publication_and_replacement_repeats_the_scope_header() -> Result<(), St
     let header = ScopeHeader {
         version_id: id(2)?,
         fingerprint: "a1b2".into(),
+        volume_group: None,
     };
     let mut build = sink
         .open_scoped_forest(header.clone(), vec![root()], Some(lineage.clone()))
@@ -67,6 +68,7 @@ fn unscoped_builds_have_no_fingerprint_and_empty_one_is_rejected() -> Result<(),
     let empty = ScopeHeader {
         version_id: id(6)?,
         fingerprint: String::new(),
+        volume_group: None,
     };
     assert_eq!(
         sink.open_scoped_forest(empty, vec![root()], None).err(),

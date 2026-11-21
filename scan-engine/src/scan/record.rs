@@ -160,15 +160,17 @@ pub(super) fn record_item(
         let range = (root_index, path.as_slice());
         return admission::record_unentered(build, range, entry, unread, counts, observed_at);
     }
-    let gap = entry_gap(entry);
+    let entered_group_boundary = entered_group_boundary(entry, row);
+    let gap = (!entered_group_boundary)
+        .then(|| entry_gap(entry))
+        .flatten();
     record_at(
         build,
         root_index,
         entry,
         &path,
         counts,
-        timed.observed_at.as_ref(),
-        sharing,
+        (timed.observed_at.as_ref(), sharing, entered_group_boundary),
     )?;
     if gap.is_none()
         && entry
@@ -255,6 +257,32 @@ fn entry_gap(entry: &ObservedEntry) -> Option<&'static str> {
         .map(|(_, _, reason)| reason)
 }
 
+/// A firmlink or the data mount that the admission table entered in a confirmed
+/// root volume group (#263). It is recorded as a directory, and its metadata
+/// describes the directory it leads to rather than the enumerated entry.
+fn entered_group_boundary(entry: &ObservedEntry, row: Admission) -> bool {
+    row == Admission::Enter
+        && entry.metadata.as_ref().is_ok_and(|meta| {
+            matches!(meta.kind, ObservedKind::Firmlink | ObservedKind::MountPoint)
+        })
+}
+
+/// The metadata when it agrees with the enumeration, or `None` for a failure.
+fn agreeing(entry: &ObservedEntry, entered_boundary: bool) -> Option<&MetadataObservation> {
+    let meta = entry.metadata.as_ref().ok()?;
+    // A firmlink's metadata names the directory it leads to, so its inode never
+    // equals the enumerated one, entered or not (#263).
+    let same_inode = entry.enumerated_inode == meta.inode
+        || entered_boundary
+        || meta.kind == ObservedKind::Firmlink && entry.enumerated_kind == ObservedKind::Firmlink;
+    let same_kind = entry.enumerated_kind == ObservedKind::Unknown
+        || entry.enumerated_kind == meta.kind
+        || entered_boundary
+            && meta.kind == ObservedKind::MountPoint
+            && entry.enumerated_kind == ObservedKind::Directory;
+    (entry.enumerated_inode != 0 && same_inode && same_kind).then_some(meta)
+}
+
 /// Records only the timestamp supplied with the metadata observation.
 fn record_at(
     build: &mut BuildHandle,
@@ -262,10 +290,10 @@ fn record_at(
     entry: &ObservedEntry,
     path: &[Vec<u8>],
     counts: &mut JobCounts,
-    observed_at: Option<&Timestamp>,
-    sharing: SharingEvidence,
+    context: (Option<&Timestamp>, SharingEvidence, bool),
 ) -> Result<(), BuildError> {
-    if let Some((kind, stage, reason)) = issues::classify(entry) {
+    let (observed_at, sharing, entered_group_boundary) = context;
+    if !entered_group_boundary && let Some((kind, stage, reason)) = issues::classify(entry) {
         build.record_scan_issue(ScanIssue {
             root_index,
             relative: path.to_vec(),
@@ -275,16 +303,9 @@ fn record_at(
             observed_at: observed_at.cloned(),
         })?;
     }
-    let meta = match &entry.metadata {
-        Ok(meta)
-            if entry.enumerated_inode != 0
-                && entry.enumerated_inode == meta.inode
-                && (entry.enumerated_kind == ObservedKind::Unknown
-                    || entry.enumerated_kind == meta.kind) =>
-        {
-            meta
-        }
-        _ => {
+    let meta = match agreeing(entry, entered_group_boundary) {
+        Some(meta) => meta,
+        None => {
             counts.failed += 1;
             return build.add_at(
                 root_index,
@@ -297,8 +318,15 @@ fn record_at(
     };
     match meta.kind {
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
-        ObservedKind::Link => {
+        ObservedKind::Firmlink | ObservedKind::MountPoint if entered_group_boundary => {
+            build.add_directory_at(root_index, path.to_vec())?;
+        }
+        // A firmlink that the admission table did not enter is an untraversed link.
+        ObservedKind::Link | ObservedKind::Firmlink => {
             let (observation, space) = observation_and_space(meta, path.to_vec(), sharing);
+            // An untraversed firmlink's identity is its target's, which another path
+            // may record; the link item keeps no space facts of its own (#263).
+            let space = space.filter(|_| meta.kind == ObservedKind::Link);
             build.add_observed_untraversed_link_at(root_index, observation, space)?;
         }
         ObservedKind::File => {

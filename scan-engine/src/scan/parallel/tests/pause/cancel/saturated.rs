@@ -362,6 +362,7 @@ fn cancellation_at_full_channel_drains_returned_observations_and_seals_that_vers
                 diagnostics: None,
                 scan_control: None,
                 correlated_budget: None,
+                volume_group: None,
             },
         )
         .map_err(|error| format!("{error:?}"));

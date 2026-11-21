@@ -34,6 +34,7 @@ impl IngestSink {
             shared_table_limit: base.shared_table_limit,
             scope_version_id: base.scope_version_id.clone(),
             scope_fingerprint: base.scope_fingerprint.clone(),
+            volume_group: base.volume_group.clone(),
             roots: base.roots.clone(),
             gaps: Vec::new(),
             observations: Default::default(),

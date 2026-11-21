@@ -127,8 +127,7 @@ fn a_recorded_file_keeps_the_reason_of_each_unknown_attribute() -> Result<(), St
         &entry,
         &path,
         &mut counts,
-        None,
-        SharingEvidence::None,
+        (None, SharingEvidence::None, false),
     )
     .map_err(|e| format!("{e:?}"))?;
     let id = Id::parse("018f0000-0000-7000-8000-000000000002").map_err(|e| format!("{e:?}"))?;
@@ -150,5 +149,50 @@ fn a_recorded_file_keeps_the_reason_of_each_unknown_attribute() -> Result<(), St
         Some(attribute_reason::UNSUPPORTED)
     );
     assert_eq!(version.attribute_reason_bytes(), 15);
+    Ok(())
+}
+
+/// #263: outside a confirmed group, a firmlink is one untraversed link, not a
+/// failure, even though its metadata names the directory it leads to.
+#[test]
+fn an_untraversed_firmlink_is_a_link_and_never_a_failure() -> Result<(), String> {
+    let mut build = build()?;
+    build
+        .add_directory_at(0, Vec::new())
+        .map_err(|e| format!("{e:?}"))?;
+    let entry = ObservedEntry {
+        name: b"Users".to_vec(),
+        enumerated_inode: 900,
+        enumerated_kind: ObservedKind::Firmlink,
+        metadata: Ok(MetadataObservation {
+            kind: ObservedKind::Firmlink,
+            device: 1,
+            inode: 17,
+            size: Ok(96),
+            modified_at: ObservedValue::Unknown(attribute_reason::QUERY_FAILED),
+            native_modified_at: None,
+            allocated: ObservedValue::Known(4096),
+            link_count: ObservedValue::Known(2),
+            space_identity: ObservedValue::Unknown(attribute_reason::UNSUPPORTED),
+        }),
+    };
+    let mut counts = JobCounts::default();
+    record_at(
+        &mut build,
+        0,
+        &entry,
+        &[b"Users".to_vec()],
+        &mut counts,
+        (None, SharingEvidence::None, false),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(counts.failed, 0);
+    let id = Id::parse("018f0000-0000-7000-8000-000000000003").map_err(|e| format!("{e:?}"))?;
+    let version = build
+        .seal(id, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let issues = version.scan_issues();
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].kind, ScanFailureKind::UntraversedLink);
     Ok(())
 }

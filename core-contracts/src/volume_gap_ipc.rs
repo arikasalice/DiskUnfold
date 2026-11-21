@@ -154,4 +154,33 @@ pub struct VolumeGapResponse {
     pub factors: Vec<VolumeGapRow>,
     pub remainder: VolumeGapAmount,
     pub os_categories: VolumeGapCategories,
+    /// The system volumes sharing the container of a root volume group target,
+    /// one row each (#263). Their amounts add up to the `gap.out_of_scope` factor.
+    /// Omitted when the target is not a root volume group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub other_volumes: Option<Vec<VolumeGapVolumeRow>>,
+}
+
+/// One system volume outside the analysed root volume group (#263).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeGapVolumeRow {
+    /// Human-readable volume name as the OS reports it.
+    pub volume_name: String,
+    /// Display role, an open set of keys; see [`VolumeGapVolumeRow::ROLE_VM`]. A
+    /// receiver shows an unknown or omitted role like `volume_role.other`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub role: Option<String>,
+    pub amount: VolumeGapAmount,
+}
+
+impl VolumeGapVolumeRow {
+    pub const ROLE_VM: &'static str = "volume_role.vm";
+    pub const ROLE_PREBOOT: &'static str = "volume_role.preboot";
+    pub const ROLE_RECOVERY: &'static str = "volume_role.recovery";
+    pub const ROLE_UPDATE: &'static str = "volume_role.update";
+    pub const ROLE_OTHER: &'static str = "volume_role.other";
 }

@@ -4,7 +4,7 @@
 //! add optional values without breaking an older reader. `QueryStrategy` stays
 //! strict because request bodies and stored group rules also decode it.
 use crate::{
-    Id, ItemRef, PathBytes, SizeValue, Timestamp,
+    Id, ItemRef, OsPath, PathBytes, SizeValue, Timestamp,
     browse_ipc::BrowseValue,
     result::{ResultCompleteness, ResultItemKind},
     space_detail_ipc::SpaceCapabilityState,
@@ -118,6 +118,19 @@ pub struct FolderFlags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub boundary: Option<BrowseValue<FolderBoundary>>,
+    /// Where a folder that was `already_counted` through a confirmed firmlink was
+    /// counted, such as `/Users` for `/System/Volumes/Data/Users` (#263).
+    ///
+    /// For navigation only: never add or subtract sizes with it. Present only with a
+    /// present `already_counted` boundary whose cause is a firmlink of the confirmed
+    /// group; omitted otherwise. `null` is rejected. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub counted_at: Option<OsPath>,
     /// Unread ranges inside a folder that was itself read (#226).
     ///
     /// Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
@@ -362,6 +375,15 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
+}
+
+/// An optional field that, when present, must not be `null`.
+fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 fn unique_strings<'de, D: serde::Deserializer<'de>>(
