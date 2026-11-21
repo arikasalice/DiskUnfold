@@ -8,6 +8,8 @@ use du_core_contracts::{
 use rusqlite::{OptionalExtension, Row, TransactionBehavior, params, types::Type};
 use std::io::{Error as IoError, ErrorKind};
 
+/// F10 leaves the body size open; cap JSON before parsing and persistence at 1 MiB.
+const MAX_PLAN_BODY_BYTES: usize = 1024 * 1024;
 const COLUMNS: &str = "plan_version_id, lineage_id, parent_plan_version_id,
  version_hash, hash_format, ruleset_version, readiness, origin_channel, body, created_at_ms";
 
@@ -21,12 +23,22 @@ impl PlanVersionStore for AppDb {
             .as_ref()
             .map(id_blob)
             .transpose()?;
-        let ruleset_version = i64::try_from(version.ruleset_version)
-            .map_err(|_| port_error(PortErrorKind::Corrupt, "db.value_out_of_range"))?;
+        let ruleset_version = i64::try_from(version.ruleset_version).map_err(|_| input_error())?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
+        let already_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM change_planner_plan_version
+                 WHERE plan_version_id = ?1)",
+                [plan_id.as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if already_exists {
+            return Err(port_error(PortErrorKind::InUse, "db.duplicate"));
+        }
         tx.execute(
             "INSERT INTO change_planner_plan_version
              (plan_version_id, lineage_id, parent_plan_version_id, version_hash,
@@ -45,7 +57,7 @@ impl PlanVersionStore for AppDb {
                 version.created_at_ms,
             ],
         )
-        .map_err(db_error)?;
+        .map_err(db_write_error)?;
         tx.commit().map_err(db_error)
     }
 
@@ -68,7 +80,7 @@ impl PlanVersionStore for AppDb {
         let id = id_blob(lineage_id)?;
         let sql = format!(
             "SELECT {COLUMNS} FROM change_planner_plan_version
-             WHERE lineage_id = ?1 ORDER BY created_at_ms"
+             WHERE lineage_id = ?1 ORDER BY created_at_ms, plan_version_id"
         );
         let mut statement = self.connection.prepare(&sql).map_err(db_error)?;
         let rows = statement.query_map([id], from_row).map_err(db_error)?;
@@ -84,10 +96,12 @@ fn validate(version: &PlanVersionRecord) -> Result<(), PortError> {
         ));
     }
     if version.ruleset_version == 0
+        || i64::try_from(version.ruleset_version).is_err()
         || version.hash_format.is_empty()
+        || version.body.len() > MAX_PLAN_BODY_BYTES
         || serde_json::from_str::<serde_json::Value>(&version.body).is_err()
     {
-        return Err(port_error(PortErrorKind::Corrupt, "db.corrupt"));
+        return Err(input_error());
     }
     Ok(())
 }
@@ -122,7 +136,10 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<PlanVersionRecord> {
     let readiness = readiness_from_name(&row.get::<_, String>(6)?, 6)?;
     let origin_channel = channel_from_name(&row.get::<_, String>(7)?, 7)?;
     let body: String = row.get(8)?;
-    if hash_format.is_empty() || serde_json::from_str::<serde_json::Value>(&body).is_err() {
+    if hash_format.is_empty()
+        || body.len() > MAX_PLAN_BODY_BYTES
+        || serde_json::from_str::<serde_json::Value>(&body).is_err()
+    {
         return Err(rusqlite::Error::FromSqlConversionFailure(
             8,
             Type::Text,
@@ -147,7 +164,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<PlanVersionRecord> {
 fn id_blob(id: &Id) -> Result<Vec<u8>, PortError> {
     id.v7_bytes()
         .map(|value| value.to_vec())
-        .ok_or_else(|| port_error(PortErrorKind::Corrupt, "db.corrupt"))
+        .ok_or_else(input_error)
 }
 
 fn id_from_blob(bytes: Vec<u8>, index: usize) -> rusqlite::Result<Id> {
@@ -227,6 +244,23 @@ fn db_error(error: rusqlite::Error) -> PortError {
         _ => (PortErrorKind::Io, "db.storage_unavailable"),
     };
     port_error(kind, reason)
+}
+
+fn db_write_error(error: rusqlite::Error) -> PortError {
+    if matches!(
+        &error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.code == rusqlite::ErrorCode::ConstraintViolation
+    ) {
+        input_error()
+    } else {
+        db_error(error)
+    }
+}
+
+fn input_error() -> PortError {
+    // PortErrorKind has no invalid-input variant; keep the distinction in the reason key.
+    port_error(PortErrorKind::Unsupported, "db.invalid_input")
 }
 
 fn port_error(kind: PortErrorKind, reason_key: &str) -> PortError {

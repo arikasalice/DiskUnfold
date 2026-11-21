@@ -67,9 +67,12 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
 
     let first = record(1, 10, None, 100);
     let second = record(2, 10, Some(first.plan_version_id.clone()), 200);
+    let tied = record(3, 10, Some(first.plan_version_id.clone()), 200);
     db.append_fixed(&first)
         .map_err(|error| format!("{error:?}"))?;
     db.append_fixed(&second)
+        .map_err(|error| format!("{error:?}"))?;
+    db.append_fixed(&tied)
         .map_err(|error| format!("{error:?}"))?;
 
     assert_eq!(
@@ -91,12 +94,12 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
     let lineage = db
         .read_lineage(&id(10))
         .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(lineage, [first, second]);
+    assert_eq!(lineage, [first, second, tied]);
     let key = blob(&id(10))?;
     let plan: String = db.connection.query_row(
         "EXPLAIN QUERY PLAN
          SELECT plan_version_id FROM change_planner_plan_version
-         WHERE lineage_id = ?1 ORDER BY created_at_ms",
+         WHERE lineage_id = ?1 ORDER BY created_at_ms, plan_version_id",
         [key],
         |row| row.get(3),
     )?;
@@ -104,6 +107,7 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
         plan.contains("ix_change_planner_plan_version_lineage"),
         "{plan}"
     );
+    assert!(!plan.contains("USE TEMP B-TREE"), "{plan}");
 
     let absent = db.read(&id(99)).err().ok_or("missing plan was returned")?;
     assert_eq!(absent.kind, PortErrorKind::NotFound);
@@ -173,6 +177,61 @@ fn sample_versions_are_rejected_before_persistence() -> TestResult {
         |row| row.get(0),
     )?;
     assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+fn caller_input_violations_are_not_reported_as_database_corruption() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("invalid-input.db"))?;
+    add_ruleset(&db)?;
+
+    let mut invalid_json = record(4, 40, None, 100);
+    invalid_json.body = "{".into();
+    let mut empty_hash_format = record(5, 40, None, 100);
+    empty_hash_format.hash_format.clear();
+    let mut zero_ruleset = record(6, 40, None, 100);
+    zero_ruleset.ruleset_version = 0;
+    let mut oversized_body = record(7, 40, None, 100);
+    oversized_body.body = format!("{}{{}}", " ".repeat(MAX_PLAN_BODY_BYTES + 1));
+
+    for bad in [
+        invalid_json,
+        empty_hash_format,
+        zero_ruleset,
+        oversized_body,
+    ] {
+        let error = db
+            .append_fixed(&bad)
+            .err()
+            .ok_or("invalid plan version was stored")?;
+        assert_eq!(error.kind, PortErrorKind::Unsupported);
+        assert_eq!(error.reason_key, "db.invalid_input");
+    }
+    let count: i64 = db.connection.query_row(
+        "SELECT count(*) FROM change_planner_plan_version",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+fn duplicate_plan_version_id_returns_a_distinct_error() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("duplicate.db"))?;
+    add_ruleset(&db)?;
+    let version = record(8, 80, None, 100);
+    db.append_fixed(&version)
+        .map_err(|error| format!("{error:?}"))?;
+
+    let error = db
+        .append_fixed(&version)
+        .err()
+        .ok_or("duplicate plan version ID was stored")?;
+    assert_eq!(error.kind, PortErrorKind::InUse);
+    assert_eq!(error.reason_key, "db.duplicate");
     Ok(())
 }
 

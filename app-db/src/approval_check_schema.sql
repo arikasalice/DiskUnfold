@@ -21,9 +21,9 @@ CREATE TABLE job_runtime_approval_check (
     OR (record_kind = 'finish' AND end_state IS NOT NULL AND length(end_state) > 0))
 ) STRICT;
 CREATE INDEX ix_job_runtime_approval_check_request
- ON job_runtime_approval_check(request_version_id, created_at_ms);
+ ON job_runtime_approval_check(request_version_id, created_at_ms, check_id);
 CREATE INDEX ix_job_runtime_approval_check_job
- ON job_runtime_approval_check(job_id);
+ ON job_runtime_approval_check(job_id, created_at_ms, check_id);
 CREATE TRIGGER job_runtime_approval_check_no_update BEFORE UPDATE ON job_runtime_approval_check
 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER job_runtime_approval_check_no_delete BEFORE DELETE ON job_runtime_approval_check

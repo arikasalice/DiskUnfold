@@ -3,14 +3,17 @@ use du_core_contracts::{
     Id,
     approval_check::{
         ApprovalCheckFacts, ApprovalCheckFinishRecord, ApprovalCheckRecord,
-        ApprovalCheckRecordKind, ApprovalCheckRecorder, ApprovalCheckStartRecord,
-        ApprovalOperationKind, ApprovalRequestKind,
+        ApprovalCheckRecordKind, ApprovalCheckRecorder, ApprovalCheckResult,
+        ApprovalCheckStartRecord, ApprovalMismatchField, ApprovalOperationKind,
+        ApprovalRequestKind,
     },
     ports::{PortError, PortErrorKind},
 };
 use rusqlite::{Row, TransactionBehavior, params, types::Type};
 use std::io::{Error as IoError, ErrorKind};
 
+/// F28 leaves summary size open; cap each validated JSON summary at 4 KiB.
+const MAX_APPROVAL_SUMMARY_BYTES: usize = 4 * 1024;
 const COLUMNS: &str = "check_id, job_id, request_version_id, request_kind, version_hash,
  hash_format, operation_kind, destination_summary, keep_summary, record_kind,
  check_result, mismatch_fields, end_state, approved_at_ms, created_at_ms, correlation_id";
@@ -24,7 +27,7 @@ impl ApprovalCheckRecorder for AppDb {
     fn append_finish(&mut self, record: &ApprovalCheckFinishRecord) -> Result<(), PortError> {
         validate(&record.facts)?;
         if record.end_state.is_empty() {
-            return Err(port_error(PortErrorKind::Corrupt, "db.corrupt"));
+            return Err(input_error());
         }
         self.append_record(&record.facts, "finish", Some(&record.end_state))
     }
@@ -37,7 +40,7 @@ impl ApprovalCheckRecorder for AppDb {
         self.read_records(
             &format!(
                 "SELECT {COLUMNS} FROM job_runtime_approval_check
-                 WHERE request_version_id = ?1 ORDER BY created_at_ms"
+                 WHERE request_version_id = ?1 ORDER BY created_at_ms, check_id"
             ),
             id,
         )
@@ -48,7 +51,7 @@ impl ApprovalCheckRecorder for AppDb {
         self.read_records(
             &format!(
                 "SELECT {COLUMNS} FROM job_runtime_approval_check
-                 WHERE job_id = ?1 ORDER BY created_at_ms"
+                 WHERE job_id = ?1 ORDER BY created_at_ms, check_id"
             ),
             id,
         )
@@ -70,6 +73,17 @@ impl AppDb {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
+        let already_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM job_runtime_approval_check
+                 WHERE check_id = ?1)",
+                [check_id.as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if already_exists {
+            return Err(port_error(PortErrorKind::InUse, "db.duplicate"));
+        }
         tx.execute(
             "INSERT INTO job_runtime_approval_check
              (check_id, job_id, request_version_id, request_kind, version_hash, hash_format,
@@ -87,7 +101,7 @@ impl AppDb {
                 facts.destination_summary,
                 facts.keep_summary,
                 record_kind,
-                facts.check_result,
+                facts.check_result.as_db_value(),
                 facts.mismatch_fields,
                 end_state,
                 facts.approved_at_ms,
@@ -95,7 +109,7 @@ impl AppDb {
                 correlation_id,
             ],
         )
-        .map_err(db_error)?;
+        .map_err(db_write_error)?;
         tx.commit().map_err(db_error)
     }
 
@@ -108,25 +122,31 @@ impl AppDb {
 
 fn validate(facts: &ApprovalCheckFacts) -> Result<(), PortError> {
     if facts.hash_format.is_empty()
-        || facts.check_result.is_empty()
-        || !is_json(&facts.mismatch_fields, true)
+        || !is_mismatch_fields(&facts.mismatch_fields)
         || facts
             .destination_summary
             .as_deref()
-            .is_some_and(|value| !is_json(value, false))
+            .is_some_and(|value| value.len() > MAX_APPROVAL_SUMMARY_BYTES || !is_json(value))
         || facts
             .keep_summary
             .as_deref()
-            .is_some_and(|value| !is_json(value, false))
+            .is_some_and(|value| value.len() > MAX_APPROVAL_SUMMARY_BYTES || !is_json(value))
     {
-        return Err(port_error(PortErrorKind::Corrupt, "db.corrupt"));
+        return Err(input_error());
     }
     Ok(())
 }
 
-fn is_json(value: &str, array_only: bool) -> bool {
-    serde_json::from_str::<serde_json::Value>(value)
-        .is_ok_and(|json| !array_only || matches!(json, serde_json::Value::Array(_)))
+fn is_json(value: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(value).is_ok()
+}
+
+fn is_mismatch_fields(value: &str) -> bool {
+    serde_json::from_str::<Vec<String>>(value).is_ok_and(|fields| {
+        fields
+            .iter()
+            .all(|field| ApprovalMismatchField::from_json_value(field).is_some())
+    })
 }
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<ApprovalCheckRecord> {
@@ -146,7 +166,10 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<ApprovalCheckRecord> {
     let destination_summary: Option<String> = row.get(7)?;
     let keep_summary: Option<String> = row.get(8)?;
     let record_kind = record_kind_from_name(&row.get::<_, String>(9)?, 9)?;
-    let check_result: String = row.get(10)?;
+    let check_result = row.get::<_, String>(10).and_then(|value| {
+        ApprovalCheckResult::from_db_value(&value)
+            .ok_or_else(|| text_error(10, "invalid check result"))
+    })?;
     let mismatch_fields: String = row.get(11)?;
     let end_state: Option<String> = row.get(12)?;
     let approved_at_ms = row.get(13)?;
@@ -232,7 +255,7 @@ fn record_kind_from_name(value: &str, index: usize) -> rusqlite::Result<Approval
 fn id_blob(id: &Id) -> Result<Vec<u8>, PortError> {
     id.v7_bytes()
         .map(|value| value.to_vec())
-        .ok_or_else(|| port_error(PortErrorKind::Corrupt, "db.corrupt"))
+        .ok_or_else(input_error)
 }
 
 fn id_from_blob(bytes: Vec<u8>, index: usize) -> rusqlite::Result<Id> {
@@ -276,6 +299,23 @@ fn db_error(error: rusqlite::Error) -> PortError {
         _ => (PortErrorKind::Io, "db.storage_unavailable"),
     };
     port_error(kind, reason)
+}
+
+fn db_write_error(error: rusqlite::Error) -> PortError {
+    if matches!(
+        &error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.code == rusqlite::ErrorCode::ConstraintViolation
+    ) {
+        input_error()
+    } else {
+        db_error(error)
+    }
+}
+
+fn input_error() -> PortError {
+    // PortErrorKind has no invalid-input variant; keep the distinction in the reason key.
+    port_error(PortErrorKind::Unsupported, "db.invalid_input")
 }
 
 fn port_error(kind: PortErrorKind, reason_key: &str) -> PortError {
