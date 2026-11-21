@@ -3,7 +3,7 @@
 //! Spool implementations are trusted composition-boundary adapters: they must
 //! enforce their documented locking, immutability, and cleanup guarantees.
 use super::{
-    Error as FormatError, FOOTER_BYTES, MAGIC, MAX_DECODED_BYTES, MAX_FILE_BYTES,
+    Error as FormatError, FOOTER_BYTES, HEADER_BYTES, MAGIC, MAX_DECODED_BYTES, MAX_FILE_BYTES,
     MAX_METADATA_BYTES, check_file_length, layout, read_u16, read_u32, read_u64,
 };
 use crate::zstd_frame::Error as FrameError;
@@ -23,11 +23,18 @@ pub enum Error {
     IndexIntegrity,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VerificationMode {
+    CaptureV1,
+    Open,
+}
+
 /// Validated outer container in the same sealed spool used during verification.
 /// This is not a validated snapshot: payload, record semantics, and metadata
 /// beyond the injected metadata checks still require validation before publication.
 pub struct VerifiedSpool<S: SealedSpool> {
     spool: S,
+    format_version: u16,
     /// UTF-8 metadata, validated by the injected metadata parser.
     metadata: String,
     compressed_offset: u64,
@@ -36,6 +43,10 @@ pub struct VerifiedSpool<S: SealedSpool> {
     decoded_length: u64,
 }
 impl<S: SealedSpool> VerifiedSpool<S> {
+    /// Returns the format version recorded in the verified outer header.
+    pub(crate) fn format_version(&self) -> u16 {
+        self.format_version
+    }
     /// Returns the validated metadata text without permitting mutation.
     pub fn metadata(&self) -> &str {
         &self.metadata
@@ -89,7 +100,39 @@ pub fn capture_v1<R: Read, W: CaptureSpool>(
     copy(source, &mut spool, MAX_FILE_BYTES, &mut cancelled)?;
     check_cancel(&mut cancelled)?;
     let sealed = spool.seal().map_err(Error::Io)?;
-    verify(sealed, index_digest, validate_metadata, &mut cancelled)
+    verify(
+        sealed,
+        index_digest,
+        validate_metadata,
+        VerificationMode::CaptureV1,
+        &mut cancelled,
+    )
+}
+
+/// Verifies the outer envelope of an already locked input for the open coordinator.
+///
+/// This performs the same bounded header, frame, and integrity checks as capture,
+/// but leaves full metadata validation and codec selection to the open sequence.
+pub(crate) fn verify_for_open<S: SealedSpool>(
+    spool: S,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<VerifiedSpool<S>, Error> {
+    verify(
+        spool,
+        None,
+        |metadata, version| {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(metadata) else {
+                return false;
+            };
+            value.get("formatId").and_then(serde_json::Value::as_str) == Some("dusnap")
+                && value
+                    .get("formatVersion")
+                    .and_then(serde_json::Value::as_u64)
+                    == Some(u64::from(version))
+        },
+        VerificationMode::Open,
+        cancelled,
+    )
 }
 
 fn copy<R: Read, W: Write>(
@@ -137,6 +180,7 @@ fn verify<S: SealedSpool>(
     mut spool: S,
     index_digest: Option<[u8; 32]>,
     validate_metadata: impl FnOnce(&str, u16) -> bool,
+    mode: VerificationMode,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<VerifiedSpool<S>, Error> {
     check_cancel(cancelled)?;
@@ -149,7 +193,7 @@ fn verify<S: SealedSpool>(
         return Err(Error::Format(FormatError::Magic));
     }
     let version = read_u16(&header, 8).map_err(Error::Format)?;
-    if version != super::DUSNAP_FORMAT_VERSION {
+    if mode == VerificationMode::CaptureV1 && version != super::DUSNAP_FORMAT_VERSION {
         return Err(Error::Format(FormatError::UnsupportedVersion));
     }
     if read_u16(&header, 10).map_err(Error::Format)? != 0 {
@@ -159,18 +203,11 @@ fn verify<S: SealedSpool>(
     if !(1..=MAX_METADATA_BYTES).contains(&metadata_len) {
         return Err(Error::Format(FormatError::MetadataLength));
     }
-    spool
-        .seek(SeekFrom::Start(len - FOOTER_BYTES))
-        .map_err(Error::Io)?;
-    let mut footer = [0; 56];
-    read_exact(&mut spool, &mut footer, cancelled)?;
-    let compressed_length = read_u64(&footer, 0).map_err(Error::Format)?;
-    let record_count = read_u64(&footer, 8).map_err(Error::Format)?;
-    let decoded_length = read_u64(&footer, 16).map_err(Error::Format)?;
-    let compressed_offset = layout(len, metadata_len, compressed_length).map_err(Error::Format)?;
-    if decoded_length > MAX_DECODED_BYTES {
-        return Err(Error::Format(FormatError::DecodedLimit));
-    }
+    let footer_offset = len - FOOTER_BYTES;
+    let compressed_offset = HEADER_BYTES
+        .checked_add(metadata_len)
+        .filter(|offset| *offset <= footer_offset)
+        .ok_or(Error::Format(FormatError::LengthMismatch))?;
     spool.seek(SeekFrom::Start(16)).map_err(Error::Io)?;
     let mut metadata = vec![0; metadata_len as usize];
     read_exact(&mut spool, &mut metadata, cancelled)?;
@@ -179,24 +216,50 @@ fn verify<S: SealedSpool>(
     if !validate_metadata(&metadata, version) {
         return Err(Error::Metadata);
     }
+
+    spool
+        .seek(SeekFrom::Start(footer_offset))
+        .map_err(Error::Io)?;
+    let mut footer = [0; 56];
+    read_exact(&mut spool, &mut footer, cancelled)?;
+    let compressed_length = read_u64(&footer, 0).map_err(Error::Format)?;
+    let record_count = read_u64(&footer, 8).map_err(Error::Format)?;
+    let decoded_length = read_u64(&footer, 16).map_err(Error::Format)?;
+    if mode == VerificationMode::CaptureV1 && decoded_length > MAX_DECODED_BYTES {
+        return Err(Error::Format(FormatError::DecodedLimit));
+    }
+    let actual_compressed_length = footer_offset - compressed_offset;
+    if mode == VerificationMode::CaptureV1 {
+        layout(len, metadata_len, compressed_length).map_err(Error::Format)?;
+    }
     spool
         .seek(SeekFrom::Start(compressed_offset))
         .map_err(Error::Io)?;
-    crate::zstd_frame::inspect_reader(
-        &mut (&mut spool).take(compressed_length),
-        decoded_length,
-        cancelled,
-    )
-    .map_err(|error| match error {
+    let inspected_length = if mode == VerificationMode::Open {
+        actual_compressed_length
+    } else {
+        compressed_length
+    };
+    let mut compressed = (&mut spool).take(inspected_length);
+    let frame_check = if mode == VerificationMode::Open {
+        crate::zstd_frame::inspect_reader_boundaries(&mut compressed, decoded_length, cancelled)
+    } else {
+        crate::zstd_frame::inspect_reader(&mut compressed, decoded_length, cancelled)
+    };
+    frame_check.map_err(|error| match error {
         crate::zstd_frame::ReadError::Frame(FrameError::Cancelled) => Error::Cancelled,
         crate::zstd_frame::ReadError::Frame(error) => Error::Frame(error),
         crate::zstd_frame::ReadError::Io(error) => Error::Io(error),
     })?;
+    if mode == VerificationMode::Open {
+        layout(len, metadata_len, compressed_length).map_err(Error::Format)?;
+    }
     digest(&mut spool, len, &footer[24..], index_digest, cancelled)?;
     // Do not return the sealed handle if cancellation arrived during final verification.
     check_cancel(cancelled)?;
     Ok(VerifiedSpool {
         spool,
+        format_version: version,
         metadata,
         compressed_offset,
         compressed_length,

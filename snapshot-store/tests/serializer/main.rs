@@ -1,3 +1,4 @@
+mod open;
 mod support;
 
 use du_analysis_index::ResultVersion;
