@@ -1,5 +1,5 @@
 use crate::macos_observation::MacScopeRoots;
-use du_core_contracts::scan_observation::{DirectoryObservations, ScopeRootPort};
+use du_core_contracts::scan_observation::ScopeRootPort;
 use du_core_contracts::volume::{ConfirmedFirmlink, RootVolumeGroup, RootVolumeGroupObservation};
 use rustix::{
     fs::{AtFlags, CWD, FileType, statat},
