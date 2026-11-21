@@ -377,4 +377,12 @@ impl ObservationStore {
 }
 
 #[cfg(test)]
+pub(crate) fn node_size_bytes() -> usize {
+    std::mem::size_of::<Node>()
+}
+
+#[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod memory_layout_measure;
