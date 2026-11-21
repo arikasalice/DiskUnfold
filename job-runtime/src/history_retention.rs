@@ -66,6 +66,10 @@ mod tests {
     struct Reader(Mutex<Vec<(u32, i64)>>);
 
     impl HistoryExpiryRead for Reader {
+        fn delete_generation(&mut self) -> Result<u64, HistoryExpiryReadError> {
+            Ok(0)
+        }
+
         fn expiry_candidates(
             &mut self,
             days: u32,
@@ -76,10 +80,12 @@ mod tests {
                 .map_err(|_| HistoryExpiryReadError::Unavailable)?
                 .push((days, reference_ms));
             Ok(HistoryExpiryCandidates {
+                delete_generation: 0,
                 count: 0,
                 earliest_reckon_at_ms: None,
                 latest_reckon_at_ms: None,
                 digest: [0; 32],
+                candidates: Vec::new(),
             })
         }
     }

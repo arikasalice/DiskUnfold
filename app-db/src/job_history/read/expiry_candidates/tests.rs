@@ -59,6 +59,13 @@ fn expected_digest(ids: &[[u8; 16]]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
+fn valid_id(seed: u8) -> [u8; 16] {
+    let mut bytes = [seed; 16];
+    bytes[6] = 0x70;
+    bytes[8] = 0x80;
+    bytes
+}
+
 fn plan_details(connection: &Connection) -> Result<Vec<String>, rusqlite::Error> {
     let mut statement = connection.prepare(&format!(
         "EXPLAIN QUERY PLAN {}",
@@ -74,13 +81,13 @@ fn expiry_candidates_apply_boundaries_terminal_rules_and_digest() -> TestResult 
     let path = dir.path().join("history.db");
     let writer_db = writer(&path)?;
     let reference_ms = 86_400_100;
-    let candidates = [[3; 16], [1; 16], [2; 16]];
+    let candidates = [valid_id(3), valid_id(1), valid_id(2)];
     insert_link(&writer_db, candidates[0], 100, true, false)?;
     insert_link(&writer_db, candidates[1], 90, true, false)?;
     insert_link(&writer_db, candidates[2], 100, false, true)?;
-    insert_link(&writer_db, [4; 16], 101, true, false)?;
-    insert_link(&writer_db, [5; 16], reference_ms + 1, true, false)?;
-    insert_link(&writer_db, [6; 16], 80, false, false)?;
+    insert_link(&writer_db, valid_id(4), 101, true, false)?;
+    insert_link(&writer_db, valid_id(5), reference_ms + 1, true, false)?;
+    insert_link(&writer_db, valid_id(6), 80, false, false)?;
 
     let mut reader = reader(&path)?;
     let result = reader.read_history_expiry_candidates(1, reference_ms)?;
@@ -88,6 +95,8 @@ fn expiry_candidates_apply_boundaries_terminal_rules_and_digest() -> TestResult 
     assert_eq!(result.earliest_reckon_at_ms, Some(90));
     assert_eq!(result.latest_reckon_at_ms, Some(100));
     assert_eq!(result.digest, expected_digest(&candidates));
+    assert_eq!(result.candidates.len(), 3);
+    assert!(result.candidates[0].job_id.v7_bytes() < result.candidates[1].job_id.v7_bytes());
     Ok(())
 }
 
@@ -96,7 +105,7 @@ fn expiry_digest_is_insert_order_independent_and_changes_with_the_set() -> TestR
     let dir = tempfile::tempdir()?;
     let first_path = dir.path().join("first.db");
     let second_path = dir.path().join("second.db");
-    let ids = [[7; 16], [2; 16], [9; 16]];
+    let ids = [valid_id(7), valid_id(2), valid_id(9)];
     for (path, order) in [(&first_path, [0, 1, 2]), (&second_path, [2, 0, 1])] {
         let writer = writer(path)?;
         for index in order {
@@ -119,7 +128,7 @@ fn huge_retention_period_and_empty_history_return_empty_range() -> TestResult {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("history.db");
     let writer_db = writer(&path)?;
-    insert_link(&writer_db, [1; 16], 0, true, false)?;
+    insert_link(&writer_db, valid_id(1), 0, true, false)?;
     let mut reader_db = reader(&path)?;
     let huge = reader_db.read_history_expiry_candidates(u32::MAX, 0)?;
     assert_eq!(huge.count, 0);
@@ -134,6 +143,7 @@ fn huge_retention_period_and_empty_history_return_empty_range() -> TestResult {
     assert_eq!(empty.earliest_reckon_at_ms, None);
     assert_eq!(empty.latest_reckon_at_ms, None);
     assert_eq!(empty.digest, *blake3::hash(&[]).as_bytes());
+    assert_eq!(empty.delete_generation, 0);
     Ok(())
 }
 
@@ -164,5 +174,77 @@ fn expiry_query_uses_reckon_index_and_requires_a_read_connection() -> TestResult
         reader.expiry_candidates(1, 100),
         Ok(HistoryExpiryCandidates { count: 0, .. })
     ));
+    Ok(())
+}
+
+#[test]
+fn nonterminal_follow_up_holds_candidate_until_terminal_or_interrupted() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("history.db");
+    let writer_db = writer(&path)?;
+    let parent = valid_id(1);
+    let active_child = valid_id(2);
+    let interrupted_child = valid_id(3);
+    let terminal_child = valid_id(4);
+    insert_link(&writer_db, parent, 0, true, false)?;
+    writer_db.connection.execute(
+        "INSERT INTO job_runtime_job_link
+         (job_id, predecessor_job_id, relation_kind, record_origin, reckon_at_ms, record_seq, created_at_ms)
+         VALUES (?1, ?2, 'retry', 'this_app', 50, 40, 50)",
+        params![terminal_child.as_slice(), parent.as_slice()],
+    )?;
+    writer_db.connection.execute(
+        "INSERT INTO job_runtime_job_record
+         (job_id, kind_id, kind_version, scope_summary, final_state,
+          completed_count, overwritten_count, failed_count, skipped_count,
+          unprocessed_count, started_at_ms, finished_at_ms, correlation_id, created_at_ms)
+         VALUES (?1, 'scan.metadata', 1, 'metadata: 1 root', 'done', 0, 0, 0, 0, 0, 50, 50, ?1, 50)",
+        [terminal_child.as_slice()],
+    )?;
+    for (child, seq, interrupted) in [(active_child, 20_i64, false), (interrupted_child, 30, true)]
+    {
+        writer_db.connection.execute(
+            "INSERT INTO job_runtime_job_link
+             (job_id, predecessor_job_id, relation_kind, record_origin, reckon_at_ms, record_seq, created_at_ms)
+             VALUES (?1, ?2, 'retry', 'this_app', 50, ?3, 50)",
+            params![child.as_slice(), parent.as_slice(), seq],
+        )?;
+        if interrupted {
+            writer_db.connection.execute(
+                "INSERT INTO job_runtime_job_start
+                 (job_id, kind_id, kind_version, scope_summary, started_at_ms, predecessor_job_id, relation_kind, record_origin, created_at_ms)
+                 VALUES (?1, 'change.trash', 1, 'change.trash', 50, ?2, 'retry', 'this_app', 50)",
+                params![child.as_slice(), parent.as_slice()],
+            )?;
+            writer_db.connection.execute(
+                "INSERT INTO job_runtime_job_interrupt VALUES (?1, 60)",
+                [child.as_slice()],
+            )?;
+        }
+    }
+    let mut reader_db = reader(&path)?;
+    let result = reader_db.read_history_expiry_candidates(1, 86_400_000)?;
+    assert_eq!(result.count, 1);
+    assert_eq!(result.candidates[0].job_id.v7_bytes(), Some(parent));
+    assert!(result.candidates[0].has_nonterminal_follow_up);
+    Ok(())
+}
+
+#[test]
+fn expiry_reader_reports_delete_generation_and_rejects_writes() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("history.db");
+    let mut writer_db = writer(&path)?;
+    assert!(matches!(
+        writer_db.read_history_delete_generation(),
+        Err(Error::RequiresReadConnection)
+    ));
+    let mut reader_db = reader(&path)?;
+    assert_eq!(
+        reader_db
+            .delete_generation()
+            .map_err(|error| format!("{error:?}"))?,
+        0
+    );
     Ok(())
 }
