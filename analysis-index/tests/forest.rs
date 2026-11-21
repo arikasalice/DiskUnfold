@@ -374,7 +374,6 @@ fn unknown_observation_and_cancelled_root_gap_remain_incomplete() -> Result<(), 
         .seal(id(2)?, ResultCompleteness::Cancelled)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(result.items()[2].kind, ResultItemKind::Unknown);
-    // Nothing known was read, so the total is at least zero bytes (#341).
     assert_eq!(
         result.scope_total().logical.amount,
         SizeAmount::LowerBound {

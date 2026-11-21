@@ -235,8 +235,8 @@ fn cancelled_and_partial_versions_make_marked_folders_and_ancestors_inexact() ->
                 bytes: du_core_contracts::ByteSize::from(0)
             }
         );
-        // The mark changes nothing but an unknown logical size of the marked folders
-        // and those above them, which becomes a zero lower bound.
+        // The mark changes nothing but unknown logical and (collected) allocated sizes
+        // of the marked folders and those above them, which become zero lower bounds.
         let all = |version: &ResultVersion| -> Vec<_> {
             (0..version.items().len() as u32)
                 .filter_map(|n| version.space(n).cloned())
@@ -245,16 +245,17 @@ fn cancelled_and_partial_versions_make_marked_folders_and_ancestors_inexact() ->
         };
         for (with_mark, without) in all(&marked).into_iter().zip(all(&plain)) {
             let mut expected = without.clone();
-            if without.logical.amount == SizeAmount::Unknown
-                && with_mark.logical.amount != SizeAmount::Unknown
-            {
-                expected.logical = with_mark.logical.clone();
-                assert_eq!(
-                    expected.logical.amount,
-                    SizeAmount::LowerBound {
-                        bytes: du_core_contracts::ByteSize::from(0)
-                    }
-                );
+            let zero = SizeAmount::LowerBound {
+                bytes: du_core_contracts::ByteSize::from(0),
+            };
+            for (bound, before) in [
+                (&with_mark.logical, &mut expected.logical),
+                (&with_mark.allocated, &mut expected.allocated),
+            ] {
+                if before.amount == SizeAmount::Unknown && bound.amount != SizeAmount::Unknown {
+                    assert_eq!(bound.amount, zero);
+                    *before = bound.clone();
+                }
             }
             assert_eq!(with_mark, expected);
         }
