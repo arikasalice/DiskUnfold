@@ -182,7 +182,8 @@ export function createBrowsePort(
   };
 }
 
-async function waitForQuery(
+/** Waits for a query.evaluate job and returns the query reference it completed with. */
+export async function waitForQuery(
   client: AnalysisClient,
   jobRef: Id,
   checkLive: () => void,

@@ -42,6 +42,10 @@ param(
   # type and the histogram with the chip inactive (#301); the Short form only the treemap.
   [switch]$CaptureTypeNarrowing,
   [switch]$CaptureTypeNarrowingShort,
+  # Capture "Show in list": the files of the narrowed type below the folder, then sorted by
+  # name (#306); the Short form only the opened list, for the dark and narrow runs.
+  [switch]$CaptureTypeList,
+  [switch]$CaptureTypeListShort,
   # Capture the bar chart of many items: 20 bars and a broken Other, then narrowed (#320).
   [switch]$CaptureTypeNarrowingMany,
   # Capture a bar chart whose Other is no larger than its largest bar: not broken (#320).
@@ -1869,7 +1873,7 @@ function Select-SmokeRadio($radio) {
 # and in a subfolder, so the legend's Videos row and the narrowed total count both (46.9). Captures
 # the narrowed treemap, its table, a folder without videos, and the histogram with the chip
 # inactive. With -Short only the narrowed treemap, for the dark and narrow runs.
-function Test-CaptureTypeNarrowing([switch]$Short) {
+function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
   $scope = Join-Path $root 'type-narrowing-scope'
   foreach ($folder in 'docs', 'songs') { [IO.Directory]::CreateDirectory((Join-Path $scope $folder)) | Out-Null }
   $files = [ordered]@{ 'clip.mp4' = 6MB; 'notes.txt' = 1MB; 'docs\report.pdf' = 10MB; 'docs\talk.mp4' = 4MB; 'songs\song.mp3' = 2MB }
@@ -1898,6 +1902,7 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
     @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1
   }
   "Chip: '$($clear.Current.Name)'; status line: '$($total.Current.Name)'"
+  if ($List) { Save-TypeListCaptures -Short:$Short; return }
   # Choosing a legend row can scroll a narrow window down to the legend; show the status line.
   Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
   if ($Short) { return }
@@ -1931,6 +1936,25 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   } 30
   Save-SmokeCapture '04-folder-without-type'
   "Type narrowing capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# F06 #306 (README 46.13): "Show in list" puts the files of the type below the chart's folder in
+# the chart's place: clip.mp4 directly in the scope and talk.mp4 in docs, largest first. Locations
+# start at the scope folder's name, so the docs location is the list's own text; below 720 px it
+# sits under the name in the row header, whose name then holds both.
+function Save-TypeListCaptures([switch]$Short) {
+  Invoke-UI (Wait-UI 'Show in list' { Find-UI 'Show in list' $button })
+  $null = Wait-UI 'the docs location in the list' {
+    @($window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      Where-Object { $_.Current.Name -like '*type-narrowing-scope\docs*' }) | Select-Object -First 1
+  } 60
+  Save-SmokeCapture '05-file-list'
+  if ($Short) { return }
+  Invoke-UI (Wait-UI 'the Name header' { Find-UI 'Name' $button })
+  Start-Sleep -Milliseconds 1500
+  Save-SmokeCapture '06-file-list-by-name'
+  Invoke-UI (Wait-Enabled 'Back to chart' $true)
+  $null = Wait-UI 'Show in list after going back' { Find-UI 'Show in list' $button }
+  "Type list capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # F06 #320 (README 47): a bar chart of 2,100 children draws the largest 20 and one Other, which
 # is larger than any single bar and so drawn to the end with a break. Narrowed to videos, the
@@ -2524,7 +2548,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort -or $CaptureTypeNarrowingMany -or $CaptureBarOtherSmall
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort -or $CaptureTypeNarrowingMany -or $CaptureBarOtherSmall -or $CaptureTypeList -or $CaptureTypeListShort
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2541,6 +2565,8 @@ function Test-VirtualGroups {
   if ($CaptureTypeNarrowing) { Test-CaptureTypeNarrowing }
   if ($CaptureTypeNarrowingShort) { Test-CaptureTypeNarrowing -Short }
   if ($CaptureTypeNarrowingMany) { Test-CaptureTypeNarrowingMany }
+  if ($CaptureTypeList) { Test-CaptureTypeNarrowing -List }
+  if ($CaptureTypeListShort) { Test-CaptureTypeNarrowing -List -Short }
   if ($CaptureBarOtherSmall) { Test-CaptureBarOtherSmall }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }

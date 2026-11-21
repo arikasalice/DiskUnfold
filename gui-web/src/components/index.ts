@@ -50,6 +50,9 @@ export {
 } from "./name-edges";
 export type { NameEdges, PathNameEdges } from "./name-edges";
 export { DataTable } from "./data-table";
+export { SortedTable } from "./sorted-table";
+export { MiddlePath } from "./middle-path";
+export type { SortDirection, SortedColumn, TableSort } from "./sorted-table";
 export { DetailDisclosure } from "./detail-disclosure";
 export { HeldHeight } from "./held-height";
 export { InspectionDialog } from "./inspection-dialog";
