@@ -252,6 +252,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The release tool tests call npm; GitHub-hosted images ship Node.js and a self-hosted machine may not.
+      - name: Node.js for the release tool tests
+        if: runner.environment == 'self-hosted'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.0
       - name: Linux native prerequisites
         if: runner.os == 'Linux'
         # A slow mirror needs about 17 minutes; the limit only stops a hung download.
