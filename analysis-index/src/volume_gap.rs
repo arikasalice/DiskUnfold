@@ -1,6 +1,10 @@
 //! Table-driven F03 volume gap arithmetic over observations from one pinned result.
 
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+use du_core_contracts::{
+    analysis_ipc::ScopeVolumeGroup,
+    volume::{SystemVolumeRole, VolumeGroupRole, VolumeMount},
+};
 use std::collections::BTreeMap;
 
 /// Independent contributions to the gap between volume use and scoped allocation.
@@ -169,6 +173,17 @@ pub struct PinnedVolumeGap {
     /// Completeness of unique physical evidence in the selected roots.
     pub unique_physical_completeness: du_core_contracts::result::ResultCompleteness,
     pub gap: VolumeGap,
+    /// System mounts sharing the analysed root volume group's container.
+    /// `None` means the selected target was not identified as a root volume group.
+    pub other_volumes: Option<Vec<OtherVolume>>,
+}
+
+/// One non-group system volume sharing the root group's storage container.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OtherVolume {
+    pub volume_name: String,
+    pub role: &'static str,
+    pub amount: FactorValue,
 }
 
 impl crate::ResultVersion {
@@ -177,6 +192,18 @@ impl crate::ResultVersion {
     pub fn volume_gap(
         &self,
         target: VolumeGapTarget<'_>,
+    ) -> Result<PinnedVolumeGap, crate::QueryError> {
+        self.volume_gap_with_mounts(target, None, &[])
+    }
+
+    /// Computes a gap with the live mount observations and reviewed group marker
+    /// supplied by the caller. The scope marker is the integration point for the
+    /// reviewed `ScopeVolumeGroup`; mount roles support volume-list-only callers.
+    pub fn volume_gap_with_mounts(
+        &self,
+        target: VolumeGapTarget<'_>,
+        scope_volume_group: Option<&ScopeVolumeGroup>,
+        volume_mounts: &[VolumeMount],
     ) -> Result<PinnedVolumeGap, crate::QueryError> {
         use du_core_contracts::result::{ResultCompleteness, ResultItemKind};
         let roots = match target {
@@ -225,10 +252,20 @@ impl crate::ResultVersion {
         });
         let start = report.and_then(|report| report.start.clone());
         let end = report.and_then(|report| report.end.clone());
-        let used = end
+        let reported_used = end
             .as_ref()
             .and_then(|point| point.value.as_ref().ok())
             .map(|value| value.used_bytes);
+        let group = root_volume_group(
+            matches!(&target, VolumeGapTarget::Root(_)),
+            volume_id.as_deref(),
+            scope_volume_group,
+            volume_mounts,
+        );
+        let used = group
+            .as_ref()
+            .map(|group| group.used_bytes)
+            .unwrap_or(reported_used);
         let has_gap = self
             .gaps
             .iter()
@@ -260,20 +297,133 @@ impl crate::ResultVersion {
                 },
             );
         }
+        if let Some(group) = &group {
+            observed.insert(Factor::OutOfScope, group.out_of_scope.clone());
+            // APFS container accounting has not yet been checked on macOS hardware.
+            observed.insert(Factor::FilesystemMetadata, FactorValue::insufficient());
+        }
         let gap = VolumeGap::calculate(used, &aggregate.allocated, &observed);
         Ok(PinnedVolumeGap {
             result_version: self.version_id.clone(),
             volume_id,
             start,
-            volume_report_unavailable_reason: used
-                .is_none()
-                .then_some("space.volume_report_unavailable"),
+            volume_report_unavailable_reason: used.is_none().then_some(if group.is_some() {
+                "space.data_insufficient"
+            } else {
+                "space.volume_report_unavailable"
+            }),
             end,
             allocated: aggregate.allocated,
             allocated_completeness: aggregate.allocated_completeness,
             unique_physical: aggregate.unique_physical,
             unique_physical_completeness: aggregate.unique_physical_completeness,
             gap,
+            other_volumes: group.map(|group| group.other_volumes),
         })
     }
 }
+
+struct RootGroupUsage {
+    used_bytes: Option<u64>,
+    out_of_scope: FactorValue,
+    other_volumes: Vec<OtherVolume>,
+}
+
+fn root_volume_group(
+    is_root_target: bool,
+    selected_volume: Option<&[u8]>,
+    scope_volume_group: Option<&ScopeVolumeGroup>,
+    mounts: &[VolumeMount],
+) -> Option<RootGroupUsage> {
+    if !is_root_target {
+        return None;
+    }
+    let system = mounts.iter().find(|mount| {
+        mount.group_role == Some(VolumeGroupRole::System)
+            && (selected_volume.is_none() || mount.volume_id.as_deref() == selected_volume)
+    })?;
+    let data = mounts.iter().find(|mount| {
+        mount.group_role == Some(VolumeGroupRole::Data)
+            && scope_volume_group.is_none_or(|group| {
+                group
+                    .data_mount
+                    .raw
+                    .bytes()
+                    .is_ok_and(|path| path == mount.mount_path)
+            })
+    });
+    if scope_volume_group.is_none() && data.is_none() {
+        return None;
+    }
+    let used_bytes = system
+        .used_bytes
+        .zip(data.and_then(|mount| mount.used_bytes))
+        .and_then(|(system, data)| system.checked_add(data));
+    let has_missing =
+        system.used_bytes.is_none() || data.and_then(|mount| mount.used_bytes).is_none();
+    let mut candidates: Vec<_> = mounts
+        .iter()
+        .filter_map(|mount| {
+            (mount.container.is_some()
+                && mount.container == system.container
+                && mount.system_role.is_some()
+                && mount.group_role.is_none())
+            .then_some((mount, mount.system_role?))
+        })
+        .collect();
+    candidates.sort_by_key(|(mount, _)| volume_name(mount));
+    let other_volumes: Vec<_> = candidates
+        .iter()
+        .map(|(mount, role)| OtherVolume {
+            volume_name: volume_name(mount),
+            role: role_key(*role),
+            amount: mount
+                .used_bytes
+                .map_or_else(FactorValue::insufficient, |bytes| FactorValue::Exact {
+                    bytes,
+                    evidence: SizeEvidence::OsReported,
+                }),
+        })
+        .collect();
+    let out_of_scope = if has_missing {
+        FactorValue::insufficient()
+    } else {
+        other_volumes
+            .iter()
+            .try_fold(0_u64, |sum, volume| {
+                volume.amount.exact_bytes()?.checked_add(sum)
+            })
+            .map_or_else(FactorValue::insufficient, |bytes| FactorValue::Exact {
+                bytes,
+                evidence: SizeEvidence::OsReported,
+            })
+    };
+    Some(RootGroupUsage {
+        used_bytes,
+        out_of_scope,
+        other_volumes,
+    })
+}
+
+fn volume_name(mount: &VolumeMount) -> String {
+    mount
+        .mount_path
+        .rsplit(|byte| *byte == b'/')
+        .find(|component| !component.is_empty())
+        .map(|component| String::from_utf8_lossy(component).into_owned())
+        .unwrap_or_else(|| mount.display_path.clone())
+}
+
+fn role_key(role: SystemVolumeRole) -> &'static str {
+    use du_core_contracts::volume_gap_ipc::VolumeGapVolumeRow;
+    match role {
+        SystemVolumeRole::Vm => VolumeGapVolumeRow::ROLE_VM,
+        SystemVolumeRole::Preboot => VolumeGapVolumeRow::ROLE_PREBOOT,
+        SystemVolumeRole::Recovery => VolumeGapVolumeRow::ROLE_RECOVERY,
+        SystemVolumeRole::Update => VolumeGapVolumeRow::ROLE_UPDATE,
+        SystemVolumeRole::Other => VolumeGapVolumeRow::ROLE_OTHER,
+    }
+}
+
+#[cfg(test)]
+mod tests;
