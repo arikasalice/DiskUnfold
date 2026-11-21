@@ -274,5 +274,17 @@ pub(crate) fn mark_unread(aggregate: &mut SpaceAggregate, allocation: bool) {
     zero(&mut aggregate.logical);
     if allocation {
         zero(&mut aggregate.allocated);
+        // The allocation was collected, so "not collected" no longer describes the
+        // bound; the two never describe one folder (#341).
+        if aggregate.allocated.amount != SizeAmount::Unknown
+            && aggregate
+                .limitations
+                .contains(&"space.allocated_not_collected")
+        {
+            aggregate
+                .limitations
+                .to_mut()
+                .retain(|key| *key != "space.allocated_not_collected");
+        }
     }
 }
