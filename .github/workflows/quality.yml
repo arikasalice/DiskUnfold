@@ -8,8 +8,9 @@ on:
   push:
     branches: [main, 0.0.1]
   schedule:
-    # 02:37 in Korea. The gate job ends the run when the last successful scheduled run saw the same commit.
-    - cron: "37 17 * * *"
+    # Every six hours (00:37, 06:37, 12:37 and 18:37 UTC; 09:37, 15:37, 21:37 and 03:37 in Korea).
+    # The gate job ends the run when the last successful scheduled run saw the same commit.
+    - cron: "37 */6 * * *"
   workflow_dispatch:
     inputs:
       full:
