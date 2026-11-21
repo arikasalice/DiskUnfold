@@ -17,7 +17,7 @@ use du_core_contracts::{
         Checkpoint, HistoryMode, JobBody, JobContext, JobControl, JobCounts, JobDescriptor,
         JobOutcome, JobProgress, ProgressUnit, ResourceClass,
     },
-    result::ResultVersionRead,
+    result::{ResultCompleteness, ResultVersionRead},
     snapshot_file::SnapshotFilePort,
     snapshot_index::{
         SnapshotIndexPort, SnapshotIndexRow, SnapshotIndexSourceKind, SnapshotIndexState,
@@ -140,6 +140,14 @@ where
         if version.data_source() == DataSource::Sample {
             return Err(EngineError::reason("snapshot.sample_source"));
         }
+        if version.lineage_id().is_none()
+            && matches!(
+                version.completeness(),
+                ResultCompleteness::Complete | ResultCompleteness::Partial
+            )
+        {
+            return Err(EngineError::reason("support.internal_error"));
+        }
         let completed = self
             .context
             .store
@@ -157,7 +165,7 @@ where
         let lineage_id = version
             .lineage_id()
             .cloned()
-            .ok_or_else(|| EngineError::reason("snapshot.result_not_complete"))?;
+            .ok_or_else(|| EngineError::reason("support.internal_error"))?;
         let key = deduplication_key(version.version_id());
         if let Some(snapshot_id) = self
             .context
@@ -179,19 +187,18 @@ where
             return Ok(existing_job(job_id));
         }
 
-        if let Some(available) = self.context.files.available_bytes()
-            && u128::from(available) < required_free_bytes(version.items().len())
+        let required_bytes = required_free_bytes(version.items().len());
+        let status = self.context.files.preflight().map_err(file_error)?;
+        if let Some(available) = status.available_bytes
+            && u128::from(available) < required_bytes
         {
-            eprintln!("snapshot.insufficient_space");
-            return Err(EngineError::reason("snapshot.store_unavailable"));
+            return Err(EngineError::reason_with_internal(
+                "snapshot.store_unavailable",
+                "snapshot.insufficient_space",
+            ));
         }
+        status.no_replace_register.map_err(file_error)?;
         let snapshot_id = Id::from_v7_bytes(*uuid::Uuid::now_v7().as_bytes());
-        let pending = self
-            .context
-            .files
-            .create_pending(&snapshot_id)
-            .map_err(file_error)?;
-        drop(pending);
 
         let body: Arc<dyn JobBody> = Arc::new(SaveJob {
             context: self.context.clone(),

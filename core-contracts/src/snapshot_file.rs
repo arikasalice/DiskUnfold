@@ -59,19 +59,30 @@ impl std::fmt::Display for SnapshotPublishError {
 
 impl std::error::Error for SnapshotPublishError {}
 
-/// Creates a pending snapshot file whose final name is derived from `snapshot_id`.
+/// Provides the private snapshot-file operations used by local snapshot saves.
 pub trait SnapshotFilePort: Send + Sync {
-    /// Returns available bytes on the snapshot volume when the OS can query it.
-    /// Unknown capacity is not a reason to refuse a save.
-    fn available_bytes(&self) -> Option<u64> {
-        None
-    }
+    /// Opens the private snapshot store and checks its current save capability.
+    ///
+    /// The result never exposes a configured path. `Ok` is only a pre-check:
+    /// available space and registration capability can change before a save runs.
+    /// The registration result is separate so callers can apply a known space
+    /// limit before reporting a capability failure.
+    fn preflight(&self) -> Result<SnapshotStoreStatus, SnapshotFileError>;
 
     /// Creates an exclusively locked temporary file before any snapshot bytes are written.
     fn create_pending(
         &self,
         snapshot_id: &Id,
     ) -> Result<Box<dyn PendingSnapshotFile + '_>, SnapshotFileError>;
+}
+
+/// Snapshot-store facts collected without creating a pending snapshot file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SnapshotStoreStatus {
+    /// Available bytes on the snapshot volume, or `None` when unknown.
+    pub available_bytes: Option<u64>,
+    /// Result of checking no-replace file registration support.
+    pub no_replace_register: Result<(), SnapshotFileError>,
 }
 
 /// A staged snapshot file that is removed if it is dropped before publication.

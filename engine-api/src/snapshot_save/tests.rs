@@ -5,7 +5,9 @@ use du_core_contracts::{
     PathBytes, PathEncoding, Timestamp,
     job::{HistoryAppend, JobFlow, JobFlowError, JobHistory, JobSummary},
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
-    snapshot_file::{PendingSnapshotFile, SnapshotFileError, SnapshotPublishError},
+    snapshot_file::{
+        PendingSnapshotFile, SnapshotFileError, SnapshotPublishError, SnapshotStoreStatus,
+    },
     snapshot_index::{
         SnapshotIndexCompleteness, SnapshotIndexCursor, SnapshotIndexEntry, SnapshotIndexError,
         SnapshotIndexPage, SnapshotIndexRegisterResult,
@@ -221,6 +223,7 @@ struct FileState {
     capacity_queries: usize,
     create_calls: usize,
     temporary_count: usize,
+    write_calls: usize,
     finals: BTreeMap<String, Vec<u8>>,
 }
 
@@ -238,6 +241,7 @@ impl MemoryFiles {
             capacity_queries: state.capacity_queries,
             create_calls: state.create_calls,
             temporary_count: state.temporary_count,
+            write_calls: state.write_calls,
             finals: state.finals.clone(),
         }
     }
@@ -247,14 +251,22 @@ struct FileStateSnapshot {
     capacity_queries: usize,
     create_calls: usize,
     temporary_count: usize,
+    write_calls: usize,
     finals: BTreeMap<String, Vec<u8>>,
 }
 
 impl SnapshotFilePort for MemoryFiles {
-    fn available_bytes(&self) -> Option<u64> {
+    fn preflight(&self) -> Result<SnapshotStoreStatus, SnapshotFileError> {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         state.capacity_queries += 1;
-        state.available
+        Ok(SnapshotStoreStatus {
+            available_bytes: state.available,
+            no_replace_register: if state.unsupported {
+                Err(SnapshotFileError::Unsupported)
+            } else {
+                Ok(())
+            },
+        })
     }
 
     fn create_pending(
@@ -296,11 +308,11 @@ impl MemoryPending {
 
 impl Write for MemoryPending {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let fail = self
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .fail_write;
+        let fail = {
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            state.write_calls += 1;
+            state.fail_write
+        };
         if fail {
             return Err(io::Error::other("injected write failure"));
         }

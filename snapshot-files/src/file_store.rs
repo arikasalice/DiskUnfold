@@ -2,7 +2,7 @@ use du_core_contracts::{
     Id,
     snapshot_file::{
         PendingSnapshotFile, SnapshotFileDirectory, SnapshotFileError, SnapshotFilePort,
-        SnapshotFileSystem, SnapshotFileSystemTempFile, SnapshotPublishError,
+        SnapshotFileSystem, SnapshotFileSystemTempFile, SnapshotPublishError, SnapshotStoreStatus,
     },
 };
 use std::io::{self, Write};
@@ -22,11 +22,14 @@ impl SnapshotFileStore {
 }
 
 impl SnapshotFilePort for SnapshotFileStore {
-    fn available_bytes(&self) -> Option<u64> {
-        self.file_system
-            .open_or_create_snapshots()
-            .ok()?
-            .available_bytes()
+    fn preflight(&self) -> Result<SnapshotStoreStatus, SnapshotFileError> {
+        let directory = self.file_system.open_or_create_snapshots()?;
+        let available_bytes = directory.available_bytes();
+        let no_replace_register = directory.check_no_replace_register();
+        Ok(SnapshotStoreStatus {
+            available_bytes,
+            no_replace_register,
+        })
     }
 
     fn create_pending(
@@ -104,6 +107,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct State {
         available: bool,
+        free_bytes: Option<u64>,
         supported: bool,
         fail_write: bool,
         register_error: Option<io::ErrorKind>,
@@ -120,6 +124,7 @@ mod tests {
         fn with_state(update: impl FnOnce(&mut State)) -> Self {
             let mut state = State {
                 available: true,
+                free_bytes: Some(1_000_000),
                 supported: true,
                 ..State::default()
             };
@@ -154,6 +159,13 @@ mod tests {
     struct FakeDirectory(Arc<Mutex<State>>);
 
     impl SnapshotFileDirectory for FakeDirectory {
+        fn available_bytes(&self) -> Option<u64> {
+            self.0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .free_bytes
+        }
+
         fn check_no_replace_register(&self) -> Result<(), SnapshotFileError> {
             let supported = self
                 .0
@@ -336,6 +348,38 @@ mod tests {
         assert_eq!(
             store.create_pending(&id()?).err(),
             Some(SnapshotFileError::Unsupported)
+        );
+        let state = state.snapshot();
+        assert!(state.temporaries.is_empty());
+        assert_eq!(state.writes, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn preflight_reports_capacity_and_capability_without_creating_a_temp_file()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let filesystem = FakeFileSystem::with_state(|state| state.free_bytes = Some(1234));
+        let state = filesystem.clone();
+        let store = SnapshotFileStore::new(filesystem);
+        let status = store.preflight()?;
+        assert_eq!(status.available_bytes, Some(1234));
+        assert_eq!(status.no_replace_register, Ok(()));
+        let state = state.snapshot();
+        assert!(state.temporaries.is_empty());
+        assert_eq!(state.writes, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn preflight_reports_unsupported_registration_without_creating_a_temp_file()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let filesystem = FakeFileSystem::with_state(|state| state.supported = false);
+        let state = filesystem.clone();
+        let store = SnapshotFileStore::new(filesystem);
+        let status = store.preflight()?;
+        assert_eq!(
+            status.no_replace_register,
+            Err(SnapshotFileError::Unsupported)
         );
         let state = state.snapshot();
         assert!(state.temporaries.is_empty());

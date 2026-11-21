@@ -176,9 +176,7 @@ mod unix {
             }
             // SAFETY: fstatvfs returned success and initialized the structure.
             let status = unsafe { status.assume_init() };
-            u64::try_from(status.f_bavail)
-                .ok()?
-                .checked_mul(u64::try_from(status.f_frsize).ok()?)
+            u64::from(status.f_bavail).checked_mul(status.f_frsize)
         }
 
         fn check_no_replace_register(&self) -> Result<(), SnapshotFileError> {

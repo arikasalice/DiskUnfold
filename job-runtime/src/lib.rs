@@ -233,7 +233,9 @@ impl JobRuntime {
     /// Finds an active job with the exact kind and deduplication key.
     ///
     /// The table lock is shared with submission, so callers can return an
-    /// already admitted job before performing expensive admission checks.
+    /// already admitted job before performing expensive admission checks. The
+    /// job may finish after this lookup and before the response is observed;
+    /// submission still deduplicates a concurrent admission attempt.
     pub fn find_active_deduplicated(
         &self,
         kind_id: &str,

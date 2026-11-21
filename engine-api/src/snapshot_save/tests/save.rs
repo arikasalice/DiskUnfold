@@ -67,6 +67,7 @@ fn successful_save_registers_file_row_volumes_baseline_and_committed_event()
         .command
         .execute(request(version.clone(), true), &caller()?)
         .map_err(reason)?;
+    assert!(serde_json::to_value(&response)?.get("pinApplied").is_none());
     let job_id = match response {
         SnapshotSaveResponse::Accepted(accepted) => accepted.job_id,
         _ => return Err("expected accepted response".into()),
