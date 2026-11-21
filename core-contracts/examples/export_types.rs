@@ -1,3 +1,5 @@
+mod feature_contracts;
+
 use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::data_source::DataSource;
@@ -452,7 +454,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GroupTotalRow::decl(&config),
         GroupRatio::decl(&config),
         GroupTotals::decl(&config),
-    ];
+    ]
+    .into_iter()
+    .chain(feature_contracts::declarations(&config));
     let output = declarations
         .into_iter()
         .map(|d| format!("export {d}\n"))
