@@ -8,7 +8,7 @@ import {
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
-import type { BrowseOpenResponse, ItemRef } from "../../ipc";
+import type { BrowseOpenResponse, ItemRef, OsPath } from "../../ipc";
 import { folderPath, rowKey } from "./browse-display";
 import type { InspectedItem } from "./use-item-inspection";
 import type { LocaleText } from "../../i18n/presentation";
@@ -33,6 +33,7 @@ export type ParentLocation = { item?: ItemRef };
 export type InspectItem = (
   item: ItemRef,
   kind: InspectedItem["kind"],
+  countedAt?: OsPath,
 ) => ReactNode;
 export function BrowseItemDialog({
   inspection,
@@ -51,7 +52,7 @@ export function BrowseItemDialog({
       : text("ui.browse.file_details", "File details");
   return (
     <InspectionDialog title={title} onClose={close}>
-      {inspectItem(inspection.item, inspection.kind)}
+      {inspectItem(inspection.item, inspection.kind, inspection.countedAt)}
     </InspectionDialog>
   );
 }

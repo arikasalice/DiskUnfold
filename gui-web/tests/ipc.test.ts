@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  createAnalysisClient,
   createIpcClient,
+  windowsPath,
   type CallEnvelope,
   type ResultEnvelope,
 } from "../src/ipc";
@@ -31,6 +33,31 @@ test("preserves a transport failure for the caller", async () => {
   const transport = vi.fn().mockRejectedValue(error);
 
   await expect(createIpcClient(transport).call(request)).rejects.toBe(error);
+});
+
+test("rejects a scope home suggestion without the unverified group notice", async () => {
+  const suggestedInclude = windowsPath("C:\\Users\\fixture");
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: 1,
+    correlationId: envelope.correlationId,
+    body: {
+      notices: ["scope.volume_group_merged"],
+      suggestedInclude,
+    },
+  }));
+  await expect(
+    client.call("scope.review", {
+      draft: {
+        includes: [],
+        exclusions: [],
+        boundary: "current_volume",
+        includedMounts: [],
+        source: "gui",
+      },
+      requestSeq: 1,
+    }),
+  ).rejects.toThrow("home folder suggestion without an unverified");
 });
 
 test("the default transport sends the native message and rejects unrelated replies", async () => {

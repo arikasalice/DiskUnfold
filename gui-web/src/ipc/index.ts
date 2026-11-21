@@ -496,6 +496,17 @@ type Transport = (
   args: { envelope: CallEnvelope },
 ) => Promise<ResultEnvelope>;
 
+function hasUnverifiedHomeSuggestion(body: unknown): boolean {
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return false;
+  const response = body as Record<string, unknown>;
+  return (
+    Object.hasOwn(response, "suggestedInclude") &&
+    (!Array.isArray(response.notices) ||
+      !response.notices.includes("scope.volume_group_unverified"))
+  );
+}
+
 /** Connects analysis commands and events through the versioned desktop transport. */
 export function createAnalysisClient(
   transport: Transport = invokeNative,
@@ -525,6 +536,10 @@ export function createAnalysisClient(
           result.error.code,
           result.error.reasonKey,
           result.error.retryable,
+        );
+      if (name === "scope.review" && hasUnverifiedHomeSuggestion(result.body))
+        throw new Error(
+          "DiskUnfold IPC returned a home folder suggestion without an unverified volume group notice",
         );
       if (
         requestedRevision !== undefined &&

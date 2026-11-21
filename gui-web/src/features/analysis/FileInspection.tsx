@@ -10,6 +10,7 @@ import {
   Notice,
   Progress,
   Readout,
+  NameText,
   Text,
   Unbroken,
 } from "../../components";
@@ -19,6 +20,7 @@ import type {
   BrowseDetail,
   BrowseValue,
   ItemRef,
+  OsPath,
 } from "../../ipc";
 import { CopyPath, OwedCopyStatus, owedCopyFailure } from "./CopyPath";
 import type { CopyContinuation } from "./CopyPath";
@@ -246,6 +248,7 @@ export function FileInspection({
   client,
   item,
   itemKind = "file",
+  countedAt,
   display = windowsSizeDisplay,
   actionsDisabledReason,
   onStale,
@@ -254,6 +257,7 @@ export function FileInspection({
   client: AnalysisClient;
   item: ItemRef;
   itemKind?: "file" | "folder";
+  countedAt?: OsPath;
   display?: SizeDisplay;
   /** Turns off the actions that act on a real path and shows this reason (the sample experience). */
   actionsDisabledReason?: string;
@@ -372,6 +376,15 @@ export function FileInspection({
                   text,
                   renderTime,
                   actions,
+                ).concat(
+                  itemKind === "folder" && countedAt
+                    ? [
+                        {
+                          label: text("ui.browse.counted_at", "Counted at"),
+                          value: <NameText path name={countedAt.display} />,
+                        },
+                      ]
+                    : [],
                 )}
               />
             </div>

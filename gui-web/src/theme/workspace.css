@@ -346,6 +346,11 @@ label.du-field > span {
   color: var(--du-info-text);
 }
 
+.du-notice--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
 .du-badge--good {
   background: var(--du-good-surface);
   color: var(--du-good-text);
