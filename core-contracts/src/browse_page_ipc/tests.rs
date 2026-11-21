@@ -147,3 +147,24 @@ fn responses_accept_unknown_fields_at_every_level() -> Result<(), Box<dyn std::e
     assert_eq!(serde_json::to_value(parsed)?, job);
     Ok(())
 }
+
+#[test]
+fn startup_breadcrumb_marker_is_optional_and_rejects_explicit_null()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = "018f0000-0000-7000-8000-000000000001";
+    let mut value = json!({
+        "item": {"resultVersion": id, "itemNo": 0},
+        "displayName": {"state": "present", "value": "/"}
+    });
+    let parsed: BrowseBreadcrumb = serde_json::from_value(value.clone())?;
+    assert_eq!(parsed.is_startup_volume, None);
+    assert!(
+        serde_json::to_value(parsed)?
+            .get("isStartupVolume")
+            .is_none()
+    );
+
+    value["isStartupVolume"] = json!(null);
+    assert!(serde_json::from_value::<BrowseBreadcrumb>(value).is_err());
+    Ok(())
+}

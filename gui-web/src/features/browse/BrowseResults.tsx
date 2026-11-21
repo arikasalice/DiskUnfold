@@ -420,7 +420,18 @@ export function BrowseResults({
             ]}
           >
             <div className="du-browse-name">
-              <div id={nameId(row)}>
+              <div
+                id={nameId(row)}
+                title={
+                  row.kind === "directory" &&
+                  row.flags.groupVolumeRole === "data"
+                    ? text(
+                        "ui.browse.data_volume_description",
+                        "This is the data volume of Macintosh HD. User folders and apps are counted under /.",
+                      )
+                    : undefined
+                }
+              >
                 {row.kind === "directory" ? (
                   <Action
                     excludeFromTabOrder

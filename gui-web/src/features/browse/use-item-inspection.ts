@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { FolderQueryRow, ItemRef } from "../../ipc";
+import type { FolderQueryRow, ItemRef, OsPath } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { hasUnreadPart, scanStatus } from "./browse-cells";
@@ -8,6 +8,11 @@ export type InspectedItem = {
   item: ItemRef;
   kind: "file" | "folder";
   name: string;
+  countedAt?: OsPath;
+  countedAtItem?: ItemRef;
+  alreadyCounted?: boolean;
+  groupVolumeRole?: string;
+  focusCountedAtItem?: boolean;
   opener: HTMLElement | null;
   /** The opener's position in the list. */
   index: number;
@@ -73,10 +78,26 @@ export function useItemInspection(
       // modal captures its return target. Return to the navigable row, not
       // its nested button (which is deliberately outside the tab order).
       opener.focus({ preventScroll: true });
+      const alreadyCounted =
+        row.flags.boundary?.state === "present" &&
+        row.flags.boundary.value === "already_counted";
+      const countedAt = alreadyCounted ? row.flags.countedAt : undefined;
       setItem({
         item: row.item,
         kind: row.kind === "directory" ? "folder" : "file",
         name: browseDisplayName(row.displayName, text),
+        ...(countedAt
+          ? {
+              countedAt,
+              ...(row.flags.countedAtItem
+                ? { countedAtItem: row.flags.countedAtItem }
+                : {}),
+            }
+          : {}),
+        ...(alreadyCounted ? { alreadyCounted: true } : {}),
+        ...(typeof row.flags.groupVolumeRole === "string"
+          ? { groupVolumeRole: row.flags.groupVolumeRole }
+          : {}),
         opener,
         index: Number(opener.dataset.row ?? 0),
         countedZero: !hasUnreadPart(row),
@@ -86,6 +107,10 @@ export function useItemInspection(
     close() {
       pending.current = selected;
       setItem(undefined);
+    },
+    restore(item: InspectedItem) {
+      pending.current = undefined;
+      setItem(item);
     },
     reset() {
       pending.current = undefined;

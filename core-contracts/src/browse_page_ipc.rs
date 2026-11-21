@@ -131,6 +131,27 @@ pub struct FolderFlags {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub counted_at: Option<OsPath>,
+    /// The item that `counted_at` names in the same result version, for moving there
+    /// (#263). Present only with `counted_at` and only when that folder is in the
+    /// result; never used for sizes. `null` is rejected. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub counted_at_item: Option<ItemRef>,
+    /// The folder's place in the result's confirmed root volume group (#263), an
+    /// open set: [`FolderFlags::GROUP_ROLE_DATA`] marks the data mount itself.
+    /// Omitted for every other folder and an unknown value means no mark; the
+    /// screen never compares paths for it. `null` is rejected. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub group_volume_role: Option<String>,
     /// Unread ranges inside a folder that was itself read (#226).
     ///
     /// Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
@@ -156,6 +177,8 @@ pub struct UnreadInside {
 }
 
 impl FolderFlags {
+    /// [`FolderFlags::group_volume_role`] of the data mount of a root volume group.
+    pub const GROUP_ROLE_DATA: &'static str = "data";
     /// Reason key of an unknown fact while the scan of the result version has not
     /// ended. It travels inside values only.
     pub const REASON_SCAN_IN_PROGRESS: &'static str = "scan.in_progress";
@@ -291,6 +314,14 @@ pub struct BrowseBreadcrumb {
     pub item: ItemRef,
     /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
+    /// The root item of a confirmed macOS startup volume group. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub is_startup_volume: Option<bool>,
 }
 /// The opened location's relationship to its scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,7 +409,7 @@ where
 }
 
 /// An optional field that, when present, must not be `null`.
-fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,

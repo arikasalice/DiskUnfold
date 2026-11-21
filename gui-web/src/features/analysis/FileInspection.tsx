@@ -6,10 +6,12 @@ import { useTimestampParts } from "../../i18n/regional-format";
 import {
   DetailDisclosure,
   ExampleBadge,
+  Action,
   Moment,
   Notice,
   Progress,
   Readout,
+  NameText,
   Text,
   Unbroken,
 } from "../../components";
@@ -19,6 +21,7 @@ import type {
   BrowseDetail,
   BrowseValue,
   ItemRef,
+  OsPath,
 } from "../../ipc";
 import { CopyPath, OwedCopyStatus, owedCopyFailure } from "./CopyPath";
 import type { CopyContinuation } from "./CopyPath";
@@ -49,6 +52,53 @@ function attribute<T>(
     unreadValueText(field.reasonKey, text)?.value ??
     displaySpaceReason(field.reasonKey, text) ??
     text("ui.inspection.unavailable_in_scan", "Unavailable in this scan")
+  );
+}
+
+function countedAtRows(
+  countedAt: OsPath | undefined,
+  countedAtItem: ItemRef | undefined,
+  navigateItem: ((item: ItemRef) => void) | undefined,
+  focusCountedAtItem: boolean,
+  text: LocaleText,
+) {
+  if (!countedAt) return [];
+  const canNavigate = countedAtItem !== undefined && navigateItem !== undefined;
+  return [
+    {
+      label: canNavigate
+        ? text("ui.browse.counted_at_path", "Counted at {path}", {
+            path: countedAt.display,
+          })
+        : text("ui.browse.counted_at", "Counted at"),
+      value: canNavigate ? (
+        <Action
+          variant="quiet"
+          autoFocus={focusCountedAtItem}
+          onPress={() => navigateItem(countedAtItem)}
+        >
+          {text("ui.browse.counted_at_open", "Open folder")}
+        </Action>
+      ) : (
+        <NameText path name={countedAt.display} />
+      ),
+    },
+  ];
+}
+
+function dataVolumeNote(
+  itemKind: "file" | "folder",
+  groupVolumeRole: string | undefined,
+  text: LocaleText,
+) {
+  if (itemKind !== "folder" || groupVolumeRole !== "data") return null;
+  return (
+    <Notice tone="info">
+      {text(
+        "ui.browse.data_volume_description",
+        "This is the data volume of Macintosh HD. User folders and apps are counted under /.",
+      )}
+    </Notice>
   );
 }
 
@@ -95,9 +145,10 @@ function diagnosticReason(key: string, text: LocaleText): string {
 function diagnostics(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
+  alreadyCounted: boolean,
   text: LocaleText,
 ): string[] {
-  const fields = [
+  const fields: [string, BrowseValue<unknown>][] = [
     [
       itemKind === "file"
         ? text("ui.inspection.file_name", "File name")
@@ -106,15 +157,20 @@ function diagnostics(
     ],
     [text("ui.inspection.path", "Path"), detail.displayPath],
     [text("ui.inspection.kind", "Type"), detail.kind],
-    [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
-    [
-      text("ui.analysis.allocated_size", "Allocated size"),
-      detail.allocatedSize,
-    ],
+  ];
+  if (!alreadyCounted)
+    fields.push(
+      [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
+      [
+        text("ui.analysis.allocated_size", "Allocated size"),
+        detail.allocatedSize,
+      ],
+    );
+  fields.push(
     [text("ui.inspection.modified", "Modified"), detail.modifiedAt],
     [text("ui.inspection.created", "Created"), detail.createdAt],
     [text("ui.inspection.published", "Result published"), detail.observedAt],
-  ] as const;
+  );
   return fields.flatMap(([label, field]) =>
     field.state === "unknown"
       ? [
@@ -132,33 +188,38 @@ function sizeRow(
   field: BrowseDetail["logicalSize"],
   display: SizeDisplay,
   text: LocaleText,
+  alreadyCounted: boolean,
   countedZero: boolean,
   unreadNote: string | undefined,
 ) {
-  if (
-    field.state !== "present" ||
-    (isZeroLowerBound(field.value) && !countedZero)
-  ) {
-    if (field.state === "present") {
-      return {
-        label,
-        emphasized: true,
-        // Opened from a row: say what the row says, with its scan status below.
-        value:
-          unreadNote === undefined
-            ? text(
-                "ui.inspection.unavailable_in_scan",
-                "Unavailable in this scan",
-              )
-            : text("ui.browse.unavailable", "Unavailable"),
-        notes: unreadNote === undefined ? [] : [unreadNote],
-      };
-    }
+  if (alreadyCounted) {
+    return {
+      label,
+      emphasized: true,
+      value: text("ui.browse.not_counted", "Not counted"),
+    };
+  }
+  if (field.state !== "present") {
     return {
       label,
       emphasized: true,
       value: attribute(field, String, text),
       notes: unreadNotes(field, text),
+    };
+  }
+  if (isZeroLowerBound(field.value) && !countedZero) {
+    return {
+      label,
+      emphasized: true,
+      // Opened from a row: say what the row says, with its scan status below.
+      value:
+        unreadNote === undefined
+          ? text(
+              "ui.inspection.unavailable_in_scan",
+              "Unavailable in this scan",
+            )
+          : text("ui.browse.unavailable", "Unavailable"),
+      notes: unreadNote === undefined ? [] : [unreadNote],
     };
   }
   const { formatted, raw } = displaySizeParts(field.value, display, text);
@@ -187,6 +248,7 @@ type PathActions = {
 function attributes(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
+  alreadyCounted: boolean,
   display: SizeDisplay,
   client: AnalysisClient,
   item: ItemRef,
@@ -217,6 +279,7 @@ function attributes(
       detail.logicalSize,
       display,
       text,
+      alreadyCounted,
       countedZero,
       unreadNote,
     ),
@@ -225,6 +288,7 @@ function attributes(
       detail.allocatedSize,
       display,
       text,
+      alreadyCounted,
       countedZero,
       unreadNote,
     ),
@@ -273,6 +337,12 @@ export function FileInspection({
   client,
   item,
   itemKind = "file",
+  alreadyCounted = false,
+  countedAt,
+  countedAtItem,
+  groupVolumeRole,
+  navigateItem,
+  focusCountedAtItem = false,
   display = windowsSizeDisplay,
   actionsDisabledReason,
   onStale,
@@ -283,6 +353,12 @@ export function FileInspection({
   client: AnalysisClient;
   item: ItemRef;
   itemKind?: "file" | "folder";
+  alreadyCounted?: boolean;
+  countedAt?: OsPath;
+  countedAtItem?: ItemRef;
+  groupVolumeRole?: string;
+  navigateItem?: (item: ItemRef) => void;
+  focusCountedAtItem?: boolean;
   display?: SizeDisplay;
   /** Turns off the actions that act on a real path and shows this reason (the sample experience). */
   actionsDisabledReason?: string;
@@ -380,6 +456,7 @@ export function FileInspection({
           "Information observed during the scan.",
         )}
       </Text>
+      {dataVolumeNote(itemKind, groupVolumeRole, text)}
       {problem && (
         <Notice tone="error">
           {inspectionProblem(problem, itemKind, kind, text)}
@@ -407,6 +484,7 @@ export function FileInspection({
                 rows={attributes(
                   detail,
                   itemKind,
+                  alreadyCounted,
                   display,
                   client,
                   item,
@@ -415,14 +493,26 @@ export function FileInspection({
                   actions,
                   countedZero,
                   unreadNote,
+                ).concat(
+                  itemKind === "folder"
+                    ? countedAtRows(
+                        countedAt,
+                        countedAtItem,
+                        navigateItem,
+                        focusCountedAtItem,
+                        text,
+                      )
+                    : [],
                 )}
               />
             </div>
-            {diagnostics(detail, itemKind, text).length > 0 && (
+            {diagnostics(detail, itemKind, alreadyCounted, text).length > 0 && (
               <DetailDisclosure title={reasons}>
-                {diagnostics(detail, itemKind, text).map((line) => (
-                  <Text key={line}>{line}</Text>
-                ))}
+                {diagnostics(detail, itemKind, alreadyCounted, text).map(
+                  (line) => (
+                    <Text key={line}>{line}</Text>
+                  ),
+                )}
               </DetailDisclosure>
             )}
             <DetailDisclosure title={more}>

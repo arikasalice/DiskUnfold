@@ -5,6 +5,8 @@ import "../theme/breadcrumbs.css";
 export type BreadcrumbEntry = {
   id: string;
   label: string;
+  tooltip?: string | undefined;
+  accessibleLabel?: string | undefined;
   current?: boolean;
   onPress?: () => void;
 };
@@ -32,10 +34,19 @@ export function Breadcrumbs({
     <nav className="du-breadcrumbs" aria-label={label}>
       <ol role="list">
         {entries.map((entry, index) => (
-          <li key={entry.id} title={entry.label}>
+          <li
+            key={entry.id}
+            title={entry.tooltip ?? entry.label}
+            aria-label={entry.accessibleLabel}
+          >
             {index > 0 && <span aria-hidden="true">/</span>}
             {entry.onPress && !entry.current ? (
-              <Action onPress={entry.onPress}>
+              <Action
+                onPress={entry.onPress}
+                {...(entry.accessibleLabel
+                  ? { "aria-label": entry.accessibleLabel }
+                  : {})}
+              >
                 <NameText
                   name={entry.label}
                   path={hasPathSeparator(entry.label)}
@@ -44,7 +55,7 @@ export function Breadcrumbs({
             ) : (
               <span
                 aria-current={entry.current ? "location" : undefined}
-                title={entry.label}
+                title={entry.tooltip ?? entry.label}
               >
                 <NameText
                   name={entry.label}

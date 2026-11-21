@@ -13,7 +13,7 @@ import {
   useRegionalFormat,
   useTimestampText,
 } from "../../i18n/regional-format";
-import type { BrowseOpenResponse, ItemRef } from "../../ipc";
+import type { BrowseOpenResponse, ItemRef, OsPath } from "../../ipc";
 import { folderPath, rowKey } from "./browse-display";
 import type { InspectedItem } from "./use-item-inspection";
 import type { LocaleText } from "../../i18n/presentation";
@@ -38,6 +38,12 @@ export type ParentLocation = { item?: ItemRef };
 export type InspectItem = (
   item: ItemRef,
   kind: InspectedItem["kind"],
+  countedAt: OsPath | undefined,
+  countedAtItem: ItemRef | undefined,
+  groupVolumeRole: string | undefined,
+  navigateItem: ((item: ItemRef) => void) | undefined,
+  focusCountedAtItem: boolean | undefined,
+  alreadyCounted: boolean | undefined,
   countedZero: boolean,
   unreadNote: string | undefined,
 ) => ReactNode;
@@ -45,10 +51,12 @@ export function BrowseItemDialog({
   inspection,
   inspectItem,
   close,
+  navigateItem,
 }: {
   inspection: InspectedItem | undefined;
   inspectItem: InspectItem | undefined;
   close: () => void;
+  navigateItem: (item: ItemRef) => void;
 }) {
   const text = useLocaleText();
   if (!inspection || !inspectItem) return null;
@@ -61,6 +69,12 @@ export function BrowseItemDialog({
       {inspectItem(
         inspection.item,
         inspection.kind,
+        inspection.countedAt,
+        inspection.countedAtItem,
+        inspection.groupVolumeRole,
+        navigateItem,
+        inspection.focusCountedAtItem,
+        inspection.alreadyCounted,
         inspection.countedZero,
         inspection.unreadNote,
       )}

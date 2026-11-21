@@ -49,6 +49,7 @@ export function ScanOutput({
   problem,
   roots,
   exclusions,
+  groupUnverified,
   actions,
   priorityArea,
 }: {
@@ -67,6 +68,7 @@ export function ScanOutput({
   roots: readonly OsPath[];
   /** The exclusion rules of the scope the scan was started with, if known. */
   exclusions: readonly ScopeExclusion[] | undefined;
+  groupUnverified: boolean;
   /** The folder name retained by this GUI for its priority request. */
   priorityArea?: ScanPriorityArea | undefined;
   actions: ReactNode;
@@ -137,6 +139,7 @@ export function ScanOutput({
             wait={sizeWait(running, state)}
             roots={roots}
             exclusions={exclusions}
+            groupUnverified={groupUnverified}
             preferences={preferences}
             displayChoice={displayChoice}
             onDisplayChoice={onDisplayChoice}
