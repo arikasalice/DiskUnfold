@@ -19,7 +19,7 @@ const TERMINAL_SUMMARY: &str = concat!(
 );
 
 /// Current database version for the desktop store with job history.
-pub const HISTORY_SCHEMA_VERSION: u32 = 10;
+pub const HISTORY_SCHEMA_VERSION: u32 = 11;
 
 /// Desktop migrations in application-wide order, after the known settings schema.
 pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
@@ -58,8 +58,12 @@ pub const HISTORY_DEFINITIONS: Definitions<'static> = Definitions {
             sql: include_str!("plan_version_schema.sql"),
         },
         Definition {
-            number: HISTORY_SCHEMA_VERSION,
+            number: 10,
             sql: include_str!("approval_check_schema.sql"),
+        },
+        Definition {
+            number: HISTORY_SCHEMA_VERSION,
+            sql: crate::snapshot_index_schema::DEFINITION,
         },
     ],
 };

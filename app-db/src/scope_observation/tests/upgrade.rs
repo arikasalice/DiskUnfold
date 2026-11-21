@@ -131,6 +131,7 @@ fn version_six_data_is_unchanged_and_the_new_table_starts_empty() -> TestResult 
             "job_runtime_approval_check",
         ]
         .contains(&name.as_str())
+            && !name.starts_with("snapshot_store_")
     });
     assert_eq!(after, before);
     let version: u32 = upgraded.pragma_query_value(None, "user_version", |row| row.get(0))?;

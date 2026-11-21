@@ -1,0 +1,62 @@
+-- F07 snapshot index, baseline and append-only deletion records.
+CREATE TABLE snapshot_store_snapshot (
+ snapshot_id BLOB PRIMARY KEY CHECK(length(snapshot_id) = 16),
+ file_name TEXT NOT NULL,
+ source_version_id BLOB NOT NULL CHECK(length(source_version_id) = 16),
+ lineage_id BLOB NOT NULL CHECK(length(lineage_id) = 16),
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('local','imported')),
+ observed_at_ms INTEGER,
+ created_at_ms INTEGER NOT NULL,
+ scope_label BLOB NOT NULL CHECK(length(scope_label) IN (0,32)),
+ condition_summary TEXT NOT NULL,
+ completeness TEXT CHECK(completeness IS NULL OR completeness IN ('complete','partial','missing')),
+ format_version INTEGER NOT NULL CHECK(format_version BETWEEN 1 AND 65535),
+ body_size INTEGER NOT NULL,
+ body_hash BLOB NOT NULL CHECK(length(body_hash) = 32),
+ state TEXT NOT NULL CHECK(state IN ('active','deleted','removed')),
+ verify_failed_at_ms INTEGER,
+ updated_at_ms INTEGER NOT NULL,
+ row_version INTEGER NOT NULL
+) STRICT;
+
+CREATE UNIQUE INDEX ux_snapshot_store_snapshot_active_source
+ ON snapshot_store_snapshot(source_version_id) WHERE state = 'active';
+CREATE INDEX ix_snapshot_store_snapshot_list
+ ON snapshot_store_snapshot(state, observed_at_ms, scope_label, snapshot_id);
+
+CREATE TABLE snapshot_store_snapshot_volume (
+ snapshot_id BLOB NOT NULL REFERENCES snapshot_store_snapshot(snapshot_id),
+ volume_index INTEGER NOT NULL CHECK(volume_index BETWEEN 0 AND 65534),
+ observed_volume_id BLOB,
+ identity_kind TEXT NOT NULL CHECK(identity_kind IN ('guid','uuid','fs_uuid','none')),
+ identity_capability TEXT NOT NULL CHECK(identity_capability IN ('supported','partial','unsupported','unknown')),
+ PRIMARY KEY(snapshot_id, volume_index)
+) STRICT;
+CREATE INDEX ix_snapshot_store_snapshot_volume_identity
+ ON snapshot_store_snapshot_volume(identity_kind, observed_volume_id, snapshot_id)
+ WHERE identity_kind <> 'none' AND observed_volume_id IS NOT NULL AND length(observed_volume_id) > 0;
+
+CREATE TABLE snapshot_store_baseline (
+ snapshot_id BLOB PRIMARY KEY REFERENCES snapshot_store_snapshot(snapshot_id),
+ pinned_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE snapshot_store_deletion (
+ deletion_id BLOB PRIMARY KEY CHECK(length(deletion_id) = 16),
+ snapshot_id BLOB NOT NULL REFERENCES snapshot_store_snapshot(snapshot_id),
+ deleted_at_ms INTEGER NOT NULL,
+ cause TEXT NOT NULL CHECK(cause IN ('manual','swept')),
+ file_removed INTEGER NOT NULL CHECK(file_removed IN (0,1))
+) STRICT;
+CREATE INDEX ix_snapshot_store_deletion_snapshot
+ ON snapshot_store_deletion(snapshot_id);
+CREATE TRIGGER snapshot_store_deletion_no_update BEFORE UPDATE ON snapshot_store_deletion
+BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER snapshot_store_deletion_no_delete BEFORE DELETE ON snapshot_store_deletion
+BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+
+CREATE TABLE snapshot_store_list_state (
+ name TEXT PRIMARY KEY NOT NULL CHECK(name = 'snapshot_list'),
+ list_seq INTEGER NOT NULL CHECK(list_seq >= 0)
+) STRICT;
+INSERT INTO snapshot_store_list_state(name, list_seq) VALUES ('snapshot_list', 0);

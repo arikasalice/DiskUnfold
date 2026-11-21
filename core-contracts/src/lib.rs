@@ -43,6 +43,7 @@ pub mod size_rule;
 pub mod size_units;
 pub mod snapshot_file;
 pub mod snapshot_format;
+pub mod snapshot_index;
 pub mod snapshot_spool;
 pub mod space_detail_ipc;
 pub mod startup;

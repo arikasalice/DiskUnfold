@@ -1,5 +1,5 @@
 use super::*;
-use crate::{AppDb, HISTORY_DEFINITIONS};
+use crate::{AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
 
 fn seed(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let db = AppDb::create_gui(path).map_err(|e| format!("{e:?}"))?;
@@ -46,7 +46,8 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
             .content_valid,
         3
     );
-    for (revision, previous) in [(5, 4), (6, 5), (7, 6), (8, 7), (9, 8), (10, 9)] {
+    for revision in 5..=HISTORY_SCHEMA_VERSION {
+        let previous = revision - 1;
         let outcome =
             apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
         assert_eq!(outcome.revision, revision);
@@ -56,9 +57,9 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
     }
     drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
     let report = inspect_retention(&root).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(report.content_valid, 9);
+    assert_eq!(report.content_valid, (HISTORY_SCHEMA_VERSION - 1) as usize);
     assert!(report.cleanup_unavailable);
-    for sequence in 1..=9 {
+    for sequence in 1..=HISTORY_SCHEMA_VERSION - 1 {
         assert!(root.join(format!("backup-{sequence:020}")).is_dir());
     }
     Ok(())
