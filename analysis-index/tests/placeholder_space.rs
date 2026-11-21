@@ -146,7 +146,7 @@ fn a_placeholder_without_local_occupancy_is_missing_and_named() -> TestResult {
             ResultCompleteness::Missing
         );
         assert_eq!(aggregate.unique_physical.amount, SizeAmount::Unknown);
-        assert!(names_cause(aggregate), "{:?}", aggregate.limitations);
+        assert!(names_cause(&aggregate), "{:?}", aggregate.limitations);
     }
     Ok(())
 }
