@@ -208,6 +208,30 @@ fn a_hard_linked_file_adds_its_allocation_once() -> Result<(), Failure> {
     Ok(())
 }
 
+/// Diagnosis of #351: scans `/` of the machine and prints its totals (run by hand).
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "measurement: scans the whole startup disk"]
+fn measure_the_root_totals() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let revision = scan(&assembled, Path::new("/"))?;
+    for (seq, basis) in (1..).zip(["logical", "allocated", "unique_physical"]) {
+        let size = space_size(&assembled, &revision, basis, seq)?;
+        eprintln!("F03_351 {basis} = {size}");
+    }
+    let space = ok(
+        &assembled.engine,
+        "space.total",
+        json!({"resultVersion": revision, "requestSeq": 9,
+               "target": {"kind": "folder", "item": {"resultVersion": revision, "itemNo": 0}}}),
+    )?;
+    eprintln!(
+        "F03_351 counts missing={} links={} inaccessible={}",
+        space["missingItems"], space["untraversedLinks"], space["inaccessibleRanges"]
+    );
+    Ok(())
+}
+
 /// Three files of different sizes and a folder, so that no ordering tie is involved.
 fn four_children() -> Result<tempfile::TempDir, Failure> {
     let folder = tempfile::tempdir()?;
