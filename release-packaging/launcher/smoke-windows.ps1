@@ -258,26 +258,25 @@ function Initialize-SmokeLocale([string]$language, [string]$scale = '100', [swit
   }
   # History captures seed one old completed record using a different kind than the fresh scan.
   $seed = @'
-import sqlite3, sys, uuid
+import os, sqlite3, sys
+
+def uuid7(ms):
+    # The app reads job and correlation IDs as UUIDv7; a v4 ID would not read back.
+    raw = bytearray(ms.to_bytes(6, "big") + os.urandom(10))
+    raw[6] = (raw[6] & 0x0F) | 0x70
+    raw[8] = (raw[8] & 0x3F) | 0x80
+    return bytes(raw)
+
 connection = sqlite3.connect(sys.argv[1])
 connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('locale.display_language', ?, 'owner', 0, 0, 1)", ('"' + sys.argv[2] + '"',))
 if sys.argv[3] != "100":
     connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('a11y.app_scale', ?, 'owner', 0, 0, 1)", (sys.argv[3],))
 connection.execute("UPDATE user_env_setting_version SET settings_version = settings_version + 1, updated_at_ms = 0 WHERE version_key = 'settings'")
 if sys.argv[4] == "1":
-    job_id = uuid.uuid4().bytes
     old_ms = 1577836800000
+    job_id = uuid7(old_ms)
     record_seq = connection.execute("SELECT last_record_seq + 1 FROM job_runtime_history_state WHERE state_key = 'history'").fetchone()[0]
-    connection.execute(
-        """
-        INSERT INTO job_runtime_job_start
-            (job_id, kind_id, kind_version, scope_summary, started_at_ms,
-             record_origin, created_at_ms)
-        VALUES (?, 'duplicate.check', 1, 'Old history retention fixture',
-                ?, 'this_app', ?)
-        """,
-        (job_id, old_ms, old_ms),
-    )
+    # duplicate.check keeps a terminal summary only, so it has no start record.
     connection.execute(
         """
         INSERT INTO job_runtime_job_record
@@ -288,7 +287,7 @@ if sys.argv[4] == "1":
         VALUES (?, 'duplicate.check', 1, 'Old history retention fixture',
                 'done', 0, 0, 0, 0, 0, ?, ?, ?, ?)
         """,
-        (job_id, old_ms, old_ms, uuid.uuid4().bytes, old_ms),
+        (job_id, old_ms, old_ms, uuid7(old_ms), old_ms),
     )
     connection.execute(
         """
