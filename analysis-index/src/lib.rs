@@ -319,6 +319,7 @@ impl BuildHandle {
             &self.observations,
             self.roots.len().max(1),
             self.roots.len() > 1,
+            finish,
             &mut self.numbered_nodes,
         ) {
             Ok(items) => items,

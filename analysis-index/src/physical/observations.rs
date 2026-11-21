@@ -3,8 +3,6 @@
 use super::{FileIdentity, SharingEvidence, SpaceObservation};
 use crate::BuildError;
 use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence, SizeValue};
-
-#[cfg(test)]
 use std::sync::Arc;
 
 const HAS_OBSERVATION: u32 = 1 << 0;
@@ -53,67 +51,98 @@ impl FileIdentityRef<'_> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct PhysicalObservationRef<'a> {
-    record: &'a PhysicalRecord,
-    arena: &'a [u8],
+pub(crate) enum PhysicalObservationRef<'a> {
+    Compact {
+        record: &'a PhysicalRecord,
+        arena: &'a [u8],
+    },
+    Shared(&'a SpaceObservation),
 }
 
 impl<'a> PhysicalObservationRef<'a> {
     pub(crate) fn allocated(self) -> Option<&'a SizeValue> {
-        (self.record.flags & HAS_ALLOCATION != 0).then_some(&self.record.allocated)
+        match self {
+            Self::Compact { record, .. } => {
+                (record.flags & HAS_ALLOCATION != 0).then_some(&record.allocated)
+            }
+            Self::Shared(observation) => observation.allocated.as_ref(),
+        }
     }
 
     pub(crate) fn identity(self) -> Option<FileIdentityRef<'a>> {
-        let record = self.record;
-        if record.flags & HAS_IDENTITY == 0 {
-            return None;
+        match self {
+            Self::Shared(observation) => {
+                observation
+                    .identity
+                    .as_ref()
+                    .map(|identity| FileIdentityRef {
+                        volume: &identity.volume,
+                        file: &identity.file,
+                    })
+            }
+            Self::Compact { record, arena } => {
+                if record.flags & HAS_IDENTITY == 0 {
+                    return None;
+                }
+                let (volume, file) = if record.flags & INLINE_IDENTITY != 0 {
+                    (&record.identity[..8], &record.identity[8..])
+                } else {
+                    let offset =
+                        usize::try_from(u64::from_le_bytes(record.identity[..8].try_into().ok()?))
+                            .ok()?;
+                    let volume_len_end = offset.checked_add(8)?;
+                    let file_len_end = volume_len_end.checked_add(8)?;
+                    let volume_len = usize::try_from(u64::from_le_bytes(
+                        arena.get(offset..volume_len_end)?.try_into().ok()?,
+                    ))
+                    .ok()?;
+                    let file_len = usize::try_from(u64::from_le_bytes(
+                        arena.get(volume_len_end..file_len_end)?.try_into().ok()?,
+                    ))
+                    .ok()?;
+                    let volume_end = file_len_end.checked_add(volume_len)?;
+                    let file_end = volume_end.checked_add(file_len)?;
+                    (
+                        arena.get(file_len_end..volume_end)?,
+                        arena.get(volume_end..file_end)?,
+                    )
+                };
+                Some(FileIdentityRef { volume, file })
+            }
         }
-        let (volume, file) = if record.flags & INLINE_IDENTITY != 0 {
-            (&record.identity[..8], &record.identity[8..])
-        } else {
-            let offset =
-                usize::try_from(u64::from_le_bytes(record.identity[..8].try_into().ok()?)).ok()?;
-            let volume_len_end = offset.checked_add(8)?;
-            let file_len_end = volume_len_end.checked_add(8)?;
-            let volume_len = usize::try_from(u64::from_le_bytes(
-                self.arena.get(offset..volume_len_end)?.try_into().ok()?,
-            ))
-            .ok()?;
-            let file_len = usize::try_from(u64::from_le_bytes(
-                self.arena
-                    .get(volume_len_end..file_len_end)?
-                    .try_into()
-                    .ok()?,
-            ))
-            .ok()?;
-            let volume_end = file_len_end.checked_add(volume_len)?;
-            let file_end = volume_end.checked_add(file_len)?;
-            (
-                self.arena.get(file_len_end..volume_end)?,
-                self.arena.get(volume_end..file_end)?,
-            )
-        };
-        Some(FileIdentityRef { volume, file })
     }
 
     pub(crate) fn link_count(self) -> Option<u64> {
-        (self.record.flags & HAS_LINK_COUNT != 0).then_some(self.record.link_count)
+        match self {
+            Self::Compact { record, .. } => {
+                (record.flags & HAS_LINK_COUNT != 0).then_some(record.link_count)
+            }
+            Self::Shared(observation) => observation.link_count,
+        }
     }
 
     pub(crate) fn sharing(self) -> SharingEvidence {
-        if self.record.flags & SHARING_UNKNOWN != 0 {
-            SharingEvidence::Unknown
-        } else {
-            SharingEvidence::None
+        match self {
+            Self::Compact { record, .. } => {
+                if record.flags & SHARING_UNKNOWN != 0 {
+                    SharingEvidence::Unknown
+                } else {
+                    SharingEvidence::None
+                }
+            }
+            Self::Shared(observation) => observation.sharing,
         }
     }
 
     pub(crate) fn to_owned(self) -> SpaceObservation {
-        SpaceObservation {
-            allocated: self.allocated().cloned(),
-            identity: self.identity().map(FileIdentityRef::to_owned),
-            link_count: self.link_count(),
-            sharing: self.sharing(),
+        match self {
+            Self::Shared(observation) => observation.clone(),
+            Self::Compact { .. } => SpaceObservation {
+                allocated: self.allocated().cloned(),
+                identity: self.identity().map(FileIdentityRef::to_owned),
+                link_count: self.link_count(),
+                sharing: self.sharing(),
+            },
         }
     }
 }
@@ -125,6 +154,7 @@ enum Records {
         item_numbers: Vec<u32>,
         records: Vec<PhysicalRecord>,
     },
+    Shared(Vec<Option<Arc<SpaceObservation>>>),
 }
 
 #[derive(Debug)]
@@ -141,13 +171,19 @@ impl PhysicalObservations {
 
     pub(crate) fn get(&self, item_no: u32) -> Option<PhysicalObservationRef<'_>> {
         let record = match &self.records {
+            Records::Shared(records) => {
+                return records
+                    .get(item_no as usize)?
+                    .as_deref()
+                    .map(PhysicalObservationRef::Shared);
+            }
             Records::Dense(records) => records.get(item_no as usize)?,
             Records::Sparse {
                 item_numbers,
                 records,
             } => records.get(item_numbers.binary_search(&item_no).ok()?)?,
         };
-        (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef {
+        (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef::Compact {
             record,
             arena: &self.arena,
         })
@@ -155,6 +191,20 @@ impl PhysicalObservations {
 
     pub(crate) fn present_count(&self) -> usize {
         self.present_count
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_compact(&self) -> bool {
+        !matches!(&self.records, Records::Shared(_))
+    }
+
+    pub(crate) fn shared(records: Vec<Option<Arc<SpaceObservation>>>) -> Self {
+        let present_count = records.iter().flatten().count();
+        Self {
+            records: Records::Shared(records),
+            arena: Vec::new(),
+            present_count,
+        }
     }
 }
 
@@ -217,6 +267,7 @@ impl PhysicalObservationsBuilder {
                     records.push(record);
                 }
             }
+            Records::Shared(_) => return Err(BuildError::InvalidTree),
         }
         Ok(())
     }

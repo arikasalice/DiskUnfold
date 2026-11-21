@@ -68,7 +68,7 @@ fn populated_forest() -> Result<BuildHandle, String> {
 }
 
 #[test]
-fn partial_versions_preserve_each_files_evidence() -> Result<(), String> {
+fn partial_versions_share_file_evidence_and_seal_compactly() -> Result<(), String> {
     let failed = |e: crate::BuildError| format!("{e:?}");
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)?).map_err(failed)?;
@@ -93,19 +93,34 @@ fn partial_versions_preserve_each_files_evidence() -> Result<(), String> {
     build.add_with_space(file, space.clone()).map_err(failed)?;
     let first = build.publish_partial(id(2)?).map_err(failed)?;
     let second = build.publish_partial(id(3)?).map_err(failed)?;
-    let find = |version: &crate::ResultVersion| {
-        version
+    let a = first
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(1))
+        .ok_or("first version lost the file evidence")?;
+    let b = second
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(1))
+        .ok_or("second version lost the file evidence")?;
+    assert_eq!(a.to_owned(), space);
+    assert_eq!(b.to_owned(), space);
+    assert!(matches!(
+        (a, b),
+        (
+            crate::physical::PhysicalObservationRef::Shared(a),
+            crate::physical::PhysicalObservationRef::Shared(b)
+        ) if std::ptr::eq(a, b)
+    ));
+    let sealed = build
+        .seal(id(4)?, ResultCompleteness::Complete)
+        .map_err(failed)?;
+    assert!(
+        sealed
             .physical
             .as_ref()
-            .and_then(|values| values.get(1))
-            .map(|value| value.to_owned())
-    };
-    let (Some(a), Some(b)) = (find(&first), find(&second)) else {
-        return Err("both versions must keep the file evidence".into());
-    };
-    assert_eq!(a, space);
-    assert_eq!(b, space);
-    assert_eq!(a, b);
+            .is_some_and(crate::physical::PhysicalObservations::is_compact)
+    );
     Ok(())
 }
 

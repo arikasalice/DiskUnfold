@@ -2,7 +2,7 @@
 use crate::item_kind::is_directory;
 use crate::observation_store::ObservationStore;
 use crate::physical::{PhysicalObservations, PhysicalObservationsBuilder};
-use crate::{BuildError, StoredObservation, observation::AttributeReasons};
+use crate::{BuildError, SpaceObservation, StoredObservation, observation::AttributeReasons};
 use du_core_contracts::Timestamp;
 use du_core_contracts::result::ResultItem;
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
@@ -50,6 +50,7 @@ pub(crate) fn build_items(
     store: &ObservationStore,
     root_count: usize,
     strict_roots: bool,
+    compact_physical: bool,
     numbered_nodes: &mut Option<Arc<Vec<u32>>>,
 ) -> Result<BuiltItems, BuildError> {
     if store.has_unobserved() {
@@ -70,7 +71,7 @@ pub(crate) fn build_items(
     }
     let mut items = Vec::with_capacity(order.len());
     let mut root_indices: Vec<u32> = Vec::with_capacity(order.len());
-    let mut columns = Columns::for_store(store, order.len());
+    let mut columns = Columns::for_store(store, order.len(), compact_physical);
     for (item, node) in order.iter().enumerate() {
         let observation = store.observation(*node).ok_or(BuildError::InvalidTree)?;
         let item_no = u32::try_from(item).map_err(|_| BuildError::CapacityExceeded)?;
@@ -96,7 +97,7 @@ pub(crate) fn build_items(
         .collect();
     boundary.sort_unstable();
     let attribute_reasons = AttributeReasons::bind(&item_of_node, store.attribute_reasons());
-    let physical = columns.physical.map(PhysicalObservationsBuilder::finish);
+    let physical = columns.physical.map(PhysicalColumnBuilder::finish);
     Ok(BuiltItems {
         items,
         physical,
@@ -178,7 +179,7 @@ fn group_children(store: &ObservationStore) -> (Vec<u32>, Vec<u32>) {
 
 /// Per-item evidence columns; a column exists only when some item has a value.
 struct Columns {
-    physical: Option<PhysicalObservationsBuilder>,
+    physical: Option<PhysicalColumnBuilder>,
     modified_times: Option<Vec<Option<Timestamp>>>,
     native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
     enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
@@ -186,8 +187,36 @@ struct Columns {
     item_observed_times: Option<Vec<Option<Timestamp>>>,
 }
 
+enum PhysicalColumnBuilder {
+    Compact(PhysicalObservationsBuilder),
+    Shared(Vec<Option<Arc<SpaceObservation>>>),
+}
+
+impl PhysicalColumnBuilder {
+    fn push(
+        &mut self,
+        item_no: u32,
+        observation: Option<&Arc<SpaceObservation>>,
+    ) -> Result<(), BuildError> {
+        match self {
+            Self::Compact(builder) => builder.push(item_no, observation.map(Arc::as_ref)),
+            Self::Shared(records) => {
+                records.push(observation.cloned());
+                Ok(())
+            }
+        }
+    }
+
+    fn finish(self) -> PhysicalObservations {
+        match self {
+            Self::Compact(builder) => builder.finish(),
+            Self::Shared(records) => PhysicalObservations::shared(records),
+        }
+    }
+}
+
 impl Columns {
-    fn for_store(store: &ObservationStore, items: usize) -> Self {
+    fn for_store(store: &ObservationStore, items: usize, compact_physical: bool) -> Self {
         let mut present = [false; 6];
         let mut physical_count = 0;
         for node in 0..store.nodes() {
@@ -202,7 +231,16 @@ impl Columns {
             }
         }
         Self {
-            physical: present[0].then(|| PhysicalObservations::builder(items, physical_count)),
+            physical: present[0].then(|| {
+                if compact_physical {
+                    PhysicalColumnBuilder::Compact(PhysicalObservations::builder(
+                        items,
+                        physical_count,
+                    ))
+                } else {
+                    PhysicalColumnBuilder::Shared(Vec::with_capacity(items))
+                }
+            }),
             modified_times: present[1].then(|| Vec::with_capacity(items)),
             native_modified_times: present[2].then(|| Vec::with_capacity(items)),
             enumerated_inodes: present[3].then(|| Vec::with_capacity(items)),
@@ -213,7 +251,7 @@ impl Columns {
 
     fn push(&mut self, item_no: u32, observation: &StoredObservation) -> Result<(), BuildError> {
         if let Some(values) = &mut self.physical {
-            values.push(item_no, observation.physical.as_deref())?;
+            values.push(item_no, observation.physical.as_ref())?;
         }
         if let Some(values) = &mut self.modified_times {
             values.push(observation.modified_at.clone());
