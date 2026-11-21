@@ -1,6 +1,9 @@
 //! Observation events and their bounded channel sender.
 use super::{correlated_budget, lane_meter};
-use crate::scan::admission::Admission;
+use crate::scan::admission::{Admission, Unread};
+use du_core_contracts::scan_failures::{
+    ScanFailureKind as Kind, ScanFailureStage as Stage, unentered_reason,
+};
 use du_core_contracts::scan_observation::{
     CorrelatedDirectoryEvent, DirectoryCaseEvidence, TimedObservedEntry,
 };
@@ -78,6 +81,30 @@ pub(super) enum Event {
 }
 
 impl Event {
+    /// Whether the event records an issue included in per-lane failure totals.
+    pub(super) fn counts_as_lane_failure(&self) -> bool {
+        match self {
+            Self::Failure { stage, reason, .. } => {
+                Kind::UnreadRange.counts_as_lane_failure(*stage, reason)
+            }
+            Self::Undecided(..) => Kind::UnreadRange
+                .counts_as_lane_failure(Stage::Traverse, unentered_reason::BOUNDARY_UNVERIFIABLE),
+            Self::Item(_, _, timed, admission, _)
+            | Self::CorrelatedItem(_, _, timed, admission, _) => {
+                if admission.unread().is_some() {
+                    return matches!(admission.unread(), Some(Unread::Unverifiable))
+                        && Kind::UnreadRange.counts_as_lane_failure(
+                            Stage::Traverse,
+                            unentered_reason::BOUNDARY_UNVERIFIABLE,
+                        );
+                }
+                super::super::issues::classify(&timed.entry)
+                    .is_some_and(|(kind, stage, reason)| kind.counts_as_lane_failure(stage, reason))
+            }
+            _ => false,
+        }
+    }
+
     /// Estimates the channel's inline event, owned path buffers and boxed observation payload.
     pub(super) fn estimated_buffer_bytes(&self) -> usize {
         let path_bytes = event_path(self).map_or(0, |path| {
@@ -156,7 +183,7 @@ impl EventSender {
     }
 
     pub(super) fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
-        if matches!(event, Event::Failure { .. }) {
+        if event.counts_as_lane_failure() {
             lane_meter::failed();
         }
         let bytes = self
@@ -192,6 +219,45 @@ mod tests {
     use super::*;
     use crate::scan_diagnostics::ScanDiagnostics;
     use std::{thread, time::Instant};
+
+    fn denied_item(admission: Admission) -> Event {
+        Event::Item(
+            0,
+            vec![b"denied".to_vec()],
+            Box::new(TimedObservedEntry::from(
+                du_core_contracts::scan_observation::ObservedEntry {
+                    name: b"denied".to_vec(),
+                    enumerated_inode: 1,
+                    enumerated_kind: du_core_contracts::scan_observation::ObservedKind::Directory,
+                    metadata: Err(du_core_contracts::ports::PortError {
+                        kind: du_core_contracts::ports::PortErrorKind::PermissionDenied,
+                        reason_key: "scan.path_denied".into(),
+                        os_code: None,
+                    }),
+                },
+            )),
+            admission,
+            None,
+        )
+    }
+
+    #[test]
+    fn counts_only_events_that_record_a_lane_failure() {
+        assert!(denied_item(Admission::Record).counts_as_lane_failure());
+        assert!(!denied_item(Admission::OutsideBoundary).counts_as_lane_failure());
+        assert!(Event::Undecided(0, Vec::new()).counts_as_lane_failure());
+        assert!(
+            Event::Failure {
+                root_index: 0,
+                path: Vec::new(),
+                root: false,
+                reason: "scan.unclassified",
+                stage: Stage::Traverse,
+                observed_at: None,
+            }
+            .counts_as_lane_failure()
+        );
+    }
 
     #[test]
     fn slow_collector_counts_the_bounded_channel_without_waiting_sends() -> Result<(), String> {

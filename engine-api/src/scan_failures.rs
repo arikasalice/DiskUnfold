@@ -49,22 +49,29 @@ impl UseCase for Failures {
         if !(1..=1_000).contains(&count) {
             return Err(EngineError::reason("cursor.limit_exceeded"));
         }
-        let start = cursor::start(&self.key, &request)?;
+        cursor::check_version(&self.key, &request)?;
         let version = pin_current_for(&self.store, &request.result_version, caller.channel)
             .map_err(|error| query_error(error.query()))?;
-        let issues = version.scan_issues();
-        let matching = issues
-            .iter()
-            .filter(|row| request.kind.is_none_or(|kind| row.kind == kind));
-        let total = request
-            .kind
-            .map_or(issues.len(), |_| matching.clone().count());
+        if request.root_indexes.as_ref().is_some_and(|indexes| {
+            indexes
+                .iter()
+                .any(|index| *index as usize >= version.scope_roots().len())
+        }) {
+            return Err(EngineError::reason("command.body_invalid"));
+        }
+        let start = cursor::start(&self.key, &request)?;
+        let (total, matching) = version.scan_issues_page(
+            request.root_indexes.as_deref(),
+            request.kind,
+            request.failures_only.unwrap_or(false),
+            start,
+            count as usize,
+        );
         if request.cursor.is_some() && (start == 0 || start >= total) {
             return Err(EngineError::reason("cursor.invalid"));
         }
         let rows: Vec<_> = matching
-            .skip(start)
-            .take(count as usize)
+            .into_iter()
             .map(|issue| project(&version, issue))
             .collect();
         let next = start + rows.len();
