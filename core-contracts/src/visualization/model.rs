@@ -8,6 +8,7 @@ use super::{
     render::{VizColorMode, VizLabelMode},
     required_nullable,
     rows::{VizDenominator, VizDenominatorBasis},
+    type_slices::VizTypeSlice,
 };
 use crate::{
     Id, ItemRef, SizeBasis, SizeValue,
@@ -233,6 +234,15 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub item_kind: Option<VizItemKind>,
+    /// A folder's files by legend class, on an item shape of a folder whose children
+    /// are not drawn; the same list as its row's. See [`VizTypeSlice`].
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub type_slices: Option<Vec<VizTypeSlice>>,
 }
 
 /// A legend class with its original item and quantity evidence.

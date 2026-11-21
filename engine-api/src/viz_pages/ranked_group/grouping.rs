@@ -95,6 +95,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         item_kind: None,
         condition: None,
         unread: None,
+        type_slices: None,
     };
     Ok((
         row,

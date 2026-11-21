@@ -47,6 +47,7 @@ fn row(version: &Id, name: &str) -> Result<VizRow, String> {
         item_kind: None,
         condition: None,
         unread: None,
+        type_slices: None,
     })
 }
 

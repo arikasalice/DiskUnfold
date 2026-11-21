@@ -79,6 +79,7 @@ pub(super) fn prepare(
                 .ok_or_else(internal)?,
             ),
             item_kind: None,
+            type_slices: None,
         });
     }
     model

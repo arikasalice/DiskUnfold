@@ -147,6 +147,7 @@ pub(super) fn build_model(
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, row.item.item_no),
+            type_slices: None,
         });
     }
     for shape in &projection.descendants {
@@ -169,6 +170,7 @@ pub(super) fn build_model(
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, shape.item.item_no),
+            type_slices: None,
         });
     }
     for group in &projection.detail.groups {
@@ -198,8 +200,10 @@ pub(super) fn build_model(
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
             member_count: Some(quantity("items", group.members.len() as u64)?),
             item_kind: None,
+            type_slices: None,
         });
     }
+    super::shape_slices::add(admitted, &mut shapes, cancelled)?;
     let classes = super::legend_totals::classes(admitted, projection, evidence, cancelled)?;
     let mut legend = Vec::with_capacity(classes.len());
     for (key, (count, total, lower)) in
@@ -434,6 +438,7 @@ mod tests {
             root_branch_ref: None,
             member_count: count,
             item_kind: None,
+            type_slices: None,
         })
     }
 

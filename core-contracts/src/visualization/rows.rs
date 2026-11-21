@@ -3,6 +3,7 @@ use super::item_kind::{VizItemKind, optional_known};
 use super::quantity::VizQuantity;
 pub use super::ratio::VizRatio;
 pub use super::row_unread::VizUnread;
+use super::type_slices::VizTypeSlice;
 use crate::{
     Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, browse_open_ipc::QueryCondition,
     result::ResultCompleteness,
@@ -115,6 +116,13 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub unread: Option<VizUnread>,
+    /// The folder's files by legend class (F06 README 54): item rows of folders under
+    /// the type color criterion, unfiltered, in a real scan. Omitted where it does not
+    /// apply, including a folder whose own listing failed; empty when every file was
+    /// counted and there is none. See [`VizTypeSlice`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub type_slices: Option<Vec<VizTypeSlice>>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +150,8 @@ struct RowWire {
     condition: Option<QueryCondition>,
     #[serde(default, deserialize_with = "optional_present")]
     unread: Option<VizUnread>,
+    #[serde(default, deserialize_with = "optional_present")]
+    type_slices: Option<Vec<VizTypeSlice>>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -184,6 +194,12 @@ impl VizRow {
         if self.unread.is_some() && self.item_ref.is_none() {
             return Err("unread state on a group row");
         }
+        if let Some(slices) = &self.type_slices {
+            if self.item_ref.is_none() || self.item_kind != Some(VizItemKind::Folder) {
+                return Err("type slices on a row that is not a folder");
+            }
+            VizTypeSlice::validate_list(slices)?;
+        }
         Ok(())
     }
     /// Checks the item revision only; group membership requires the pinned model.
@@ -217,6 +233,7 @@ impl<'de> Deserialize<'de> for VizRow {
             item_kind: w.item_kind,
             condition: w.condition,
             unread: w.unread,
+            type_slices: w.type_slices,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)
