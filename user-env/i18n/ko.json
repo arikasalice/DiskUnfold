@@ -300,7 +300,7 @@
     ["ui.analysis.resource_limit_invalid", "1 이상의 정수를 입력하세요", []],
     ["ui.analysis.resource_limit_range", "이 저장소에서 쓸 수 있는 범위는 1~{max}입니다", [["max", "count"]]],
     ["ui.analysis.resource_previous_automatic", "이전 값(자동)을 씁니다", []],
-    ["ui.analysis.resource_previous_limit", "이전 값 {limit}을 씁니다", [["limit", "count"]]],
+    ["ui.analysis.resource_previous_limit", "이전 값({limit})을 씁니다", [["limit", "count"]]],
     ["ui.analysis.resource_applying", "적용 중", []],
     ["ui.analysis.resource_takes_effect", "지금 읽는 폴더가 끝나면 바뀝니다", []],
     ["ui.analysis.resource_change_failed", "자원 사용 설정을 바꾸지 못했습니다.", []],

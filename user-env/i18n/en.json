@@ -300,7 +300,7 @@
     ["ui.analysis.resource_limit_invalid", "Enter a whole number of 1 or more", []],
     ["ui.analysis.resource_limit_range", "This storage accepts 1 to {max}", [["max", "count"]]],
     ["ui.analysis.resource_previous_automatic", "Using the previous value (automatic)", []],
-    ["ui.analysis.resource_previous_limit", "Using the previous value {limit}", [["limit", "count"]]],
+    ["ui.analysis.resource_previous_limit", "Using the previous value ({limit})", [["limit", "count"]]],
     ["ui.analysis.resource_applying", "Applying", []],
     ["ui.analysis.resource_takes_effect", "Takes effect after the current folder", []],
     ["ui.analysis.resource_change_failed", "Resource use could not be changed.", []],

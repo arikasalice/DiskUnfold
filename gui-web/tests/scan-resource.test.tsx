@@ -541,7 +541,7 @@ test("a mode change during a pending limit uses the last accepted limit after in
   ]);
   await act(async () => resolvers[0]!(setResourceResponse("accepted", 3)));
   await act(async () => resolvers[1]!(setResourceResponse("accepted", 2)));
-  expect(screen.getByText("Using the previous value 2")).toBeDefined();
+  expect(screen.getByText("Using the previous value (2)")).toBeDefined();
 });
 
 test("already_terminal and job.not_found quietly hide the progress control", async () => {

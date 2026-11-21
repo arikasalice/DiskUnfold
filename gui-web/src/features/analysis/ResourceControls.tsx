@@ -51,7 +51,7 @@ export function resourcePreviousValueText(
       )
     : text(
         "ui.analysis.resource_previous_limit",
-        "Using the previous value {limit}",
+        "Using the previous value ({limit})",
         { limit: String(value) },
       );
 }
