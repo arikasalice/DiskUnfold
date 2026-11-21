@@ -30,9 +30,9 @@
 
 .du-scan-issues__storage-path {
   display: block;
-  inline-size: min(22rem, 42vw);
+  inline-size: fit-content;
   min-inline-size: 0;
-  max-inline-size: 100%;
+  max-inline-size: min(22rem, 42vw);
 }
 
 .du-scan-issues__storage-tail {
@@ -50,6 +50,7 @@
   }
 
   .du-scan-issues__storage-path {
-    inline-size: min(18rem, 48vw);
+    inline-size: fit-content;
+    max-inline-size: min(18rem, 48vw);
   }
 }
