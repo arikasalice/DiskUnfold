@@ -76,6 +76,7 @@ pub(super) fn build(
                 member_count: row.member_count.clone(),
                 item_kind: None,
                 type_slices: None,
+                column: None,
             });
         }
     }

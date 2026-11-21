@@ -63,6 +63,7 @@ use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow,
     VizRows, VizRowsRequest, VizSizeRange, VizUnread,
 };
+use du_core_contracts::visualization::sankey::{VizColumn, VizLink};
 use du_core_contracts::visualization::type_slices::VizTypeSlice;
 use du_core_contracts::volume_gap_ipc::*;
 use du_core_contracts::*;
@@ -251,6 +252,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRow::decl(&config),
         VizUnread::decl(&config),
         VizTypeSlice::decl(&config),
+        VizColumn::decl(&config),
+        VizLink::decl(&config),
         VizRowsRequest::decl(&config),
         VizGroupRowsRequest::decl(&config),
         VizSizeRange::decl(&config),

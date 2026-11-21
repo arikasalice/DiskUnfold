@@ -50,6 +50,7 @@ fn row(value: SizeValue) -> Result<VizRow, String> {
         condition: None,
         unread: None,
         type_slices: None,
+        links: None,
     })
 }
 

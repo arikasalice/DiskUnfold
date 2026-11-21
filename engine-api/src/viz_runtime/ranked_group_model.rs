@@ -97,6 +97,7 @@ pub(super) fn prepare(
             ),
             item_kind: None,
             type_slices,
+            column: None,
         });
     }
     model

@@ -966,7 +966,11 @@ itemKind?: VizItemKind,
  * The files by legend class of a folder whose children are not drawn, or of the
  * Other group by its members; the same list as its row's. See [`VizTypeSlice`].
  */
-typeSlices?: Array<VizTypeSlice>, };
+typeSlices?: Array<VizTypeSlice>,
+/**
+ * The column of a Sankey node (#296); on every shape of a Sankey model only.
+ */
+column?: VizColumn, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>,
 /**
@@ -1028,7 +1032,11 @@ kind: string, fromShapeRef: string, toShapeRef: string,
 /**
  * Drawing information, when the strategy supplies geometry for the relationship.
  */
-geometry?: VizGeometry, };
+geometry?: VizGeometry,
+/**
+ * A Sankey link's exact bytes (#296); Sankey models only.
+ */
+quantity?: VizQuantity, };
 export type VizDenominatorBasis = "parent_folder" | "scope" | "analysis_total";
 export type VizRatio = string;
 export type VizDenominator = { basis: VizDenominatorBasis, value: VizQuantity, size?: SizeValue, };
@@ -1089,7 +1097,13 @@ unread?: VizUnread,
  * listing failed; empty when every file was counted and there is none. See
  * [`VizTypeSlice`].
  */
-typeSlices?: Array<VizTypeSlice>, };
+typeSlices?: Array<VizTypeSlice>,
+/**
+ * The links leaving a Sankey node row (#296), in legend order: the row each
+ * reaches and its exact bytes, so the table reaches every link. Sankey node rows
+ * only; omitted elsewhere, never null.
+ */
+links?: Array<VizLink>, };
 export type VizUnread = { "kind": "itself" } | { "kind": "inside",
 /**
  * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
@@ -1097,6 +1111,12 @@ export type VizUnread = { "kind": "itself" } | { "kind": "inside",
  */
 count?: string, } | { "kind": "unknown" };
 export type VizTypeSlice = { classKey: string, itemCount: VizQuantity, total: VizQuantity, };
+export type VizColumn = "scope" | "folder" | "type" | "unknown";
+export type VizLink = {
+/**
+ * The target row's reference within the same model revision: its item or group key.
+ */
+toRowRef: string, quantity: VizQuantity, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

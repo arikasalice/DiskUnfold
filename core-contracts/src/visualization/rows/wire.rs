@@ -1,7 +1,7 @@
 //! The wire form of a row: read as sent, then checked as a row.
 
 use super::{
-    VizDenominator, VizItemKind, VizQuantity, VizRatio, VizRow, VizTypeSlice, VizUnread,
+    VizDenominator, VizItemKind, VizLink, VizQuantity, VizRatio, VizRow, VizTypeSlice, VizUnread,
     optional_known, optional_present, required_nullable,
 };
 use crate::{ItemRef, SizeValue, browse_open_ipc::QueryCondition};
@@ -35,6 +35,8 @@ struct RowWire {
     unread: Option<VizUnread>,
     #[serde(default, deserialize_with = "optional_present")]
     type_slices: Option<Vec<VizTypeSlice>>,
+    #[serde(default, deserialize_with = "optional_present")]
+    links: Option<Vec<VizLink>>,
 }
 impl<'de> Deserialize<'de> for VizRow {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -55,6 +57,7 @@ impl<'de> Deserialize<'de> for VizRow {
             condition: w.condition,
             unread: w.unread,
             type_slices: w.type_slices,
+            links: w.links,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)
