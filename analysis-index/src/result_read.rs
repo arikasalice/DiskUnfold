@@ -201,8 +201,8 @@ impl ResultVersion {
     pub fn space(&self, item_no: u32) -> Option<SpaceAggregate> {
         let index = item_no as usize;
         let item = self.items.get(index)?;
-        if crate::item_kind::is_structure(item.kind) {
-            return Some(self.aggregates.get(item.item_no)?.clone());
+        if let Some(aggregate) = self.aggregates.get(item.item_no) {
+            return Some(aggregate.clone());
         }
         let source = self.aggregates.source(item.item_no);
         let mut aggregate = crate::space::aggregate_item(item, source);
