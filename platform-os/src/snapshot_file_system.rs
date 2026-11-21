@@ -49,17 +49,27 @@ impl SnapshotFileSystem for NativeSnapshotFileSystem {
         }
         let directory = crate::windows_snapshot::SnapshotDirectory::open(&self.snapshots_path())
             .map_err(|_| SnapshotFileError::StoreUnavailable)?;
-        Ok(Box::new(WindowsSnapshotDirectory { directory }))
+        let directory_path = self.snapshots_path();
+        let available_bytes = windows_available_bytes(&directory_path);
+        Ok(Box::new(WindowsSnapshotDirectory {
+            directory,
+            available_bytes,
+        }))
     }
 }
 
 #[cfg(windows)]
 struct WindowsSnapshotDirectory {
     directory: crate::windows_snapshot::SnapshotDirectory,
+    available_bytes: Option<u64>,
 }
 
 #[cfg(windows)]
 impl SnapshotFileDirectory for WindowsSnapshotDirectory {
+    fn available_bytes(&self) -> Option<u64> {
+        self.available_bytes
+    }
+
     fn check_no_replace_register(&self) -> Result<(), SnapshotFileError> {
         // SnapshotDirectory::open already verifies a stable local NTFS directory.
         Ok(())
@@ -79,6 +89,20 @@ impl SnapshotFileDirectory for WindowsSnapshotDirectory {
     fn sync_folder(&self) -> std::io::Result<()> {
         self.directory.sync_folder()
     }
+}
+
+#[cfg(windows)]
+fn windows_available_bytes(path: &std::path::Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{Win32::Storage::FileSystem::GetDiskFreeSpaceExW, core::PCWSTR};
+
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    let mut available = 0_u64;
+    // SAFETY: `wide` is NUL-terminated and `available` is a valid output pointer.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut available), None, None) }
+        .ok()
+        .map(|()| available)
 }
 
 #[cfg(windows)]
@@ -106,6 +130,7 @@ mod unix {
     use std::{
         fs::File,
         io::{self, Write},
+        os::fd::AsRawFd,
         sync::atomic::{AtomicU64, Ordering},
     };
 
@@ -142,6 +167,20 @@ mod unix {
     }
 
     impl SnapshotFileDirectory for UnixSnapshotDirectory {
+        fn available_bytes(&self) -> Option<u64> {
+            let mut status = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+            // SAFETY: `directory` is an open directory descriptor and `status` is writable.
+            let result = unsafe { libc::fstatvfs(self.directory.as_raw_fd(), status.as_mut_ptr()) };
+            if result != 0 {
+                return None;
+            }
+            // SAFETY: fstatvfs returned success and initialized the structure.
+            let status = unsafe { status.assume_init() };
+            u64::try_from(status.f_bavail)
+                .ok()?
+                .checked_mul(u64::try_from(status.f_frsize).ok()?)
+        }
+
         fn check_no_replace_register(&self) -> Result<(), SnapshotFileError> {
             check_no_replace_register(&self.directory)
         }

@@ -64,6 +64,11 @@ mod settings;
 mod shared_database;
 #[cfg(feature = "gui")]
 mod shutdown;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod snapshot_save;
 #[cfg(feature = "gui")]
 mod startup_checks;
 #[cfg(all(

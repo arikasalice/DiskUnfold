@@ -61,6 +61,12 @@ impl std::error::Error for SnapshotPublishError {}
 
 /// Creates a pending snapshot file whose final name is derived from `snapshot_id`.
 pub trait SnapshotFilePort: Send + Sync {
+    /// Returns available bytes on the snapshot volume when the OS can query it.
+    /// Unknown capacity is not a reason to refuse a save.
+    fn available_bytes(&self) -> Option<u64> {
+        None
+    }
+
     /// Creates an exclusively locked temporary file before any snapshot bytes are written.
     fn create_pending(
         &self,
@@ -89,6 +95,11 @@ pub trait SnapshotFileSystem: Send + Sync {
 
 /// Handle-relative operations on the snapshots folder.
 pub trait SnapshotFileDirectory: Send + Sync {
+    /// Returns available bytes on this directory's volume, or `None` when unknown.
+    fn available_bytes(&self) -> Option<u64> {
+        None
+    }
+
     /// Confirms no-replace registration support before the caller writes snapshot bytes.
     /// `Ok` is only a pre-check and does not guarantee a later registration succeeds;
     /// registration failure is still reported as `WriteFailed`.

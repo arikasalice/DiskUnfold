@@ -91,6 +91,7 @@ impl ErrorEnvelope {
             | "path.unresolvable"
             | "sample.mixed_source"
             | "snapshot.sample_source"
+            | "snapshot.result_not_complete"
             | "group.unknown"
             | "group.rule_invalid"
             | "group.name_duplicate"
@@ -123,6 +124,9 @@ impl ErrorEnvelope {
                 ErrorCode::Busy
             }
             "db.schema_mismatch"
+            | "snapshot.store_unavailable"
+            | "snapshot.write_failed"
+            | "snapshot.insufficient_space"
             | "support.internal_error"
             | "request.cancelled"
             | "history.storage_unavailable"
@@ -263,6 +267,24 @@ mod tests {
                 .ok_or("sample reason was not registered")?;
             assert_eq!(envelope.code, expected);
             assert!(!envelope.retryable);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_save_reasons_use_the_expected_public_codes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for (reason, expected) in [
+            ("snapshot.sample_source", ErrorCode::InvalidArgument),
+            ("snapshot.result_not_complete", ErrorCode::InvalidArgument),
+            ("snapshot.store_unavailable", ErrorCode::Internal),
+            ("snapshot.write_failed", ErrorCode::Internal),
+            ("snapshot.insufficient_space", ErrorCode::Internal),
+        ] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("snapshot save reason was not registered")?;
+            assert_eq!(envelope.code, expected);
         }
         Ok(())
     }

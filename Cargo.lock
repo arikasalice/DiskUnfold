@@ -206,6 +206,7 @@ dependencies = [
  "du-engine-api",
  "du-mcp-gateway",
  "du-platform-os",
+ "du-snapshot-files",
  "du-user-env",
  "rusqlite",
  "serde",

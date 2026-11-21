@@ -22,6 +22,13 @@ impl SnapshotFileStore {
 }
 
 impl SnapshotFilePort for SnapshotFileStore {
+    fn available_bytes(&self) -> Option<u64> {
+        self.file_system
+            .open_or_create_snapshots()
+            .ok()?
+            .available_bytes()
+    }
+
     fn create_pending(
         &self,
         snapshot_id: &Id,

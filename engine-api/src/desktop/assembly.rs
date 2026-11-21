@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use du_analysis_index::IngestSink;
 use du_core_contracts::{
     Id,
     job::{HistoryChanged, HistoryPruneDelete, JobHistory, SessionUndoInfo},
@@ -134,9 +135,11 @@ pub struct DesktopServices {
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
     /// F36 group use cases; app-host registers them with its rule store.
     pub groups: crate::group::GroupAssembly,
+    /// Shared immutable result source used by snapshot admission.
+    pub(crate) store: IngestSink,
     scan_events: Arc<scan_completion::ScanEvents>,
-    runtime: Arc<JobRuntime>,
-    workers: Arc<Workers>,
+    pub(crate) runtime: Arc<JobRuntime>,
+    pub(crate) workers: Arc<Workers>,
 }
 
 impl DesktopServices {
@@ -374,7 +377,7 @@ fn register_services_inner(
         crate::browse::folder::commands::register(builder, sets, ids, workers.clone(), random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
-    jobs::register_with_scan_store(builder, runtime.clone(), store);
+    jobs::register_with_scan_store(builder, runtime.clone(), store.clone());
     Ok(DesktopServices {
         events,
         path_copy,
@@ -383,6 +386,7 @@ fn register_services_inner(
         completed_scans,
         recent_scope_admissions,
         groups,
+        store,
         scan_events,
         runtime,
         workers,
