@@ -280,6 +280,32 @@ ui.analysis.selected_paths
 ui.analysis.result_details
 ui.analysis.paused_hint
 ui.analysis.collecting_hint
+ui.analysis.collection_conditions
+ui.analysis.collection_conditions_expand
+ui.analysis.collection_conditions_collapse
+ui.analysis.resource_label
+ui.analysis.resource_auto
+ui.analysis.resource_quiet
+ui.analysis.resource_fast
+ui.analysis.resource_help_auto
+ui.analysis.resource_help_quiet
+ui.analysis.resource_help_fast
+ui.analysis.resource_summary mode:name
+ui.analysis.resource_summary_limit mode:name limit:count
+ui.analysis.resource_default
+ui.analysis.resource_advanced
+ui.analysis.resource_limit_label
+ui.analysis.resource_limit_automatic
+ui.analysis.resource_limit_description
+ui.analysis.resource_reset
+ui.analysis.resource_limit_invalid
+ui.analysis.resource_limit_range max:count
+ui.analysis.resource_previous_automatic
+ui.analysis.resource_previous_limit limit:count
+ui.analysis.resource_applying
+ui.analysis.resource_takes_effect
+ui.analysis.resource_change_failed
+ui.analysis.resource_changed mode:name
 ui.analysis.lanes_and_more count:count
 ui.analysis.lanes_done
 ui.analysis.lanes_folders_column

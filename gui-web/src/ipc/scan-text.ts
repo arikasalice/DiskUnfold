@@ -429,6 +429,18 @@ const reviewReasons = new Map<string, Message>([
 const startJobReasons = new Map(
   [...jobReasons].filter(([key]) => key !== "job.cancelled"),
 );
+startJobReasons.set("scan.resource_limit_invalid", [
+  "ui.analysis.resource_limit_invalid",
+  "Enter a whole number of 1 or more",
+]);
+
+/** Whether scan.start refused a limit that exceeds this scan's device permit. */
+export function isScanResourceLimitInvalid(error: unknown): boolean {
+  return (
+    error instanceof AnalysisError &&
+    error.reasonKey === "scan.resource_limit_invalid"
+  );
+}
 
 /**
  * A stale version asks for a new review; otherwise the first table that has

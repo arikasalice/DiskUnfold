@@ -10,12 +10,17 @@
 // - date-picker: the shared date field in empty, selected, invalid, open, and
 //   forced-colors states (#272).
 //   The default browse run captures the #133 scene and both #226 lower-bound scenes.
+// - scan-lanes scenes: the F02 #317 collection-condition states and the
+//   accepted resource change while the current folder is still being read.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
 //   npm run capture:browse-gallery -- [output folder] [scene]
 //     scene: scan-status | lower-bounds | lower-bounds-notice
 //   npm run capture:date-picker-gallery -- [output folder]
+//   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
+//     scene: scope-collapsed | scope-expanded | scope-error-known |
+//            scope-error-unknown | progress | progress-limit-error
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -50,49 +55,63 @@ if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
 const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const scanLaneScenes = [
+  "scope-collapsed",
+  "scope-expanded",
+  "scope-error-known",
+  "scope-error-unknown",
+  "progress",
+  "progress-limit-error",
+];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
+const requestedScanLaneScene =
+  surface === "scan-lanes" ? process.argv[4] : undefined;
 const selectedBrowseScene =
   requestedBrowseScene === "notice"
     ? "lower-bounds-notice"
     : requestedBrowseScene;
 if (selectedBrowseScene && !browseScenes.includes(selectedBrowseScene))
   throw new Error("Unknown browse scene: " + selectedBrowseScene);
+if (requestedScanLaneScene && !scanLaneScenes.includes(requestedScanLaneScene))
+  throw new Error("Unknown scan-lanes scene: " + requestedScanLaneScene);
 const captureScenes =
   surface === "browse"
     ? selectedBrowseScene
       ? [selectedBrowseScene]
       : browseScenes
-    : [undefined];
+    : surface === "scan-lanes" && requestedScanLaneScene
+      ? [requestedScanLaneScene]
+      : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
 const galleryShots =
-  surface === "job-center"
+  surface === "scan-lanes" && requestedScanLaneScene === "scope-collapsed"
     ? [
-        { name: "01-light-1280", theme: "light", width: 1280, scene: "main" },
-        { name: "01-dark-1280", theme: "dark", width: 1280, scene: "main" },
-        { name: "01-light-700", theme: "light", width: 700, scene: "main" },
         {
-          name: "02-request-pending-no-effect",
+          name: "scope-collapsed-light-1280",
           theme: "light",
           width: 1280,
-          scene: "request-pending",
-        },
-        { name: "03-resync", theme: "light", width: 1280, scene: "resync" },
-        { name: "04-empty", theme: "light", width: 1280, scene: "empty" },
-        {
-          name: "05-cancel-confirm",
-          theme: "light",
-          width: 1280,
-          scene: "cancel-confirm",
+          height: 720,
         },
         {
-          name: "06-forced-colors",
-          theme: "light",
+          name: "scope-collapsed-dark-1280",
+          theme: "dark",
           width: 1280,
-          scene: "forced-colors",
-          forcedColors: "active",
+          height: 720,
+        },
+        {
+          name: "scope-collapsed-light-700",
+          theme: "light",
+          width: 700,
+          height: 720,
+        },
+        {
+          name: "scope-collapsed-dark-700",
+          theme: "dark",
+          width: 700,
+          height: 720,
         },
         {
           name: "07-toast-open-panel-700",
@@ -107,12 +126,138 @@ const galleryShots =
           scene: "toast-open-panel",
         },
       ]
-    : [
-        { name: "light-1280", theme: "light", width: 1280 },
-        { name: "dark-1280", theme: "dark", width: 1280 },
-        { name: "light-700", theme: "light", width: 700 },
-      ];
-const shots = galleryShots;
+    : surface === "scan-lanes" && requestedScanLaneScene === "scope-expanded"
+      ? [
+          {
+            name: "scope-expanded-light-1280",
+            theme: "light",
+            width: 1280,
+            height: 720,
+          },
+          {
+            name: "scope-expanded-dark-1280",
+            theme: "dark",
+            width: 1280,
+            height: 720,
+          },
+          {
+            name: "scope-expanded-light-700",
+            theme: "light",
+            width: 700,
+            height: 720,
+          },
+          {
+            name: "scope-expanded-dark-700",
+            theme: "dark",
+            width: 700,
+            height: 720,
+          },
+        ]
+      : surface === "scan-lanes" &&
+          requestedScanLaneScene === "scope-error-known"
+        ? [
+            {
+              name: "limit-error-known-light-1280",
+              theme: "light",
+              width: 1280,
+              height: 720,
+            },
+          ]
+        : surface === "scan-lanes" &&
+            requestedScanLaneScene === "scope-error-unknown"
+          ? [
+              {
+                name: "limit-error-unknown-light-1280",
+                theme: "light",
+                width: 1280,
+                height: 720,
+              },
+            ]
+          : surface === "scan-lanes" && requestedScanLaneScene === "progress"
+            ? [
+                {
+                  name: "progress-light-1280",
+                  theme: "light",
+                  width: 1280,
+                  height: 900,
+                },
+              ]
+            : surface === "job-center"
+              ? [
+                  {
+                    name: "01-light-1280",
+                    theme: "light",
+                    width: 1280,
+                    scene: "main",
+                  },
+                  {
+                    name: "01-dark-1280",
+                    theme: "dark",
+                    width: 1280,
+                    scene: "main",
+                  },
+                  {
+                    name: "01-light-700",
+                    theme: "light",
+                    width: 700,
+                    scene: "main",
+                  },
+                  {
+                    name: "02-request-pending-no-effect",
+                    theme: "light",
+                    width: 1280,
+                    scene: "request-pending",
+                  },
+                  {
+                    name: "03-resync",
+                    theme: "light",
+                    width: 1280,
+                    scene: "resync",
+                  },
+                  {
+                    name: "04-empty",
+                    theme: "light",
+                    width: 1280,
+                    scene: "empty",
+                  },
+                  {
+                    name: "05-cancel-confirm",
+                    theme: "light",
+                    width: 1280,
+                    scene: "cancel-confirm",
+                  },
+                  {
+                    name: "06-forced-colors",
+                    theme: "light",
+                    width: 1280,
+                    scene: "forced-colors",
+                    forcedColors: "active",
+                  },
+                ]
+              : [
+                  { name: "light-1280", theme: "light", width: 1280 },
+                  { name: "dark-1280", theme: "dark", width: 1280 },
+                  { name: "light-700", theme: "light", width: 700 },
+                ];
+const shots =
+  surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
+    ? [
+        {
+          name: "progress-limit-error-light-1280",
+          theme: "light",
+          width: 1280,
+          height: 720,
+          locale: "ko",
+        },
+        {
+          name: "progress-limit-error-light-1280",
+          theme: "light",
+          width: 1280,
+          height: 720,
+          locale: "en",
+        },
+      ]
+    : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -275,10 +420,12 @@ async function open(
   scene,
   query = "",
   forcedColors = "none",
+  viewportHeight = height,
+  locale = "ko",
 ) {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
-    height,
+    height: viewportHeight,
     deviceScaleFactor: 1,
     mobile: false,
   });
@@ -297,19 +444,32 @@ async function open(
       "&theme=" +
       theme +
       (scene ? "&scene=" + scene : "") +
+      (locale === "en" ? "&locale=en" : "") +
       query,
   });
   await loaded;
   if (surface === "scan-lanes") {
-    const selector =
-      scene === "one-lane"
+    const scopeScene = scene?.startsWith("scope-");
+    const selector = scopeScene
+      ? ".du-scope-preview .du-collection-conditions"
+      : scene === "one-lane"
         ? ".du-scan-lanes__single"
         : ".du-scan-lanes .du-data-table tbody tr";
-    const expected = scene === "one-lane" ? 1 : 3;
+    const expected = scopeScene ? 1 : scene === "one-lane" ? 1 : 3;
     if ((await session.run(drawn, selector, expected)) !== expected)
       throw new Error(
         "The scan lanes were not drawn for " + (scene ?? "three lanes"),
       );
+    if (scopeScene) {
+      await session.run((narrow) => {
+        const selector = narrow
+          ? ".du-scope-preview__summary"
+          : ".du-scope-preview";
+        document
+          .querySelector(selector)
+          ?.scrollIntoView({ block: "center", behavior: "auto" });
+      }, width <= 760);
+    }
   } else {
     const expected =
       surface === "browse" && scene === "scan-status" ? 6 : count;
@@ -384,7 +544,7 @@ async function save(session, name, viewport = false, scene) {
 }
 
 /** Captures only the product progress header, without gallery controls. */
-async function saveLanes(session, name) {
+async function saveLanes(session, name, locale = "ko") {
   const clip = await session.run(function headerClip() {
     const element = document.querySelector(
       ".du-scan-lanes-preview .du-result__header",
@@ -404,7 +564,10 @@ async function saveLanes(session, name) {
     captureBeyondViewport: true,
     clip: { ...clip, scale: 1 },
   });
-  const file = join(output, "gallery-scan-lanes-browser-ko-" + name + ".png");
+  const file = join(
+    output,
+    "gallery-scan-lanes-browser-" + locale + "-" + name + ".png",
+  );
   await writeFile(file, Buffer.from(data, "base64"));
   console.log(file);
 }
@@ -431,13 +594,116 @@ try {
         shot.scene ?? scene,
         "",
         shot.forcedColors,
+        shot.height ?? height,
+        shot.locale ?? "ko",
       );
-      if (surface === "scan-lanes") await saveLanes(session, shot.name);
+      if (surface === "scan-lanes" && scene?.startsWith("scope-"))
+        await save(session, shot.name, true, scene);
+      else if (surface === "scan-lanes" && scene === "progress") {
+        const changed = await session.run(() => {
+          const fast = document.querySelector(
+            'input[type="radio"][value="fast"]',
+          );
+          if (!(fast instanceof HTMLElement)) return false;
+          const choice = fast.closest("label");
+          if (!(choice instanceof HTMLElement)) return false;
+          choice.click();
+          return true;
+        });
+        if (!changed) throw new Error("The Fast resource option was not found");
+        if (
+          (await session.run(drawn, ".du-scan-lane__resource-pending", 1)) < 1
+        )
+          throw new Error(
+            "The resource change is not waiting on the current folder",
+          );
+        await saveLanes(session, shot.name);
+      } else if (surface === "scan-lanes" && scene === "progress-limit-error") {
+        const expanded = await session.run(function expandLimit() {
+          const button = document.querySelector(
+            ".du-resource-limit__heading button",
+          );
+          if (!(button instanceof HTMLElement)) return false;
+          button.click();
+          return true;
+        });
+        if (!expanded) throw new Error("The limit disclosure was not found");
+        if (
+          (await session.run(
+            drawn,
+            ".du-resource-limit__heading button[aria-expanded='true']",
+            1,
+          )) < 1
+        )
+          throw new Error("The limit disclosure did not expand");
+        if (
+          (await session.run(
+            drawn,
+            ".du-scan-resource-control .du-resource-limit__field input",
+            1,
+          )) < 1
+        )
+          throw new Error("The collection limit field did not open");
+        const entered = await session.run(function enterLimitError() {
+          const input = document.querySelector(
+            ".du-scan-resource-control .du-resource-limit__field input",
+          );
+          if (!(input instanceof HTMLInputElement)) return false;
+          const setValue = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          setValue?.call(input, "99");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.value === "99";
+        });
+        if (!entered) throw new Error("The invalid limit was not entered");
+        if (
+          (await session.run(
+            drawn,
+            ".du-scan-resource-control [slot='errorMessage']",
+            1,
+          )) < 1
+        )
+          throw new Error("The 1 to 16 limit error was not shown");
+        const layout = await session.run(function checkLimitErrorLayout() {
+          const lineCount = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return 0;
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return range.getClientRects().length;
+          };
+          const input = document.querySelector(
+            ".du-scan-resource-control .du-resource-limit__field input",
+          );
+          return {
+            inputWidth: input?.getBoundingClientRect().width ?? 0,
+            errorLines: lineCount(
+              ".du-scan-resource-control [slot='errorMessage']",
+            ),
+            previousLines: lineCount(
+              ".du-scan-resource-control .du-resource-limit__previous",
+            ),
+          };
+        });
+        if (
+          layout.inputWidth > 144 ||
+          layout.inputWidth < 100 ||
+          layout.errorLines !== 1 ||
+          layout.previousLines !== 1
+        )
+          throw new Error(
+            "Unexpected limit error layout: " + JSON.stringify(layout),
+          );
+        await saveLanes(session, shot.name, shot.locale);
+      } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
       else if (surface === "job-center") await save(session, shot.name, true);
       else await save(session, shot.name, false, scene);
     }
   }
-  if (surface === "scan-lanes") {
+  if (surface === "scan-lanes" && !requestedScanLaneScene) {
     await open(session, base, "light", 1280);
     const expanded = await session.run(function expandPriorityLane() {
       const rows = document.querySelectorAll(
