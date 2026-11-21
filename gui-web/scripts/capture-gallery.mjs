@@ -369,7 +369,12 @@ const defaultGalleryShots =
                     ]
                   : surface === "type-slices"
                     ? [
-                        { name: "01-bars-light-1280", theme: "light", width: 1280, scene: "bar" },
+                        {
+                          name: "01-bars-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                        },
                         {
                           name: "02-bars-video-light-1280",
                           theme: "light",
@@ -377,7 +382,12 @@ const defaultGalleryShots =
                           scene: "bar",
                           legend: "동영상",
                         },
-                        { name: "03-treemap-light-1280", theme: "light", width: 1280, scene: "treemap" },
+                        {
+                          name: "03-treemap-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                        },
                         {
                           name: "04-table-light-1280",
                           theme: "light",
@@ -399,77 +409,82 @@ const defaultGalleryShots =
                           scene: "treemap",
                           forcedColors: "active",
                         },
-                        { name: "03-treemap-dark-1280", theme: "dark", width: 1280, scene: "treemap" },
-                      ]
-                  : surface === "job-center"
-                    ? [
                         {
-                          name: "01-light-1280",
-                          theme: "light",
-                          width: 1280,
-                          scene: "main",
-                        },
-                        {
-                          name: "01-dark-1280",
+                          name: "03-treemap-dark-1280",
                           theme: "dark",
                           width: 1280,
-                          scene: "main",
-                        },
-                        {
-                          name: "01-light-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "main",
-                        },
-                        {
-                          name: "02-request-pending-no-effect",
-                          theme: "light",
-                          width: 1280,
-                          scene: "request-pending",
-                        },
-                        {
-                          name: "03-resync",
-                          theme: "light",
-                          width: 1280,
-                          scene: "resync",
-                        },
-                        {
-                          name: "04-empty",
-                          theme: "light",
-                          width: 1280,
-                          scene: "empty",
-                        },
-                        {
-                          name: "05-cancel-confirm",
-                          theme: "light",
-                          width: 1280,
-                          scene: "cancel-confirm",
-                        },
-                        {
-                          name: "06-forced-colors",
-                          theme: "light",
-                          width: 1280,
-                          scene: "forced-colors",
-                          forcedColors: "active",
-                        },
-                        {
-                          name: "07-toast-open-panel-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "toast-open-panel",
-                        },
-                        {
-                          name: "07-toast-open-panel-1280",
-                          theme: "light",
-                          width: 1280,
-                          scene: "toast-open-panel",
+                          scene: "treemap",
                         },
                       ]
-                    : [
-                        { name: "light-1280", theme: "light", width: 1280 },
-                        { name: "dark-1280", theme: "dark", width: 1280 },
-                        { name: "light-700", theme: "light", width: 700 },
-                      ];
+                    : surface === "job-center"
+                      ? [
+                          {
+                            name: "01-light-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-dark-1280",
+                            theme: "dark",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-light-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "main",
+                          },
+                          {
+                            name: "02-request-pending-no-effect",
+                            theme: "light",
+                            width: 1280,
+                            scene: "request-pending",
+                          },
+                          {
+                            name: "03-resync",
+                            theme: "light",
+                            width: 1280,
+                            scene: "resync",
+                          },
+                          {
+                            name: "04-empty",
+                            theme: "light",
+                            width: 1280,
+                            scene: "empty",
+                          },
+                          {
+                            name: "05-cancel-confirm",
+                            theme: "light",
+                            width: 1280,
+                            scene: "cancel-confirm",
+                          },
+                          {
+                            name: "06-forced-colors",
+                            theme: "light",
+                            width: 1280,
+                            scene: "forced-colors",
+                            forcedColors: "active",
+                          },
+                          {
+                            name: "07-toast-open-panel-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "toast-open-panel",
+                          },
+                          {
+                            name: "07-toast-open-panel-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "toast-open-panel",
+                          },
+                        ]
+                      : [
+                          { name: "light-1280", theme: "light", width: 1280 },
+                          { name: "dark-1280", theme: "dark", width: 1280 },
+                          { name: "light-700", theme: "light", width: 700 },
+                        ];
 const galleryShots =
   scanFailureShots[requestedScanLaneScene] ?? defaultGalleryShots;
 const shots =

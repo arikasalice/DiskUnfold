@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
 
 mod slices;
+mod wire;
 
 /// Maximum rows in one positional visualization page.
 pub const MAX_PAGE_COUNT: u32 = 1000;
@@ -127,35 +128,6 @@ pub struct VizRow {
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub type_slices: Option<Vec<VizTypeSlice>>,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RowWire {
-    #[serde(deserialize_with = "required_nullable")]
-    item_ref: Option<ItemRef>,
-    #[serde(deserialize_with = "required_nullable")]
-    group_ref: Option<String>,
-    display_name: String,
-    size: SizeValue,
-    #[serde(default, deserialize_with = "optional_present")]
-    quantity: Option<VizQuantity>,
-    #[serde(deserialize_with = "required_nullable")]
-    ratio: Option<VizRatio>,
-    denominator: VizDenominator,
-    legend_class_key: String,
-    display_flags: Vec<String>,
-    #[serde(default, deserialize_with = "optional_present")]
-    label_key: Option<String>,
-    #[serde(default, deserialize_with = "optional_present")]
-    member_count: Option<VizQuantity>,
-    #[serde(default, deserialize_with = "optional_known")]
-    item_kind: Option<VizItemKind>,
-    #[serde(default, deserialize_with = "optional_present")]
-    condition: Option<QueryCondition>,
-    #[serde(default, deserialize_with = "optional_present")]
-    unread: Option<VizUnread>,
-    #[serde(default, deserialize_with = "optional_present")]
-    type_slices: Option<Vec<VizTypeSlice>>,
-}
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
     pub fn validate(&self) -> Result<(), &'static str> {
@@ -210,30 +182,6 @@ impl VizRow {
             return Err("row revision mismatch");
         }
         Ok(())
-    }
-}
-impl<'de> Deserialize<'de> for VizRow {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let w = RowWire::deserialize(d)?;
-        let row = Self {
-            item_ref: w.item_ref,
-            group_ref: w.group_ref,
-            display_name: w.display_name,
-            size: w.size,
-            quantity: w.quantity,
-            ratio: w.ratio,
-            denominator: w.denominator,
-            legend_class_key: w.legend_class_key,
-            display_flags: w.display_flags,
-            label_key: w.label_key,
-            member_count: w.member_count,
-            item_kind: w.item_kind,
-            condition: w.condition,
-            unread: w.unread,
-            type_slices: w.type_slices,
-        };
-        row.validate().map_err(D::Error::custom)?;
-        Ok(row)
     }
 }
 /// Position-based request; the engine resolves and checks the model and result revision.
