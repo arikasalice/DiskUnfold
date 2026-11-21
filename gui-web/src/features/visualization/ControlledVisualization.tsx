@@ -8,7 +8,7 @@ import type {
   VisualizationSnapshot,
 } from "./controller";
 import type { createChartRenderers } from "../../components";
-import type { VizText } from "../../viz";
+import type { ModelResponse, VizSelection, VizText } from "../../viz";
 import { matchingRowsPage } from "../../viz";
 import { GroupView } from "./GroupView";
 import type { GroupController } from "./group-controller";
@@ -29,6 +29,8 @@ import type { BackAction } from "./UnavailablePanel";
 import { RowsRetry } from "./RetryNotices";
 import { SeparateModelTable, useFirstRows } from "./NewerModelTable";
 import { useFolderRows } from "./folder-rows";
+import { intervalListing, intervalRow } from "./interval-list";
+import type { IntervalListing } from "./interval-list";
 
 /** Injectable entry point. Visual design and product assembly remain with the host. */
 export function ControlledVisualization({
@@ -46,6 +48,7 @@ export function ControlledVisualization({
   legend,
   narrowing,
   legendSide,
+  onOpenList,
 }: {
   controller: VisualizationController;
   text: VizText;
@@ -67,6 +70,11 @@ export function ControlledVisualization({
   /** The type the legend narrows to (README 46), kept by the screen. */
   narrowing?: TypeNarrowing | undefined;
   legendSide?: "right" | "below" | undefined;
+  /**
+   * Opens a histogram interval's file list in the chart's place (F06 README 12,
+   * 52); without it an interval opens its members beside the chart.
+   */
+  onOpenList?: ((listing: IntervalListing) => void) | undefined;
 }) {
   const state = useSyncExternalStore(
     controller.subscribe,
@@ -114,16 +122,20 @@ export function ControlledVisualization({
     visualizationTargetRef,
     tableTargetRef,
   );
-  const openGroupFromGraphRows = createGroupRowOpener(
-    groupController,
-    graphRowsFrame,
-    setGroupOrigin,
+  const openGroupFromGraphRows = listOrMembers(
+    createGroupRowOpener(groupController, graphRowsFrame, setGroupOrigin),
+    { onOpenList, page: state.graphPage, frame: graphRowsFrame, text },
   );
-  const openGroupFromTableRows = createGroupRowOpener(
-    groupController,
-    tableRowsFrame,
-    setGroupOrigin,
+  const openGroupFromTableRows = listOrMembers(
+    createGroupRowOpener(groupController, tableRowsFrame, setGroupOrigin),
+    { onOpenList, page: state.tablePage, frame: tableRowsFrame, text },
   );
+  const intervals = {
+    onOpenList,
+    page: state.graphPage,
+    frame: graphRowsFrame,
+    text,
+  };
   return (
     <>
       <VisualizationStatus
@@ -175,6 +187,7 @@ export function ControlledVisualization({
           onFocusAvailability={setGraphTargets}
           onClearSelection={() => controller.select(null)}
           onActivate={(selection, shapeRef, kind) => {
+            if (openInterval(intervals, selection, focusedElement())) return;
             if (selection.kind === "group") {
               selectVisualizationGroup(
                 selection,
@@ -215,7 +228,9 @@ export function ControlledVisualization({
               viewTarget,
             ))
           }
-          onSelect={(selection, shapeRef) =>
+          onSelect={(selection, shapeRef) => {
+            // A pointer press on an interval opens its list, as Enter does (README 52).
+            if (openInterval(intervals, selection, focusedElement())) return;
             selectVisualizationGroup(
               selection,
               shapeRef,
@@ -226,8 +241,8 @@ export function ControlledVisualization({
               () => {
                 focusedGroupShape.current = null;
               },
-            )
-          }
+            );
+          }}
           {...(openGroupFromGraphRows
             ? { onOpenGroup: openGroupFromGraphRows }
             : {})}
@@ -290,6 +305,50 @@ export function ControlledVisualization({
       />
     </>
   );
+}
+
+type IntervalSource = {
+  onOpenList: ((listing: IntervalListing) => void) | undefined;
+  page: VisualizationSnapshot["graphPage"];
+  frame: ModelResponse | null;
+  text: VizText;
+};
+
+/** The element that has the focus, which takes it back when the list closes. */
+function focusedElement() {
+  const active = document.activeElement;
+  return active instanceof HTMLElement || active instanceof SVGElement
+    ? active
+    : null;
+}
+
+/**
+ * Opens the file list of a histogram interval (F06 README 12, 52) when the
+ * selection is an interval with a list condition; true when it did.
+ */
+function openInterval(
+  { onOpenList, page, frame, text }: IntervalSource,
+  selection: VizSelection | { kind: "group"; groupRef: string },
+  origin: HTMLElement | SVGElement | null,
+) {
+  if (!onOpenList || !frame || selection.kind !== "group") return false;
+  const row = intervalRow(page, selection.groupRef);
+  const listing = row && intervalListing(row, frame, text, origin);
+  if (!listing) return false;
+  onOpenList(listing);
+  return true;
+}
+
+/** A table's group button: an interval opens its list, any other group its members. */
+function listOrMembers(
+  members: ReturnType<typeof createGroupRowOpener>,
+  source: IntervalSource,
+): ReturnType<typeof createGroupRowOpener> {
+  if (!members && !source.onOpenList) return undefined;
+  return (groupRef, size, origin, groupLabel, returnTarget) => {
+    if (openInterval(source, { kind: "group", groupRef }, origin)) return;
+    members?.(groupRef, size, origin, groupLabel, returnTarget);
+  };
 }
 
 /** A selection lost in this update is said by its own notice, and alone (README 34). */

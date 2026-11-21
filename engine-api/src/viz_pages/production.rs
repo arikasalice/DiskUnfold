@@ -324,6 +324,7 @@ fn make_row(
         label_key: None,
         member_count: None,
         item_kind: VizItemKind::from_result(item.kind),
+        condition: None,
     };
     projected
         .validate_revision(version.version_id())
