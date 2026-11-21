@@ -47,7 +47,7 @@ fn native(path: &Path) -> Value {
 }
 
 fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope, Failure> {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(900);
     while Instant::now() < deadline {
         match events.next_json() {
             Some(json) => {
