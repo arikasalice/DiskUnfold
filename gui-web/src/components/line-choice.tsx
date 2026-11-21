@@ -4,6 +4,7 @@ import { MiddleEllipsisText } from "./text-fit";
 import { StatusBadge } from "./presentation";
 import { Icon } from "./presentation";
 import type { IconName } from "./presentation";
+import type { StatusShape } from "./status-table";
 import "../theme/line-choice.css";
 
 /**
@@ -21,7 +22,11 @@ export function LineChoice({
   value: string;
   label: string;
   description: string;
-  status: { text: string; tone: "neutral" | "good" };
+  status: {
+    text: string;
+    tone: "neutral" | "good";
+    shape?: StatusShape | undefined;
+  };
   icon: IconName;
 }) {
   const descriptionId = useId();
@@ -42,7 +47,9 @@ export function LineChoice({
         {description}
       </span>
       <span className="du-choice__status" id={statusId}>
-        <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+        <StatusBadge tone={status.tone} shape={status.shape}>
+          {status.text}
+        </StatusBadge>
       </span>
     </Radio>
   );

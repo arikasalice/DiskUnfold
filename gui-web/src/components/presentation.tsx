@@ -15,6 +15,7 @@ import {
   Info,
   Languages,
   Layers3,
+  LoaderCircle,
   Pause,
   Play,
   RefreshCw,
@@ -62,6 +63,7 @@ const statusShapes = {
   warning: TriangleAlert,
   cross: CircleX,
   clock: Clock,
+  progress: LoaderCircle,
 } satisfies Record<StatusShape, typeof Circle>;
 
 /** Decorative icon. An action's accessible name always comes from its label. */
@@ -213,7 +215,7 @@ export function StatusBadge({
   children?: ReactNode;
   tone?: StatusTone;
   /** Replaces the status shape for a presentation-specific distinction. */
-  shape?: StatusShape;
+  shape?: StatusShape | undefined;
   status?: StatusRow;
   live?: boolean;
   /** Lets another element name itself with this badge. */

@@ -1227,7 +1227,7 @@
     ["ui.analysis.target_network_mount","network mount",[]],
     ["ui.analysis.target_folder_mount","folder mount",[]],
     ["ui.analysis.target_type_unavailable","Type unavailable",[]],
-    ["ui.analysis.target_access_checking","checking",[]],
+    ["ui.analysis.target_access_checking","Checking…",[]],
     ["ui.analysis.target_access_accessible","accessible",[]],
     ["ui.analysis.target_access_denied","denied",[]],
     ["ui.analysis.target_access_disconnected","disconnected",[]],

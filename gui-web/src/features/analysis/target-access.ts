@@ -75,7 +75,7 @@ export function shownAccess(
 export function accessLabel(access: ShownAccess, text: LocaleText): string {
   switch (access) {
     case "checking":
-      return text("ui.analysis.target_access_checking", "checking");
+      return text("ui.analysis.target_access_checking", "Checking…");
     case "accessible":
       return text("ui.analysis.target_access_accessible", "accessible");
     case "denied":

@@ -71,6 +71,7 @@ export function DriveChoice({
     status: {
       text: accessLabel(access, text),
       tone: access === "accessible" ? ("good" as const) : ("neutral" as const),
+      shape: access === "checking" ? ("progress" as const) : undefined,
     },
   };
   if (target.defaultVisible === false) return <LineChoice {...common} />;
