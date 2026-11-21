@@ -6,7 +6,11 @@ afterEach(cleanup);
 
 test("#318: a folder row's name starts with the folder icon, as its bar does", () => {
   const folder = render(<RowName name="docs" item folder />);
-  expect(folder.container.querySelectorAll("svg")).toHaveLength(1);
+  const icons = folder.container.querySelectorAll("svg");
+  expect(icons).toHaveLength(1);
+  // The bar label's size, in the row-name group that keeps 4 px to the name.
+  expect(icons[0]!.getAttribute("width")).toBe("14");
+  expect(folder.container.querySelector(".du-row-name")).not.toBeNull();
   expect(folder.container.textContent).toBe("docs");
   cleanup();
   const file = render(<RowName name="clip.mp4" item />);

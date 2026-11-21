@@ -954,6 +954,7 @@
     ["ui.visualization.filterNotApplicable","Doesn't apply to this format",[]],
     ["ui.visualization.filterAfterScan","Applies when the scan finishes",[]],
     ["ui.visualization.barDrawnShorter","Drawn shorter than scale",[]],
+    ["ui.visualization.barNotToScale","not to scale",[]],
     ["ui.visualization.filterTotalLine","{type} {size} · Scope total {scope} · {basis}",[["type","name"],["size","name"],["scope","name"],["basis","name"]]],
     ["ui.visualization.filterFilteredOut","Filtered out {size}",[["size","name"]]],
     ["ui.visualization.filterFilteredOutAtLeast","Filtered out at least {size}",[["size","name"]]],

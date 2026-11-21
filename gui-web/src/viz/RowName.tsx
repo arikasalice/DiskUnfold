@@ -16,11 +16,12 @@ export function RowName({
   folder?: boolean;
 }) {
   if (!item) return name;
+  // The bar label's 14 px icon, 4 px before the name and centred on its line.
   return folder ? (
-    <>
-      <Icon name="folder" />
+    <div className="du-row-name">
+      <Icon name="folder" size={14} />
       <NameText name={name} />
-    </>
+    </div>
   ) : (
     <NameText name={name} />
   );

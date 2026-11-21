@@ -288,3 +288,8 @@
   stroke-width: 1;
   stroke-dasharray: 4 3;
 }
+
+/* The "not to scale" mark after a broken bar's value, in the secondary text colour (README 47). */
+.du-geometry-bar-note {
+  fill: var(--du-muted);
+}

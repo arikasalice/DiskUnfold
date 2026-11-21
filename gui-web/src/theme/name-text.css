@@ -73,3 +73,11 @@
   font-weight: 400;
   overflow-wrap: anywhere;
 }
+
+/* A folder row's name: the folder icon, 4 px, then the name, centred on one line (#318). */
+.du-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-inline-size: 0;
+}

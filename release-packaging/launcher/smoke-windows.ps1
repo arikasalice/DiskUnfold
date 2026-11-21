@@ -1966,13 +1966,16 @@ function Test-CaptureTypeNarrowingMany {
   $other = Wait-UI 'the Other bar' $otherBar 60
   "Unfiltered Other bar: '$($other.Current.Name)'"
   Save-SmokeCapture '01-bar-many'
+  # The 20 bars run past the window: the Other bar and its break are at the bottom (README 47).
+  Save-SmokeCapture '01b-bar-many-bottom' -Prepare { $null = Show-InWindow $other }
   Select-SmokeRadio $videos
   $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
-  $null = Wait-UI 'the narrowed Other bar' {
+  $narrowed = Wait-UI 'the narrowed Other bar' {
     $bar = & $otherBar
     if ($bar -and $bar.Current.Name -ne $other.Current.Name) { $bar }
   } 60
   Save-SmokeCapture '02-bar-many-narrowed' -Prepare { $null = Show-InWindow $clear }
+  Save-SmokeCapture '02b-bar-many-narrowed-bottom' -Prepare { $null = Show-InWindow $narrowed }
   "Bar many capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 # F06 #320 (README 47): an Other no larger than the largest single bar is drawn to scale, unbroken.
@@ -1998,6 +2001,7 @@ function Test-CaptureBarOtherSmall {
   $other = Wait-UI 'the Other bar' { @($window.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$otherPrefix*" }) | Select-Object -First 1 } 60
   "Other bar: '$($other.Current.Name)'"
   Save-SmokeCapture '01-bar-other-small'
+  Save-SmokeCapture '02-bar-other-small-bottom' -Prepare { $null = Show-InWindow $other }
   "Bar Other small capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 

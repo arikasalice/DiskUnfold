@@ -100,6 +100,8 @@ export type GeometryRendererProps = {
   decorations?: ReactNode;
   /** Said of a bar drawn shorter than the axis (F06 README 47): "Drawn shorter than scale". */
   drawnShorterNote?: string;
+  /** The short mark after such a bar's value (README 47, 3번 고침): "not to scale". */
+  notToScaleMark?: string;
   /**
    * "ranked" fills shapes with the first chart colour and leaves their inner labels
    * out; the caller draws names and values beside them (bar chart, histogram).

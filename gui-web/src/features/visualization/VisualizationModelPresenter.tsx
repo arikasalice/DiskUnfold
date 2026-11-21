@@ -215,6 +215,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             selectedText={text.message("selected")}
             fallbackNotice={text.message("graphFallback")}
             drawnShorterNote={text.message("barDrawnShorter")}
+            notToScaleMark={text.message("barNotToScale")}
             missingFallbackNotice={text.message("graphRowsUnavailable")}
             width={view.viewport.width}
             height={view.viewport.height}

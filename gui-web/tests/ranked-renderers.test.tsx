@@ -184,6 +184,7 @@ test("F06 README 47: the axis ends at the largest single bar and a larger Other 
       {...base}
       shapes={shapes}
       drawnShorterNote="Drawn shorter than scale"
+      notToScaleMark="not to scale"
     />,
   );
   const widths = Array.from(
@@ -196,6 +197,10 @@ test("F06 README 47: the axis ends at the largest single bar and a larger Other 
   expect(container.querySelectorAll(".du-geometry-bar-break")).toHaveLength(2);
   const other = container.querySelector('[aria-label="Other 80, 100 MiB"]');
   expect(other?.getAttribute("title")).toBe("Drawn shorter than scale");
+  // Its value says it is not to scale; the single bars' values do not.
+  const notes = container.querySelectorAll(".du-geometry-bar-note");
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.textContent).toBe(" · not to scale");
 });
 
 test("F06 README 47: an Other no larger than the largest single bar is not broken", () => {
@@ -211,8 +216,10 @@ test("F06 README 47: an Other no larger than the largest single bar is not broke
       {...base}
       shapes={shapes}
       drawnShorterNote="Drawn shorter than scale"
+      notToScaleMark="not to scale"
     />,
   );
   expect(container.querySelectorAll(".du-geometry-bar-break")).toHaveLength(0);
   expect(container.querySelector("[title]")).toBeNull();
+  expect(container.querySelector(".du-geometry-bar-note")).toBeNull();
 });

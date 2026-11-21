@@ -150,7 +150,6 @@ export function BarRenderer(props: GeometryRendererProps) {
       ),
   );
   const plotLeft = nameWidth + NAME_GAP;
-  const plotWidth = Math.max(0, width - plotLeft - VALUE_ROOM);
   const rows = props.shapes.flatMap((shape) => {
     const part = share(shape, props.viewport);
     return part === null ? [] : [{ shape, part }];
@@ -161,8 +160,18 @@ export function BarRenderer(props: GeometryRendererProps) {
     0,
     ...rows.filter(({ shape }) => !shape.group).map(({ part }) => part),
   );
+  const isBroken = (shape: Shape, part: number) =>
+    shape.group === true && axis > 0 && part > axis;
+  // A broken bar says "not to scale" after its value, so its value takes more room.
+  const mark = props.notToScaleMark ? ` · ${props.notToScaleMark}` : "";
+  const room =
+    VALUE_ROOM +
+    (rows.some(({ shape, part }) => isBroken(shape, part))
+      ? textWidth(mark)
+      : 0);
+  const plotWidth = Math.max(0, width - plotLeft - room);
   const scaled = rows.map(({ shape, part }) => {
-    const broken = shape.group === true && axis > 0 && part > axis;
+    const broken = isBroken(shape, part);
     const fraction = axis > 0 ? Math.min(1, part / axis) : part;
     return {
       shape,
@@ -206,6 +215,9 @@ export function BarRenderer(props: GeometryRendererProps) {
           y={middle}
         >
           {value}
+          {broken && mark && (
+            <tspan className="du-geometry-bar-note">{mark}</tspan>
+          )}
         </text>
       </g>
     );
