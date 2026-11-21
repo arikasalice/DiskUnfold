@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn worker_loop(
     shared: &Shared,
     seat: usize,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     flow: &dyn JobFlow,

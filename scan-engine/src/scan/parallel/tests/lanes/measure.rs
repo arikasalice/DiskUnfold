@@ -145,7 +145,7 @@ fn flows() -> Context {
 fn full(
     config: &Config,
     source: &Arc<Source>,
-) -> Result<(u64, Option<usize>, Option<u64>), TestError> {
+) -> Result<(u64, Option<usize>, Option<u64>, usize), TestError> {
     let ids = Ids(AtomicUsize::new(1));
     let sink = IngestSink::default();
     let roots = (0..config.lanes)
@@ -191,7 +191,12 @@ fn full(
     let items = version.items().len().saturating_sub(config.lanes) as u64;
     // Identifiers went to the scope, every partial publication and the seal.
     let partials = (ids.0.load(Ordering::SeqCst) as u64).saturating_sub(3);
-    Ok((items, diagnostics.shared_ready_peak(), Some(partials)))
+    Ok((
+        items,
+        diagnostics.shared_ready_peak(),
+        Some(partials),
+        diagnostics.directory_frames_peak_count(),
+    ))
 }
 
 /// Runs the production workers over the lanes with a counting consumer.
@@ -229,13 +234,13 @@ fn run(config: &Config) -> Result<Report, TestError> {
     let expected = roots * (dirs + files - 1);
     cost::take_stack_peaks();
     let started = Instant::now();
-    let (items, ready_peak, partials) = match config.mode {
+    let (items, ready_peak, partials, frame_peak) = match config.mode {
         Mode::Full | Mode::FullUntimed => full(config, &source)?,
         Mode::Collector => {
             let (items, peak) = collector(config, &source)?;
-            (items, peak, None)
+            (items, peak, None, 0)
         }
-        Mode::Idle => (0, None, None),
+        Mode::Idle => (0, None, None, 0),
     };
     let secs = started.elapsed().as_secs_f64();
     if config.mode != Mode::Idle && items != expected {
@@ -262,6 +267,7 @@ fn run(config: &Config) -> Result<Report, TestError> {
             "ready_peak",
             ready_peak.map_or("na".into(), |peak| peak.to_string()),
         ),
+        ("directory_frames_peak", frame_peak.to_string()),
         ("stack_peak", stack_peak.to_string()),
         ("stacked_peak", stacked_peak.to_string()),
         (
@@ -284,6 +290,33 @@ fn run(config: &Config) -> Result<Report, TestError> {
         ),
     ];
     Ok(Report { fields })
+}
+
+#[test]
+fn diagnostics_record_frames_on_a_wide_tree() -> Result<(), TestError> {
+    let _guard = worker_test_lock();
+    let config = Config {
+        kind: Kind::Wide,
+        dirs: 64,
+        files: 0,
+        batch: 16,
+        workers: 4,
+        limit: 4,
+        capacity: QUEUED_DIRECTORIES,
+        lanes: 1,
+        delay_us: 0,
+        mode: Mode::FullUntimed,
+    };
+    let shape = TreeShape {
+        kind: config.kind,
+        dirs: config.dirs,
+        files: config.files,
+    };
+    let source = Source::new(shape, config.batch, Duration::ZERO);
+    let (items, _, _, frame_peak) = full(&config, &source)?;
+    assert_eq!(items, config.dirs);
+    assert!(frame_peak > 0);
+    Ok(())
 }
 
 /// Process peak working set since start (Windows), not a per-scan allocation.

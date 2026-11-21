@@ -1,4 +1,5 @@
 //! Per-scan limits for memory owned by correlated directory collection.
+use crate::scan_diagnostics::CorrelatedBudgetMetrics;
 use du_core_contracts::{
     ports::PortError,
     scan_observation::{
@@ -33,6 +34,7 @@ pub(super) struct CorrelatedBudget {
     disabled: AtomicBool,
     max_attempts: usize,
     max_bytes: usize,
+    metrics: Option<Arc<CorrelatedBudgetMetrics>>,
     /// Attempts whose end the receiving build accepted, for scan diagnostics.
     ended: AtomicU64,
 }
@@ -46,20 +48,34 @@ impl CorrelatedBudget {
     /// The budget of a scan whose result channel holds `channel_bytes` of inline events.
     /// The channel is accounted apart from the attempts (F02 DLD): its allowance is added
     /// on top, so reserving it never takes from the attempts' share.
-    pub(super) fn with_channel(channel_bytes: usize) -> Arc<Self> {
-        Self::with_limits(
+    pub(super) fn with_channel(
+        channel_bytes: usize,
+        metrics: Option<Arc<CorrelatedBudgetMetrics>>,
+    ) -> Arc<Self> {
+        Self::with_limits_and_metrics(
             MAX_ATTEMPTS,
             MAX_MANAGED_BYTES.saturating_add(channel_bytes),
+            metrics,
         )
     }
 
+    #[cfg(test)]
     pub(super) fn with_limits(max_attempts: usize, max_bytes: usize) -> Arc<Self> {
+        Self::with_limits_and_metrics(max_attempts, max_bytes, None)
+    }
+
+    fn with_limits_and_metrics(
+        max_attempts: usize,
+        max_bytes: usize,
+        metrics: Option<Arc<CorrelatedBudgetMetrics>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             attempts: AtomicUsize::new(0),
             bytes: AtomicUsize::new(0),
             disabled: AtomicBool::new(false),
             max_attempts,
             max_bytes,
+            metrics,
             ended: AtomicU64::new(0),
         })
     }
@@ -74,17 +90,22 @@ impl CorrelatedBudget {
         self.ended.load(Ordering::Relaxed)
     }
 
+    fn record_peak(&self, bytes: usize) {
+        if let Some(metrics) = &self.metrics {
+            metrics.record_peak(bytes);
+        }
+    }
+
     pub(super) fn reserve_attempt(self: &Arc<Self>, bytes: usize) -> Option<Permit> {
         if self.disabled.load(Ordering::Acquire) {
             return None;
         }
-        if !reserve_counter(&self.attempts, self.max_attempts, 1) {
-            return None;
-        }
-        if !reserve_counter(&self.bytes, self.max_bytes, bytes) {
+        reserve_counter(&self.attempts, self.max_attempts, 1)?;
+        let Some(used) = reserve_counter(&self.bytes, self.max_bytes, bytes) else {
             self.attempts.fetch_sub(1, Ordering::AcqRel);
             return None;
-        }
+        };
+        self.record_peak(used);
         Some(Permit {
             budget: Arc::clone(self),
             bytes,
@@ -96,7 +117,9 @@ impl CorrelatedBudget {
         if self.disabled.load(Ordering::Acquire) {
             return None;
         }
-        reserve_counter(&self.bytes, self.max_bytes, bytes).then(|| Permit {
+        let used = reserve_counter(&self.bytes, self.max_bytes, bytes)?;
+        self.record_peak(used);
+        Some(Permit {
             budget: Arc::clone(self),
             bytes,
             attempt_slot: false,
@@ -130,12 +153,13 @@ impl CorrelatedBudget {
     }
 }
 
-fn reserve_counter(counter: &AtomicUsize, limit: usize, amount: usize) -> bool {
+fn reserve_counter(counter: &AtomicUsize, limit: usize, amount: usize) -> Option<usize> {
     counter
         .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
             used.checked_add(amount).filter(|next| *next <= limit)
         })
-        .is_ok()
+        .ok()
+        .and_then(|previous| previous.checked_add(amount))
 }
 
 /// A reservation held for as long as the corresponding correlated allocation can be retained.
@@ -288,13 +312,14 @@ impl Permit {
     /// Grows before the caller allocates, or shrinks after the retained capacity is known.
     pub(super) fn resize(&mut self, bytes: usize) -> bool {
         if bytes > self.bytes {
-            if !reserve_counter(
+            let Some(used) = reserve_counter(
                 &self.budget.bytes,
                 self.budget.max_bytes,
                 bytes - self.bytes,
-            ) {
+            ) else {
                 return false;
-            }
+            };
+            self.budget.record_peak(used);
         } else {
             self.budget
                 .bytes
@@ -341,7 +366,7 @@ mod tests {
     #[test]
     fn the_channel_allowance_leaves_the_attempts_their_whole_share() {
         let channel = 4096;
-        let budget = CorrelatedBudget::with_channel(channel);
+        let budget = CorrelatedBudget::with_channel(channel, None);
         let channel_permit = budget.reserve_channel(channel);
         assert!(channel_permit.is_some());
         assert!(!budget.is_disabled());

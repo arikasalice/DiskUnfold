@@ -5,6 +5,7 @@ use super::{
     record,
 };
 mod control;
+mod event_channel;
 mod frame;
 mod lanes;
 mod queue;
@@ -19,10 +20,9 @@ use du_core_contracts::{
     job::{Checkpoint, JobContext, JobCounts, JobFlow, JobFlowError, JobOutcome},
     ports::{PortError, PortErrorKind},
     result::ResultCompleteness,
-    scan_observation::{
-        AnchoredDirectory, DirectoryCaseEvidence, ObservedEntry, TimedObservedEntry,
-    },
+    scan_observation::{AnchoredDirectory, ObservedEntry, TimedObservedEntry},
 };
+use event_channel::{Event, EventSender};
 use frame::Frame;
 #[cfg(test)]
 use std::collections::VecDeque;
@@ -90,6 +90,10 @@ struct Shared {
     track_priority_paths: bool,
     visited: Visited,
     correlated_budget: Arc<correlated_budget::CorrelatedBudget>,
+    /// Frame path accounting exists only when this scan enabled diagnostics.
+    frame_metrics: Option<Arc<crate::scan_diagnostics::DirectoryFrameMetrics>>,
+    /// Observation event accounting exists only when this scan enabled diagnostics.
+    observation_metrics: Option<Arc<crate::scan_diagnostics::ObservationMetrics>>,
     /// Wait evidence per lane, indexed like `queue.lanes`.
     meters: Arc<lane_meter::LaneMeters>,
 }
@@ -101,76 +105,6 @@ impl Shared {
         // The runtime may acquire its own locks; never hold the queue lock here.
         context.abort_flows();
     }
-}
-enum Event {
-    /// Registration is independent of the attempt event sequence.
-    FolderAttemptBegin {
-        root_index: u32,
-        path: Vec<Vec<u8>>,
-        attempt_id: u64,
-        reply: mpsc::Sender<
-            Result<du_analysis_index::FolderAttemptToken, du_analysis_index::FolderAttemptError>,
-        >,
-        _permit: correlated_budget::Permit,
-    },
-    /// A result is acknowledged only after the receiving build accepts it.
-    FolderAttemptRecord {
-        token: du_analysis_index::FolderAttemptToken,
-        seq: u64,
-        input: Box<du_analysis_index::FolderAttemptInput>,
-        reply: Option<mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>>,
-        _permit: Option<correlated_budget::Permit>,
-    },
-    /// Acknowledged EOF barrier, sent only after every numbered event was acknowledged.
-    FolderAttemptEnd {
-        token: du_analysis_index::FolderAttemptToken,
-        event_watermark_exclusive: u64,
-        child_count_exclusive: u64,
-        reply: mpsc::Sender<Result<(), du_analysis_index::FolderAttemptError>>,
-    },
-    Item(
-        u32,
-        Vec<Vec<u8>>,
-        Box<TimedObservedEntry>,
-        Admission,
-        Option<correlated_budget::Permit>,
-    ),
-    /// A correlated observation whose dynamic payload and path are charged to the scan budget.
-    CorrelatedItem(
-        u32,
-        Vec<Vec<u8>>,
-        Box<TimedObservedEntry>,
-        Admission,
-        correlated_budget::Permit,
-    ),
-    /// A name withheld by an undecidable exclusion rule; it was never observed.
-    Undecided(u32, Vec<Vec<u8>>),
-    DirectoryCase(u32, Vec<Vec<u8>>, DirectoryCaseEvidence),
-    /// Entries an exclusion rule dropped directly below a registered
-    /// directory, sent once when its listing ends (`complete`) or stops, and
-    /// only for a nonzero count.
-    Excluded {
-        root_index: u32,
-        path: Vec<Vec<u8>>,
-        count: u32,
-        complete: bool,
-    },
-    /// A registered directory that cancellation left unopened or partly read.
-    /// Sent once per directory, after the event that registered it.
-    Unread(u32, Vec<Vec<u8>>),
-    Failure {
-        root_index: u32,
-        path: Vec<Vec<u8>>,
-        root: bool,
-        reason: &'static str,
-        stage: du_core_contracts::scan_failures::ScanFailureStage,
-        observed_at: Option<du_core_contracts::Timestamp>,
-    },
-    RootBatch(
-        u32,
-        Option<du_core_contracts::Timestamp>,
-        Option<du_core_contracts::Timestamp>,
-    ),
 }
 struct Control<'a> {
     ids: &'a dyn ResultIds,

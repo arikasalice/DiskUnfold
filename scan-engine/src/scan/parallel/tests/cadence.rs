@@ -258,6 +258,7 @@ fn publishes_after_deadline_without_another_observation() -> Result<(), Box<dyn 
             ids: worker_ids.as_ref(),
             clock: worker_clock.as_ref(),
             abort: &abort,
+            observation_metrics: None,
         };
         consume(
             receiver,
@@ -357,6 +358,7 @@ fn abort_and_cancel_do_not_publish_queued_batches() -> Result<(), Box<dyn std::e
             ids: &ids,
             clock: &clock,
             abort: &abort,
+            observation_metrics: None,
         };
         consume(
             receiver,

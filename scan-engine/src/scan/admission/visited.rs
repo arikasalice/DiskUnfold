@@ -1,12 +1,13 @@
 //! Directory identities reserved during one job, with every root first.
 use super::Boundary;
+use crate::scan_diagnostics::VisitedMetrics;
 use du_core_contracts::{
     scan_observation::{HandleIdentity, MetadataObservation, ObservedEntry, ObservedKind},
     volume::RootVolumeGroup,
 };
 use std::{
     collections::HashSet,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 /// How one scope root starts after every root identity was reserved.
@@ -38,6 +39,7 @@ pub(in crate::scan) struct Visited {
     entered: Mutex<HashSet<(u64, u64)>>,
     ancestors: Vec<HashSet<(u64, u64)>>,
     pub(super) group: Option<RootVolumeGroup>,
+    metrics: Option<Arc<VisitedMetrics>>,
 }
 
 impl Visited {
@@ -48,12 +50,23 @@ impl Visited {
     pub(in crate::scan) fn reserve_roots(
         identities: Vec<Option<HandleIdentity>>,
     ) -> (Self, Vec<RootStart>) {
-        Self::reserve_roots_with_group(identities, None)
+        Self::reserve_roots_with(identities, None, None)
     }
 
+    #[cfg(test)]
     pub(in crate::scan) fn reserve_roots_with_group(
         identities: Vec<Option<HandleIdentity>>,
         group: Option<RootVolumeGroup>,
+    ) -> (Self, Vec<RootStart>) {
+        Self::reserve_roots_with(identities, group, None)
+    }
+
+    /// Reserves roots with the scope's confirmed root volume group (#263) and, for an
+    /// opted-in scan, observes the entered-directory set size (#328).
+    pub(in crate::scan) fn reserve_roots_with(
+        identities: Vec<Option<HandleIdentity>>,
+        group: Option<RootVolumeGroup>,
+        metrics: Option<Arc<VisitedMetrics>>,
     ) -> (Self, Vec<RootStart>) {
         let mut entered = HashSet::new();
         let mut ancestors = Vec::with_capacity(identities.len());
@@ -72,10 +85,14 @@ impl Visited {
                 RootStart::Revisit
             });
         }
+        if let Some(metrics) = &metrics {
+            metrics.record_peak(entered.len());
+        }
         let visited = Self {
             entered: Mutex::new(entered),
             ancestors,
             group,
+            metrics,
         };
         (visited, starts)
     }
@@ -121,7 +138,22 @@ impl Visited {
 
     /// Reserves a directory for `root`; false when it was already known.
     pub(super) fn reserve(&self, root: u32, device: u64, inode: u64) -> bool {
-        !self.ancestor(root, device, inode) && self.entered().insert((device, inode))
+        if self.ancestor(root, device, inode) {
+            return false;
+        }
+        let mut entered = self.entered();
+        let inserted = entered.insert((device, inode));
+        if inserted && let Some(metrics) = &self.metrics {
+            metrics.record_peak(entered.len());
+        }
+        inserted
+    }
+
+    /// Records the set size after all scan workers stop.
+    pub(in crate::scan) fn record_final(&self) {
+        if let Some(metrics) = &self.metrics {
+            metrics.record_final(self.entered().len());
+        }
     }
 
     fn ancestor(&self, root: u32, device: u64, inode: u64) -> bool {

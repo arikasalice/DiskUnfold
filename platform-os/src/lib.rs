@@ -30,6 +30,8 @@ pub mod macos_time_zone;
 pub mod macos_ui_language;
 pub mod os_release;
 pub mod path_link;
+#[allow(unsafe_code)]
+pub mod process_memory;
 pub mod self_executable;
 pub mod startup;
 pub mod support_environment;

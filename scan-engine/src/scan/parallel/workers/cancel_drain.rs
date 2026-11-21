@@ -14,7 +14,7 @@ use super::*;
 pub(super) fn frame(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     policy: Policy<'_>,
 ) -> bool {
     correlated_transport::cancel(sender, shared, &mut frame.correlated);
@@ -71,7 +71,7 @@ pub(super) fn frame(
 }
 
 /// Marks one registered directory as left unread by cancellation.
-pub(super) fn unread(root_index: u32, path: Vec<Vec<u8>>, sender: &SyncSender<Event>) -> bool {
+pub(super) fn unread(root_index: u32, path: Vec<Vec<u8>>, sender: &dyn SendMetered) -> bool {
     sender.send_metered(Event::Unread(root_index, path)).is_ok()
 }
 
@@ -82,7 +82,7 @@ pub(super) fn unread(root_index: u32, path: Vec<Vec<u8>>, sender: &SyncSender<Ev
 pub(super) fn drain(
     shared: &Shared,
     seat: usize,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> bool {

@@ -210,6 +210,10 @@ fn metadata_job_accepts_reviewed_roots_in_one_build() -> Result<(), Box<dyn std:
     });
     let outcome = job.run(context);
     assert_eq!(diagnostics.shared_ready_peak(), Some(2));
+    assert_eq!(diagnostics.directory_frames_peak_count(), 2);
+    assert_eq!(diagnostics.visited_entries_peak(), 2);
+    assert_eq!(diagnostics.visited_entries_final(), Some(2));
+    assert!(diagnostics.correlated_budget_peak_managed_bytes() > 0);
     let result = sink
         .pin()
         .map_err(|e| format!("{e:?}"))?

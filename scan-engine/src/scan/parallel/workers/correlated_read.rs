@@ -38,7 +38,7 @@ pub(super) struct TurnResult {
 pub(super) fn read(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> Read {
@@ -85,7 +85,7 @@ pub(super) fn read(
 fn select_attempt(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
 ) -> Option<Read> {
     if frame.correlated.unselected() {
@@ -133,7 +133,7 @@ fn select_attempt(
 fn map_step(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     raw_step: Step,
     undecided: Vec<Vec<u8>>,
@@ -237,7 +237,7 @@ pub(super) fn finish(
     mut frame: Frame,
     result: TurnResult,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     turn: &mut Turn<'_>,
@@ -342,7 +342,7 @@ fn accepted_observation(
     mut frame: Frame,
     entry: QueuedEntry,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     turn: &mut Turn<'_>,

@@ -7,6 +7,7 @@ pub(super) struct Services<'a> {
     pub ids: &'a dyn ResultIds,
     pub clock: &'a dyn MonotonicClock,
     pub abort: &'a AtomicBool,
+    pub observation_metrics: Option<&'a crate::scan_diagnostics::ObservationMetrics>,
 }
 
 pub(super) fn consume(
@@ -32,6 +33,7 @@ pub(super) fn consume(
             progress.publish(build, services.context, services.ids, services.clock)?;
             continue;
         }
+        sample_buffered(services.observation_metrics);
         let event = match wait {
             Some(wait) => match receiver.recv_timeout(wait) {
                 Ok(event) => event,
@@ -43,6 +45,7 @@ pub(super) fn consume(
                 Err(_) => break,
             },
         };
+        record_received(&event, services.observation_metrics);
         if services.abort.load(Ordering::Acquire) {
             return drain_aborted(receiver, progress, build, counts, &services);
         }
@@ -74,7 +77,11 @@ fn drain_aborted(
     services: &Services<'_>,
 ) -> Result<(), BuildError> {
     let mut first_error = None;
-    while let Ok(event) = receiver.recv() {
+    while let Ok(event) = {
+        sample_buffered(services.observation_metrics);
+        receiver.recv()
+    } {
+        record_received(&event, services.observation_metrics);
         match event {
             Event::FolderAttemptBegin { reply, _permit, .. } => {
                 let _ = reply.send(Err(du_analysis_index::FolderAttemptError::CapacityExceeded));
@@ -119,6 +126,19 @@ fn drain_aborted(
         }
     }
     first_error.map_or(Ok(()), Err)
+}
+
+fn record_received(event: &Event, metrics: Option<&crate::scan_diagnostics::ObservationMetrics>) {
+    if let Some(metrics) = metrics {
+        metrics.received(event.estimated_buffer_bytes());
+    }
+}
+
+/// Samples the channel peaks while the collector holds no event (see ObservationMetrics).
+fn sample_buffered(metrics: Option<&crate::scan_diagnostics::ObservationMetrics>) {
+    if let Some(metrics) = metrics {
+        metrics.sample();
+    }
 }
 
 /// F24 item progress: every recorded item, failures included; the total stays
