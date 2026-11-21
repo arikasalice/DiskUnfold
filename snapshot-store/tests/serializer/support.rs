@@ -1,6 +1,6 @@
 use du_analysis_index::{
-    FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence, SpaceObservation,
-    VolumeReport, VolumeReportPoint,
+    FileIdentity, IngestSink, Observation, ResultVersion, ScopeHeader, SharingEvidence,
+    SpaceObservation, VolumeReport, VolumeReportPoint,
 };
 use du_core_contracts::{
     ByteSize, Id, PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
@@ -167,16 +167,26 @@ pub(super) fn source_result(
         .map_err(|error| format!("{error:?}"))
 }
 
-pub(super) fn empty_result() -> Result<Arc<ResultVersion>, String> {
+pub(super) fn empty_result(scope_fingerprint: Option<&str>) -> Result<Arc<ResultVersion>, String> {
     let path = if cfg!(windows) {
         root("C:\\empty", &[9], &[10])
     } else {
         root("/empty", &[9], &[10])
     };
     let sink = IngestSink::default();
-    let mut build = sink
-        .open_forest(id(3)?, vec![path])
-        .map_err(|error| format!("{error:?}"))?;
+    let mut build = match scope_fingerprint {
+        Some(fingerprint) => sink.open_scoped_forest(
+            ScopeHeader {
+                version_id: id(3)?,
+                fingerprint: fingerprint.to_owned(),
+                volume_group: None,
+            },
+            vec![path],
+            None,
+        ),
+        None => sink.open_forest(id(3)?, vec![path]),
+    }
+    .map_err(|error| format!("{error:?}"))?;
     build
         .add_directory_at(0, Vec::new())
         .map_err(|error| format!("{error:?}"))?;

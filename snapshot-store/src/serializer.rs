@@ -146,7 +146,9 @@ impl std::error::Error for Error {
 /// Result facts are read from `ResultVersion`; conditions, path rules, algorithm
 /// identities, and snapshot identity are supplied by the caller. Names, roots,
 /// completeness, gaps, and volume observations are copied without display-path
-/// conversion or completeness recomputation. A cancelled result is rejected before
+/// conversion or completeness recomputation.
+/// Canonical scope fingerprints are preserved; noncanonical values are omitted.
+/// A cancelled result is rejected before
 /// the writer is touched. On any other error, the caller must discard partial output.
 pub fn write_v1<W: Write>(
     version: &ResultVersion,
@@ -305,7 +307,12 @@ fn metadata_bytes(
             "scopeVersionId": version.scope_version_id().as_str(),
             "lineageId": version.lineage_id().map(Id::as_str),
             "observedAt": version.observed_at().map(ToString::to_string),
-            "scopeMarker": Value::Null,
+            "scopeMarker": version.scope_fingerprint().filter(|fingerprint| {
+                fingerprint.len() == 64
+                    && fingerprint.bytes().all(|byte| {
+                        byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+                    })
+            }),
             "conditionSummary": condition_summary,
             "completeness": match version.completeness() {
                 ResultCompleteness::Complete => "complete",

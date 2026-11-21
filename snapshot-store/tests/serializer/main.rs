@@ -208,9 +208,10 @@ fn assert_sealed_roots(result: &ResultVersion, bytes: &[u8]) -> Result<(), Strin
 
 #[test]
 fn empty_scan_round_trips_through_the_v1_reader() -> Result<(), String> {
-    let result = empty_result()?;
+    let result = empty_result(None)?;
     let bytes = write_snapshot(&result, &source_metadata(false, 1))?;
     let decoded = decoded(&bytes)?;
+    assert_eq!(decoded.metadata["source"]["scopeMarker"], Value::Null);
     assert_eq!(decoded.metadata["source"]["completeness"], "complete");
     assert_eq!(
         decoded.metadata["source"]["scopeRoots"]
@@ -236,6 +237,19 @@ fn empty_scan_round_trips_through_the_v1_reader() -> Result<(), String> {
     let roots = validate_sealed(&bytes)?;
     let expected = native_path(if cfg!(windows) { "C:\\empty" } else { "/empty" });
     assert_eq!(roots.roots(), &[expected]);
+    Ok(())
+}
+
+#[test]
+fn canonical_scope_fingerprint_round_trips_in_metadata() -> Result<(), String> {
+    let fingerprint = "a".repeat(64);
+    let result = empty_result(Some(&fingerprint))?;
+    let bytes = write_snapshot(&result, &source_metadata(false, 1))?;
+    let decoded = decoded(&bytes)?;
+    assert_eq!(
+        decoded.metadata["source"]["scopeMarker"],
+        fingerprint.as_str()
+    );
     Ok(())
 }
 
@@ -320,7 +334,7 @@ fn accepts_a_short_writing_output() -> Result<(), String> {
             Ok(())
         }
     }
-    let result = empty_result()?;
+    let result = empty_result(None)?;
     let (snapshot_id, created_at) = identity()?;
     let mut output = ShortWriter(Vec::new());
     write_v1(
