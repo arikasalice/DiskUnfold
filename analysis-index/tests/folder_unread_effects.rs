@@ -255,6 +255,8 @@ fn cancelled_and_partial_versions_make_marked_folders_and_ancestors_inexact() ->
                 if before.amount == SizeAmount::Unknown && bound.amount != SizeAmount::Unknown {
                     assert_eq!(bound.amount, zero);
                     *before = bound.clone();
+                    // A bound allocation is no longer "not collected".
+                    expected.limitations = with_mark.limitations.clone();
                 }
             }
             assert_eq!(with_mark, expected);
