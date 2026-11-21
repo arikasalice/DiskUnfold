@@ -38,6 +38,8 @@ export type ParentLocation = { item?: ItemRef };
 export type InspectItem = (
   item: ItemRef,
   kind: InspectedItem["kind"],
+  countedZero: boolean,
+  unreadNote: string | undefined,
 ) => ReactNode;
 export function BrowseItemDialog({
   inspection,
@@ -56,7 +58,12 @@ export function BrowseItemDialog({
       : text("ui.browse.file_details", "File details");
   return (
     <InspectionDialog title={title} onClose={close}>
-      {inspectItem(inspection.item, inspection.kind)}
+      {inspectItem(
+        inspection.item,
+        inspection.kind,
+        inspection.countedZero,
+        inspection.unreadNote,
+      )}
     </InspectionDialog>
   );
 }
