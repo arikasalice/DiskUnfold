@@ -229,6 +229,31 @@ fn measure_the_root_totals() -> Result<(), Failure> {
         "F03_351 counts missing={} links={} inaccessible={}",
         space["missingItems"], space["untraversedLinks"], space["inaccessibleRanges"]
     );
+    let gap = ok(
+        &assembled.engine,
+        "space.volume_gap",
+        json!({"resultVersion": revision, "requestSeq": 10,
+               "target": {"root": {"resultVersion": revision, "itemNo": 0}}}),
+    )?;
+    eprintln!(
+        "F03_351 gap other_volumes={} factors={} remainder={} start={}",
+        gap["otherVolumes"], gap["factors"], gap["remainder"], gap["start"]
+    );
+    use du_core_contracts::volume::VolumePort as _;
+    let mounts = du_platform_os::volume::MacVolumes
+        .enumerate()
+        .mounts
+        .map_err(|e| format!("{e:?}"))?;
+    for mount in mounts {
+        eprintln!(
+            "F03_351 mount {} group={:?} sys={:?} container={:?} used={:?}",
+            String::from_utf8_lossy(&mount.mount_path),
+            mount.group_role,
+            mount.system_role,
+            mount.container.as_deref().map(String::from_utf8_lossy),
+            mount.used_bytes,
+        );
+    }
     Ok(())
 }
 
