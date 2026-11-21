@@ -1039,7 +1039,16 @@ memberCount?: VizQuantity,
  * Kind of the referenced item, on item rows only; omitted when unknown. See
  * [`VizItemKind`].
  */
-itemKind?: VizItemKind, };
+itemKind?: VizItemKind,
+/**
+ * The list condition of a histogram interval row (F06 README 12, #297): its
+ * files in the half-open size interval [lower, upper) on the model's size basis,
+ * as All[Type file, Size at least lower, Size less than upper]; the last interval
+ * has no upper bound. Only on group rows; omitted on every other row, and where
+ * the size basis has no size predicate (unique physical size). Omitted rather
+ * than null.
+ */
+condition?: QueryCondition, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

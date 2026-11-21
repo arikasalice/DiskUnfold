@@ -102,6 +102,27 @@ function shapeCard(
   };
 }
 
+/**
+ * What a histogram interval says about its list (F06 README 52): with a list
+ * condition and items, its name ends in "View in list" and its card says it opens
+ * the list; without a condition (a size basis the list cannot filter) the card says
+ * so and the name adds nothing. An empty interval opens nothing and says nothing.
+ */
+function intervalWords(
+  binCount: VizShape["memberCount"],
+  row: VizRow | undefined,
+  text: VizText,
+): { said: string[]; card: string[] } {
+  const empty = binCount?.state === "exact" && binCount.value === "0";
+  if (!binCount || !row?.groupRef || empty) return { said: [], card: [] };
+  return row.condition
+    ? {
+        said: [text.message("intervalShowInList")],
+        card: [text.message("intervalCardOpens")],
+      }
+    : { said: [], card: [text.message("intervalCardNoList")] };
+}
+
 /** A card's value line: the shown value, and the raw bytes when they are known (README 8). */
 function cardValue(shape: VizShape, value: string, text: VizText) {
   const size = shape.size;
@@ -165,6 +186,7 @@ export function shapeLabels(
   const binCount =
     model.representation.format === "histogram" ? shape.memberCount : undefined;
   const look = classLook(model, shape, place, text);
+  const interval = intervalWords(binCount, row, text);
   const accessibleLabel = [
     binCount
       ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
@@ -173,6 +195,7 @@ export function shapeLabels(
         : `${name}, ${value}`,
     ...look.said,
     ...shape.displayFlags.map(text.key),
+    ...interval.said,
   ].join(", ");
   const card = shapeCard(shape, text, {
     name,
@@ -184,7 +207,7 @@ export function shapeLabels(
             denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
           })
         : null,
-    said: look.said,
+    said: [...look.said, ...interval.card],
     binCount,
   });
   return {

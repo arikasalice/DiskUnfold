@@ -977,6 +977,14 @@ ui.visualization.groupedItems
 ui.visualization.groupedTotal
 ui.visualization.histogram
 ui.visualization.independentTotals
+ui.visualization.intervalRange lower:name upper:name
+ui.visualization.intervalFrom lower:name
+ui.visualization.intervalListTotal interval:name count:name size:name basis:name
+ui.visualization.intervalListEmpty interval:name
+ui.visualization.intervalListAnnounce interval:name count:name
+ui.visualization.intervalShowInList
+ui.visualization.intervalCardOpens
+ui.visualization.intervalCardNoList
 ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending

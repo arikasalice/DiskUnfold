@@ -37,6 +37,7 @@ export function VisualizationSession({
   legend,
   narrowing,
   legendSide,
+  onOpenList,
 }: {
   client: AnalysisClient;
   request: VisualizationViewRequest;
@@ -56,6 +57,7 @@ export function VisualizationSession({
   legend?: Parameters<typeof ControlledVisualization>[0]["legend"];
   narrowing?: Parameters<typeof ControlledVisualization>[0]["narrowing"];
   legendSide?: Parameters<typeof ControlledVisualization>[0]["legendSide"];
+  onOpenList?: Parameters<typeof ControlledVisualization>[0]["onOpenList"];
 }) {
   const localizedText = useLocalizedVizText(text);
   const [session, setSession] = useState<Session | null>(null);
@@ -190,6 +192,7 @@ export function VisualizationSession({
           legend={legend}
           narrowing={narrowing}
           legendSide={legendSide}
+          onOpenList={onOpenList}
         />
       </>
     );

@@ -45,6 +45,7 @@ fn row(version: &Id, name: &str) -> Result<VizRow, String> {
         label_key: None,
         member_count: None,
         item_kind: None,
+        condition: None,
     })
 }
 
