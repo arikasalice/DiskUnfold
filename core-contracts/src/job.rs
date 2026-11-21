@@ -17,7 +17,8 @@ mod session_undo_info;
 pub use session_undo_info::{SessionUndoInfo, UndoInfoUnavailable};
 mod item_history;
 pub use item_history::{
-    DisplacedItem, ItemHistoryError, ItemHistoryRecord, ItemHistoryStart, ObservedSize,
+    DisplacedItem, ITEM_HISTORY_MAX_ITEM_REF_BYTES, ITEM_HISTORY_MAX_LOCATION_TEXT_CHARS,
+    ItemHistoryError, ItemHistoryRecord, ItemHistoryStart, ObservedSize,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -237,8 +238,9 @@ pub trait JobHistory: Send + Sync {
 
     /// Appends one confirmed item result in its own transaction.
     ///
-    /// A successful return confirms that the item row was committed. A storage
-    /// error makes the job unable to continue its item sequence.
+    /// A successful return confirms that the item row was committed. Invalid
+    /// caller data is rejected without writing; storage errors make the job
+    /// unable to continue its item sequence.
     fn append_item_result(
         &self,
         _job_id: &Id,
@@ -344,9 +346,13 @@ pub trait JobContext: Send + Sync {
     /// Appends one confirmed item result for a per-item job.
     ///
     /// Call only after the item's result is confirmed. Item sequences start at
-    /// zero and increase by one. A successful return means the row is committed;
-    /// a storage error makes further item processing impossible. Summary and
-    /// history-free jobs do not expose item recording and return `Unavailable`.
+    /// zero and increase by one. Repeating the most recently recorded sequence
+    /// with identical content succeeds without another write; conflicting or
+    /// older sequences return `Duplicate`, and a sequence ahead of the next one
+    /// returns `OutOfOrder`. Invalid caller data returns `Invalid` without a
+    /// write and does not prevent later calls. A storage error makes further
+    /// item processing impossible. Summary and history-free jobs do not expose
+    /// item recording and return `Unavailable`.
     fn record_item(&self, _item: ItemHistoryRecord) -> Result<(), ItemHistoryError> {
         Err(ItemHistoryError::Unavailable)
     }
