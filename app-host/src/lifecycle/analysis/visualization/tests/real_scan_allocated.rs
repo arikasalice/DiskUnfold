@@ -47,7 +47,7 @@ fn native(path: &Path) -> Value {
 }
 
 fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope, Failure> {
-    let deadline = Instant::now() + Duration::from_secs(900);
+    let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
         match events.next_json() {
             Some(json) => {
@@ -64,6 +64,9 @@ fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope, Failure> 
 
 /// Scans `folder` through the assembled engine and returns the result revision.
 fn scan(assembled: &Assembled, folder: &Path) -> Result<Id, Failure> {
+    // The scan refuses a path with a link in it, and a temporary folder is one on macOS.
+    #[cfg(target_os = "macos")]
+    let folder = &fs::canonicalize(folder)?;
     let draft = json!({
         "includes": [native(folder)], "exclusions": [], "boundary": "current_volume",
         "includedMounts": [], "source": "gui",
@@ -205,55 +208,6 @@ fn a_hard_linked_file_adds_its_allocation_once() -> Result<(), Failure> {
         bytes(&model["totals"]["scope"]["quantity"]["value"])?,
         expected
     );
-    Ok(())
-}
-
-/// Diagnosis of #351: scans `/` of the machine and prints its totals (run by hand).
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore = "measurement: scans the whole startup disk"]
-fn measure_the_root_totals() -> Result<(), Failure> {
-    let assembled = assemble()?;
-    let revision = scan(&assembled, Path::new("/"))?;
-    for (seq, basis) in (1..).zip(["logical", "allocated", "unique_physical"]) {
-        let size = space_size(&assembled, &revision, basis, seq)?;
-        eprintln!("F03_351 {basis} = {size}");
-    }
-    let space = ok(
-        &assembled.engine,
-        "space.total",
-        json!({"resultVersion": revision, "requestSeq": 9,
-               "target": {"kind": "folder", "item": {"resultVersion": revision, "itemNo": 0}}}),
-    )?;
-    eprintln!(
-        "F03_351 counts missing={} links={} inaccessible={}",
-        space["missingItems"], space["untraversedLinks"], space["inaccessibleRanges"]
-    );
-    let gap = ok(
-        &assembled.engine,
-        "space.volume_gap",
-        json!({"resultVersion": revision, "requestSeq": 10,
-               "target": {"root": {"resultVersion": revision, "itemNo": 0}}}),
-    )?;
-    eprintln!(
-        "F03_351 gap other_volumes={} factors={} remainder={} start={}",
-        gap["otherVolumes"], gap["factors"], gap["remainder"], gap["start"]
-    );
-    use du_core_contracts::volume::VolumePort as _;
-    let mounts = du_platform_os::volume::MacVolumes
-        .enumerate()
-        .mounts
-        .map_err(|e| format!("{e:?}"))?;
-    for mount in mounts {
-        eprintln!(
-            "F03_351 mount {} group={:?} sys={:?} container={:?} used={:?}",
-            String::from_utf8_lossy(&mount.mount_path),
-            mount.group_role,
-            mount.system_role,
-            mount.container.as_deref().map(String::from_utf8_lossy),
-            mount.used_bytes,
-        );
-    }
     Ok(())
 }
 
