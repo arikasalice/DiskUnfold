@@ -35,13 +35,20 @@ function unreadZeroBound(
   row: FolderQueryRow,
   value: FolderQueryRow["logicalSize"],
 ): boolean {
-  const { unenumerated, unreadInside } = row.flags;
   return (
     value.state === "present" &&
     value.value.state === "lower_bound" &&
     BigInt(value.value.bytes) === 0n &&
-    ((unenumerated.state === "present" && unenumerated.value) ||
-      unreadInside?.state === "present")
+    hasUnreadPart(row)
+  );
+}
+
+/** Whether the folder itself or a location inside it was not read. */
+export function hasUnreadPart(row: FolderQueryRow): boolean {
+  const { unenumerated, unreadInside } = row.flags;
+  return (
+    (unenumerated.state === "present" && unenumerated.value) ||
+    unreadInside?.state === "present"
   );
 }
 

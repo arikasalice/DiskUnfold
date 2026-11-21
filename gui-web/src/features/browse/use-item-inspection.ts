@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FolderQueryRow, ItemRef } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import { browseDisplayName, rowKey } from "./browse-display";
+import { hasUnreadPart } from "./browse-cells";
 
 export type InspectedItem = {
   item: ItemRef;
@@ -10,6 +11,12 @@ export type InspectedItem = {
   opener: HTMLElement | null;
   /** The opener's position in the list. */
   index: number;
+  /**
+   * The opening row read all of its folder and showed no unread part, so a
+   * lower bound of 0 bytes in the details is counted empty files. Details
+   * opened without a row, or moved to a newer result, do not carry it.
+   */
+  countedZero: boolean;
 };
 
 /**
@@ -70,6 +77,7 @@ export function useItemInspection(
         name: browseDisplayName(row.displayName, text),
         opener,
         index: Number(opener.dataset.row ?? 0),
+        countedZero: !hasUnreadPart(row),
       });
     },
     close() {

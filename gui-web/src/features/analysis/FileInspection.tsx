@@ -29,6 +29,7 @@ import {
   displayEvidence,
   displayKnownSpaceReason,
   displaySizeParts,
+  isZeroLowerBound,
   displaySpaceReason,
   windowsSizeDisplay,
 } from "./space-format";
@@ -131,8 +132,23 @@ function sizeRow(
   field: BrowseDetail["logicalSize"],
   display: SizeDisplay,
   text: LocaleText,
+  countedZero: boolean,
 ) {
-  if (field.state !== "present") {
+  if (
+    field.state !== "present" ||
+    (isZeroLowerBound(field.value) && !countedZero)
+  ) {
+    if (field.state === "present") {
+      return {
+        label,
+        emphasized: true,
+        value: text(
+          "ui.inspection.unavailable_in_scan",
+          "Unavailable in this scan",
+        ),
+        notes: [],
+      };
+    }
     return {
       label,
       emphasized: true,
@@ -172,6 +188,7 @@ function attributes(
   text: LocaleText,
   renderTime: (value: string) => ReactNode,
   actions: PathActions,
+  countedZero: boolean,
 ) {
   return [
     {
@@ -194,12 +211,14 @@ function attributes(
       detail.logicalSize,
       display,
       text,
+      countedZero,
     ),
     sizeRow(
       text("ui.analysis.allocated_size", "Allocated size"),
       detail.allocatedSize,
       display,
       text,
+      countedZero,
     ),
     {
       label: text("ui.inspection.published", "Result published"),
@@ -250,6 +269,7 @@ export function FileInspection({
   actionsDisabledReason,
   onStale,
   copy,
+  countedZero = false,
 }: {
   client: AnalysisClient;
   item: ItemRef;
@@ -267,6 +287,12 @@ export function FileInspection({
    * the item's detail cannot be read, the copy is reported as not done.
    */
   copy?: CopyContinuation | undefined;
+  /**
+   * The browse row this dialog opened from showed counted items below the
+   * folder with nothing unread, so a lower bound of 0 bytes is counted empty
+   * files. Without it, a 0-byte lower bound reads as unavailable.
+   */
+  countedZero?: boolean | undefined;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -372,6 +398,7 @@ export function FileInspection({
                   text,
                   renderTime,
                   actions,
+                  countedZero,
                 )}
               />
             </div>
@@ -406,6 +433,7 @@ export function FileInspection({
         item={item}
         display={display}
         onStale={onStale}
+        countedZero={countedZero}
       />
     </>
   );
