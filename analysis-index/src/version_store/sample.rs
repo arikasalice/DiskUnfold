@@ -1,7 +1,7 @@
 //! Sample lineages inside the result store: registration, publication gate and release.
 use super::{Entry, Lineage, State};
 use crate::{BuildError, ResultVersion, SampleSessionKey};
-use du_core_contracts::Id;
+use du_core_contracts::{Id, data_source::DataSource};
 
 /// How many released session keys the store remembers.
 ///
@@ -17,9 +17,12 @@ impl State {
         self.lineages.values().any(|bound| bound == id) || self.sample_lineages.contains_key(id)
     }
 
-    /// A sample result may publish only while its lineage still belongs to a live session.
+    /// Snapshots need an ID and anonymous lineage; samples need a live session lineage.
     pub(super) fn admits_publication(&self, lineage: &Lineage, result: &ResultVersion) -> bool {
         result.data_source.is_real()
+            || (result.data_source == DataSource::Snapshot
+                && result.snapshot_id.is_some()
+                && lineage.is_none())
             || lineage
                 .as_ref()
                 .is_some_and(|id| self.sample_lineages.contains_key(id))

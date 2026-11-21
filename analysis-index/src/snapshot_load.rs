@@ -44,6 +44,7 @@ impl SnapshotBuild {
         }
         let sink = IngestSink::default();
         let mut build = sink.open_forest(scope_version_id, roots)?;
+        build.data_source = DataSource::Snapshot;
         build.snapshot_id = Some(snapshot_id);
         build.scope_fingerprint = scope_fingerprint;
         Ok(Self {
@@ -61,13 +62,8 @@ impl SnapshotBuild {
 
     /// Seals and returns the immutable snapshot result.
     pub fn seal(self) -> Result<Arc<ResultVersion>, BuildError> {
-        let mut version =
-            self.build
-                .seal_at(self.version_id, self.completeness, self.observed_at)?;
-        Arc::get_mut(&mut version)
-            .ok_or(BuildError::Unavailable)?
-            .data_source = DataSource::Snapshot;
-        Ok(version)
+        self.build
+            .seal_at(self.version_id, self.completeness, self.observed_at)
     }
 }
 
