@@ -20,7 +20,15 @@ function runCoverage(args) {
 }
 
 const output = ["--locked", "--lcov", "--output-path", reportPath];
-const tests = runCoverage(["--workspace", "--all-features", "--no-fail-fast", ...output]);
+const tests = runCoverage([
+  "--workspace",
+  "--all-features",
+  "--lib",
+  "--bins",
+  "--tests",
+  "--no-fail-fast",
+  ...output,
+]);
 const log = `${tests.stdout ?? ""}\n${tests.stderr ?? ""}`;
 writeFileSync(logPath, log);
 

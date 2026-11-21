@@ -11,6 +11,16 @@ export const HOSTED_RUNNERS = Object.freeze({
   'macos-arm64': 'macos-15',
 });
 
+/**
+ * Targets that default to self-hosted runners in `auto` mode because their GitHub-hosted runners
+ * (`macos-15-intel` ~16m, `windows-11-arm` ~10m, `windows-2022` ~8m) are the slowest bottlenecks
+ * in CI, whereas `ubuntu-24.04`, `ubuntu-24.04-arm`, and `macos-15` complete fast on dedicated
+ * GitHub-hosted VMs without contending for a single local host machine's CPU and I/O.
+ */
+export const AUTO_SELF_HOSTED_TARGETS = Object.freeze(
+  new Set(['macos-x64', 'windows-x64', 'windows-arm64']),
+);
+
 export const SELF_HOSTED_RUNNERS = Object.freeze({
   'linux-x64': Object.freeze(['self-hosted', 'Linux', 'X64']),
   'linux-arm64': Object.freeze(['self-hosted', 'Linux', 'ARM64']),
@@ -128,11 +138,12 @@ export function buildManifest(manifest, options = {}) {
   const runnerMode = (options.runnerMode ?? process.env.DU_RUNNER_MODE ?? 'auto')
     .trim()
     .toLowerCase();
-  if (!['auto', 'github-hosted'].includes(runnerMode)) {
+  if (!['auto', 'github-hosted', 'self-hosted-all'].includes(runnerMode)) {
     throw new Error(`Invalid runner mode: ${runnerMode}`);
   }
   const onlineRunners = options.onlineRunners ?? null;
   const faultyRunnerNames = new Set(options.faultyRunners ?? []);
+  const preferredTargets = options.preferredTargets ?? AUTO_SELF_HOSTED_TARGETS;
 
   const keys = new Set();
   const resolvedTargets = [];
@@ -153,8 +164,11 @@ export function buildManifest(manifest, options = {}) {
     keys.add(key);
 
     const selfHostedLabels = [...(target.selfHostedRunner ?? expectedSelfHosted)];
+    const eligibleForSelfHosted =
+      runnerMode === 'self-hosted-all' ||
+      (runnerMode === 'auto' && preferredTargets.has(key));
     const useSelfHosted =
-      runnerMode !== 'github-hosted' &&
+      eligibleForSelfHosted &&
       hasOnlineSelfHostedRunner(onlineRunners, selfHostedLabels, faultyRunnerNames);
 
     resolvedTargets.push({

@@ -32,12 +32,17 @@ test('the six-target manifest defaults to GitHub-hosted runners when no self-hos
   }
 });
 
-test('online self-hosted runners are selected automatically while offline or faulty targets fall back to GitHub-hosted', () => {
+test('online self-hosted runners are selected for slow targets in auto mode while fast or offline targets use GitHub-hosted', () => {
   const onlineRunners = [
     {
       name: 'win-intel-x64',
       status: 'online',
       labels: [{ name: 'self-hosted' }, { name: 'Windows' }, { name: 'X64' }],
+    },
+    {
+      name: 'mac-m1-intel',
+      status: 'online',
+      labels: [{ name: 'self-hosted' }, { name: 'macOS' }, { name: 'X64' }],
     },
     {
       name: 'mac-m1-linux-x64',
@@ -53,17 +58,28 @@ test('online self-hosted runners are selected automatically while offline or fau
   const resolved = buildManifest(manifest, {
     runnerMode: 'auto',
     onlineRunners,
-    faultyRunners: ['mac-m1-linux-x64'],
   });
   const byKey = Object.fromEntries(
     resolved.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner]),
   );
   assert.deepEqual(byKey['windows-x64'], ['self-hosted', 'Windows', 'X64']);
-  assert.deepEqual(byKey['macos-arm64'], ['self-hosted', 'macOS', 'ARM64']);
+  assert.deepEqual(byKey['macos-x64'], ['self-hosted', 'macOS', 'X64']);
+  // Fast GitHub-hosted targets stay on dedicated GitHub VMs in auto mode so they do not overload one local host.
+  assert.equal(byKey['macos-arm64'], 'macos-15');
   assert.equal(byKey['linux-x64'], 'ubuntu-24.04');
   assert.equal(byKey['linux-arm64'], 'ubuntu-24.04-arm');
   assert.equal(byKey['windows-arm64'], 'windows-11-arm');
-  assert.equal(byKey['macos-x64'], 'macos-15-intel');
+
+  const allSelfHosted = buildManifest(manifest, {
+    runnerMode: 'self-hosted-all',
+    onlineRunners,
+    faultyRunners: ['mac-m1-linux-x64'],
+  });
+  const byKeyAll = Object.fromEntries(
+    allSelfHosted.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner]),
+  );
+  assert.deepEqual(byKeyAll['macos-arm64'], ['self-hosted', 'macOS', 'ARM64']);
+  assert.equal(byKeyAll['linux-x64'], 'ubuntu-24.04');
 
   const forcedHosted = buildManifest(manifest, {
     runnerMode: 'github-hosted',

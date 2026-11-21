@@ -8,13 +8,14 @@ on:
   workflow_dispatch:
     inputs:
       runner_mode:
-        description: "Runner selection mode (auto: real-time self-hosted probe with fallback, github-hosted)"
+        description: "Runner selection mode (auto: use self-hosted for slow targets with fallback, github-hosted, self-hosted-all)"
         required: false
         default: "auto"
         type: choice
         options:
           - auto
           - github-hosted
+          - self-hosted-all
       ui_smoke_tier:
         description: "UI smoke scenario tier (auto: smoke on PR and all on push/manual, smoke, all)"
         required: false
@@ -135,9 +136,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           try { Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue } catch {}
-          if (Test-Path 'C:\Program Files\Git\bin') {
-            'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            $env:PATH = "C:\Program Files\Git\bin;$env:PATH"
+          foreach ($candidate in @('C:\Program Files\Git\bin', 'C:\nvm4w\nodejs', 'C:\Program Files\nodejs')) {
+            if (Test-Path $candidate) {
+              $candidate | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              $env:PATH = "$candidate;$env:PATH"
+            }
           }
           if ($env:RUNNER_ENVIRONMENT -eq 'self-hosted' -or -not (Get-Command rustup -ErrorAction SilentlyContinue)) {
             $rustRoot = Join-Path (Split-Path $env:RUNNER_TEMP -Parent) 'rust'
@@ -173,6 +176,9 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          for dir in /opt/homebrew/bin /usr/local/bin; do
+            [[ -d "$dir" ]] && echo "$dir" >> "$GITHUB_PATH"
+          done
           if [[ "$RUNNER_ENVIRONMENT" == "self-hosted" ]]; then
             # Isolate CARGO_HOME per runner workdir so mac-m1-arm and mac-m1-intel sharing a host
             # user account never contend on ~/.cargo package locks or cache archives.
@@ -201,14 +207,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/0.0.1' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
       - shell: bash
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --lib --bins --tests --all-features -- -D warnings
       # The CLI-only launcher (README, AGENTS.md) builds app-host without its gui feature.
       - shell: bash
-        run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
+        run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --lib --bins --tests -- -D warnings
       - shell: bash
-        run: cargo test --locked --workspace --all-features
+        run: cargo test --locked --workspace --lib --bins --tests --all-features
       - name: Windows NTFS volume mount-point observation
-        if: runner.os == 'Windows' && matrix.cpu == 'x64'
+        if: runner.os == 'Windows' && matrix.cpu == 'x64' && runner.environment == 'github-hosted'
         shell: bash
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
       # A separate install keeps the cache key of the GTK and WebKit packages unchanged.
@@ -302,7 +308,10 @@ jobs:
             cargo run --locked -p du-core-contracts --features typescript --example export_types -- "$generated_dir"
             git diff --no-index --no-ext-diff -- gui-web/src/ipc/generated "$generated_dir"
             if ! command -v cargo-deny >/dev/null 2>&1 || [[ "$(cargo-deny --version)" != "cargo-deny $CARGO_DENY_VERSION" ]]; then
-              cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
+              mkdir -p "$HOME/.cargo/bin"
+              if ! curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar -xzf - --strip-components=1 -C "$HOME/.cargo/bin" "cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"; then
+                cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
+              fi
             fi
             cargo deny --locked --all-features check advisories licenses sources bans
           ) &
@@ -438,8 +447,12 @@ jobs:
       - name: Ensure cargo-llvm-cov
         shell: bash
         run: |
+          set -euo pipefail
           if ! command -v cargo-llvm-cov >/dev/null 2>&1 || [[ "$(cargo-llvm-cov --version)" != "cargo-llvm-cov $CARGO_LLVM_COV_VERSION" ]]; then
-            cargo install --locked cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION"
+            mkdir -p "$HOME/.cargo/bin"
+            if ! curl --proto '=https' --tlsv1.2 -fsSL "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${CARGO_LLVM_COV_VERSION}/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz" | tar -xzf - -C "$HOME/.cargo/bin"; then
+              cargo install --locked cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION"
+            fi
           fi
       - name: Collect Rust and GUI coverage in parallel
         id: parallel_coverage

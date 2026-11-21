@@ -199,13 +199,18 @@ fn scan_requires_roots_and_a_usable_path() -> io::Result<()> {
         assert!(output.stdout.is_empty(), "{args:?}");
         assert_eq!(text(&output.stderr), UNSUPPORTED_LINE, "{args:?}");
     }
-    // A root that does not exist stops at review, before any job starts.
+    // A root that does not exist stops at review, before any job starts (or at the
+    // preceding macOS Full Disk Access gate when running on a host without FDA granted).
     let output = run_launcher(&["--lang", "en", "scan", "root"])?;
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let stderr = text(&output.stderr);
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    assert!(stderr.contains("A path cannot be analyzed"), "{stderr}");
+    assert!(
+        stderr.contains("A path cannot be analyzed")
+            || (cfg!(target_os = "macos") && stderr.contains("startup.full_disk_access_required")),
+        "{stderr}"
+    );
     Ok(())
 }
 
