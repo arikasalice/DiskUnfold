@@ -37,6 +37,15 @@ fn native(path: &Path) -> Value {
     })
 }
 
+#[cfg(target_os = "macos")]
+fn native(path: &Path) -> Value {
+    use std::os::unix::ffi::OsStrExt;
+    json!({
+        "encoding": "unix", "raw": PathBytes::from_bytes(path.as_os_str().as_bytes()),
+        "display": path.to_string_lossy(), "lossy": false,
+    })
+}
+
 fn finished(events: &DesktopEvents, job: &Id) -> Result<EventEnvelope, Failure> {
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
@@ -167,6 +176,30 @@ fn space_total(
     seq: u32,
 ) -> Result<u64, Failure> {
     bytes(&space_size(assembled, revision, basis, seq)?["bytes"])
+}
+
+/// #348: a hard link adds no allocation of its own, so the folder's allocated total is
+/// the allocation of the two distinct files, whatever the platform.
+#[cfg(unix)]
+#[test]
+fn a_hard_linked_file_adds_its_allocation_once() -> Result<(), Failure> {
+    use std::os::unix::fs::MetadataExt as _;
+    let assembled = assemble()?;
+    let folder = tempfile::tempdir()?;
+    // The scan refuses a path with a link in it, as `/var` is on macOS.
+    let base = fs::canonicalize(folder.path())?;
+    fs::write(base.join("a.bin"), vec![1_u8; 1 << 20])?;
+    fs::hard_link(base.join("a.bin"), base.join("a-link.bin"))?;
+    fs::write(base.join("b.bin"), vec![2_u8; 2 << 20])?;
+    let on_disk =
+        |name: &str| -> Result<u64, Failure> { Ok(fs::metadata(base.join(name))?.blocks() * 512) };
+    let expected = on_disk("a.bin")? + on_disk("b.bin")?;
+    let revision = scan(&assembled, &base)?;
+    assert_eq!(
+        space_total(&assembled, &revision, "allocated", 1)?,
+        expected
+    );
+    Ok(())
 }
 
 /// Three files of different sizes and a folder, so that no ordering tie is involved.

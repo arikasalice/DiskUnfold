@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 #[cfg(any(windows, target_os = "linux"))]
 mod real_scan;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod real_scan_allocated;
 #[cfg(windows)]
 mod real_scan_links;
