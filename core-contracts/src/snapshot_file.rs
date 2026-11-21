@@ -61,12 +61,14 @@ impl std::error::Error for SnapshotPublishError {}
 
 /// Provides the private snapshot-file operations used by local snapshot saves.
 pub trait SnapshotFilePort: Send + Sync {
-    /// Opens the private snapshot store and checks its current save capability.
+    /// Opens or creates the private snapshots folder and checks its current save capability.
     ///
-    /// The result never exposes a configured path. `Ok` is only a pre-check:
-    /// available space and registration capability can change before a save runs.
-    /// The registration result is separate so callers can apply a known space
-    /// limit before reporting a capability failure.
+    /// The folder uses the platform's permission rules, including mode `0700` on Unix.
+    /// Failure to open or create it returns `StoreUnavailable`. The result never exposes
+    /// a configured path. `available_bytes: None` means space is unknown and admission
+    /// proceeds; a later write failure is reported as `snapshot.write_failed`. An `Ok`
+    /// `no_replace_register` result is only a pre-check and does not guarantee later
+    /// registration will succeed.
     fn preflight(&self) -> Result<SnapshotStoreStatus, SnapshotFileError>;
 
     /// Creates an exclusively locked temporary file before any snapshot bytes are written.

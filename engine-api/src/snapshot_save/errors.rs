@@ -29,8 +29,14 @@ pub(super) fn completed_error(error: CompletedScanError) -> EngineError {
 
 pub(super) fn index_error(error: SnapshotIndexError) -> EngineError {
     match error {
+        SnapshotIndexError::InvalidInput | SnapshotIndexError::Corrupt => {
+            EngineError::reason("support.internal_error")
+        }
+        SnapshotIndexError::UnsupportedSchema => EngineError::reason("db.schema_mismatch"),
         SnapshotIndexError::Busy => EngineError::reason("db.busy"),
-        _ => EngineError::reason("snapshot.store_unavailable"),
+        SnapshotIndexError::Storage | SnapshotIndexError::StaleCursor => {
+            EngineError::reason("snapshot.store_unavailable")
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Requests a local snapshot of one immutable result version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SnapshotSaveRequest {
     /// Result version to capture.
     pub result_version_id: Id,
@@ -249,19 +249,43 @@ mod tests {
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
 
     #[test]
-    fn save_request_ignores_unknown_fields_and_requires_declared_fields()
+    fn save_request_rejects_unknown_fields_and_requires_declared_fields()
     -> Result<(), serde_json::Error> {
         let request: SnapshotSaveRequest = serde_json::from_value(serde_json::json!({
             "resultVersionId": ID,
-            "pin": true,
-            "future": "ignored"
+            "pin": true
         }))?;
         assert!(request.pin);
+        assert!(
+            serde_json::from_value::<SnapshotSaveRequest>(serde_json::json!({
+                "resultVersionId": ID,
+                "pin": true,
+                "future": "rejected"
+            }))
+            .is_err()
+        );
         assert!(
             serde_json::from_value::<SnapshotSaveRequest>(serde_json::json!({
                 "resultVersionId": ID
             }))
             .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_changed_event_accepts_unknown_fields() -> Result<(), serde_json::Error> {
+        let event: SnapshotChangedBody = serde_json::from_value(serde_json::json!({
+            "listSeq": 1,
+            "change": "saved",
+            "snapshotIds": [ID],
+            "future": "ignored"
+        }))?;
+        assert_eq!(event.list_seq, 1);
+        assert_eq!(event.change, SnapshotChange::Saved);
+        assert_eq!(
+            event.snapshot_ids,
+            [Id::parse(ID).map_err(serde_json::Error::custom)?]
         );
         Ok(())
     }

@@ -26,7 +26,7 @@ fn admission_stops_for_sample_incomplete_and_missing_lineage()
 }
 
 #[test]
-fn partial_terminal_result_is_admitted_and_missing_version_stops_first()
+fn partial_terminal_result_is_admitted_with_unknown_capacity()
 -> Result<(), Box<dyn std::error::Error>> {
     let (store, version) = partial_result_store(35)?;
     let files = MemoryFiles::default();
@@ -41,19 +41,54 @@ fn partial_terminal_result_is_admitted_and_missing_version_stops_first()
     assert_eq!(files.state().capacity_queries, 1);
     assert_eq!(files.state().create_calls, 0);
     assert_eq!(files.state().temporary_count, 0);
+    assert_eq!(partial_rig.runtime.active_job_counts()?.total, 1);
+    Ok(())
+}
 
-    let (store, _) = result_store(36, false, true, true)?;
+#[test]
+fn missing_and_unconfirmed_versions_have_distinct_reasons() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (store, version) = result_store(37, false, true, false)?;
     let files = MemoryFiles::default();
-    let rig = rig(store, MemoryIndex::default(), files.clone(), true)?;
-    let error = rig
+    let incomplete_rig = rig(store, MemoryIndex::default(), files.clone(), true)?;
+    let incomplete = incomplete_rig
+        .command
+        .execute(request(version, false), &caller()?)
+        .err()
+        .ok_or("expected incomplete result rejection")?;
+    assert_eq!(reason(incomplete), "snapshot.result_not_complete");
+    assert_eq!(files.state().capacity_queries, 0);
+    assert_eq!(files.state().create_calls, 0);
+
+    let (store, _) = result_store(38, false, true, true)?;
+    let files = MemoryFiles::default();
+    let missing_rig = rig(store, MemoryIndex::default(), files.clone(), true)?;
+    let missing = missing_rig
         .command
         .execute(request(id(9999)?, false), &caller()?)
         .err()
-        .ok_or("expected missing-version rejection")?;
-    assert_eq!(reason(error), "result.version_not_found");
+        .ok_or("expected missing result rejection")?;
+    assert_eq!(reason(missing), "result.version_not_found");
     assert_eq!(files.state().capacity_queries, 0);
     assert_eq!(files.state().create_calls, 0);
     Ok(())
+}
+
+#[test]
+fn snapshot_index_errors_keep_their_admission_reasons() {
+    for (error, expected) in [
+        (SnapshotIndexError::InvalidInput, "support.internal_error"),
+        (SnapshotIndexError::Corrupt, "support.internal_error"),
+        (SnapshotIndexError::UnsupportedSchema, "db.schema_mismatch"),
+        (SnapshotIndexError::Busy, "db.busy"),
+        (SnapshotIndexError::Storage, "snapshot.store_unavailable"),
+    ] {
+        assert_eq!(
+            reason(super::super::errors::index_error(error)),
+            expected,
+            "{error:?}"
+        );
+    }
 }
 
 #[test]
@@ -110,6 +145,10 @@ fn insufficient_space_and_unsupported_registration_stop_admission()
     assert_eq!(reason(error), "snapshot.store_unavailable");
     assert_eq!(files.state().capacity_queries, 1);
     assert_eq!(files.state().create_calls, 0);
+    assert_eq!(files.state().temporary_count, 0);
+    assert_eq!(files.state().write_calls, 0);
+    assert!(files.state().finals.is_empty());
+    assert_eq!(low_space_rig.runtime.active_job_counts()?.total, 0);
 
     let (store, version) = result_store(60, false, true, true)?;
     let files = MemoryFiles::default();
