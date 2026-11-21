@@ -246,13 +246,11 @@ function classLook(
 
 /**
  * A shape's kind marks: a folder carries the folder icon in a bar chart (#318);
- * a group is a group, and narrowed it holds files of one type and takes its
- * class, so its border is dashed since it stands for many (README 47.4).
+ * a group is a group with a dashed border in every state, since it stands for
+ * many (README 4.6, 47.4).
  */
 function shapeMarks(shape: VizShape) {
   if (!shape.groupRef)
     return shape.itemKind === "folder" ? { folder: true } : {};
-  return shape.legendClassKey.startsWith("type.")
-    ? { group: true, dashed: true }
-    : { group: true };
+  return { group: true, dashed: true };
 }
