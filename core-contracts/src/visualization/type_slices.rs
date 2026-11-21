@@ -8,6 +8,11 @@ use std::collections::HashSet;
 /// model's legend (nine for the type table today); a longer list is invalid.
 pub const MAX_TYPE_SLICES: usize = 32;
 
+/// The label key of the Other group, the one group whose rows carry slices (README
+/// 54.2). Its reference is model-local (a treemap makes one per parent), so the row
+/// is known by this key.
+pub const OTHER_GROUP_LABEL_KEY: &str = "ui.visualization.group.other";
+
 /// The files of one legend class at any depth below a folder.
 ///
 /// Only the type color criterion fills slices today, so `class_key` is a key of the

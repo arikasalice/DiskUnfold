@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SegmentedChoice, Text } from "../src/components";
 import { VisualizationModelPresenter } from "../src/features/visualization/VisualizationModelPresenter";
+import type { TypeNarrowing } from "../src/features/visualization/ModelLegend";
 import type {
   SizeValue,
   VizLegendEntry,
@@ -100,6 +101,8 @@ const ENTRIES: Entry[] = [
   { name: "발표 영상.mp4", gib: 100, key: "type.video" },
   { name: "보고서.pdf", gib: 50, key: "type.document" },
 ];
+/** The Other group's three small members by type (README 54.2). */
+const OTHER_SLICES = [slice("type.document", 20), slice("type.audio", 10)];
 const LEGEND: [string, number, number][] = [
   ["type.document", 160, 3],
   ["type.audio", 5, 1],
@@ -192,6 +195,7 @@ function fixture(format: "treemap" | "bar") {
       size: size(30),
       legendClassKey: "unclassified",
       memberCount: items(3),
+      typeSlices: OTHER_SLICES,
       geometry: {
         primitive: "rect",
         points: [
@@ -212,6 +216,7 @@ function fixture(format: "treemap" | "bar") {
       denominator: model.denominator,
       legendClassKey: "unclassified",
       displayFlags: [],
+      typeSlices: OTHER_SLICES,
     });
   }
   page.response.rows = rows;
@@ -221,16 +226,108 @@ function fixture(format: "treemap" | "bar") {
     labelKey: "ui.visualization.legend." + key,
     itemCount: items(count),
     total: { quantity: quantity(gib), sourceSize: size(gib) },
-    condition: null,
+    // The registered type predicate the engine gives each row (#301).
+    condition: {
+      kind: "predicate",
+      predicate: {
+        kind: "registered",
+        id: "pred.file_type",
+        revision: 1,
+        operand: btoa(key),
+      },
+    },
   }));
   return { frame, page };
 }
 
-export function TypeSlicesPreview({ scene }: { scene: string }) {
-  const [{ frame, page }] = useState(() =>
+/**
+ * The bar chart narrowed to videos (README 46.1, 46.2): a folder is one bar as long as
+ * its videos, the items without one drop out, and what the filter left out is counted.
+ */
+function narrowedFixture() {
+  const { frame, page } = fixture("bar");
+  const { model } = frame;
+  const kept: Record<string, [number, boolean]> = {
+    작업: [250, false],
+    "사진 보관함": [60, true],
+    "발표 영상.mp4": [100, false],
+  };
+  const rows = page.response.rows.filter((row) => row.displayName in kept);
+  const items = new Set(rows.map((row) => row.itemRef?.itemNo));
+  const top = model.shapes.filter((shape) => items.has(shape.itemRef?.itemNo));
+  model.shapes = top.map((shape, index) => {
+    const row = rows[index]!;
+    const [gib, lower] = kept[row.displayName]!;
+    const right = Math.round((gib / 250) * 1000000);
+    const rest = { ...shape };
+    delete rest.typeSlices;
+    return {
+      ...rest,
+      size: size(gib, lower),
+      legendClassKey: "type.video",
+      geometry: {
+        primitive: "rect",
+        points: [
+          { x: 0, y: 40000 + index * 160000 },
+          { x: right, y: 100000 + index * 160000 },
+        ],
+      },
+    };
+  });
+  page.response.rows = rows.map((row) => {
+    const [gib, lower] = kept[row.displayName]!;
+    const rest = { ...row };
+    delete rest.typeSlices;
+    return { ...rest, size: size(gib, lower), legendClassKey: "type.video" };
+  });
+  page.response.totalCount = rows.length;
+  model.totals.drawn = {
+    quantity: quantity(410, true),
+    sourceSize: size(410, true),
+  };
+  model.totals.filteredOut = {
+    quantity: quantity(590, true),
+    sourceSize: size(590, true),
+  };
+  return { frame, page };
+}
+
+export function TypeSlicesPreview({
+  scene,
+  narrows = true,
+}: {
+  scene: string;
+  /** Off: the legend has no narrowing and a chosen type only fades the others. */
+  narrows?: boolean;
+}) {
+  const [plain] = useState(() =>
     fixture(scene.startsWith("bar") ? "bar" : "treemap"),
   );
-  const [shown, setShown] = useState(page);
+  const [narrowed] = useState(narrowedFixture);
+  const [choice, setChoice] = useState<{ key: string; label: string } | null>(
+    null,
+  );
+  const { frame, page } = choice ? narrowed : plain;
+  const [request, setRequest] = useState<VizRowsRequest | null>(null);
+  const shown = request ? { ...page, request } : page;
+  const narrowing: TypeNarrowing = {
+    key: choice?.key ?? null,
+    label: choice?.label ?? null,
+    condition: null,
+    inactive: false,
+    reason: null,
+    announced: null,
+    choose: (next) => {
+      setChoice(next);
+      setRequest(null);
+    },
+    report: () => {},
+    listing: null,
+    openList: () => {},
+    closeList: () => {},
+    focusShowInList: false,
+    settleFocus: () => {},
+  };
   const [criterion, setCriterion] = useState("type");
   const width = Math.max(320, window.innerWidth - 48);
   const beside = width >= 720 + 256;
@@ -249,7 +346,8 @@ export function TypeSlicesPreview({ scene }: { scene: string }) {
         }}
         selected={null}
         onSelect={() => {}}
-        onPage={(request: VizRowsRequest) => setShown({ ...shown, request })}
+        onPage={(next: VizRowsRequest) => setRequest(next)}
+        {...(narrows ? { narrowing } : {})}
         legendSide={beside ? "right" : "below"}
         legend={{
           criterion: (

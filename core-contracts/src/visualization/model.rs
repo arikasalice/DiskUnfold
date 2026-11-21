@@ -234,8 +234,8 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub item_kind: Option<VizItemKind>,
-    /// A folder's files by legend class, on an item shape of a folder whose children
-    /// are not drawn; the same list as its row's. See [`VizTypeSlice`].
+    /// The files by legend class of a folder whose children are not drawn, or of the
+    /// Other group by its members; the same list as its row's. See [`VizTypeSlice`].
     #[serde(
         default,
         deserialize_with = "optional_present",
@@ -364,6 +364,10 @@ impl VizModel {
         let mut refs = HashMap::new();
         for shape in &self.shapes {
             shape.validate(revision, self.representation.format == "treemap")?;
+            // A histogram interval is a group too, but only the Other group has slices.
+            if self.representation.format == "histogram" && shape.type_slices.is_some() {
+                return Err("type slices on a histogram shape");
+            }
             if let Some(key) = &shape.shape_ref
                 && (key.is_empty() || refs.insert(key.as_str(), shape).is_some())
             {

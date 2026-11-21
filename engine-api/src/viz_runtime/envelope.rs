@@ -185,6 +185,19 @@ pub(super) fn build_model(
         }
         display_flags.sort_unstable();
         display_flags.dedup();
+        let members: Vec<_> = group
+            .members
+            .iter()
+            .map(|member| member.item.clone())
+            .collect();
+        let type_slices = crate::viz_pages::type_slices::group_slices(
+            admitted.source.version(),
+            &members,
+            &request.size_basis,
+            other.type_slices && admitted.filter.is_none(),
+            cancelled,
+        )
+        .map_err(|_| internal())?;
         shapes.push(VizShape {
             item_ref: None,
             group_ref: Some(group.group_ref.clone()),
@@ -200,7 +213,7 @@ pub(super) fn build_model(
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
             member_count: Some(quantity("items", group.members.len() as u64)?),
             item_kind: None,
-            type_slices: None,
+            type_slices,
         });
     }
     super::shape_slices::add(admitted, &mut shapes, cancelled)?;

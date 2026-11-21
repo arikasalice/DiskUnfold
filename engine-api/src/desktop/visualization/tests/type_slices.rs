@@ -1,8 +1,8 @@
 //! Type slices on folder rows and shapes (#298, F06 README 54): the files of each
 //! type below a folder, from one function for the rows and the shapes.
 use super::lower_bound::{Entry, item_no, publish};
-use super::support::{Harness, render_body};
-use super::{TestResult, rows_of};
+use super::support::{Harness, Publication, render_body};
+use super::{TestResult, rows_of, two_files};
 use crate::viz_production::policy;
 use du_core_contracts::result::ResultCompleteness;
 use serde_json::{Value, json};
@@ -190,5 +190,92 @@ fn an_expanded_folder_shows_its_children_and_they_carry_the_slices() -> TestResu
         json!([slice("type.audio", "exact", 1, 50)])
     );
     assert_eq!(shape(&answer, c)?["typeSlices"], c_row["typeSlices"]);
+    Ok(())
+}
+
+#[test]
+fn the_other_group_of_a_bar_chart_lists_its_members_types() -> TestResult {
+    // Four shapes at most: the three largest are bars, the rest is the Other group.
+    let harness = Harness::product(4)?;
+    publish(
+        &harness.sink,
+        &[
+            Entry::Dir("big"),
+            Entry::File("big/a.mp4", 900),
+            Entry::File("b.iso", 800),
+            Entry::File("c.zip", 700),
+            Entry::Dir("small"),
+            Entry::File("small/d.pdf", 30),
+            Entry::File("small/e.mp3", 20),
+            Entry::File("f.pdf", 15),
+            Entry::File("g.mp3", 10),
+        ],
+        ResultCompleteness::Complete,
+        &[],
+    )?;
+    let view = harness.open_view()?;
+    let answer = by_type(&harness, &view, 1, "bar")?;
+    let group = answer["model"]["shapes"]
+        .as_array()
+        .and_then(|shapes| shapes.iter().find(|shape| !shape["groupRef"].is_null()))
+        .ok_or("no group shape")?;
+    // The folder member adds the files below it; the file members are their own type.
+    let expected = json!([
+        slice("type.document", "exact", 2, 45),
+        slice("type.audio", "exact", 2, 30),
+    ]);
+    assert_eq!(group["typeSlices"], expected);
+    let rows = rows_of(&harness, &answer)?;
+    let row = rows["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| !row["groupRef"].is_null()))
+        .ok_or("no group row")?;
+    assert_eq!(row["typeSlices"], expected);
+    // Without the type criterion the group has none.
+    let plain = harness.ok("viz.render", render_body(&view, 3, "bar", 3))?;
+    let plain_group = plain["model"]["shapes"]
+        .as_array()
+        .and_then(|shapes| shapes.iter().find(|shape| !shape["groupRef"].is_null()))
+        .ok_or("no group shape")?;
+    assert!(plain_group.get("typeSlices").is_none());
+    Ok(())
+}
+
+#[test]
+fn the_other_group_of_a_treemap_lists_its_members_types() -> TestResult {
+    let harness = Harness::product(4)?;
+    // As in the groups test: two large files and forty small ones cannot all keep a
+    // shape within four, so the small ones merge into the Other group.
+    let mut named: Vec<(&'static [&'static [u8]], Option<u64>)> =
+        vec![(&[b"a.mp4"], Some(1_200)), (&[b"b.iso"], Some(1_200))];
+    for index in 0..40_usize {
+        let extension = if index % 2 == 0 { "pdf" } else { "mp3" };
+        let name: &'static [u8] = format!("m{index}.{extension}").into_bytes().leak();
+        let path: &'static [&'static [u8]] = vec![name].leak();
+        named.push((path, Some(40)));
+    }
+    harness.publish(&Publication {
+        files: &[],
+        named: &named,
+        ..two_files(3)
+    })?;
+    let view = harness.open_view()?;
+    let answer = by_type(&harness, &view, 1, "treemap")?;
+    let group = answer["model"]["shapes"]
+        .as_array()
+        .and_then(|shapes| shapes.iter().find(|shape| !shape["groupRef"].is_null()))
+        .ok_or("no group shape")?;
+    // Equal bytes: the legend order puts documents first.
+    let expected = json!([
+        slice("type.document", "exact", 20, 800),
+        slice("type.audio", "exact", 20, 800),
+    ]);
+    assert_eq!(group["typeSlices"], expected);
+    let rows = rows_of(&harness, &answer)?;
+    let row = rows["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| !row["groupRef"].is_null()))
+        .ok_or("no group row")?;
+    assert_eq!(row["typeSlices"], expected);
     Ok(())
 }

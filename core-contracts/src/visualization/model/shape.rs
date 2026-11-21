@@ -58,8 +58,8 @@ impl VizShape {
         let Some(slices) = &self.type_slices else {
             return Ok(());
         };
-        if self.item_ref.is_none() || self.item_kind != Some(VizItemKind::Folder) {
-            return Err("type slices on a shape that is not a folder");
+        if self.item_ref.is_some() && self.item_kind != Some(VizItemKind::Folder) {
+            return Err("type slices on an item shape that is not a folder");
         }
         VizTypeSlice::validate_list(slices)
     }

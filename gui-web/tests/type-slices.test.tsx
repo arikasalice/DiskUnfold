@@ -275,8 +275,10 @@ test("README 54: a closed folder with its slices says its types, and the legend 
   ).toBeGreaterThan(0);
 });
 
-test("README 54, 4.7: choosing a type keeps its slices bright in a folder and fades the rest", () => {
-  const { container } = render(<TypeSlicesPreview scene="bar" />);
+test("README 54, 4.7: without narrowing, a chosen type keeps its slices bright in a folder and fades the rest", () => {
+  const { container } = render(
+    <TypeSlicesPreview scene="bar" narrows={false} />,
+  );
   const legend = screen.getByRole("listbox", { name: say("legendTitle") });
   const video = Array.from(legend.querySelectorAll("[role='option']")).find(
     (option) => option.textContent?.startsWith(say("legend.type.video")),
