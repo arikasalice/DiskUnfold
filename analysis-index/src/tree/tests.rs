@@ -68,7 +68,7 @@ fn populated_forest() -> Result<BuildHandle, String> {
 }
 
 #[test]
-fn two_partial_versions_of_one_build_share_each_files_evidence() -> Result<(), String> {
+fn partial_versions_preserve_each_files_evidence() -> Result<(), String> {
     let failed = |e: crate::BuildError| format!("{e:?}");
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)?).map_err(failed)?;
@@ -97,7 +97,7 @@ fn two_partial_versions_of_one_build_share_each_files_evidence() -> Result<(), S
         version
             .physical
             .as_ref()
-            .and_then(|values| values.get(2))
+            .and_then(|values| values.get(1))
             .map(|value| value.to_owned())
     };
     let (Some(a), Some(b)) = (find(&first), find(&second)) else {
