@@ -25,6 +25,27 @@ export function notCounted(
 }
 
 /**
+ * Whether a lower bound of 0 bytes stands for nothing read: the folder was
+ * not read, or a location inside it was not read. A folder whose counted
+ * items are all empty has the same 0 but is shown as "At least 0 bytes".
+ * An unread part makes the folder's size unknown in fact, so the cell says
+ * so (F02 README #201 判定, F06 README 44.2 and 48.2).
+ */
+function unreadZeroBound(
+  row: FolderQueryRow,
+  value: FolderQueryRow["logicalSize"],
+): boolean {
+  const { unenumerated, unreadInside } = row.flags;
+  return (
+    value.state === "present" &&
+    value.value.state === "lower_bound" &&
+    BigInt(value.value.bytes) === 0n &&
+    ((unenumerated.state === "present" && unenumerated.value) ||
+      unreadInside?.state === "present")
+  );
+}
+
+/**
  * A size cell: the readable size, "At least …" for a lower bound, and "Not
  * counted" for a zero that stands for nothing counted (see {@link notCounted}).
  */
@@ -36,6 +57,8 @@ export function size(
 ): string {
   if (notCounted(row, value))
     return text("ui.browse.not_counted", "Not counted");
+  if (unreadZeroBound(row, value))
+    return text("ui.browse.unavailable", "Unavailable");
   if (value.state === "absent")
     return text("ui.browse.not_recorded", "Not recorded");
   if (value.state !== "present" || value.value.state === "unknown")
