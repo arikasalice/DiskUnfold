@@ -1810,7 +1810,8 @@ function Open-FolderRows {
   $title = Get-UiName 'Items in this folder'
   $toggle = Wait-UI 'the folder rows toggle' { Find-UI $title $button }
   if (-not (Get-SmokeExpanded $toggle)) {
-    Invoke-UI $toggle
+    # The disclosure exposes expand and collapse, not invoke.
+    $toggle.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     $null = Wait-SmokeExpanded $title $true 'opening'
   }
 }
@@ -2217,6 +2218,7 @@ function Test-CaptureHistogramGaps {
   # as a range. The last interval's button brings the rows into the window.
   $buttonType = [Windows.Automation.ControlType]::Button
   $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)
+  Open-FolderRows
   $openButton = { param($range) @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -like "*$range*" }) | Select-Object -First 1 }
   $openLast = Wait-UI 'the open button of the 1 GiB interval' { & $openButton '1 GiB*1 TiB' }
   $openEmpty = & $openButton '1 MiB*1 GiB'
@@ -2237,6 +2239,8 @@ function Test-CaptureHistogramGaps {
   $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
   "Empty interval on the size axis: '$($empty.Current.Name)'"
   Save-SmokeCapture '02-histogram-gaps-size'
+  # A new model opens its rows folded again.
+  Open-FolderRows
   $openLast = Wait-UI 'the open button on the size axis' { & $openButton '1 GiB*1 TiB' }
   Save-SmokeCapture '04-histogram-gaps-size-table' -Prepare { $null = Show-InWindow $openLast }
   "Histogram gaps capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
