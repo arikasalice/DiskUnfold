@@ -56,7 +56,7 @@ fn facts(seed: u8, job_id: Option<Id>, created_at_ms: i64) -> ApprovalCheckFacts
         operation_kind: ApprovalOperationKind::Delete,
         destination_summary: Some(r#"{"kind":"none"}"#.into()),
         keep_summary: None,
-        check_result: "matched".into(),
+        check_result: "valid".into(),
         mismatch_fields: "[]".into(),
         approved_at_ms: 100,
         created_at_ms,
@@ -76,7 +76,7 @@ fn raw(seed: u8) -> RawCheck {
         destination_summary: Some(r#"{"kind":"none"}"#),
         keep_summary: None,
         record_kind: "start",
-        check_result: "matched",
+        check_result: "valid",
         mismatch_fields: "[]",
         end_state: None,
         approved_at_ms: 100,
@@ -343,5 +343,40 @@ fn approval_schema_rejects_enums_blob_lengths_and_invalid_json() -> TestResult {
         |row| row.get(0),
     )?;
     assert_eq!(foreign_keys, 0);
+    Ok(())
+}
+
+#[test]
+fn approval_schema_accepts_known_check_results_and_rejects_unknown_values() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let db = AppDb::create_gui_with_history(&dir.path().join("check-results.db"))
+        .map_err(|error| format!("{error:?}"))?;
+
+    for (index, value) in [
+        "valid",
+        "not_issued",
+        "already_used",
+        "mismatch",
+        "confirmation_missing",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seed = u8::try_from(index + 1)?;
+        let mut row = raw(seed);
+        row.check_result = value;
+        assert_eq!(insert_raw(&db, &row)?, 1, "{value}");
+    }
+
+    let mut unknown = raw(6);
+    unknown.check_result = "unknown_value";
+    assert!(insert_raw(&db, &unknown).is_err());
+
+    let count: i64 = db.connection.query_row(
+        "SELECT count(*) FROM job_runtime_approval_check",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(count, 5);
     Ok(())
 }

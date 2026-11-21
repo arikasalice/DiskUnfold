@@ -2,6 +2,8 @@ use super::*;
 use rusqlite::params;
 use std::{collections::BTreeSet, time::Instant};
 
+mod approval_retention;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn writer(path: &std::path::Path) -> Result<AppDb, std::io::Error> {
@@ -149,7 +151,7 @@ fn delete_commits_all_job_rows_and_increments_generation_once() -> TestResult {
           hash_format, operation_kind, record_kind, check_result, approved_at_ms,
           created_at_ms, correlation_id)
          VALUES (?1, ?2, ?3, 'plan', zeroblob(32), 'du.plan.hash.v1', 'trash',
-                 'start', 'matched', 10, 10, ?4)",
+                 'start', 'valid', 10, 101, ?4)",
         params![
             id(21).v7_bytes().ok_or("invalid check id")?.as_slice(),
             target.v7_bytes().ok_or("invalid target")?.as_slice(),

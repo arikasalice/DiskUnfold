@@ -9,7 +9,8 @@ CREATE TABLE job_runtime_approval_check (
  destination_summary TEXT CHECK(destination_summary IS NULL OR json_valid(destination_summary)),
  keep_summary TEXT CHECK(keep_summary IS NULL OR json_valid(keep_summary)),
  record_kind TEXT NOT NULL CHECK(record_kind IN ('start','finish')),
- check_result TEXT NOT NULL CHECK(length(check_result) > 0),
+ check_result TEXT NOT NULL
+  CHECK(check_result IN ('valid','not_issued','already_used','mismatch','confirmation_missing')),
  mismatch_fields TEXT NOT NULL DEFAULT '[]'
   CHECK(json_valid(mismatch_fields) AND json_type(mismatch_fields) = 'array'),
  end_state TEXT,
