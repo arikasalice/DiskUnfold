@@ -192,6 +192,7 @@ impl<'a> PlanBuilder<'a> {
         Ok(PlanRejudgement {
             version_id: plan.version_id,
             recomputed_hash,
+            ruleset_version: ruleset.as_ref().map(|snapshot| snapshot.version),
             items,
         })
     }

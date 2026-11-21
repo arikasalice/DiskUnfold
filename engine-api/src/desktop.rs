@@ -2,7 +2,7 @@
 //!
 //! Registration lives in `assembly`; this module owns the bounded desktop event stream.
 use std::{
-    sync::{Mutex, atomic::AtomicU64},
+    sync::{Arc, Mutex, atomic::AtomicU64},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -48,6 +48,8 @@ use du_core_contracts::analysis_ipc::{JobResyncReason, JobResyncRequired};
 use pending::{EVENT_INTERVAL, EVENT_LIMIT};
 use pending::{Pending, next_loss_order};
 
+type EventObserver = Arc<dyn Fn(EventEnvelope) + Send + Sync>;
+
 fn utc_now_ms() -> i64 {
     UNIX_EPOCH
         .elapsed()
@@ -78,9 +80,18 @@ mod tests;
 
 /// A bounded, nonblocking event source for the desktop window.
 #[derive(Default)]
-pub struct DesktopEvents(Mutex<Pending>, AtomicU64);
+pub struct DesktopEvents(Mutex<Pending>, AtomicU64, Mutex<Vec<EventObserver>>);
 
 impl DesktopEvents {
+    /// Registers a synchronous observer for committed events before window delivery.
+    ///
+    /// Observers run after the event has entered the bounded queue and outside
+    /// the queue lock, so they may publish a follow-up event safely.
+    pub fn subscribe(&self, observer: impl Fn(EventEnvelope) + Send + Sync + 'static) {
+        if let Ok(mut observers) = self.2.lock() {
+            observers.push(Arc::new(observer));
+        }
+    }
     /// Returns the next serialized envelope without waiting for any job.
     pub fn next_json(&self) -> Option<String> {
         let event = self.0.try_lock().ok()?.take(Instant::now())?;
@@ -142,12 +153,22 @@ impl DesktopEvents {
     }
 
     fn enqueue(&self, event: EventEnvelope) {
+        let observer_event = event.clone();
         let observed_at =
             Timestamp::from_unix_millis(utc_now_ms()).unwrap_or_else(|| event.occurred_at.clone());
-        if let Ok(mut pending) = self.0.lock() {
+        let accepted = if let Ok(mut pending) = self.0.lock() {
             pending.push_with_loss_order(event, Instant::now(), observed_at, || {
                 next_loss_order(&self.1)
             });
+            true
+        } else {
+            false
+        };
+        if accepted {
+            let observers = self.2.lock().map(|items| items.clone()).unwrap_or_default();
+            for observer in observers {
+                observer(observer_event.clone());
+            }
         }
     }
 }

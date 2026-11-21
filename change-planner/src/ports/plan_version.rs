@@ -88,6 +88,9 @@ pub struct PlanRejudgement {
     pub version_id: Id,
     /// Recomputed hash of the stored content.
     pub recomputed_hash: [u8; 32],
+    /// Current protection ruleset version used for every item in this check.
+    /// None means the ruleset could not be read and all items fail closed.
+    pub ruleset_version: Option<u64>,
     /// Re-judged states in plan item order.
     pub items: Vec<(u32, RejudgementState)>,
 }

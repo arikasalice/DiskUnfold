@@ -17,6 +17,8 @@ pub use crate::sample_ipc::APPROVAL_SAMPLE_SOURCE_DENIED;
 pub const APPROVAL_REVIEW: &str = "approval.review";
 /// F28 GUI command for granting approval for a reviewed request (FR2.HD1.app-host.DD1).
 pub const APPROVAL_GRANT: &str = "approval.grant";
+/// F28 GUI command for revoking an unconsumed approval (FR4.HD1.app-host.DD1).
+pub const APPROVAL_REVOKE: &str = "approval.revoke";
 /// F28 event topic for request-version approval state (AFR23.core-contracts.ADD1).
 pub const APPROVAL_STATE_CHANGED: &str = "approval.state_changed";
 
@@ -257,6 +259,22 @@ pub struct ApprovalGrantRequest {
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalGrantResponse {
+    pub state: ApprovalState,
+}
+
+/// Revokes an issued approval for one request version (FR4.HD1.app-host.DD1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApprovalRevokeRequest {
+    pub request_version_id: Id,
+}
+
+/// State returned after a revoke attempt succeeds (FR4.HD1.app-host.DD1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRevokeResponse {
     pub state: ApprovalState,
 }
 

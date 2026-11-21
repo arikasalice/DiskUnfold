@@ -1,5 +1,6 @@
 //! GUI plan drafts, immutable plan reads, and the `plan.build` job (F10).
 mod analysis;
+mod approval_prepare;
 mod job;
 mod storage;
 mod usecases;
@@ -29,17 +30,20 @@ use du_job_runtime::{JobClock, JobIdentity, JobRuntime};
 use crate::{api::EngineBuilder, desktop::DesktopEvents, error::EngineError, workers::Workers};
 
 pub use analysis::{IngestPlanAnalysisSource, PlanAnalysisSource};
+pub use approval_prepare::{ApprovalPrepareService, ApprovalPreparedPlan};
 pub use du_change_planner::ports::{
-    AnalysisFactsPort, AnalysisItemFacts, DescendantResult, Fact, GuardResult, IdentityObservation,
-    KnownLocation, KnownLocationKind, LinkBoundary, PlanAction as PlannerAction,
-    PlanSourceKind as PlannerSourceKind, PlatformFactsPort as PlanPlatformFactsPort,
+    AnalysisFactsPort, AnalysisItemFacts, ConfirmationToken, DescendantResult, Fact, GuardResult,
+    IdentityObservation, KnownLocation, KnownLocationKind, LinkBoundary,
+    PlanAction as PlannerAction, PlanItem, PlanItemState, PlanRejudgement,
+    PlanSourceKind as PlannerSourceKind, PlanVersion, PlatformFactsPort as PlanPlatformFactsPort,
     PlatformProtectionFacts, ProtectionAction, ProtectionRulesetPort as PlanRulesetPort,
-    ProtectionVerdict, ProtectionVolumeRole, RulesetSnapshot, TargetCheck,
-    TargetCheckPort as PlanTargetCheckPort, TargetIdentity,
+    ProtectionSummary as PlannerProtectionSummary, ProtectionVerdict, ProtectionVolumeRole,
+    RejudgementState, RequestChannel as PlannerRequestChannel, RestoreRestriction, RulesetSnapshot,
+    RulesetVersion as PlannerRulesetVersion, TargetCheck, TargetCheckPort as PlanTargetCheckPort,
+    TargetIdentity,
 };
-pub use storage::RulesetAdapter;
-
-pub use storage::SharedVersionStore;
+pub use du_change_planner::readiness::PlanReadiness as DomainPlanReadiness;
+pub use storage::{RulesetAdapter, SharedVersionStore};
 use storage::{RulesetAdapter as RawRulesetAdapter, VersionReader};
 use usecases::{UnknownPlatformFacts, UnknownTargetCheck};
 
@@ -150,7 +154,7 @@ pub(crate) fn register(
     analysis_index: du_analysis_index::IngestSink,
     job_ports: PlanJobPorts,
     sources: PlanSources,
-) -> Result<(), du_job_runtime::RuntimeError> {
+) -> Result<ApprovalPrepareService, du_job_runtime::RuntimeError> {
     runtime.register(job::descriptor())?;
     let analysis_source = sources
         .analysis
@@ -182,7 +186,7 @@ pub(crate) fn register(
             service.retire();
         }
     });
-    Ok(())
+    Ok(service.approval_prepare_service())
 }
 
 impl PlanService {

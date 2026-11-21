@@ -46,6 +46,8 @@ pub(crate) fn declarations(config: &ts_rs::Config) -> Vec<String> {
         ApprovalConfirmationProofs::decl(config),
         ApprovalGrantRequest::decl(config),
         ApprovalGrantResponse::decl(config),
+        ApprovalRevokeRequest::decl(config),
+        ApprovalRevokeResponse::decl(config),
         ApprovalStateChanged::decl(config),
         ChangeExecuteRequest::decl(config),
         ChangeExecuteResponse::decl(config),

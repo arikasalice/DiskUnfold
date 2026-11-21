@@ -2283,6 +2283,8 @@ export type ApprovalGrantRequest = { requestVersionId: Id, presentedPlanHash: Pl
  */
 confirmations?: ApprovalConfirmationProofs, };
 export type ApprovalGrantResponse = { state: ApprovalState, };
+export type ApprovalRevokeRequest = { requestVersionId: Id, };
+export type ApprovalRevokeResponse = { state: ApprovalState, };
 export type ApprovalStateChanged = { requestVersionId: Id, state: ApprovalEventState,
 /**
  * Omitted or null means no state-change reason is attached.

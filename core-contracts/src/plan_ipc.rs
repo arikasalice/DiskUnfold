@@ -152,6 +152,16 @@ pub enum PlanItemDisposition {
 pub struct PlanHash(String);
 
 impl PlanHash {
+    /// Formats canonical digest bytes as the lowercase wire representation.
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        let mut value = String::with_capacity(64);
+        for byte in bytes {
+            use std::fmt::Write as _;
+            let _ = write!(value, "{byte:02x}");
+        }
+        Self(value)
+    }
+
     /// Validates and stores a normalized BLAKE3 digest.
     pub fn parse(value: impl Into<String>) -> Result<Self, String> {
         let value = value.into();
