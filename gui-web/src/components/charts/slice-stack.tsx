@@ -105,6 +105,7 @@ export function SliceStack({
             data-tone={slice.tone}
             data-key={slice.key}
             data-dimmed={faded ? "true" : undefined}
+            data-chosen={chosen === slice.key ? "true" : undefined}
           >
             <rect className="du-slice-stack__slice" {...at} />
             {pattern && (

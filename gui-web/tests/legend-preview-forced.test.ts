@@ -27,4 +27,14 @@ test("README 44.4, #383: in forced colours a faded slice or shape takes a GrayTe
   expect(lifted.some((rule) => rule.declarations.get("opacity") === "1")).toBe(
     true,
   );
+  // The shown class itself takes a 2 px Highlight edge, slices and shapes alike.
+  for (const pattern of [
+    /\[data-chosen\] > \.du-slice-stack__slice$/u,
+    /\.du-geometry-shape\[data-highlighted\] > rect:first-child$/u,
+  ]) {
+    const rule = targets(all, pattern).find(
+      (candidate) => candidate.declarations.get("stroke") === "Highlight",
+    );
+    expect(rule?.declarations.get("stroke-width"), String(pattern)).toBe("2");
+  }
 });

@@ -215,6 +215,12 @@
   .du-geometry-shape[data-dimmed] > rect:first-child {
     stroke: GrayText;
   }
+
+  /* The class shown from the legend (README 44.4, #383). */
+  .du-geometry .du-geometry-shape[data-highlighted] > rect:first-child {
+    stroke: Highlight;
+    stroke-width: 2;
+  }
 }
 
 .du-geometry-bar-name,

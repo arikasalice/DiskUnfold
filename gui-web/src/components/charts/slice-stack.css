@@ -66,4 +66,11 @@
   .du-slice-stack [data-dimmed] > .du-slice-stack__slice {
     stroke: GrayText;
   }
+
+  /* The class shown from the legend: a 2 px Highlight edge, since the others'
+     fading is not seen here (README 44.4, #383). */
+  .du-slice-stack [data-chosen] > .du-slice-stack__slice {
+    stroke: Highlight;
+    stroke-width: 2;
+  }
 }
