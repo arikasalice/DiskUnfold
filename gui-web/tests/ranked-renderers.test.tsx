@@ -151,3 +151,21 @@ test("F06 README 12: a histogram draws one column per bin from a zero baseline w
   );
   expect(lefts[0]!).toBeLessThan(lefts[1]!);
 });
+
+test("#318: a folder's bar name starts with the folder icon; a file's has none", () => {
+  const base = props([
+    { name: "docs", value: "4 MiB", share: 1 },
+    { name: "clip.mp4", value: "6 MiB", share: 0.6 },
+  ]);
+  const shapes = base.shapes.map((shape, index) =>
+    index === 0 ? { ...shape, folder: true } : shape,
+  );
+  const { container } = render(<BarRenderer {...base} shapes={shapes} />);
+  const icons = container.querySelectorAll(".du-chart-icon");
+  expect(icons).toHaveLength(1);
+  const names = Array.from(container.querySelectorAll(".du-geometry-bar-name"));
+  // The folder's name moves right of its icon; the file's stays at the edge.
+  expect(Number(names[0]!.getAttribute("x"))).toBe(4 + 14 + 4);
+  expect(Number(names[1]!.getAttribute("x"))).toBe(4);
+  expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
+});

@@ -267,3 +267,8 @@
   stroke-width: 1;
   shape-rendering: crispEdges;
 }
+
+/* A folder's icon before its bar name (#318), in the name's colour. */
+.du-chart-icon {
+  color: var(--du-text);
+}

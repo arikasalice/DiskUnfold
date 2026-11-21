@@ -70,6 +70,32 @@ export function Icon({ name }: { name: IconName }) {
   return <Glyph aria-hidden focusable="false" size={18} strokeWidth={1.75} />;
 }
 
+/** An icon placed inside a chart's SVG, at its top-left corner and size in CSS px. */
+export function ChartIcon({
+  name,
+  x,
+  y,
+  size,
+}: {
+  name: IconName;
+  x: number;
+  y: number;
+  size: number;
+}) {
+  const Glyph = icons[name];
+  return (
+    <Glyph
+      aria-hidden
+      focusable="false"
+      className="du-chart-icon"
+      x={x}
+      y={y}
+      size={size}
+      strokeWidth={1.75}
+    />
+  );
+}
+
 export function BrandMark({ src }: { src: string }) {
   return (
     <img className="du-brand-mark" src={src} width={30} height={30} alt="" />
