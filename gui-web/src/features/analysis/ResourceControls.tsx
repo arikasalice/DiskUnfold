@@ -130,7 +130,7 @@ export function ResourceLimitDisclosure({
   }, [error]);
   const errorText = resourceLimitErrorText(error, max, text);
   const description = error
-    ? resourcePreviousValueText(previousValue, text)
+    ? ""
     : text(
         "ui.analysis.resource_limit_description",
         "Leave blank to use the automatic limit.",
@@ -153,7 +153,9 @@ export function ResourceLimitDisclosure({
 
   return (
     <section className="du-resource-limit">
-      <div className="du-resource-limit__heading">
+      <div
+        className={`du-resource-limit__heading${onReset ? " du-resource-limit__heading--with-reset" : ""}`}
+      >
         <Action
           variant="quiet"
           aria-expanded={expanded}
@@ -188,6 +190,11 @@ export function ResourceLimitDisclosure({
             error={errorText}
             isDisabled={disabled}
           />
+          {error && (
+            <Text kind="muted" className="du-resource-limit__previous">
+              {resourcePreviousValueText(previousValue, text)}
+            </Text>
+          )}
         </div>
       )}
     </section>

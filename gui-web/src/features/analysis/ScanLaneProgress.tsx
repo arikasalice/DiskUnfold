@@ -215,11 +215,7 @@ function resourceFeedbackText(
 ) {
   if (feedback === "applying")
     return text("ui.analysis.resource_applying", "Applying");
-  if (feedback === "accepted" && pending)
-    return text(
-      "ui.analysis.resource_takes_effect",
-      "Takes effect after the current folder",
-    );
+  if (feedback === "accepted" && pending) return "";
   if (feedback === "failed")
     return text(
       "ui.analysis.resource_change_failed",

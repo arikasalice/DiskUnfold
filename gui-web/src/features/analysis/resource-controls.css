@@ -77,9 +77,22 @@
   text-align: start;
 }
 
+.du-resource-limit__heading--with-reset > .du-action:first-child {
+  flex: 1 1 12rem;
+}
+
+.du-resource-limit__heading--with-reset > .du-action:last-child {
+  flex: 0 1 auto;
+}
+
 .du-resource-limit__field {
   max-inline-size: 24rem;
   min-inline-size: 0;
+}
+
+.du-resource-limit__field .du-field[data-invalid] input {
+  border-color: var(--du-danger-text);
+  box-shadow: 0 0 0 1px var(--du-danger-text);
 }
 
 .du-resource-limit__field .du-field [slot="errorMessage"] {
@@ -131,11 +144,6 @@
 
 @media (max-width: 720px) {
   .du-collection-conditions__header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .du-resource-limit__heading {
     align-items: flex-start;
     flex-direction: column;
   }

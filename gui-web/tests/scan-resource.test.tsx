@@ -52,6 +52,7 @@ function scopeClient(
     scopeFingerprint: "reviewed",
     collection: { resourceMode: "auto" },
   }),
+  jobState: AnalysisJobStatus["state"] = "running",
 ) {
   const starts: unknown[] = [];
   const client = {
@@ -84,7 +85,7 @@ function scopeClient(
           return {
             jobRef: "scan",
             kind: "scan.metadata",
-            state: "running",
+            state: jobState,
             sequence: 1,
             resultVersion: null,
             reasonKey: null,
@@ -191,9 +192,18 @@ test("a locally invalid scope limit shows its fallback and does not block starti
   render(<AnalysisPanel client={client} preferences={preferences} />);
   const start = await prepareScopeStart();
   openScopeConditions();
-  fireEvent.change(openScopeLimit(), { target: { value: "0" } });
+  const limit = openScopeLimit();
+  fireEvent.change(limit, { target: { value: "0" } });
 
   expect(screen.getByText("Enter a whole number of 1 or more")).toBeDefined();
+  expect(limit.getAttribute("aria-invalid")).toBe("true");
+  expect(
+    screen
+      .getByText("Enter a whole number of 1 or more")
+      .compareDocumentPosition(
+        screen.getByText("Using the previous value (automatic)"),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   expect(
     screen.getByText("Using the previous value (automatic)"),
   ).toBeDefined();
@@ -235,6 +245,58 @@ test("scan.start limit refusal retries once without the prior automatic limit", 
     collection: { resourceMode: "fast" },
   });
   expect(starts[1]).not.toHaveProperty("collection.userLimit");
+  expect(
+    await screen.findByText("Enter a whole number of 1 or more"),
+  ).toBeDefined();
+  expect(
+    screen.getByText("Using the previous value (automatic)"),
+  ).toBeDefined();
+});
+
+test("scan.start retries automatically when the previous limit is refused", async () => {
+  const { client, starts } = scopeClient((_request, attempt) => {
+    if (attempt === 1)
+      return {
+        jobRef: "scan",
+        existing: false,
+        scopeVersion: "scope",
+        scopeFingerprint: "reviewed",
+        collection: { resourceMode: "fast", userLimit: 30 },
+      };
+    if (attempt < 4)
+      throw new AnalysisError(
+        "INVALID_ARGUMENT",
+        "scan.resource_limit_invalid",
+      );
+    return {
+      jobRef: "scan",
+      existing: false,
+      scopeVersion: "scope",
+      scopeFingerprint: "reviewed",
+      collection: { resourceMode: "fast" },
+    };
+  }, "done");
+  render(<AnalysisPanel client={client} preferences={preferences} />);
+  fireEvent.click(await prepareScopeStart());
+  await waitFor(() => expect(starts).toHaveLength(1));
+
+  fireEvent.click(await screen.findByRole("button", { name: "Analyze again" }));
+  const start = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "Start analysis",
+  });
+  openScopeConditions();
+  fireEvent.change(openScopeLimit(), { target: { value: "40" } });
+  fireEvent.click(start);
+
+  await waitFor(() => expect(starts).toHaveLength(4));
+  expect(starts[1]).toMatchObject({
+    collection: { resourceMode: "fast", userLimit: 40 },
+  });
+  expect(starts[2]).toMatchObject({
+    collection: { resourceMode: "fast", userLimit: 30 },
+  });
+  expect(starts[3]).toMatchObject({ collection: { resourceMode: "fast" } });
+  expect(starts[3]).not.toHaveProperty("collection.userLimit");
   expect(
     await screen.findByText("Enter a whole number of 1 or more"),
   ).toBeDefined();
@@ -330,7 +392,7 @@ test("progress changes use full replacement, show acceptance, and announce lane 
   await act(async () => resolveChange(setResourceResponse("accepted", 3)));
   expect(
     screen.getAllByText("Takes effect after the current folder").length,
-  ).toBe(2);
+  ).toBe(1);
   rerender(
     <ScanResourceContext.Provider
       value={{
@@ -487,7 +549,7 @@ test("stale progress responses cannot replace a newer resource choice", async ()
   ).not.toBeNull();
   expect(
     screen.getAllByText("Takes effect after the current folder"),
-  ).toHaveLength(2);
+  ).toHaveLength(1);
 });
 
 const preferences = {

@@ -602,11 +602,25 @@ export function AnalysisPanel({
         setLimitError("rejected");
         setLimitErrorPrevious(previousLimit);
         setEditorOpen(true);
-        result = await client.call("scan.start", {
-          draft: input,
-          reviewFingerprint: review.reviewFingerprint,
-          ...startCollection(resourceMode, previousLimit),
-        });
+        try {
+          result = await client.call("scan.start", {
+            draft: input,
+            reviewFingerprint: review.reviewFingerprint,
+            ...startCollection(resourceMode, previousLimit),
+          });
+        } catch (retryFailure) {
+          if (
+            previousLimit === undefined ||
+            !isScanResourceLimitInvalid(retryFailure)
+          )
+            throw retryFailure;
+          setLimitErrorPrevious(undefined);
+          result = await client.call("scan.start", {
+            draft: input,
+            reviewFingerprint: review.reviewFingerprint,
+            ...startCollection(resourceMode, undefined),
+          });
+        }
         usedFallback = true;
       }
       const effectiveCollection = result.collection ?? {
