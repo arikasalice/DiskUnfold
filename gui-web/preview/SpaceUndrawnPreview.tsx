@@ -183,17 +183,17 @@ function unreadFixture() {
   const { frame, page } = partialFixture();
   const { model } = frame;
   const rows = page.response.rows;
+  rows[0] = { ...rows[0]!, unread: { kind: "inside", count: "1" } };
   rows[3] = {
     ...rows[3]!,
     displayName: "개인 금고",
     size: lower(bytes(0)),
     displayFlags: [],
+    unread: { kind: "itself" },
   };
-  const {
-    unknownSize: _size,
-    firstUnknownRow: _row,
-    ...summary
-  } = model.summary;
+  const summary = { ...model.summary };
+  delete summary.unknownSize;
+  delete summary.firstUnknownRow;
   model.summary = {
     ...summary,
     unknownItems: items("0"),

@@ -40,6 +40,20 @@ function presenter(
       state: "lower_bound",
       bytes: "0",
     },
+    unread: { kind: "itself" },
+  };
+  input.page.response.rows[1] = {
+    ...input.page.response.rows[1]!,
+    unread: { kind: "inside", count: "3" },
+  };
+  input.page.response.rows[0] = {
+    ...input.page.response.rows[0]!,
+    unread: { kind: "inside" },
+  };
+  input.page.response.rows[3] = {
+    ...input.page.response.rows[3]!,
+    // A kind this screen does not know says nothing.
+    unread: { kind: "later" } as never,
   };
   const onPage = vi.fn();
   render(
@@ -94,4 +108,24 @@ test("F06 README 48: View in list opens the rows on the first unreadable folder,
   );
   expect(row.textContent).not.toContain("At least 0");
   expect(onPage).not.toHaveBeenCalled();
+  // Each folder row says how it could not be read, as the browse screen does (README 53).
+  expect(row.textContent).toContain(visualizationMessage("en", "unreadItself"));
+  const rows = Array.from(document.querySelectorAll("tbody tr"));
+  expect(rows[1]!.textContent).toContain("3 subfolders unreadable");
+  expect(rows[0]!.textContent).toContain(
+    visualizationMessage("en", "unreadInsideSome"),
+  );
+  expect(rows[3]!.textContent).not.toMatch(/unreadable|Couldn't read/);
+});
+
+test("F06 README 53: the reason is the tooltip and the button's description", () => {
+  presenter(exact("2"), 2);
+  const button = screen.getByRole("button", { name: /View in list$/ });
+  const id = button.getAttribute("aria-describedby")!;
+  expect(document.getElementById(id)?.textContent).toBe(
+    visualizationMessage("en", "unreadTooltip"),
+  );
+  expect(button.closest(".du-undrawn-line")?.getAttribute("title")).toBe(
+    visualizationMessage("en", "unreadTooltip"),
+  );
 });

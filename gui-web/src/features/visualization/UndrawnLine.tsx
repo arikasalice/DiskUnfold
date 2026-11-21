@@ -95,6 +95,7 @@ export function UndrawnLine({
  * scope whose listing failed, apart from the items not drawn. "View in list"
  * focuses the first row that is or holds one; without such a row only the count
  * stands. A lower bound reads "2+". It updates without being announced (48.7).
+ * The tooltip says why, and is the button's description too (README 53).
  */
 export function UnreadLine({
   frame,
@@ -105,6 +106,7 @@ export function UnreadLine({
   text: VizText;
   onOpen: (row: number) => void;
 }) {
+  const descriptionId = useId();
   const { unreadFolders, firstUnreadRow } = frame.model.summary;
   if (!unreadFolders || unreadFolders.state === "unknown") return null;
   const summary = vizMessage(
@@ -115,12 +117,16 @@ export function UnreadLine({
     { count: unreadFolders.value },
   );
   return (
-    <div className="du-undrawn-line">
+    <div className="du-undrawn-line" title={text.message("unreadTooltip")}>
       <Text>{summary}</Text>
+      <div id={descriptionId} className="du-visually-hidden">
+        {text.message("unreadTooltip")}
+      </div>
       {firstUnreadRow !== undefined && (
         <Action
           variant="quiet"
           aria-label={vizMessage(text, "undrawnShowInListName", { summary })}
+          aria-describedby={descriptionId}
           onPress={() => onOpen(firstUnreadRow)}
         >
           {text.message("undrawnShowInList")}

@@ -4,6 +4,7 @@ use super::{Error as PagesError, ModelInput, ModelPages};
 use crate::display_path;
 use du_analysis_index::{
     ResultVersion,
+    folder_collection::{FolderCollection, Unenumerated, UnreadInside},
     visualization::{projection, ratio},
 };
 use du_core_contracts::{
@@ -12,7 +13,7 @@ use du_core_contracts::{
     visualization::{
         item_kind::VizItemKind,
         quantity::VizQuantity,
-        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow},
+        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizUnread},
     },
 };
 use std::{
@@ -325,12 +326,35 @@ fn make_row(
         member_count: None,
         item_kind: VizItemKind::from_result(item.kind),
         condition: None,
+        unread: row_unread(version, item),
     };
     projected
         .validate_revision(version.version_id())
         .map_err(|_| Error::MissingClassification)?;
     Ok(projected)
 }
+/// Whether a folder row could not be read (F06 README 53): its own listing failed, or
+/// ranges below it were not read. One function for every table, so the root table and
+/// an expanded folder's table agree. Its own failure wins: nothing below it was counted.
+fn row_unread(version: &ResultVersion, item: &ResultItem) -> Option<VizUnread> {
+    let reference = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: item.item_no,
+    };
+    let collection = version.folder_collection(&reference).ok()?;
+    match collection {
+        FolderCollection::NotAFolder => None,
+        FolderCollection::Folder {
+            unenumerated: Unenumerated::Yes { .. },
+            ..
+        } => Some(VizUnread::Itself),
+        FolderCollection::Folder { .. } => match version.unread_inside(&reference).ok()? {
+            Some(UnreadInside::Recorded { count }) => VizUnread::inside(count),
+            _ => None,
+        },
+    }
+}
+
 fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Error> {
     if &size.basis != basis {
         return Err(Error::SourceMismatch);

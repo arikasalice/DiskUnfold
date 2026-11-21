@@ -1061,7 +1061,18 @@ itemKind?: VizItemKind,
  * the size basis has no size predicate (unique physical size). Omitted rather
  * than null.
  */
-condition?: QueryCondition, };
+condition?: QueryCondition,
+/**
+ * Whether this folder could not be read (F06 README 53): item rows of folders
+ * only. See [`VizUnread`].
+ */
+unread?: VizUnread, };
+export type VizUnread = { "kind": "itself" } | { "kind": "inside",
+/**
+ * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
+ * when a cancellation or disconnection left folders below it uncounted.
+ */
+count?: string, } | { "kind": "unknown" };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

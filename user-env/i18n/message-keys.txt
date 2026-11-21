@@ -1165,6 +1165,10 @@ ui.visualization.undrawnTooltip
 ui.visualization.unknownFormat
 ui.visualization.unreadFolders count:count
 ui.visualization.unreadFoldersAtLeast count:count
+ui.visualization.unreadInside count:count
+ui.visualization.unreadInsideSome
+ui.visualization.unreadItself
+ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
 ui.visualization.viewAsTreemap

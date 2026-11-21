@@ -26,6 +26,8 @@ const UNCLASSIFIED = new Set([
 ]);
 /** A row of the table: one fixed height, so the table is as tall as its rows. */
 const ROW_HEIGHT = 48;
+/** A page with a folder's unread line under its value gives every row room for it. */
+const TWO_LINE_ROW_HEIGHT = 64;
 /** Notes the value column already shows (unconfirmed, lower bound); they are not written again. */
 const SHOWN_IN_VALUE = new Set(["viz.flag.unknown", "viz.flag.lower_bound"]);
 const notesOf = (flags: readonly string[]) =>
@@ -207,7 +209,7 @@ export function ModelRows({
           label={rowTitle}
           density="compact"
           flat
-          rowHeight={ROW_HEIGHT}
+          rowHeight={rowHeight(rows)}
           // The action column holds only buttons; its header would read as a value.
           hiddenHeaders={[text.message("actions")]}
           columns={columns.map(({ header }) => header)}
@@ -285,10 +287,43 @@ function classification(
  * at all, is unavailable rather than "at least 0 bytes" (F06 README 48.2, 44.2).
  */
 function rowValue(row: VizRow, text: VizText) {
-  if (row.quantity) return text.quantity(row.quantity);
-  return row.size.state === "lower_bound" && row.size.bytes === "0"
-    ? text.message("unavailableValue")
-    : text.size(row.size);
+  const value = row.quantity
+    ? text.quantity(row.quantity)
+    : row.size.state === "lower_bound" && row.size.bytes === "0"
+      ? text.message("unavailableValue")
+      : text.size(row.size);
+  const reason = unreadReason(row, text);
+  return reason ? (
+    <div>
+      <Text>{value}</Text>
+      <Text kind="muted">{reason}</Text>
+    </div>
+  ) : (
+    value
+  );
+}
+
+/** The row height of a page: taller when a folder row says why it is partly known. */
+function rowHeight(rows: readonly VizRow[]) {
+  return rows.some(
+    (row) => row.unread?.kind === "itself" || row.unread?.kind === "inside",
+  )
+    ? TWO_LINE_ROW_HEIGHT
+    : ROW_HEIGHT;
+}
+
+/**
+ * Why a folder row is only partly known (F06 README 53), in the browse screen's
+ * words: its own listing failed, or folders below it could not be read. A kind
+ * this screen does not know says nothing.
+ */
+function unreadReason(row: VizRow, text: VizText) {
+  const unread = row.unread;
+  if (unread?.kind === "itself") return text.message("unreadItself");
+  if (unread?.kind !== "inside") return null;
+  return unread.count === undefined
+    ? text.message("unreadInsideSome")
+    : vizMessage(text, "unreadInside", { count: unread.count });
 }
 
 /**
