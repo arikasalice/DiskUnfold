@@ -133,6 +133,7 @@ function sizeRow(
   display: SizeDisplay,
   text: LocaleText,
   countedZero: boolean,
+  unreadNote: string | undefined,
 ) {
   if (
     field.state !== "present" ||
@@ -142,11 +143,15 @@ function sizeRow(
       return {
         label,
         emphasized: true,
-        value: text(
-          "ui.inspection.unavailable_in_scan",
-          "Unavailable in this scan",
-        ),
-        notes: [],
+        // Opened from a row: say what the row says, with its scan status below.
+        value:
+          unreadNote === undefined
+            ? text(
+                "ui.inspection.unavailable_in_scan",
+                "Unavailable in this scan",
+              )
+            : text("ui.browse.unavailable", "Unavailable"),
+        notes: unreadNote === undefined ? [] : [unreadNote],
       };
     }
     return {
@@ -189,6 +194,7 @@ function attributes(
   renderTime: (value: string) => ReactNode,
   actions: PathActions,
   countedZero: boolean,
+  unreadNote: string | undefined,
 ) {
   return [
     {
@@ -212,6 +218,7 @@ function attributes(
       display,
       text,
       countedZero,
+      unreadNote,
     ),
     sizeRow(
       text("ui.analysis.allocated_size", "Allocated size"),
@@ -219,6 +226,7 @@ function attributes(
       display,
       text,
       countedZero,
+      unreadNote,
     ),
     {
       label: text("ui.inspection.published", "Result published"),
@@ -270,6 +278,7 @@ export function FileInspection({
   onStale,
   copy,
   countedZero = false,
+  unreadNote,
 }: {
   client: AnalysisClient;
   item: ItemRef;
@@ -293,6 +302,12 @@ export function FileInspection({
    * files. Without it, a 0-byte lower bound reads as unavailable.
    */
   countedZero?: boolean | undefined;
+  /**
+   * The scan status the opening row showed for an unread folder ("Contents
+   * not read", "1 location inside not read"). With it a 0-byte lower bound
+   * reads like the row, "Unavailable", with this line below the value.
+   */
+  unreadNote?: string | undefined;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -399,6 +414,7 @@ export function FileInspection({
                   renderTime,
                   actions,
                   countedZero,
+                  unreadNote,
                 )}
               />
             </div>

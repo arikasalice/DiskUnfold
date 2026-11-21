@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FolderQueryRow, ItemRef } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 import { browseDisplayName, rowKey } from "./browse-display";
-import { hasUnreadPart } from "./browse-cells";
+import { hasUnreadPart, scanStatus } from "./browse-cells";
 
 export type InspectedItem = {
   item: ItemRef;
@@ -17,6 +17,8 @@ export type InspectedItem = {
    * opened without a row, or moved to a newer result, do not carry it.
    */
   countedZero: boolean;
+  /** The row's scan status when something in it was not read, else undefined. */
+  unreadNote: string | undefined;
 };
 
 /**
@@ -78,6 +80,7 @@ export function useItemInspection(
         opener,
         index: Number(opener.dataset.row ?? 0),
         countedZero: !hasUnreadPart(row),
+        unreadNote: hasUnreadPart(row) ? scanStatus(row, text) : undefined,
       });
     },
     close() {

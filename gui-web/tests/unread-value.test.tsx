@@ -151,13 +151,14 @@ test("a 0-byte lower bound is counted empty files only when the opening row said
         : scan.client.call(name as never, body)) as AnalysisClient["call"],
   };
   const item = { resultVersion: "v1", itemNo: 0 };
-  const shown = (countedZero: boolean) => (
+  const shown = (countedZero: boolean, unreadNote?: string) => (
     <LocaleTextContext.Provider value={english}>
       <FileInspection
         client={client}
         item={item}
         itemKind="folder"
         countedZero={countedZero}
+        unreadNote={unreadNote}
       />
     </LocaleTextContext.Provider>
   );
@@ -167,6 +168,12 @@ test("a 0-byte lower bound is counted empty files only when the opening row said
   );
   expect(screen.queryByText("At least 0 bytes")).toBeNull();
   unmount();
+  // Opened from a row that was not read: the row's word and its status below.
+  const fromRow = render(shown(false, "Contents not read"));
+  expect((await screen.findAllByText("Unavailable")).length).toBe(2);
+  expect(screen.getAllByText("Contents not read").length).toBe(2);
+  expect(screen.queryByText("Unavailable in this scan")).toBeNull();
+  fromRow.unmount();
   render(shown(true));
   expect(
     (await screen.findAllByText("At least 0 bytes")).length,
