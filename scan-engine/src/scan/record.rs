@@ -270,7 +270,11 @@ fn entered_group_boundary(entry: &ObservedEntry, row: Admission) -> bool {
 /// The metadata when it agrees with the enumeration, or `None` for a failure.
 fn agreeing(entry: &ObservedEntry, entered_boundary: bool) -> Option<&MetadataObservation> {
     let meta = entry.metadata.as_ref().ok()?;
-    let same_inode = entry.enumerated_inode == meta.inode || entered_boundary;
+    // A firmlink's metadata names the directory it leads to, so its inode never
+    // equals the enumerated one, entered or not (#263).
+    let same_inode = entry.enumerated_inode == meta.inode
+        || entered_boundary
+        || meta.kind == ObservedKind::Firmlink && entry.enumerated_kind == ObservedKind::Firmlink;
     let same_kind = entry.enumerated_kind == ObservedKind::Unknown
         || entry.enumerated_kind == meta.kind
         || entered_boundary
@@ -320,6 +324,9 @@ fn record_at(
         // A firmlink that the admission table did not enter is an untraversed link.
         ObservedKind::Link | ObservedKind::Firmlink => {
             let (observation, space) = observation_and_space(meta, path.to_vec(), sharing);
+            // An untraversed firmlink's identity is its target's, which another path
+            // may record; the link item keeps no space facts of its own (#263).
+            let space = space.filter(|_| meta.kind == ObservedKind::Link);
             build.add_observed_untraversed_link_at(root_index, observation, space)?;
         }
         ObservedKind::File => {
