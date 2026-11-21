@@ -1869,6 +1869,12 @@ function Select-SmokeRadio($radio) {
   else { Invoke-UI $radio }
   Start-Sleep -Milliseconds 1500
 }
+# The type chip is named by its words, then "Clear type filter" (F06 README 46.2).
+function Find-TypeChip {
+  $suffix = ', ' + (Get-UiName 'Clear type filter')
+  @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $button)) |
+    Where-Object { $_.Current.Name -like "*$suffix" }) | Select-Object -First 1
+}
 # F06 #301 (README 46): narrowing the treemap to one type from the legend. Videos sit at the top
 # and in a subfolder, so the legend's Videos row and the narrowed total count both (46.9). Captures
 # the narrowed treemap, its table, a folder without videos, and the histogram with the chip
@@ -1896,7 +1902,7 @@ function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
   $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
   "Legend Videos before narrowing: '$($videos.Current.Name)'"
   Select-SmokeRadio $videos
-  $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
+  $clear = Wait-UI 'the type chip' { Find-TypeChip }
   $textCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $textType)
   $total = Wait-UI 'the narrowed total' {
     @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1
@@ -1993,7 +1999,7 @@ function Test-CaptureTypeNarrowingMany {
   # The 20 bars run past the window: the Other bar and its break are at the bottom (README 47).
   Save-SmokeCapture '01b-bar-many-bottom' -Prepare { $null = Show-InWindow $other }
   Select-SmokeRadio $videos
-  $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
+  $clear = Wait-UI 'the type chip' { Find-TypeChip }
   $narrowed = Wait-UI 'the narrowed Other bar' {
     $bar = & $otherBar
     if ($bar -and $bar.Current.Name -ne $other.Current.Name) { $bar }
@@ -2090,7 +2096,7 @@ function Test-CaptureTypeLegend([switch]$More) {
   "Legend class chosen: '$($videos.Current.Name)'"
   Save-SmokeCapture '03-legend-videos'
   # Choosing a type narrows the treemap to it (#301); the chip on the status line lets go.
-  $chip = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
+  $chip = Wait-UI 'the type chip' { Find-TypeChip }
   "Class chip: '$($chip.Current.Name)'"
   Invoke-UI $chip
   Start-Sleep -Milliseconds 600

@@ -94,6 +94,10 @@ export function TypeList(props: Props) {
     title.current?.focus({ preventScroll: true });
   }, []);
   const count = countText(summary.count, text);
+  const chip = vizMessage(text, "legendChip", {
+    criterion: text.message("colorType"),
+    name: props.type,
+  });
   return (
     <div ref={root} className="du-type-list">
       <div className="du-type-list__head">
@@ -106,9 +110,9 @@ export function TypeList(props: Props) {
         <div className="du-type-list__condition">
           <Action
             onPress={props.onClear}
-            aria-label={text.message("filterClearType")}
+            aria-label={vizMessage(text, "filterChipName", { chip })}
           >
-            {`${vizMessage(text, "legendChip", { criterion: text.message("colorType"), name: props.type })} ×`}
+            {`${chip} ×`}
           </Action>
           <Text kind="muted">
             {vizMessage(text, "listTotal", {

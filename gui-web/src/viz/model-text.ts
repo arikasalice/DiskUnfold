@@ -112,6 +112,7 @@ export function shapeLabels(
         : text.message("itemNamePending"),
     },
     text,
+    shape.itemKind === "folder",
   );
   // Every shape is named alike: name, value, share of the scope, its class when
   // the chart is coloured by class (FR6), its flags (F06 README 10, 35); no
@@ -167,12 +168,20 @@ function placedLabel(
   place: ShapePlace,
   values: Record<"name" | "value" | "ratio" | "denominator" | "folder", string>,
   text: VizText,
+  folder: boolean,
 ): string {
   if (place.childCount)
     return vizMessage(text, "shapeFolder", {
       ...values,
       count: BigInt(place.childCount),
     });
+  // A folder drawn closed, such as a bar, still says it is a folder (#201).
+  if (folder)
+    return vizMessage(
+      text,
+      place.inFolder ? "shapeClosedFolderInFolder" : "shapeClosedFolder",
+      values,
+    );
   return vizMessage(
     text,
     place.inFolder ? "shapeInFolder" : "shapeTop",

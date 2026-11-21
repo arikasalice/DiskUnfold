@@ -235,7 +235,8 @@ export function NarrowingStatus({
         {/* Inactive, the chip still clears the condition (README 46.11). */}
         <Action
           onPress={() => narrowing.choose(null)}
-          aria-label={text.message("filterClearType")}
+          // The name starts with the visible words (README 46.2, WCAG 2.5.3).
+          aria-label={vizMessage(text, "filterChipName", { chip: label })}
           {...(narrowing.inactive ? { "aria-describedby": noteId } : {})}
         >
           {`${label} ×`}
