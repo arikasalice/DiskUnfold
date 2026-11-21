@@ -3,7 +3,7 @@
 use du_core_contracts::snapshot_file::{
     SnapshotFileDirectory, SnapshotFileError, SnapshotFileSystem, SnapshotFileSystemTempFile,
 };
-#[cfg(all(test, any(windows, target_os = "linux")))]
+#[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ impl NativeSnapshotFileSystem {
         self.data_directory.join("snapshots")
     }
 
-    #[cfg(all(test, any(windows, target_os = "linux")))]
+    #[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
     fn for_data_directory(data_directory: &Path) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
@@ -320,7 +320,7 @@ mod unix {
     }
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[cfg(test)]
 mod tests {
     use super::*;
