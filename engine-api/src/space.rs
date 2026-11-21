@@ -26,6 +26,11 @@ use crate::{
 };
 
 /// Registers the GUI query against the same store used for scan publication.
+/// Measurement limit of an allocated total over volumes whose files may share extents:
+/// the sum can exceed the real usage (#351).
+const ALLOCATED_MAY_INCLUDE_SHARED: &str = "space.allocated_may_include_shared";
+
+/// Registers the GUI query against the same store used for scan publication.
 pub fn register_total(builder: &mut EngineBuilder, store: IngestSink) {
     let queries = Arc::new(ResultSets::new(store.clone()));
     register_total_with_queries(builder, queries);
@@ -248,8 +253,45 @@ fn measurement_limits(size: &SizeValue, limits: &[&str]) -> Vec<String> {
         })
         .map(|key| (*key).to_owned())
         .collect();
+    // A sum of per-file allocations counts the extents that files share more than
+    // once, so it can exceed the real usage (#351). Only this basis says so.
+    if size.basis == SizeBasis::Allocated && limits.contains(&"space.sharing_not_collected") {
+        measurement_limits.push(ALLOCATED_MAY_INCLUDE_SHARED.into());
+    }
     if size.amount == SizeAmount::Unknown {
         measurement_limits.push("space.data_insufficient".into());
     }
     measurement_limits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use du_core_contracts::{SizeEvidence, SizeValue};
+
+    fn size(basis: SizeBasis) -> SizeValue {
+        SizeValue {
+            basis,
+            evidence: SizeEvidence::OsReported,
+            amount: SizeAmount::Exact {
+                bytes: ByteSize::from(1),
+            },
+        }
+    }
+
+    /// #351: only an allocated total over files that may share extents says it can
+    /// exceed the real usage.
+    #[test]
+    fn only_the_allocated_basis_names_the_shared_space_limit() {
+        let shared = ["space.sharing_not_collected"];
+        let has = |basis, limits: &[&str]| {
+            measurement_limits(&size(basis), limits)
+                .contains(&ALLOCATED_MAY_INCLUDE_SHARED.to_owned())
+        };
+        assert!(has(SizeBasis::Allocated, &shared));
+        assert!(!has(SizeBasis::Logical, &shared));
+        assert!(!has(SizeBasis::UniquePhysical, &shared));
+        // A volume that cannot share extents never says it.
+        assert!(!has(SizeBasis::Allocated, &["space.aux_not_included"]));
+    }
 }
