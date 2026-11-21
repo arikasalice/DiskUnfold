@@ -8,6 +8,7 @@ export {
   PathField,
   SelectField,
   SwitchField,
+  TextLink,
 } from "./controls";
 export {
   BrandMark,
