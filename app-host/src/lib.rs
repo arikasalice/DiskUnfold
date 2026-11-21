@@ -11,6 +11,11 @@ mod clipboard;
 mod group_rules_store;
 #[cfg(all(feature = "gui", windows))]
 mod history;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod history_retention;
 #[cfg(feature = "gui")]
 mod ipc;
 #[cfg(feature = "gui")]
@@ -40,6 +45,11 @@ mod recent_scope_worker;
     any(windows, target_os = "linux", target_os = "macos")
 ))]
 mod scope_observation_log;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod session_undo_info;
 #[cfg(all(
     feature = "gui",
     any(windows, target_os = "linux", target_os = "macos")

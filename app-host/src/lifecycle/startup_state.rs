@@ -14,8 +14,7 @@ pub(super) struct StartupState {
     pub(super) settings: Arc<StartupSettings>,
     pub(super) database: SharedDatabase,
     pub(super) first_run: bool,
-    /// Data folder used to attach the Windows history reader.
-    #[cfg(windows)]
+    /// Data folder used by read-only history adapters.
     pub(super) data_dir: std::path::PathBuf,
 }
 
@@ -45,7 +44,6 @@ pub(super) fn open(
         settings,
         database,
         first_run,
-        #[cfg(windows)]
         data_dir,
     })
 }

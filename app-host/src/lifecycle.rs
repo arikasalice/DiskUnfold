@@ -109,6 +109,9 @@ fn run_app(
     let mut startup_observed = observed;
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let state = startup_state::open(capabilities.as_ref(), &mut startup_observed)?;
+    let expiry_reader =
+        crate::history_retention::HistoryExpiryReader::new(&state.data_dir, state.database.clone());
+    let undo_info = Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default());
     #[cfg(windows)]
     let history_reader =
         crate::history::HistoryReader::open(&state.data_dir, state.database.clone()).map_err(
@@ -125,10 +128,6 @@ fn run_app(
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-    du_engine_api::history::retention::register(
-        &mut builder,
-        settings.clone().history_retention_policy_source(),
-    );
     crate::product_ipc::register(
         &mut builder,
         crate::product_ipc::ProductServices::system(product),
@@ -161,6 +160,7 @@ fn run_app(
         capabilities.as_ref(),
         &settings,
         &database,
+        Some((expiry_reader, undo_info)),
         #[cfg(windows)]
         recent,
     )?;
