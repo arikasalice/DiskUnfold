@@ -1,5 +1,7 @@
 //! Own one shared settings and history writer for a desktop GUI.
 
+mod plan;
+
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use std::collections::BTreeMap;
 use std::{
