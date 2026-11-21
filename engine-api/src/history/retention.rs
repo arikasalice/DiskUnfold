@@ -199,11 +199,12 @@ fn evaluate<R: HistoryExpiryRead>(
         request.days.or(current_policy.specified_days)
     };
     let change_kind = classify(&current_policy, request.enabled, target_days);
-    let confirmation_required = change_kind != HistoryRetentionChangeKind::None;
     let cleanup_after_apply = matches!(
         change_kind,
         HistoryRetentionChangeKind::Enable | HistoryRetentionChangeKind::Shorten
     );
+    // F21 HLD table 6: only enabling and shortening need confirmation; both start cleanup.
+    let confirmation_required = cleanup_after_apply;
     let counts = if cleanup_after_apply {
         review_counts(ports, target_days.ok_or_else(body_invalid)?)?
     } else {
