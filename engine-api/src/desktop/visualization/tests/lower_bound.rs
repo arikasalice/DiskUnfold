@@ -7,7 +7,6 @@ use du_analysis_index::{IngestSink, Observation};
 use du_core_contracts::{
     PathBytes, PathEncoding, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
-    visualization::model::REMAINDER_UNATTRIBUTED,
 };
 use serde_json::{Value, json};
 
