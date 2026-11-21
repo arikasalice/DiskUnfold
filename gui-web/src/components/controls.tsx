@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { parseDate } from "@internationalized/date";
 import {
@@ -54,6 +54,7 @@ type ActionProps = Pick<
   | "aria-disabled"
   | "aria-describedby"
 > & {
+  slot?: Exclude<ButtonProps["slot"], undefined>;
   variant?: "primary" | "secondary" | "quiet" | "danger";
   compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
@@ -157,6 +158,18 @@ export function SwitchField({
       <span className="du-switch__indicator" aria-hidden="true" />
     </AriaSwitch>
   );
+}
+
+/** An action whose native tooltip gives its full destination. */
+export function ActionWithTooltip({
+  tooltip,
+  ...action
+}: ActionProps & { tooltip: string }) {
+  const button = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    button.current?.setAttribute("title", tooltip);
+  }, [tooltip]);
+  return <Action ref={button} {...action} />;
 }
 
 /**
@@ -505,6 +518,8 @@ export function ChoiceGroup({
 export function Choice({
   value,
   label,
+  accessibleName,
+  title,
   description,
   summary,
   availablePercent,
@@ -514,6 +529,8 @@ export function Choice({
 }: {
   value: string;
   label: string;
+  accessibleName?: string | undefined;
+  title?: string | undefined;
   description: string;
   summary?: string | undefined;
   availablePercent?: number | undefined;
@@ -527,7 +544,7 @@ export function Choice({
   return (
     <Radio
       value={value}
-      aria-label={label}
+      aria-label={accessibleName ?? label}
       aria-describedby={`${descriptionId} ${statusId}`}
       className="du-choice"
       data-compact={summary !== undefined || undefined}
@@ -536,6 +553,7 @@ export function Choice({
       <Icon name={icon} />
       <span
         className={`du-choice__label du-text--path${secondary ? " du-text--muted" : ""}`}
+        title={title}
       >
         {label}
       </span>

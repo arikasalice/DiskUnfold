@@ -335,7 +335,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Reads an `attrreference_t` that points at a NUL-terminated entry name.
-    fn name(&mut self, fallible: bool) -> Result<Vec<u8>, PortError> {
+    pub(super) fn name(&mut self, fallible: bool) -> Result<Vec<u8>, PortError> {
         let base = self.at;
         let offset = i32::from_ne_bytes(self.take()?);
         let length = usize::try_from(self.u32()?).map_err(|_| errors::invalid())?;

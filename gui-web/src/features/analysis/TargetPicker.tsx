@@ -56,7 +56,7 @@ export function TargetPicker({
   dropError: string | undefined;
   pathDescription: string;
   reviewDescriptionId: string | undefined;
-  feedback: ReactNode;
+  feedback: (onChooseFolder: (suggestedInclude?: OsPath) => void) => ReactNode;
   isInitial: boolean;
   onPathCompositionChange: (composing: boolean) => void;
   primaryPathRef?: RefObject<HTMLInputElement | null>;
@@ -174,7 +174,14 @@ export function TargetPicker({
           ))}
         </section>
       )}
-      {feedback}
+      {feedback((suggestedInclude) => {
+        if (suggestedInclude) {
+          choose(suggestedInclude);
+          for (let index = selected.length - 1; index > 0; index -= 1)
+            removePath(index);
+        }
+        fields.current.get(0)?.focus();
+      })}
     </section>
   );
   return (
@@ -305,6 +312,14 @@ function DrivePicker({
             {listed.map((target) => {
               const probe = targets.probes[target.path.raw];
               const isSelected = target.path.raw === selected?.raw;
+              const isStartupDisk = target.isStartupVolume === true;
+              const startupDiskLabel = text(
+                "ui.analysis.startup_disk",
+                "Startup disk",
+              );
+              const label = isStartupDisk
+                ? (target.volumeName ?? startupDiskLabel)
+                : (target.volumeName ?? target.path.display);
               const { access, deferred } = shownAccess(
                 target,
                 probe,
@@ -339,24 +354,36 @@ function DrivePicker({
                     "ui.analysis.target_type_unavailable",
                     "Type unavailable",
                   );
+              const description = [
+                ...(isStartupDisk ? [startupDiskLabel] : []),
+                kind,
+                capacity.evidence,
+                ...(deferred
+                  ? [
+                      text(
+                        "ui.analysis.target_network_checked_on_select",
+                        "Network volumes are checked when you select them.",
+                      ),
+                    ]
+                  : []),
+              ].join(" · ");
               return (
                 <Choice
                   key={target.path.raw}
                   value={target.path.raw}
-                  label={target.path.display}
+                  label={label}
+                  {...(isStartupDisk
+                    ? {
+                        accessibleName: `${label}, ${target.path.display}`,
+                        title: `${label} · ${target.path.display}${
+                          label === startupDiskLabel
+                            ? ""
+                            : ` · ${startupDiskLabel}`
+                        }`,
+                      }
+                    : {})}
                   icon="drive"
-                  description={[
-                    kind,
-                    capacity.evidence,
-                    ...(deferred
-                      ? [
-                          text(
-                            "ui.analysis.target_network_checked_on_select",
-                            "Network volumes are checked when you select them.",
-                          ),
-                        ]
-                      : []),
-                  ].join(" · ")}
+                  description={description}
                   summary={showDriveDetails ? undefined : capacity.summary}
                   availablePercent={capacity.availablePercent}
                   secondary={target.defaultVisible === false}

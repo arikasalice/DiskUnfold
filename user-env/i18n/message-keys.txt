@@ -401,6 +401,10 @@ ui.analysis.scope_disconnected.unix
 ui.analysis.scope_unresolvable
 ui.analysis.scope_needs_review
 ui.analysis.scope_changed
+ui.analysis.volume_group_merged
+ui.analysis.volume_group_unverified
+ui.analysis.choose_folder
+ui.analysis.analyze_home_folder path:name
 ui.analysis.scope_unverified
 ui.analysis.reviewed_scope
 ui.analysis.scope_problem
@@ -850,6 +854,11 @@ ui.browse.scan_status_unread_inside_count count:count
 ui.browse.scan_status_unread_inside_some
 ui.browse.scan_status_other_volume
 ui.browse.scan_status_already_counted
+ui.browse.counted_at
+ui.browse.counted_at_path path:name
+ui.browse.counted_at_open
+ui.browse.previous_location
+ui.browse.data_volume_description
 ui.browse.origin_scan
 ui.browse.origin_incremental
 ui.browse.keys.cell_next
@@ -1205,6 +1214,7 @@ ui.analysis.drives_slow.unix
 ui.analysis.drives_unavailable
 ui.analysis.drives_unavailable.unix
 ui.analysis.choose_target_label
+ui.analysis.startup_disk
 ui.analysis.target_internal
 ui.analysis.target_external
 ui.analysis.target_network_mount
@@ -1309,6 +1319,11 @@ ui.analysis.scan_reason_shutting_down
 ui.analysis.scan_reason_queue_full
 ui.analysis.scan_reason_unknown
 ui.analysis.volume_factor_out_of_scope
+ui.analysis.volume_other_system_volumes
+ui.analysis.volume_role_vm
+ui.analysis.volume_role_preboot
+ui.analysis.volume_role_recovery
+ui.analysis.volume_role_update
 ui.analysis.volume_factor_excluded
 ui.analysis.volume_factor_inaccessible
 ui.analysis.volume_factor_dedup

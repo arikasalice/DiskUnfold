@@ -5,10 +5,15 @@ use du_core_contracts::{
     job::{HistoryAppend, JobBody, JobContext, JobHistory, JobOutcome, JobState, JobSummary},
     ports::{PortError, PortErrorKind, Random},
     scan_observation::{OpenedScopeRoot, ScopeRootPort},
-    volume::{Capability, VolumeCapabilities, VolumeCapacity, VolumeEnumeration},
+    volume::{
+        Capability, CapabilityState, VolumeCapabilities, VolumeCapacity, VolumeEnumeration,
+        VolumeMount,
+    },
 };
 use du_job_runtime::{JobEvent, JobEvents, JobIdentity, JobRuntime};
 use std::time::Instant;
+
+mod startup;
 
 #[test]
 fn slow_discovery_returns_empty_listing_without_launching_a_probe()
@@ -202,7 +207,18 @@ fn setup() -> Result<(Arc<JobRuntime>, Arc<crate::workers::Workers>), Box<dyn st
     Ok((runtime, workers))
 }
 fn list(workers: Arc<crate::workers::Workers>, previous: Option<Id>) -> List {
-    let volumes: Arc<dyn VolumePort> = Arc::new(Volumes(Some(VolumeTargetKind::Internal)));
+    list_with_volumes(
+        workers,
+        previous,
+        Arc::new(Volumes(Some(VolumeTargetKind::Internal))),
+    )
+}
+
+fn list_with_volumes(
+    workers: Arc<crate::workers::Workers>,
+    previous: Option<Id>,
+    volumes: Arc<dyn VolumePort>,
+) -> List {
     List {
         enumeration: EnumerationWorker::new(volumes.clone()),
         enumeration_timeout: Duration::from_secs(2),
@@ -259,7 +275,7 @@ fn only_a_mount_the_file_manager_hides_leaves_the_default_list() {
     };
     for (browsable, listed) in [(Some(false), false), (Some(true), true), (None, true)] {
         assert_eq!(
-            target(mount(browsable), false).and_then(|target| target.default_visible),
+            target(mount(browsable), false, false).and_then(|target| target.default_visible),
             Some(listed),
             "{browsable:?}"
         );

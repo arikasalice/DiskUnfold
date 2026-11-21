@@ -143,6 +143,7 @@ fn root_volume_group_has_a_fixed_sorted_fingerprint_vector() -> Result<(), Engin
     let scope_draft = draft(key(PathEncoding::Unix, b"/"));
     let group = RootVolumeGroup {
         data_mount: b"/D".to_vec(),
+        system_name: None,
         device: 7,
         data_inode: 9,
         firmlinks: vec![

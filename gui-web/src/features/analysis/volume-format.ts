@@ -55,8 +55,16 @@ export function unavailableValue(
   text: ReturnType<typeof useLocaleText>,
 ): string {
   const unavailable = text("ui.analysis.unavailable", "Unavailable");
+  const reason = unavailableReasonText(reasonKey, text);
+  return reason ? [unavailable, reason].join(" · ") : unavailable;
+}
+
+export function unavailableReasonText(
+  reasonKey: string,
+  text: ReturnType<typeof useLocaleText>,
+): string | undefined {
   const reason = unavailableReasons[reasonKey];
-  return reason ? [unavailable, text(...reason)].join(" · ") : unavailable;
+  return reason ? text(...reason) : undefined;
 }
 
 /** Names a difference factor; a factor without a name reads as unknown. */
@@ -83,8 +91,12 @@ export function amount(
   value: VolumeGapAmount,
   display: SizeDisplay,
   text: ReturnType<typeof useLocaleText>,
+  includeReason = true,
 ): string {
-  if (value.state === "unknown") return unavailableValue(value.reasonKey, text);
+  if (value.state === "unknown")
+    return includeReason
+      ? unavailableValue(value.reasonKey, text)
+      : text("ui.analysis.unavailable", "Unavailable");
   return [
     volumeBytes(value.bytes, display, text),
     displayEvidence(value.evidence, text),
