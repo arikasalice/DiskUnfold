@@ -16,6 +16,11 @@ struct Accumulator {
     evidence: Option<SizeEvidence>,
 }
 
+#[cfg(test)]
+pub(crate) fn accumulator_size_bytes() -> usize {
+    std::mem::size_of::<Accumulator>()
+}
+
 impl Accumulator {
     fn observe(&mut self, value: Option<&SizeValue>) {
         let Some(value) =

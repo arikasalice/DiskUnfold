@@ -25,8 +25,8 @@
 //! this test building path vectors; `index_s` is the part spent inside the
 //! index calls.
 use du_analysis_index::{
-    BuildError, BuildHandle, FileIdentity, IngestSink, Observation, SharingEvidence,
-    SpaceObservation,
+    BuildError, BuildHandle, FileIdentity, IngestSink, Observation, ObservedAttribute,
+    SharingEvidence, SpaceObservation,
 };
 use du_core_contracts::result::{ResultCompleteness, ResultVersionRead};
 use du_core_contracts::{ByteSize, Id, SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp};
@@ -54,6 +54,7 @@ fn size(basis: SizeBasis, evidence: SizeEvidence, bytes: u64) -> SizeValue {
 struct Recorder {
     build: BuildHandle,
     evidence: Option<Timestamp>,
+    reasons: bool,
     items: u64,
     components: u64,
     max_depth: usize,
@@ -85,6 +86,16 @@ impl Recorder {
             let added = self.build.add_file(observation);
             self.index += started.elapsed();
             added.map_err(err)?;
+            if self.reasons {
+                self.build
+                    .set_attribute_unknown(
+                        0,
+                        &path,
+                        ObservedAttribute::ModifiedAt,
+                        du_core_contracts::scan_observation::attribute_reason::QUERY_FAILED,
+                    )
+                    .map_err(err)?;
+            }
             return Ok(());
         };
         let space = SpaceObservation {
@@ -104,11 +115,21 @@ impl Recorder {
             .and_then(|()| self.build.set_item_observed_at(0, &path, time));
         self.index += started.elapsed();
         added.map_err(err)?;
+        if self.reasons {
+            self.build
+                .set_attribute_unknown(
+                    0,
+                    &path,
+                    ObservedAttribute::ModifiedAt,
+                    du_core_contracts::scan_observation::attribute_reason::QUERY_FAILED,
+                )
+                .map_err(err)?;
+        }
         Ok(())
     }
 
     fn files(&mut self, directory: &[Vec<u8>], count: u32) -> TestResult {
-        (0..count).try_for_each(|n| self.file(directory, format!("f{n}")))
+        (0..count).try_for_each(|n| self.file(directory, format!("file-{n:08}")))
     }
 
     fn count(&mut self, depth: usize) {
@@ -122,7 +143,7 @@ fn wide(recorder: &mut Recorder) -> TestResult {
     recorder.directory(&[])?;
     recorder.files(&[], 4)?;
     for n in 0..50_000 {
-        let path = [format!("d{n}").into_bytes()];
+        let path = [format!("directory-{n:08}").into_bytes()];
         recorder.directory(&path)?;
         recorder.files(&path, 4)?;
     }
@@ -134,7 +155,7 @@ fn deep(recorder: &mut Recorder) -> TestResult {
     recorder.directory(&path)?;
     recorder.files(&path, 4)?;
     for n in 0..4_000 {
-        path.push(format!("d{n}").into_bytes());
+        path.push(format!("directory-{n:08}").into_bytes());
         recorder.directory(&path)?;
         recorder.files(&path, 4)?;
     }
@@ -175,7 +196,7 @@ fn mixed(recorder: &mut Recorder, directories: u32) -> TestResult {
         path.clear();
         let mut current = index;
         while current != 0 {
-            path.push(format!("d{current}").into_bytes());
+            path.push(format!("directory-{current:08}").into_bytes());
             current = parents[current as usize].0;
         }
         path.reverse();
@@ -196,6 +217,27 @@ fn peak_memory() -> Option<u64> {
         .ok()?;
     output.status.success().then_some(())?;
     String::from_utf8(output.stdout).ok()?.trim().parse().ok()
+}
+
+/// Current process resident set in bytes (macOS `ps` reports KiB).
+#[cfg(target_os = "macos")]
+fn resident_memory() -> Option<u64> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    output.status.success().then_some(())?;
+    String::from_utf8(output.stdout)
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|kib| kib * 1024)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resident_memory() -> Option<u64> {
+    peak_memory()
 }
 
 /// Process peak resident set since start (Linux `VmHWM`).
@@ -221,6 +263,7 @@ fn peak() -> String {
 fn index_measure() -> TestResult {
     let tree = std::env::var("F03_MEASURE_TREE")?;
     let with_evidence = std::env::var("F03_MEASURE_EVIDENCE").is_ok_and(|value| value == "1");
+    let with_reasons = std::env::var("F03_MEASURE_REASONS").is_ok_and(|value| value == "1");
     let directories = match std::env::var("F03_MEASURE_DIRS") {
         Ok(value) => value.parse()?,
         Err(_) => 100_001,
@@ -231,6 +274,7 @@ fn index_measure() -> TestResult {
         evidence: with_evidence
             .then(|| Timestamp::parse("2026-11-15T00:00:00.000Z"))
             .transpose()?,
+        reasons: with_reasons,
         items: 0,
         components: 0,
         max_depth: 0,
@@ -247,11 +291,22 @@ fn index_measure() -> TestResult {
     }
     let record = started.elapsed();
     let record_peak = peak();
+    let record_resident = resident_memory().map_or_else(|| "na".into(), |bytes| bytes.to_string());
+    if std::env::var("F03_MEASURE_RECORD_ONLY").is_ok_and(|value| value == "1") {
+        println!(
+            "F03_MEASURE_RECORD_ONLY tree={tree} items={} components={} max_depth={} \
+             record_peak={record_peak} record_resident={record_resident}",
+            recorder.items, recorder.components, recorder.max_depth,
+        );
+        return Ok(());
+    }
 
     let started = Instant::now();
     let partial = recorder.build.publish_partial(id(2)?).map_err(err)?;
     let publish = started.elapsed();
     let publish_peak = peak();
+    let publish_resident = resident_memory().map_or_else(|| "na".into(), |bytes| bytes.to_string());
+    drop(partial);
 
     let started = Instant::now();
     let sealed = recorder
@@ -260,19 +315,28 @@ fn index_measure() -> TestResult {
         .map_err(err)?;
     let seal = started.elapsed();
     let seal_peak = peak();
+    let seal_resident = resident_memory().map_or_else(|| "na".into(), |bytes| bytes.to_string());
 
-    assert_eq!(partial.items().len() as u64, recorder.items);
     assert_eq!(sealed.items().len() as u64, recorder.items);
+    let items = recorder.items;
+    let components = recorder.components;
+    let max_depth = recorder.max_depth;
+    let index_time = recorder.index;
+    let released_resident =
+        resident_memory().map_or_else(|| "na".into(), |bytes| bytes.to_string());
     println!(
-        "F03_MEASURE_RESULT tree={tree} evidence={} items={} components={} max_depth={} \
+        "F03_MEASURE_RESULT tree={tree} evidence={} reasons={} items={} components={} max_depth={} \
          start_peak={start_peak} record_s={:.3} index_s={:.3} record_peak={record_peak} \
-         publish_s={:.3} publish_peak={publish_peak} seal_s={:.3} seal_peak={seal_peak}",
+         record_resident={record_resident} publish_s={:.3} publish_peak={publish_peak} \
+         publish_resident={publish_resident} seal_s={:.3} seal_peak={seal_peak} \
+         seal_resident={seal_resident} handle_dropped_resident={released_resident}",
         u8::from(with_evidence),
-        recorder.items,
-        recorder.components,
-        recorder.max_depth,
+        u8::from(with_reasons),
+        items,
+        components,
+        max_depth,
         record.as_secs_f64(),
-        recorder.index.as_secs_f64(),
+        index_time.as_secs_f64(),
         publish.as_secs_f64(),
         seal.as_secs_f64(),
     );
