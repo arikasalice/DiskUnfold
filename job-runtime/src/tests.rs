@@ -1,5 +1,5 @@
 use super::*;
-use du_core_contracts::job::{JobCounts, ProgressUnit};
+use du_core_contracts::job::{JobCounts, ProgressUnit, ResourceClass};
 use std::sync::{Barrier, atomic::AtomicUsize};
 
 struct Identity(Id);
@@ -353,6 +353,7 @@ fn file_change_class_has_single_active_job() -> Result<(), Box<dyn std::error::E
 mod blocked;
 mod history_boundary;
 mod history_receipt;
+mod item_history;
 mod lifecycle;
 mod listing;
 mod multiflow;

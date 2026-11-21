@@ -81,3 +81,45 @@ fn summary_only_page_is_not_recorded_and_rejects_item_evidence() {
         assert!(validate(&invalid, None, 10).is_err());
     }
 }
+
+#[test]
+fn recorded_item_history_reconciles_terminal_counts_including_zero_items() {
+    let revision = Revision {
+        delete_generation: 0,
+        max_record_seq: 1,
+    };
+    let incomplete = project(
+        Page {
+            revision,
+            rows: vec![(0, None)],
+            next: None,
+            summary: Some(3),
+            recorded: 1,
+            item_history_expected: true,
+        },
+        None,
+    );
+    assert_eq!(
+        incomplete.item_recording,
+        Some(HistoryItemRecording::Recorded)
+    );
+    assert_eq!(incomplete.counts.summary.as_deref(), Some("3"));
+    assert_eq!(incomplete.counts.recorded, "1");
+    assert_eq!(incomplete.counts.unavailable.as_deref(), Some("2"));
+
+    let zero = project(
+        Page {
+            revision,
+            rows: Vec::new(),
+            next: None,
+            summary: Some(0),
+            recorded: 0,
+            item_history_expected: true,
+        },
+        None,
+    );
+    assert_eq!(zero.item_recording, Some(HistoryItemRecording::Recorded));
+    assert_eq!(zero.counts.summary.as_deref(), Some("0"));
+    assert_eq!(zero.counts.recorded, "0");
+    assert_eq!(zero.counts.unavailable.as_deref(), Some("0"));
+}

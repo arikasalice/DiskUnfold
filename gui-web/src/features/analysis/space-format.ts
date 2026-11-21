@@ -362,6 +362,15 @@ export function displaySize(
   return lowerBound ? lowerBoundLabel(formatted, text) : formatted;
 }
 
+/**
+ * Whether a size is a lower bound of 0 bytes. Such a value stands for nothing
+ * read unless the opener knows that items were counted and are all empty
+ * (F02 README #201, F06 README 48.2).
+ */
+export function isZeroLowerBound(size: SizeValue): boolean {
+  return size.state === "lower_bound" && BigInt(size.bytes) === 0n;
+}
+
 /** Returns a separate raw count only when it adds information. */
 export function displaySizeParts(
   size: SizeValue,

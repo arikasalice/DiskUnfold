@@ -341,7 +341,12 @@ export function BrowseVisualizationView({
   const axis = useHistogramAxis(formats.format, catalog, assembly, vizText);
   const legend = useLegendChoice(formats.format, catalog, assembly, vizText);
   // "Show in list" puts the file list in the chart's place (README 46.13).
-  const list = useTypeListView(open, client, legend.narrowing);
+  const list = useTypeListView(
+    open,
+    client,
+    legend.narrowing,
+    listView(selection, formats.format),
+  );
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });
@@ -478,6 +483,8 @@ export function BrowseVisualizationView({
         resultVersion={selection.resultVersion}
         scope={selection.location}
         narrowing={legend.narrowing}
+        interval={list.interval}
+        onCloseInterval={list.closeInterval}
         text={vizText}
         title={title}
       />
@@ -513,6 +520,7 @@ export function BrowseVisualizationView({
               legend={legend.controls}
               narrowing={legend.narrowing}
               legendSide={legend.side(viewport.width)}
+              onOpenList={list.openInterval}
               {...(formats.available
                 ? {
                     formatAction: {
@@ -537,6 +545,17 @@ export function BrowseVisualizationView({
       </div>
     </section>
   );
+}
+
+/** What an interval's file list belongs to: it closes when the folder, result or format changes. */
+function listView(
+  selection:
+    { resultVersion: string; location: { itemNo: number } } | undefined,
+  format: string,
+) {
+  return selection
+    ? `${selection.resultVersion}:${selection.location.itemNo}:${format}`
+    : "";
 }
 
 /**

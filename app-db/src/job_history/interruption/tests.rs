@@ -25,22 +25,21 @@ fn start(db: &AppDb, n: u8, predecessor: Option<u8>) -> rusqlite::Result<()> {
 
 fn terminal(db: &mut AppDb, n: u8) -> Result<(), String> {
     let job_id = Id::from_v7_bytes(id(n));
-    let mut summary = JobSummary {
+    let summary = JobSummary {
         job_id: job_id.clone(),
-        kind_id: "scan.metadata".into(),
+        kind_id: "change.trash".into(),
         kind_version: 1,
-        scope_summary: "metadata: 1 root".into(),
+        scope_summary: "redacted".into(),
         scope_roots: Vec::new(),
         state: JobState::Done,
         counts: JobCounts::default(),
         failure_reason_key: None,
         unprocessed_summary: None,
         result_version_id: None,
-        started_at_ms: Some(1),
-        finished_at_ms: 2,
+        started_at_ms: Some(i64::from(n)),
+        finished_at_ms: i64::from(n) + 1,
         correlation_id: job_id,
     };
-    summary.scope_roots.push(format!("/fixture/{n}"));
     db.append_scan_history(&summary, 3).map(|_| ())
 }
 
@@ -52,9 +51,13 @@ fn marks_only_unfinished_once_and_preserves_link_fields() -> Result<(), Box<dyn 
     let mut db = AppDb::create_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     start(&db, 1, Some(8))?;
     start(&db, 2, None)?;
-    // Use the exact terminal ID bytes for the matching start row.
-    let normal = *uuid::Uuid::parse_str(Id::from_v7_bytes(id(3)).as_str())?.as_bytes();
-    db.connection.execute("INSERT INTO job_runtime_job_start (job_id, kind_id, kind_version, scope_summary, started_at_ms, record_origin, created_at_ms) VALUES (?1,'scan.metadata',1,'metadata: 1 root',1,'this_app',1)", [normal.as_slice()])?;
+    let completed_id = *uuid::Uuid::parse_str(Id::from_v7_bytes(id(3)).as_str())?.as_bytes();
+    db.connection.execute(
+        "INSERT INTO job_runtime_job_start
+         (job_id, kind_id, kind_version, scope_summary, started_at_ms, record_origin, created_at_ms)
+         VALUES (?1, 'change.trash', 1, 'redacted', 3, 'this_app', 3)",
+        [completed_id.as_slice()],
+    )?;
     terminal(&mut db, 3)?;
     let result = db.mark_interrupted_jobs(500)?.ok_or("missing receipt")?;
     assert_eq!(result.count, 2);

@@ -2,8 +2,10 @@
 use super::item_kind::{VizItemKind, optional_known};
 use super::quantity::VizQuantity;
 pub use super::ratio::VizRatio;
+pub use super::row_unread::VizUnread;
 use crate::{
-    Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, result::ResultCompleteness,
+    Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, browse_open_ipc::QueryCondition,
+    result::ResultCompleteness,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -99,6 +101,20 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub item_kind: Option<VizItemKind>,
+    /// The list condition of a histogram interval row (F06 README 12, #297): its
+    /// files in the half-open size interval [lower, upper) on the model's size basis,
+    /// as All[Type file, Size at least lower, Size less than upper]; the last interval
+    /// has no upper bound. Only on group rows; omitted on every other row, and where
+    /// the size basis has no size predicate (unique physical size). Omitted rather
+    /// than null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub condition: Option<QueryCondition>,
+    /// Whether this folder could not be read (F06 README 53): item rows of folders
+    /// only. See [`VizUnread`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unread: Option<VizUnread>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +138,10 @@ struct RowWire {
     member_count: Option<VizQuantity>,
     #[serde(default, deserialize_with = "optional_known")]
     item_kind: Option<VizItemKind>,
+    #[serde(default, deserialize_with = "optional_present")]
+    condition: Option<QueryCondition>,
+    #[serde(default, deserialize_with = "optional_present")]
+    unread: Option<VizUnread>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -158,6 +178,12 @@ impl VizRow {
         if self.item_kind.is_some() && self.item_ref.is_none() {
             return Err("item kind on a group row");
         }
+        if self.condition.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
+            return Err("condition on an item row");
+        }
+        if self.unread.is_some() && self.item_ref.is_none() {
+            return Err("unread state on a group row");
+        }
         Ok(())
     }
     /// Checks the item revision only; group membership requires the pinned model.
@@ -189,6 +215,8 @@ impl<'de> Deserialize<'de> for VizRow {
             label_key: w.label_key,
             member_count: w.member_count,
             item_kind: w.item_kind,
+            condition: w.condition,
+            unread: w.unread,
         };
         row.validate().map_err(D::Error::custom)?;
         Ok(row)

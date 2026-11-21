@@ -126,3 +126,56 @@ test("a value the scan could not read carries its description in the same row", 
     null,
   );
 });
+
+test("a 0-byte lower bound is counted empty files only when the opening row said so", async () => {
+  const scan = liveScan();
+  const zero = {
+    state: "present",
+    value: {
+      basis: "logical",
+      evidence: "measured",
+      state: "lower_bound",
+      bytes: "0",
+    },
+  } as const;
+  const detail: BrowseDetail = {
+    ...folderDetail("v1"),
+    logicalSize: zero,
+    allocatedSize: zero,
+  };
+  const client: AnalysisClient = {
+    ...scan.client,
+    call: ((name: string, body: never) =>
+      name === "browse.detail"
+        ? Promise.resolve(detail)
+        : scan.client.call(name as never, body)) as AnalysisClient["call"],
+  };
+  const item = { resultVersion: "v1", itemNo: 0 };
+  const shown = (countedZero: boolean, unreadNote?: string) => (
+    <LocaleTextContext.Provider value={english}>
+      <FileInspection
+        client={client}
+        item={item}
+        itemKind="folder"
+        countedZero={countedZero}
+        unreadNote={unreadNote}
+      />
+    </LocaleTextContext.Provider>
+  );
+  const { unmount } = render(shown(false));
+  expect((await screen.findAllByText("Unavailable in this scan")).length).toBe(
+    2,
+  );
+  expect(screen.queryByText("At least 0 bytes")).toBeNull();
+  unmount();
+  // Opened from a row that was not read: the row's word and its status below.
+  const fromRow = render(shown(false, "Contents not read"));
+  expect((await screen.findAllByText("Unavailable")).length).toBe(2);
+  expect(screen.getAllByText("Contents not read").length).toBe(2);
+  expect(screen.queryByText("Unavailable in this scan")).toBeNull();
+  fromRow.unmount();
+  render(shown(true));
+  expect(
+    (await screen.findAllByText("At least 0 bytes")).length,
+  ).toBeGreaterThan(0);
+});

@@ -979,6 +979,14 @@ ui.visualization.groupedItems
 ui.visualization.groupedTotal
 ui.visualization.histogram
 ui.visualization.independentTotals
+ui.visualization.intervalRange lower:name upper:name
+ui.visualization.intervalFrom lower:name
+ui.visualization.intervalListTotal interval:name count:name size:name basis:name
+ui.visualization.intervalListEmpty interval:name
+ui.visualization.intervalListAnnounce interval:name count:name
+ui.visualization.intervalShowInList
+ui.visualization.intervalCardOpens
+ui.visualization.intervalCardNoList
 ui.visualization.invalidReferences
 ui.visualization.itemCount count:count
 ui.visualization.itemNamePending
@@ -1157,6 +1165,12 @@ ui.visualization.undrawnShowInList
 ui.visualization.undrawnShowInListName summary:name
 ui.visualization.undrawnTooltip
 ui.visualization.unknownFormat
+ui.visualization.unreadFolders count:count
+ui.visualization.unreadFoldersAtLeast count:count
+ui.visualization.unreadInside count:count
+ui.visualization.unreadInsideSome
+ui.visualization.unreadItself
+ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
 ui.visualization.viewAsTreemap

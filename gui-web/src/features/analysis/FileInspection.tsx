@@ -29,6 +29,7 @@ import {
   displayEvidence,
   displayKnownSpaceReason,
   displaySizeParts,
+  isZeroLowerBound,
   displaySpaceReason,
   windowsSizeDisplay,
 } from "./space-format";
@@ -131,8 +132,28 @@ function sizeRow(
   field: BrowseDetail["logicalSize"],
   display: SizeDisplay,
   text: LocaleText,
+  countedZero: boolean,
+  unreadNote: string | undefined,
 ) {
-  if (field.state !== "present") {
+  if (
+    field.state !== "present" ||
+    (isZeroLowerBound(field.value) && !countedZero)
+  ) {
+    if (field.state === "present") {
+      return {
+        label,
+        emphasized: true,
+        // Opened from a row: say what the row says, with its scan status below.
+        value:
+          unreadNote === undefined
+            ? text(
+                "ui.inspection.unavailable_in_scan",
+                "Unavailable in this scan",
+              )
+            : text("ui.browse.unavailable", "Unavailable"),
+        notes: unreadNote === undefined ? [] : [unreadNote],
+      };
+    }
     return {
       label,
       emphasized: true,
@@ -172,6 +193,8 @@ function attributes(
   text: LocaleText,
   renderTime: (value: string) => ReactNode,
   actions: PathActions,
+  countedZero: boolean,
+  unreadNote: string | undefined,
 ) {
   return [
     {
@@ -194,12 +217,16 @@ function attributes(
       detail.logicalSize,
       display,
       text,
+      countedZero,
+      unreadNote,
     ),
     sizeRow(
       text("ui.analysis.allocated_size", "Allocated size"),
       detail.allocatedSize,
       display,
       text,
+      countedZero,
+      unreadNote,
     ),
     {
       label: text("ui.inspection.published", "Result published"),
@@ -250,6 +277,8 @@ export function FileInspection({
   actionsDisabledReason,
   onStale,
   copy,
+  countedZero = false,
+  unreadNote,
 }: {
   client: AnalysisClient;
   item: ItemRef;
@@ -267,6 +296,18 @@ export function FileInspection({
    * the item's detail cannot be read, the copy is reported as not done.
    */
   copy?: CopyContinuation | undefined;
+  /**
+   * The browse row this dialog opened from showed counted items below the
+   * folder with nothing unread, so a lower bound of 0 bytes is counted empty
+   * files. Without it, a 0-byte lower bound reads as unavailable.
+   */
+  countedZero?: boolean | undefined;
+  /**
+   * The scan status the opening row showed for an unread folder ("Contents
+   * not read", "1 location inside not read"). With it a 0-byte lower bound
+   * reads like the row, "Unavailable", with this line below the value.
+   */
+  unreadNote?: string | undefined;
 }) {
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
@@ -372,6 +413,8 @@ export function FileInspection({
                   text,
                   renderTime,
                   actions,
+                  countedZero,
+                  unreadNote,
                 )}
               />
             </div>
@@ -406,6 +449,7 @@ export function FileInspection({
         item={item}
         display={display}
         onStale={onStale}
+        countedZero={countedZero}
       />
     </>
   );

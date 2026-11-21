@@ -1,7 +1,7 @@
 use super::*;
 use du_core_contracts::{
     Id,
-    job::{JobCounts, JobState},
+    job::{HistoryAppend, JobCounts, JobHistory, JobState, JobSummary},
     settings::{SettingsCommit, SettingsSource},
 };
 use du_user_env::{Registry, settings::SettingsService, space};

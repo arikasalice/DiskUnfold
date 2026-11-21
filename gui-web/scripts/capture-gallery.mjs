@@ -60,6 +60,12 @@ const surfaces = {
   },
   // F06 README 51 (#349): the items not drawn and the legend under long counts.
   "space-undrawn": { ready: ".du-undrawn-line", count: 1, pointer: false },
+  // F06 README 52 (#297): a histogram interval opens its file list.
+  "histogram-list": {
+    ready: ".du-histogram-list-preview .du-chart-and-legend__chart svg",
+    count: 1,
+    pointer: false,
+  },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -243,26 +249,50 @@ const galleryShots =
                     height: 900,
                   },
                 ]
-              : surface === "space-undrawn"
+              : surface === "histogram-list"
                 ? [
-                    { name: "01-light-1280", theme: "light", width: 1280 },
                     {
-                      name: "02-view-in-list-light-1280",
+                      name: "00-chart-light-1280",
                       theme: "light",
                       width: 1280,
+                    },
+                    {
+                      name: "01-bar-list-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      step: "bar",
+                    },
+                    {
+                      name: "02-back-focus-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      step: "back",
+                    },
+                    {
+                      name: "03-table-list-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      step: "table",
+                    },
+                    {
+                      name: "05-unread-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
+                    },
+                    {
+                      name: "06-unread-view-in-list-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
                       viewInList: true,
+                      focusRow: "2",
                     },
                     {
-                      name: "03-legend-light-1130",
-                      theme: "light",
-                      width: 1130,
-                    },
-                    { name: "01-dark-1280", theme: "dark", width: 1280 },
-                    {
-                      name: "04-partial-light-1280",
-                      theme: "light",
+                      name: "05-unread-dark-1280",
+                      theme: "dark",
                       width: 1280,
-                      scene: "partial",
+                      scene: "unread",
                     },
                   ]
                 : surface === "summary"
@@ -273,75 +303,97 @@ const galleryShots =
                         width: 1280,
                       },
                     ]
-                  : surface === "job-center"
+                  : surface === "space-undrawn"
                     ? [
+                        { name: "01-light-1280", theme: "light", width: 1280 },
                         {
-                          name: "01-light-1280",
+                          name: "02-view-in-list-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "main",
+                          viewInList: true,
                         },
                         {
-                          name: "01-dark-1280",
-                          theme: "dark",
-                          width: 1280,
-                          scene: "main",
-                        },
-                        {
-                          name: "01-light-700",
+                          name: "03-legend-light-1130",
                           theme: "light",
-                          width: 700,
-                          scene: "main",
+                          width: 1130,
                         },
+                        { name: "01-dark-1280", theme: "dark", width: 1280 },
                         {
-                          name: "02-request-pending-no-effect",
+                          name: "04-partial-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "request-pending",
-                        },
-                        {
-                          name: "03-resync",
-                          theme: "light",
-                          width: 1280,
-                          scene: "resync",
-                        },
-                        {
-                          name: "04-empty",
-                          theme: "light",
-                          width: 1280,
-                          scene: "empty",
-                        },
-                        {
-                          name: "05-cancel-confirm",
-                          theme: "light",
-                          width: 1280,
-                          scene: "cancel-confirm",
-                        },
-                        {
-                          name: "06-forced-colors",
-                          theme: "light",
-                          width: 1280,
-                          scene: "forced-colors",
-                          forcedColors: "active",
-                        },
-                        {
-                          name: "07-toast-open-panel-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "toast-open-panel",
-                        },
-                        {
-                          name: "07-toast-open-panel-1280",
-                          theme: "light",
-                          width: 1280,
-                          scene: "toast-open-panel",
+                          scene: "partial",
                         },
                       ]
-                    : [
-                        { name: "light-1280", theme: "light", width: 1280 },
-                        { name: "dark-1280", theme: "dark", width: 1280 },
-                        { name: "light-700", theme: "light", width: 700 },
-                      ];
+                    : surface === "job-center"
+                      ? [
+                          {
+                            name: "01-light-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-dark-1280",
+                            theme: "dark",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-light-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "main",
+                          },
+                          {
+                            name: "02-request-pending-no-effect",
+                            theme: "light",
+                            width: 1280,
+                            scene: "request-pending",
+                          },
+                          {
+                            name: "03-resync",
+                            theme: "light",
+                            width: 1280,
+                            scene: "resync",
+                          },
+                          {
+                            name: "04-empty",
+                            theme: "light",
+                            width: 1280,
+                            scene: "empty",
+                          },
+                          {
+                            name: "05-cancel-confirm",
+                            theme: "light",
+                            width: 1280,
+                            scene: "cancel-confirm",
+                          },
+                          {
+                            name: "06-forced-colors",
+                            theme: "light",
+                            width: 1280,
+                            scene: "forced-colors",
+                            forcedColors: "active",
+                          },
+                          {
+                            name: "07-toast-open-panel-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "toast-open-panel",
+                          },
+                          {
+                            name: "07-toast-open-panel-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "toast-open-panel",
+                          },
+                        ]
+                      : [
+                          { name: "light-1280", theme: "light", width: 1280 },
+                          { name: "dark-1280", theme: "dark", width: 1280 },
+                          { name: "light-700", theme: "light", width: 700 },
+                        ];
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -708,6 +760,66 @@ async function openDatePickerCalendar(session) {
     throw new Error("The date-picker calendar did not open");
 }
 
+/**
+ * #297: presses the third interval's bar with the mouse, then goes back; or opens
+ * the same list from the table's button. Checks the list and the returned focus.
+ */
+async function histogramListStep(session, step) {
+  await session.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  if (step === "table") {
+    const opened = await session.run(function openFromTable() {
+      const fold = document.querySelector(
+        ".du-histogram-list-preview .du-detail-disclosure button",
+      );
+      fold?.click();
+      return Boolean(fold);
+    });
+    if (!opened) throw new Error("The interval table was not found");
+    await sleep(200);
+    const pressed = await session.run(function pressTableButton() {
+      const buttons = Array.from(
+        document.querySelectorAll(
+          ".du-histogram-list-preview table .du-action",
+        ),
+      );
+      const button = buttons[2];
+      button?.click();
+      return Boolean(button);
+    });
+    if (!pressed) throw new Error("The interval's table button was not found");
+  } else {
+    const point = await session.run(function barCentre() {
+      const bars = document.querySelectorAll(
+        ".du-histogram-list-preview [aria-label*='목록에서 보기']",
+      );
+      const box = bars[2]?.getBoundingClientRect();
+      return box
+        ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+        : null;
+    });
+    if (!point) throw new Error("The interval bar was not found");
+    for (const type of ["mousePressed", "mouseReleased"])
+      await session.send("Input.dispatchMouseEvent", {
+        type,
+        ...point,
+        button: "left",
+        clickCount: 1,
+      });
+  }
+  if ((await session.run(drawn, ".du-type-list tbody tr", 6)) < 6)
+    throw new Error("The interval's list did not open");
+  if (step !== "back") return;
+  await session.run(function goBack() {
+    document.querySelector(".du-type-list .du-action")?.click();
+  });
+  await sleep(200);
+  const back = await session.run(
+    () => document.activeElement?.getAttribute("aria-label") ?? "",
+  );
+  if (!back.includes("목록에서 보기"))
+    throw new Error("The focus did not return to the bar: " + back);
+}
+
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
@@ -897,7 +1009,10 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "space-undrawn" && shot.viewInList) {
+      else if (surface === "histogram-list" && shot.step) {
+        await histogramListStep(session, shot.step);
+        await save(session, shot.name, true);
+      } else if (surface === "space-undrawn" && shot.viewInList) {
         // A headless page has no focus of its own, so :focus would not paint.
         await session.send("Emulation.setFocusEmulationEnabled", {
           enabled: true,
@@ -915,7 +1030,7 @@ try {
         const focused = await session.run(
           () => document.activeElement?.getAttribute("aria-rowindex") ?? "",
         );
-        if (focused !== "4")
+        if (focused !== (shot.focusRow ?? "4"))
           throw new Error(
             "The first item not drawn was not focused: " + focused,
           );
