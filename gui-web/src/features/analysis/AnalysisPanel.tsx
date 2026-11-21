@@ -7,11 +7,18 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import type { ReactNode, Ref, RefObject } from "react";
+import type {
+  Dispatch,
+  ReactNode,
+  Ref,
+  RefObject,
+  SetStateAction,
+} from "react";
 import { Action, Heading, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import {
   AnalysisError,
+  isScanResourceLimitInvalid,
   rejectedScopeReviewText,
   scopeErrorText,
   scopeReviewErrorText,
@@ -19,6 +26,9 @@ import {
 import type {
   AnalysisClient,
   OsPath,
+  ScanCollection,
+  ScanCollectionCondition,
+  ScanResourceMode,
   ScanStart,
   ScopeDraft,
   ScopeExclusion,
@@ -38,6 +48,9 @@ import {
 import { ScanOutput } from "./AnalysisViews";
 import { RecentScopePicker } from "./RecentScopePicker";
 import { TargetPicker } from "./TargetPicker";
+import { ScanResourceContext } from "./scan-resource-context";
+import { ScopeCollectionConditions } from "./ResourceControls";
+import type { ResourceLimitError } from "./ResourceControls";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { SizeBasisFilter } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
@@ -147,6 +160,8 @@ function suppressAutomaticRetry(
 }
 
 /** Presents target selection, scope review, background collection and pinned totals. */
+// This screen keeps the reviewed-scope and collection fallback flow together.
+// eslint-disable-next-line complexity
 export function AnalysisPanel({
   client,
   preferences,
@@ -217,6 +232,16 @@ export function AnalysisPanel({
   const [rejectedRevision, setRejectedRevision] = useState<number>();
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<ScanStart | null>(null);
+  const [resourceMode, setResourceMode] = useState<ScanResourceMode>("auto");
+  const [userLimit, setUserLimit] = useState<number | undefined>();
+  const [limitDraft, setLimitDraft] = useState("");
+  const [limitError, setLimitError] = useState<ResourceLimitError>();
+  const [limitErrorPrevious, setLimitErrorPrevious] = useState<
+    number | undefined
+  >();
+  const lastStartedCollection = useRef<ScanCollection>({
+    resourceMode: "auto",
+  });
   const [checkingDrop, setCheckingDrop] = useState(false);
   const [dropMessage, setDropMessage] = useState<{
     key: string;
@@ -544,19 +569,18 @@ export function AnalysisPanel({
 
   async function start() {
     if (
-      scanBlocksDrop.current ||
-      pendingDrop.current ||
-      reviewing ||
-      pathComposing
+      scopeStartIsBlocked(
+        scanBlocksDrop.current,
+        Boolean(pendingDrop.current),
+        reviewing,
+        pathComposing,
+        reviewedScope,
+        reviewedInputIsCurrent,
+        rejectedRevision === editRevision.current,
+      )
     )
       return;
-    if (
-      !canStart(reviewedScope) ||
-      !reviewedInputIsCurrent ||
-      rejectedRevision === editRevision.current
-    )
-      return;
-    const { input, review } = reviewedScope;
+    const { input, review } = reviewedScope!;
     scanBlocksDrop.current = true;
     // Commit pending DOM feedback before crossing the IPC boundary.
     flushSync(() => {
@@ -564,17 +588,46 @@ export function AnalysisPanel({
       setError(undefined);
     });
     try {
-      const result = await client.call("scan.start", {
-        draft: input,
-        reviewFingerprint: review.reviewFingerprint,
-      });
+      let result: ScanStart;
+      let usedFallback = false;
+      try {
+        result = await client.call("scan.start", {
+          draft: input,
+          reviewFingerprint: review.reviewFingerprint,
+          ...startCollection(resourceMode, userLimit),
+        });
+      } catch (failure) {
+        if (!shouldRetryCollectionStart(failure, userLimit)) throw failure;
+        const previousLimit = lastStartedCollection.current.userLimit;
+        setLimitError("rejected");
+        setLimitErrorPrevious(previousLimit);
+        setEditorOpen(true);
+        result = await client.call("scan.start", {
+          draft: input,
+          reviewFingerprint: review.reviewFingerprint,
+          ...startCollection(resourceMode, previousLimit),
+        });
+        usedFallback = true;
+      }
+      const effectiveCollection = result.collection ?? {
+        resourceMode: "auto",
+      };
+      lastStartedCollection.current = effectiveCollection;
+      setResourceMode(effectiveCollection.resourceMode);
+      setUserLimit(effectiveCollection.userLimit);
+      if (!usedFallback && limitError === undefined)
+        setLimitDraft(
+          effectiveCollection.userLimit === undefined
+            ? ""
+            : String(effectiveCollection.userLimit),
+        );
       if (result.jobRef !== receipt?.jobRef) setDisplayChoice(undefined);
       // The summary shows the reviewed scope the scan was admitted with.
       // A scan that is already running is joined only with the same review.
       setResultRoots(review.scope.includes);
       setResultExclusions(review.scope.exclusions);
       focusResult.current = true;
-      setEditorOpen(false);
+      preserveScopeEditorAfterStart(usedFallback, limitError, setEditorOpen);
       setReceipt(result);
     } catch (failure) {
       scanBlocksDrop.current = false;
@@ -703,6 +756,34 @@ export function AnalysisPanel({
             onCancel={cancelSelection}
           />
         )}
+        {!recentOpen && (
+          <ScopeCollectionConditions
+            mode={resourceMode}
+            userLimit={userLimit}
+            draft={limitDraft}
+            error={limitError}
+            previousValue={limitError ? limitErrorPrevious : userLimit}
+            disabled={working || running}
+            onModeChange={setResourceMode}
+            onLimitChange={(value) =>
+              changeScopeLimitDraft(
+                value,
+                userLimit,
+                setLimitDraft,
+                setUserLimit,
+                setLimitError,
+                setLimitErrorPrevious,
+              )
+            }
+            onReset={() => {
+              setResourceMode("auto");
+              setUserLimit(undefined);
+              setLimitDraft("");
+              setLimitError(undefined);
+              setLimitErrorPrevious(undefined);
+            }}
+          />
+        )}
       </>
     );
   }
@@ -774,38 +855,134 @@ export function AnalysisPanel({
               "Scan and results",
             )}
           >
-            <ScanOutput
-              client={client}
-              preferences={preferences}
-              displayChoice={displayChoice}
-              onDisplayChoice={setDisplayChoice}
-              onSizeBasisChange={onSizeBasisChange}
-              scan={scan}
-              job={scanJob}
-              started={receipt !== null}
-              running={running}
-              problem={error}
-              roots={resultRoots}
-              priorityArea={priorityArea}
-              exclusions={resultExclusions}
-              actions={
-                <ResultActions
-                  version={browseVersion(scan)}
-                  onBrowse={bindBrowse(onBrowse, displayChoice, scanJob)}
-                  trigger={browseTrigger}
-                  running={running}
-                  state={scan.status?.state}
-                  pending={scan.control}
-                  onControl={scan.requestControl}
-                  title={title}
-                />
-              }
-            />
+            <ScanResourceContext.Provider
+              value={{
+                client,
+                jobRef: receipt?.jobRef,
+                collection: receipt?.collection,
+                active: ownsRunningReceipt(
+                  receipt,
+                  running,
+                  scan.status?.jobRef,
+                ),
+              }}
+            >
+              <ScanOutput
+                client={client}
+                preferences={preferences}
+                displayChoice={displayChoice}
+                onDisplayChoice={setDisplayChoice}
+                onSizeBasisChange={onSizeBasisChange}
+                scan={scan}
+                job={scanJob}
+                started={receipt !== null}
+                running={running}
+                problem={error}
+                roots={resultRoots}
+                priorityArea={priorityArea}
+                exclusions={resultExclusions}
+                actions={
+                  <ResultActions
+                    version={browseVersion(scan)}
+                    onBrowse={bindBrowse(onBrowse, displayChoice, scanJob)}
+                    trigger={browseTrigger}
+                    running={running}
+                    state={scan.status?.state}
+                    pending={scan.control}
+                    onControl={scan.requestControl}
+                    title={title}
+                  />
+                }
+              />
+            </ScanResourceContext.Provider>
           </section>
         )}
       </div>
     </section>
   );
+}
+
+function startCollection(
+  resourceMode: ScanResourceMode,
+  userLimit: number | undefined,
+): { collection?: ScanCollectionCondition } {
+  return resourceMode === "auto" && userLimit === undefined
+    ? {}
+    : {
+        collection: {
+          resourceMode,
+          ...(userLimit === undefined ? {} : { userLimit }),
+        },
+      };
+}
+
+function shouldRetryCollectionStart(
+  failure: unknown,
+  userLimit: number | undefined,
+) {
+  return userLimit !== undefined && isScanResourceLimitInvalid(failure);
+}
+
+function changeScopeLimitDraft(
+  value: string,
+  previous: number | undefined,
+  setDraft: Dispatch<SetStateAction<string>>,
+  setLimit: Dispatch<SetStateAction<number | undefined>>,
+  setError: Dispatch<SetStateAction<ResourceLimitError | undefined>>,
+  setPrevious: Dispatch<SetStateAction<number | undefined>>,
+) {
+  setDraft(value);
+  if (value === "") {
+    setLimit(undefined);
+    setError(undefined);
+    setPrevious(undefined);
+    return;
+  }
+  const parsed = Number(value);
+  if (Number.isSafeInteger(parsed) && parsed >= 1) {
+    setLimit(parsed);
+    setError(undefined);
+    setPrevious(undefined);
+  } else {
+    setError("invalid");
+    setPrevious(previous);
+  }
+}
+
+function ownsRunningReceipt(
+  receipt: ScanStart | null,
+  running: boolean,
+  statusJobRef: string | undefined,
+) {
+  return Boolean(receipt && running && statusJobRef === receipt.jobRef);
+}
+
+function scopeStartIsBlocked(
+  scanBlocksDrop: boolean,
+  hasPendingDrop: boolean,
+  reviewing: boolean,
+  pathComposing: boolean,
+  scope: ReviewedScope | undefined,
+  scopeIsCurrent: boolean,
+  rejected: boolean,
+) {
+  return (
+    scanBlocksDrop ||
+    hasPendingDrop ||
+    reviewing ||
+    pathComposing ||
+    !canStart(scope) ||
+    !scopeIsCurrent ||
+    rejected
+  );
+}
+
+function preserveScopeEditorAfterStart(
+  usedFallback: boolean,
+  limitError: ResourceLimitError | undefined,
+  setEditorOpen: Dispatch<SetStateAction<boolean>>,
+) {
+  setEditorOpen(usedFallback || limitError !== undefined);
 }
 
 function AnalysisHeader({
