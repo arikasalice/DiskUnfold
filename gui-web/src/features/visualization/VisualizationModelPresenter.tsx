@@ -292,6 +292,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           entries={entries}
           selected={legendChoice.selected}
           onSelect={legendChoice.onSelect}
+          onPreview={classes.preview}
           forced={autoPatterns}
         />
       </div>
