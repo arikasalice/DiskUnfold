@@ -215,7 +215,10 @@ body {
   background: var(--du-action-hover, var(--du-hover-surface));
 }
 
-.du-action[data-pressed]:not([data-disabled]) {
+.du-action[data-pressed]:not([data-disabled]),
+.du-app-header .du-action[aria-expanded="true"]:not([data-disabled]),
+.du-history-header__actions
+  .du-action[aria-expanded="true"]:not([data-disabled]) {
   border-color: var(
     --du-action-pressed,
     var(--du-action-interaction-border, var(--du-control-border))

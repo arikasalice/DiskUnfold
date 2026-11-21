@@ -720,6 +720,8 @@ ui.history.retention.panel_title
 ui.history.retention.description
 ui.history.retention.description.unix
 ui.history.retention.auto_cleanup
+ui.history.retention.confirm_period
+ui.history.retention.confirm_days days:count
 ui.history.retention.keep_for
 ui.history.retention.days
 ui.history.retention.suggested

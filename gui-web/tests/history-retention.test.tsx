@@ -136,6 +136,38 @@ test("the switch reviews the suggested period and waits for confirmation", async
   expect((toggle as HTMLInputElement).checked).toBe(false);
 });
 
+test("the enable confirmation shows the entered period when there are no targets", async () => {
+  const { call } = setup({
+    reviewValue: review("enable", {
+      targetCount: "0",
+      targetEarliestAtMs: null,
+      targetLatestAtMs: null,
+    }),
+  });
+  await openRetention();
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Keep history for" }),
+    { target: { value: "12" } },
+  );
+  fireEvent.click(
+    screen.getByRole("switch", { name: "Clean up automatically" }),
+  );
+  const dialog = await screen.findByRole("alertdialog", {
+    name: "Turn on automatic cleanup?",
+  });
+  expect(within(dialog).getByText("Retention period")).toBeDefined();
+  expect(within(dialog).getByText("12 days")).toBeDefined();
+  expect(
+    within(dialog).getByText(
+      "Nothing will be removed now. History older than 12 days will be cleaned up in the future.",
+    ),
+  ).toBeDefined();
+  expect(call).toHaveBeenCalledWith("history.retention_review", {
+    enabled: true,
+    days: 12,
+  });
+});
+
 test("only enable and shorten reviews open the confirmation dialog", async () => {
   const { call } = setup({
     initialPolicy: policy({ enabled: false, specifiedDays: 90 }),
@@ -298,6 +330,21 @@ test("invalid days show the required error and send no review", async () => {
   ).toBe(false);
 });
 
+test("an invalid period blocks enabling auto-cleanup and focuses the field", async () => {
+  const { call } = setup({ initialPolicy: policy({ specifiedDays: 90 }) });
+  await openRetention();
+  const days = screen.getByRole("spinbutton", { name: "Keep history for" });
+  const toggle = screen.getByRole("switch", { name: "Clean up automatically" });
+  fireEvent.change(days, { target: { value: "0" } });
+  fireEvent.click(toggle);
+  await screen.findByText("Enter a whole number of 1 or more.");
+  expect(document.activeElement).toBe(days);
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  expect(
+    call.mock.calls.some(([name]) => name === "history.retention_review"),
+  ).toBe(false);
+});
+
 test("closing the side panel returns focus to its Retention button", async () => {
   setup();
   const trigger = await screen.findByRole("button", { name: "Retention" });
@@ -307,4 +354,13 @@ test("closing the side panel returns focus to its Retention button", async () =>
     screen.getByRole("button", { name: "Close retention settings" }),
   );
   await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+test("the Retention header action reports when its panel is expanded", async () => {
+  setup();
+  const trigger = await screen.findByRole("button", { name: "Retention" });
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(trigger);
+  await screen.findByRole("heading", { name: "History retention" });
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
 });

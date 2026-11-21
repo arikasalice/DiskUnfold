@@ -737,6 +737,8 @@
     ["ui.history.retention.description","작업 이력만 정리합니다. 디스크의 파일과 휴지통은 바뀌지 않습니다.",[]],
     ["ui.history.retention.description.unix","작업 이력만 정리합니다. 디스크의 파일과 휴지통은 바뀌지 않습니다.",[]],
     ["ui.history.retention.auto_cleanup","자동 정리",[]],
+    ["ui.history.retention.confirm_period","보존 기간",[]],
+    ["ui.history.retention.confirm_days","{days}일",[["days","count"]]],
     ["ui.history.retention.keep_for","보존 기간",[]],
     ["ui.history.retention.days","일",[]],
     ["ui.history.retention.suggested","제시값",[]],

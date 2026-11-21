@@ -737,6 +737,8 @@
     ["ui.history.retention.description","Only task history is cleaned up. Files on disk and the Recycle Bin don't change.",[]],
     ["ui.history.retention.description.unix","Only task history is cleaned up. Files on disk and the Trash don't change.",[]],
     ["ui.history.retention.auto_cleanup","Clean up automatically",[]],
+    ["ui.history.retention.confirm_period","Retention period",[]],
+    ["ui.history.retention.confirm_days","{days} days",[["days","count"]]],
     ["ui.history.retention.keep_for","Keep history for",[]],
     ["ui.history.retention.days","days",[]],
     ["ui.history.retention.suggested","Suggested",[]],

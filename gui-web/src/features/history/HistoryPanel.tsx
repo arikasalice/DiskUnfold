@@ -31,8 +31,8 @@ import { HistoryDetailPanel } from "./HistoryDetailPanel";
 import {
   HistoryRetentionPanel,
   retentionHeaderText,
-  useHistoryRetention,
-} from "./HistoryRetention";
+} from "./HistoryRetentionPanel";
+import { useHistoryRetention } from "./useHistoryRetention";
 import "../../theme/history.css";
 
 type StateFilter =
