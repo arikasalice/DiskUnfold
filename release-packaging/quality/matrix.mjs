@@ -28,11 +28,12 @@ function sameLabels(actual, expected) {
   );
 }
 
-function hasOnlineSelfHostedRunner(onlineRunners, requiredLabels) {
+function hasOnlineSelfHostedRunner(onlineRunners, requiredLabels, faultyRunnerNames) {
   if (!Array.isArray(onlineRunners)) return false;
   const required = requiredLabels.map((label) => String(label).toLowerCase());
   return onlineRunners.some((runner) => {
     if (!runner || runner.status !== 'online' || !Array.isArray(runner.labels)) return false;
+    if (runner.name && faultyRunnerNames.has(runner.name)) return false;
     const present = new Set(
       runner.labels
         .map((entry) => (typeof entry === 'string' ? entry : entry?.name))
@@ -68,10 +69,58 @@ export function queryOnlineRunners({
 }
 
 /**
+ * Inspects the most recent quality.yml runs for self-hosted runners whose latest completed job
+ * failed during "Set up job" (for example, broken tar/QEMU extraction or container initialization
+ * before any workflow step runs). If the runner later completed "Set up job" successfully, it is
+ * considered healthy again.
+ */
+export function queryFaultyRunners({
+  repository = process.env.GITHUB_REPOSITORY,
+  token = process.env.RUNNER_STATUS_TOKEN || process.env.GH_TOKEN,
+  currentRunId = process.env.GITHUB_RUN_ID,
+  run = execFileSync,
+} = {}) {
+  if (!repository) return [];
+  try {
+    const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
+    const runsRaw = run(
+      'gh',
+      ['api', `/repos/${repository}/actions/workflows/quality.yml/runs?per_page=5`],
+      { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const workflowRuns = JSON.parse(runsRaw)?.workflow_runs ?? [];
+    const seenRunner = new Set();
+    const faulty = new Set();
+    for (const wfRun of workflowRuns) {
+      if (!wfRun?.id || String(wfRun.id) === String(currentRunId)) continue;
+      const jobsRaw = run(
+        'gh',
+        ['api', `/repos/${repository}/actions/runs/${wfRun.id}/jobs?per_page=30`],
+        { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      const jobs = JSON.parse(jobsRaw)?.jobs ?? [];
+      for (const job of jobs) {
+        const runnerName = job?.runner_name;
+        if (!runnerName || seenRunner.has(runnerName) || job.status !== 'completed') continue;
+        const setupStep = (job.steps ?? []).find((step) => step.name === 'Set up job');
+        if (!setupStep) continue;
+        seenRunner.add(runnerName);
+        if (setupStep.conclusion === 'failure') {
+          faulty.add(runnerName);
+        }
+      }
+    }
+    return [...faulty];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Validates the six-target manifest and resolves each target's active runner in real time.
- * Selects the target's self-hosted runner only when the live runner status confirms an online
- * runner with matching labels, and automatically falls back to the GitHub-hosted runner when
- * the self-hosted runner is offline, unregistered, or unreachable.
+ * Selects the target's self-hosted runner only when the live runner status confirms an online,
+ * non-faulty runner with matching labels, and automatically falls back to the GitHub-hosted runner
+ * when the self-hosted runner is offline, faulty, unregistered, or unreachable.
  */
 export function buildManifest(manifest, options = {}) {
   if (!manifest || !Array.isArray(manifest.targets)) {
@@ -84,6 +133,7 @@ export function buildManifest(manifest, options = {}) {
     throw new Error(`Invalid runner mode: ${runnerMode}`);
   }
   const onlineRunners = options.onlineRunners ?? null;
+  const faultyRunnerNames = new Set(options.faultyRunners ?? []);
 
   const keys = new Set();
   const resolvedTargets = [];
@@ -106,7 +156,7 @@ export function buildManifest(manifest, options = {}) {
     const selfHostedLabels = [...(target.selfHostedRunner ?? expectedSelfHosted)];
     const useSelfHosted =
       runnerMode !== 'github-hosted' &&
-      hasOnlineSelfHostedRunner(onlineRunners, selfHostedLabels);
+      hasOnlineSelfHostedRunner(onlineRunners, selfHostedLabels, faultyRunnerNames);
 
     resolvedTargets.push({
       ...target,
@@ -122,7 +172,7 @@ export function buildManifest(manifest, options = {}) {
 
 /**
  * Returns the matrix include objects for GitHub Actions (without extra array fields that would
- * clutter matrix job display names) and the resolved Windows x64 runner for ui-smoke.
+ * clutter matrix job display names).
  */
 export function buildMatrixOutputs(effectiveManifest) {
   const include = effectiveManifest.targets.map(
@@ -134,25 +184,21 @@ export function buildMatrixOutputs(effectiveManifest) {
       availability,
     }),
   );
-  const windowsX64 = include.find((target) => target.os === 'windows' && target.cpu === 'x64');
   return {
     matrix: { include },
-    uiSmokeRunner: windowsX64 ? windowsX64.runner : HOSTED_RUNNERS['windows-x64'],
   };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const manifest = JSON.parse(readFileSync('release-packaging/quality/targets.json', 'utf8'));
   const onlineRunners = queryOnlineRunners();
-  const effective = buildManifest(manifest, { onlineRunners });
-  const { matrix, uiSmokeRunner } = buildMatrixOutputs(effective);
+  const faultyRunners = queryFaultyRunners();
+  const effective = buildManifest(manifest, { onlineRunners, faultyRunners });
+  const { matrix } = buildMatrixOutputs(effective);
   mkdirSync('quality-output', { recursive: true });
   writeFileSync('quality-output/targets.json', JSON.stringify(effective, null, 2) + '\n');
   if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(
-      process.env.GITHUB_OUTPUT,
-      `matrix=${JSON.stringify(matrix)}\nui_smoke_runner=${JSON.stringify(uiSmokeRunner)}\n`,
-    );
+    appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
     const lines = [
@@ -167,6 +213,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         return `| ${t.os}-${t.cpu} | \`${t.rustTarget}\` | \`${label}\` | ${mode} |`;
       }),
     ];
+    if (faultyRunners.length > 0) {
+      lines.push(
+        '',
+        `Fallback triggered for faulty self-hosted runner(s) that failed \`Set up job\`: \`${faultyRunners.join(', ')}\`.`,
+      );
+    }
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
   }
   console.log(JSON.stringify(matrix));

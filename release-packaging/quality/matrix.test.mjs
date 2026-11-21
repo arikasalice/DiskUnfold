@@ -6,6 +6,7 @@ import {
   SELF_HOSTED_RUNNERS,
   buildManifest,
   buildMatrixOutputs,
+  queryFaultyRunners,
   queryOnlineRunners,
 } from './matrix.mjs';
 
@@ -25,29 +26,35 @@ test('the six-target manifest defaults to GitHub-hosted runners when no self-hos
   const resolved = buildManifest(manifest, { runnerMode: 'auto' });
   assert.deepEqual(resolved, manifest);
   const outputs = buildMatrixOutputs(resolved);
-  assert.equal(outputs.uiSmokeRunner, 'windows-2022');
   assert.equal(outputs.matrix.include.length, 6);
   for (const entry of outputs.matrix.include) {
     assert.equal(entry.selfHostedRunner, undefined);
   }
 });
 
-test('online self-hosted runners are selected automatically in real time while offline targets fall back to GitHub-hosted', () => {
+test('online self-hosted runners are selected automatically while offline or faulty targets fall back to GitHub-hosted', () => {
   const onlineRunners = [
     {
+      name: 'win-intel-x64',
       status: 'online',
       labels: [{ name: 'self-hosted' }, { name: 'Windows' }, { name: 'X64' }],
     },
     {
-      status: 'offline',
+      name: 'mac-m1-linux-x64',
+      status: 'online',
       labels: [{ name: 'self-hosted' }, { name: 'Linux' }, { name: 'X64' }],
     },
     {
+      name: 'mac-m1-arm',
       status: 'online',
       labels: [{ name: 'self-hosted' }, { name: 'macOS' }, { name: 'ARM64' }],
     },
   ];
-  const resolved = buildManifest(manifest, { runnerMode: 'auto', onlineRunners });
+  const resolved = buildManifest(manifest, {
+    runnerMode: 'auto',
+    onlineRunners,
+    faultyRunners: ['mac-m1-linux-x64'],
+  });
   const byKey = Object.fromEntries(
     resolved.targets.map((target) => [`${target.os}-${target.cpu}`, target.runner]),
   );
@@ -58,9 +65,6 @@ test('online self-hosted runners are selected automatically in real time while o
   assert.equal(byKey['windows-arm64'], 'windows-11-arm');
   assert.equal(byKey['macos-x64'], 'macos-15-intel');
 
-  const outputs = buildMatrixOutputs(resolved);
-  assert.deepEqual(outputs.uiSmokeRunner, ['self-hosted', 'Windows', 'X64']);
-
   const forcedHosted = buildManifest(manifest, {
     runnerMode: 'github-hosted',
     onlineRunners,
@@ -70,8 +74,9 @@ test('online self-hosted runners are selected automatically in real time while o
   }
 });
 
-test('queryOnlineRunners returns null on error or missing repository and parses runner lists', () => {
+test('queryOnlineRunners and queryFaultyRunners handle API responses and errors cleanly', () => {
   assert.equal(queryOnlineRunners({ repository: '', token: '' }), null);
+  assert.deepEqual(queryFaultyRunners({ repository: '' }), []);
   assert.equal(
     queryOnlineRunners({
       repository: 'owner/repo',
@@ -88,6 +93,32 @@ test('queryOnlineRunners returns null on error or missing repository and parses 
     run: () => JSON.stringify({ runners: [{ id: 1, status: 'online', labels: [] }] }),
   });
   assert.equal(runners?.length, 1);
+
+  const faulty = queryFaultyRunners({
+    repository: 'owner/repo',
+    token: 'tok',
+    currentRunId: '100',
+    run: (_cmd, args) => {
+      if (args[1].includes('/workflows/quality.yml/runs')) {
+        return JSON.stringify({ workflow_runs: [{ id: 99 }] });
+      }
+      return JSON.stringify({
+        jobs: [
+          {
+            runner_name: 'broken-runner',
+            status: 'completed',
+            steps: [{ name: 'Set up job', conclusion: 'failure' }],
+          },
+          {
+            runner_name: 'healthy-runner',
+            status: 'completed',
+            steps: [{ name: 'Set up job', conclusion: 'success' }],
+          },
+        ],
+      });
+    },
+  });
+  assert.deepEqual(faulty, ['broken-runner']);
 });
 
 test('unknown runner labels and malformed self-hosted definitions are rejected', () => {

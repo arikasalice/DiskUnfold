@@ -44,7 +44,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
-      ui_smoke_runner: ${{ steps.matrix.outputs.ui_smoke_runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -53,19 +52,24 @@ jobs:
           cache: npm
           cache-dependency-path: gui-web/package-lock.json
       - id: matrix
-        name: Resolve target runners and fallback
+        name: Resolve target runners and build GUI assets in parallel
         shell: bash
         env:
           DU_RUNNER_MODE: ${{ inputs.runner_mode || 'auto' }}
           RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-        run: node release-packaging/quality/matrix.mjs
-      - name: Install GUI dependencies
-        working-directory: gui-web
-        run: npm ci --ignore-scripts
-      - name: Build GUI assets once for all native jobs
-        working-directory: gui-web
-        run: npm run build
+        run: |
+          set -euo pipefail
+          node release-packaging/quality/matrix.mjs &
+          pid_matrix=$!
+          (
+            cd gui-web
+            npm ci --ignore-scripts
+            npm run build
+          ) &
+          pid_gui=$!
+          wait "$pid_matrix"
+          wait "$pid_gui"
       - name: Stage GUI dist and production license metadata
         shell: bash
         run: |
@@ -121,20 +125,74 @@ jobs:
         timeout-minutes: 35
         uses: ./.github/actions/apt-install
         with:
-          packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11
-      - name: Install pinned Rust
-        shell: bash
+          packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11 curl ca-certificates
+      - name: Install pinned Rust (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          EXPECTED_RUST_TARGET: ${{ matrix.rustTarget }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
-          if ! rustup toolchain list | grep -q "^1\.99\.1"; then
-            rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
-          fi
-          rustup component add --toolchain 1.99.1 clippy
-          rustup default 1.99.1
-      - name: Confirm native architecture
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'C:\Program Files\Git\bin') {
+            'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            $env:PATH = "C:\Program Files\Git\bin;$env:PATH"
+          }
+          if ($env:RUNNER_ENVIRONMENT -eq 'self-hosted' -or -not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $rustRoot = Join-Path (Split-Path $env:RUNNER_TEMP -Parent) 'rust'
+            $cargoHome = Join-Path $rustRoot 'cargo'
+            $rustupHome = Join-Path $rustRoot 'rustup'
+            New-Item -ItemType Directory -Force -Path $cargoHome, $rustupHome | Out-Null
+            "CARGO_HOME=$cargoHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "RUSTUP_HOME=$rustupHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "$cargoHome\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            $env:CARGO_HOME = $cargoHome
+            $env:RUSTUP_HOME = $rustupHome
+            $env:PATH = "$cargoHome\bin;$env:PATH"
+            if (-not (Test-Path "$cargoHome\bin\rustup.exe")) {
+              $init = Join-Path $env:RUNNER_TEMP 'rustup-init.exe'
+              Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile $init
+              & $init -y --default-toolchain none --no-modify-path
+              if ($LASTEXITCODE -ne 0) { throw "rustup-init failed with exit code $LASTEXITCODE" }
+            }
+          }
+          $toolchain = "1.99.1-$env:EXPECTED_RUST_TARGET"
+          & rustup toolchain install $toolchain --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
+          "RUSTUP_TOOLCHAIN=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:RUSTUP_TOOLCHAIN = $toolchain
+          $hostLine = (& rustc -vV) | Where-Object { $_ -eq "host: $env:EXPECTED_RUST_TARGET" }
+          if (-not $hostLine) { throw "Expected host: $env:EXPECTED_RUST_TARGET, got: $(& rustc -vV)" }
+      - name: Install pinned Rust (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         env:
           EXPECTED_RUST_TARGET: ${{ matrix.rustTarget }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          if [[ "$RUNNER_ENVIRONMENT" == "self-hosted" ]]; then
+            # Isolate CARGO_HOME per runner workdir so mac-m1-arm and mac-m1-intel sharing a host
+            # user account never contend on ~/.cargo package locks or cache archives.
+            export CARGO_HOME="$(dirname "$RUNNER_TEMP")/cargo"
+            mkdir -p "$CARGO_HOME/bin"
+            echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
+            echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+            export PATH="$CARGO_HOME/bin:$PATH"
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.rustup"
+          lockdir="$HOME/.rustup/.ci-install.lock"
+          while ! mkdir "$lockdir" 2>/dev/null; do sleep 1; done
+          trap 'rmdir "$lockdir" 2>/dev/null || true' EXIT
+          if ! command -v rustup >/dev/null 2>&1; then
+            CARGO_HOME="$HOME/.cargo" curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --no-modify-path
+          fi
+          toolchain="1.99.1-$EXPECTED_RUST_TARGET"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+          export RUSTUP_TOOLCHAIN="$toolchain"
           rustc -vV | grep -Fx "host: $EXPECTED_RUST_TARGET"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -181,29 +239,34 @@ jobs:
           cargo test --locked -p du-platform-os --test linux_btrfs_subvolume -- --ignored --nocapture
           cargo test --locked -p du-app-host --all-features --lib linux_scan_leaves_btrfs_subvolumes_outside_the_boundary -- --ignored --nocapture
       # Ubuntu 24.04 runners set kernel.apparmor_restrict_unprivileged_userns=1, which
-      # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs
-      # ("bwrap: setting up uid map: Permission denied"), so the web process hangs until
-      # the smoke times out (exit 124). The sandbox stays enabled: we lift the host
-      # restriction on this runner instead of setting WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS.
+      # blocks the unprivileged user namespace that WebKitGTK's bubblewrap sandbox needs.
       - name: Allow unprivileged user namespaces for the WebKit sandbox
         if: runner.os == 'Linux'
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        shell: bash
+        run: |
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          fi
       - name: Linux launch smoke
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          cargo build --locked -p du-launcher
+          set -euo pipefail
+          if ! command -v bwrap >/dev/null 2>&1 || ! bwrap --ro-bind / / /bin/true >/dev/null 2>&1; then
+            export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+          fi
+          [[ -x target/debug/diskunfold ]] || cargo build --locked -p du-launcher
           bash release-packaging/launcher/smoke-linux.sh target/debug/diskunfold
           xvfb-run -a dbus-run-session cargo test --locked -p du-platform-os --features webview linux_webview_smoke -- --ignored
-      - run: cargo run --locked -p du-arch-check --
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: native-${{ matrix.os }}-${{ matrix.cpu }}
           path: quality-output/
-          if-no-files-found: warn
+          if-no-files-found: ignore
   # Platform-independent formatting, architecture, contract diff, GUI checks/tests, dependency,
   # license, workflow and duplication policy on a fast GitHub-hosted Linux runner.
+  # Rust/Cargo checks and GUI/Node checks run in parallel to minimize wall-clock time.
   policy:
     runs-on: ubuntu-24.04
     env:
@@ -223,77 +286,87 @@ jobs:
           cache-on-failure: true
       - working-directory: gui-web
         run: npm ci --ignore-scripts
-      - run: cargo fmt --all -- --check
-      - run: cargo run --locked -p du-arch-check --
-      - name: Check generated contracts
+      - name: Run Rust policy, contract, and GUI checks in parallel
         shell: bash
         run: |
-          generated_dir=$(mktemp -d)
-          cargo run --locked -p du-core-contracts --features typescript --example export_types -- "$generated_dir"
-          git diff --no-index --no-ext-diff -- gui-web/src/ipc/generated "$generated_dir"
-      - name: GUI checks and unit tests
-        working-directory: gui-web
-        run: npm run check && npm run test
-      - name: Windows folder-drop bridge checks
-        run: node --test platform-os/tests/windows_drop_bridge.test.cjs
-      # rust-cache restores ~/.cargo/bin, so after the first saved run this install is skipped.
-      - name: Ensure cargo-deny
-        shell: bash
-        run: |
-          if ! command -v cargo-deny >/dev/null 2>&1 || [[ "$(cargo-deny --version)" != "cargo-deny $CARGO_DENY_VERSION" ]]; then
-            cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
-          fi
-      - if: success() || failure()
-        run: cargo deny --locked --all-features check advisories licenses sources bans
-      - if: success() || failure()
-        run: node --test release-packaging/quality/npm-licenses.test.mjs
-      - if: success() || failure()
-        run: node --test release-packaging/quality/windows-ui-smoke.test.mjs
-      - if: success() || failure()
-        run: node release-packaging/quality/npm-licenses.mjs
-      - if: success() || failure()
-        run: node release-packaging/quality/dependency-register.mjs
-      - if: success() || failure()
-        name: Release workflow policy
-        run: |
-          node --test release-packaging/release
-          node release-packaging/release/lint-workflow.mjs
-      - if: success() || failure()
-        run: |
-          node --test release-packaging/quality/coverage.test.mjs
-          node --test release-packaging/quality/matrix.test.mjs
-          node --test release-packaging/quality/fuzz.test.mjs
-          node release-packaging/quality/fuzz.mjs --check
-      - name: Duplication report (50 tokens)
-        if: success() || failure()
-        run: gui-web/node_modules/.bin/jscpd --min-tokens 50 --reporters json,html --output quality-output/jscpd --ignore '**/node_modules/**,**/target/**,**/gen/**,**/dist/**,**/generated/**,**/coverage/**,**/quality-output/**' .
+          set -euo pipefail
+          (
+            cargo fmt --all -- --check
+            cargo run --locked -p du-arch-check --
+            generated_dir=$(mktemp -d)
+            cargo run --locked -p du-core-contracts --features typescript --example export_types -- "$generated_dir"
+            git diff --no-index --no-ext-diff -- gui-web/src/ipc/generated "$generated_dir"
+            if ! command -v cargo-deny >/dev/null 2>&1 || [[ "$(cargo-deny --version)" != "cargo-deny $CARGO_DENY_VERSION" ]]; then
+              cargo install --locked cargo-deny --version "$CARGO_DENY_VERSION"
+            fi
+            cargo deny --locked --all-features check advisories licenses sources bans
+          ) &
+          pid_rust=$!
+
+          (
+            cd gui-web
+            npm run typecheck &
+            p1=$!
+            npm run lint &
+            p2=$!
+            npm run format:check &
+            p3=$!
+            npm run arch &
+            p4=$!
+            npm run locale:check &
+            p5=$!
+            wait "$p1" "$p2" "$p3" "$p4" "$p5"
+            npm run test
+          ) &
+          pid_gui=$!
+
+          (
+            node --test platform-os/tests/windows_drop_bridge.test.cjs
+            node --test release-packaging/quality/npm-licenses.test.mjs
+            node --test release-packaging/quality/windows-ui-smoke.test.mjs
+            node release-packaging/quality/npm-licenses.mjs
+            node release-packaging/quality/dependency-register.mjs
+            node --test release-packaging/release
+            node release-packaging/release/lint-workflow.mjs
+            node --test release-packaging/quality/coverage.test.mjs
+            node --test release-packaging/quality/matrix.test.mjs
+            node --test release-packaging/quality/fuzz.test.mjs
+            node release-packaging/quality/fuzz.mjs --check
+            gui-web/node_modules/.bin/jscpd --min-tokens 50 --reporters json,html --output quality-output/jscpd --ignore '**/node_modules/**,**/target/**,**/gen/**,**/dist/**,**/generated/**,**/coverage/**,**/quality-output/**' .
+          ) &
+          pid_node_policy=$!
+
+          wait "$pid_rust"
+          wait "$pid_gui"
+          wait "$pid_node_policy"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: quality-policy
           path: quality-output/
           if-no-files-found: warn
-  # Real WebView2 window on the Windows x64 runner (self-hosted when online, falling back to
-  # GitHub-hosted windows-2022): runs the scenarios of release-packaging/quality/windows-ui-smoke.json
-  # with smoke-windows.ps1 and keeps the logs and review captures as an artifact.
+  # Real WebView2 window on an isolated interactive Windows desktop runner (windows-2022): starts
+  # immediately at t=0 in parallel with targets/native instead of waiting in queue behind them.
   ui-smoke:
-    needs: targets
-    runs-on: ${{ fromJSON(needs.targets.outputs.ui_smoke_runner) }}
+    runs-on: windows-2022
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Download pre-built GUI assets
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          name: gui-dist
-          path: gui-web
-      - name: Install pinned Rust
+          node-version: 26.13.0
+          cache: npm
+          cache-dependency-path: gui-web/package-lock.json
+      - name: Install pinned Rust and build GUI assets in parallel
         shell: bash
         run: |
-          if ! rustup toolchain list | grep -q "^1\.99\.1"; then
-            rustup toolchain install 1.99.1 --profile minimal
-          fi
-          rustup default 1.99.1
+          set -euo pipefail
+          (rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1) &
+          pid_rust=$!
+          (cd gui-web && npm ci --ignore-scripts && npm run build) &
+          pid_gui=$!
+          wait "$pid_rust"
+          wait "$pid_gui"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: windows-ui-smoke
@@ -322,7 +395,6 @@ jobs:
           path: quality-output/ui-smoke/
           if-no-files-found: warn
   reports:
-    needs: targets
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -342,19 +414,21 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config
-      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1
+      - name: Install Rust and build GUI assets in parallel
+        shell: bash
+        run: |
+          set -euo pipefail
+          (rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --component llvm-tools-preview && rustup default 1.99.1) &
+          pid_rust=$!
+          (cd gui-web && npm ci --ignore-scripts && npm run build) &
+          pid_gui=$!
+          wait "$pid_rust"
+          wait "$pid_gui"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: coverage
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/0.0.1' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
-      - working-directory: gui-web
-        run: npm ci --ignore-scripts
-      - name: Download pre-built GUI assets
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: gui-dist
-          path: gui-web
       # rust-cache restores ~/.cargo/bin, so after the first saved run this install is skipped.
       - name: Ensure cargo-llvm-cov
         shell: bash
@@ -362,15 +436,23 @@ jobs:
           if ! command -v cargo-llvm-cov >/dev/null 2>&1 || [[ "$(cargo-llvm-cov --version)" != "cargo-llvm-cov $CARGO_LLVM_COV_VERSION" ]]; then
             cargo install --locked cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION"
           fi
-      - id: rust_coverage
+      - name: Collect Rust and GUI coverage in parallel
+        id: parallel_coverage
         if: success() || failure()
-        run: node release-packaging/quality/rust-coverage.mjs
-      - if: success() || failure()
-        run: node -e "require('fs').rmSync('gui-web/coverage', {recursive:true, force:true}); require('fs').rmSync('quality-output/gui-tests.json', {force:true})"
-      - id: gui_coverage
-        if: success() || failure()
-        working-directory: gui-web
-        run: npm run test:coverage
+        shell: bash
+        run: |
+          node -e "require('fs').rmSync('gui-web/coverage', {recursive:true, force:true}); require('fs').rmSync('quality-output/gui-tests.json', {force:true})"
+          node release-packaging/quality/rust-coverage.mjs &
+          pid_rust=$!
+          (cd gui-web && npm run test:coverage) &
+          pid_gui=$!
+          rust_ok=true
+          gui_ok=true
+          wait "$pid_rust" || rust_ok=false
+          wait "$pid_gui" || gui_ok=false
+          echo "rust_ok=$rust_ok" >> "$GITHUB_OUTPUT"
+          echo "gui_ok=$gui_ok" >> "$GITHUB_OUTPUT"
+          [[ "$rust_ok" == true && "$gui_ok" == true ]]
       - id: coverage_base
         name: Download coverage for the exact base commit
         if: success() || failure()
@@ -406,8 +488,8 @@ jobs:
           COVERAGE_BASELINE: ${{ steps.coverage_base.outputs.path }}
           COVERAGE_BASE_RUN: ${{ steps.coverage_base.outputs.run }}
           COVERAGE_BASE_COMMIT: ${{ github.event.pull_request.base.sha || github.event.before }}
-          RUST_COVERAGE_SUCCEEDED: ${{ steps.rust_coverage.outcome == 'success' }}
-          GUI_COVERAGE_SUCCEEDED: ${{ steps.gui_coverage.outcome == 'success' }}
+          RUST_COVERAGE_SUCCEEDED: ${{ steps.parallel_coverage.outputs.rust_ok == 'true' }}
+          GUI_COVERAGE_SUCCEEDED: ${{ steps.parallel_coverage.outputs.gui_ok == 'true' }}
         run: node release-packaging/quality/coverage.mjs "$COVERAGE_BASELINE"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && github.event_name == 'push'
