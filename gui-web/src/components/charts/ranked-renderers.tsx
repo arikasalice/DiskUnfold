@@ -1,4 +1,5 @@
 import { GeometryRenderer } from "./geometry-renderer";
+import { ChartIcon } from "../presentation";
 import type {
   GeometryRendererProps,
   HistogramRange,
@@ -24,6 +25,9 @@ const CHAR = 7;
 const WIDE_CHAR = 12;
 /** Between the name column and the bars (F06 README 43). */
 const NAME_GAP = 12;
+/** A folder's icon before its name (#318): the icon and the space after it. */
+const ICON = 14;
+const ICON_ROOM = ICON + 4;
 /** The widest histogram column; a few bins do not stretch across the chart. */
 const MAX_COLUMN = 96;
 /** The tallest histogram, so the bin names stay in view below the columns. */
@@ -128,10 +132,18 @@ export function BarRenderer(props: GeometryRendererProps) {
   const rowsIn = props.shapes.flatMap((shape) =>
     share(shape, props.viewport) === null ? [] : [shape],
   );
-  // The column fits the longest name, up to 40% of the width (F06 README 43).
+  // The column fits the longest name and a folder's icon, up to 40% of the width
+  // (F06 README 43, #318).
   const nameWidth = Math.min(
     Math.floor(width * NAME_SHARE),
-    PAD + Math.max(0, ...rowsIn.map((shape) => textWidth(words(shape).name))),
+    PAD +
+      Math.max(
+        0,
+        ...rowsIn.map(
+          (shape) =>
+            (shape.folder ? ICON_ROOM : 0) + textWidth(words(shape).name),
+        ),
+      ),
   );
   const plotLeft = nameWidth + NAME_GAP;
   const plotWidth = Math.max(0, width - plotLeft - VALUE_ROOM);
@@ -155,10 +167,16 @@ export function BarRenderer(props: GeometryRendererProps) {
     const middle = PAD + index * (BAR + GAP) + BAR / 2;
     const length = Math.max(2, Math.round(part * plotWidth));
     const { name, value } = words(shape);
+    // A folder and a file are told apart by the icon, also while a narrowed
+    // chart gives them one colour (F06 README 46.12).
+    const nameLeft = PAD + (shape.folder ? ICON_ROOM : 0);
     return (
       <g key={shape.shapeRef}>
-        <text className="du-geometry-bar-name" x={PAD} y={middle}>
-          {shorten(name, nameWidth - PAD)}
+        {shape.folder && (
+          <ChartIcon name="folder" x={PAD} y={middle - ICON / 2} size={ICON} />
+        )}
+        <text className="du-geometry-bar-name" x={nameLeft} y={middle}>
+          {shorten(name, nameWidth - nameLeft)}
         </text>
         <text
           className="du-geometry-bar-value"

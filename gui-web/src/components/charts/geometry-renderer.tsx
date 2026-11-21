@@ -29,6 +29,8 @@ type Shape = {
   displayValue?: string;
   /** An expanded folder: drawn as a frame with a header band over the shapes it holds. */
   container?: boolean;
+  /** A folder, expanded or not; a bar chart marks its name with the folder icon (#318). */
+  folder?: boolean;
   /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
   lowerBound?: boolean;
   /**
