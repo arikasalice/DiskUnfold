@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn applying_an_unchanged_policy_is_no_effect_without_saving() -> Result<(), String> {
+    let initial = policy(false, None);
+    let setup = setup(initial.clone(), Vec::new())?;
+    let reviewed = review(&setup, json!({"enabled":false}))?;
+    let fingerprint = reviewed["fingerprint"]
+        .as_str()
+        .ok_or("missing fingerprint")?;
+    let applied = apply(&setup, &reviewed, fingerprint);
+
+    assert!(applied.error.is_none());
+    assert_eq!(applied.body["outcome"], "no_effect");
+    assert!(applied.body.get("cleanupJobRef").is_none());
+    assert_eq!(setup.saves.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        setup
+            .policy
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone(),
+        initial
+    );
+    Ok(())
+}
+
+#[test]
 fn apply_is_idempotent_and_cancel_after_apply_has_no_effect() -> Result<(), String> {
     let setup = setup(policy(false, None), Vec::new())?;
     let reviewed = review(&setup, json!({"enabled":true,"days":30}))?;
