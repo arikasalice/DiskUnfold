@@ -79,7 +79,13 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
     };
     let firmlink_file = fs::read("/usr/share/firmlinks")?;
     let present_count = both_sides_present_count(&firmlink_file, &group.data_mount)?;
-    assert_eq!(present_count, 18);
+    // The list differs between macOS releases; the group holds exactly the rows
+    // present on both sides, and those are at least half of the listed rows.
+    let listed = firmlink_file
+        .split(|&byte| byte == b'\n')
+        .filter(|line| !line.strip_suffix(b"\r").unwrap_or(line).is_empty())
+        .count();
+    assert!(present_count > 0 && present_count * 2 >= listed);
     assert_eq!(group.firmlinks.len(), present_count);
     let users_firmlink = group
         .firmlinks
