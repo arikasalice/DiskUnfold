@@ -1,7 +1,7 @@
 #![cfg(target_os = "macos")]
 
 use du_core_contracts::{
-    scan_observation::{ObservedKind, ScopeRootPort},
+    scan_observation::{DirectoryObservations, ObservedEntry, ObservedKind, ScopeRootPort},
     volume::{RootVolumeGroupObservation, SystemVolumeRole, VolumeGroupRole, VolumePort},
 };
 use du_platform_os::{macos_observation::MacScopeRoots, volume::MacVolumes};
@@ -52,6 +52,23 @@ fn both_sides_present_count(contents: &[u8], data_mount: &[u8]) -> io::Result<us
     Ok(count)
 }
 
+fn find_entry(
+    directory: &mut dyn DirectoryObservations,
+    name: &[u8],
+) -> Result<ObservedEntry, String> {
+    loop {
+        let batch = directory
+            .next_batch()
+            .map_err(|error| format!("{error:?}"))?;
+        if batch.is_empty() {
+            return Err(format!("missing {}", String::from_utf8_lossy(name)));
+        }
+        if let Some(entry) = batch.into_iter().find(|entry| entry.name == name) {
+            return Ok(entry);
+        }
+    }
+}
+
 #[test]
 fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::error::Error>> {
     let group = match MacVolumes.root_volume_group() {
@@ -64,12 +81,11 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
     let present_count = both_sides_present_count(&firmlink_file, &group.data_mount)?;
     assert_eq!(present_count, 18);
     assert_eq!(group.firmlinks.len(), present_count);
-    assert!(
-        group
-            .firmlinks
-            .iter()
-            .any(|entry| entry.source == b"/Users")
-    );
+    let users_firmlink = group
+        .firmlinks
+        .iter()
+        .find(|entry| entry.source == b"/Users")
+        .ok_or("missing /Users firmlink")?;
     assert_eq!(group.data_mount, b"/System/Volumes/Data");
 
     let mounts = MacVolumes
@@ -92,26 +108,30 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
     let mut root = MacScopeRoots
         .open_root(b"/")
         .map_err(|error| format!("opening root failed: {error:?}"))?;
-    loop {
-        let batch = root
-            .directory
-            .next_batch()
-            .map_err(|error| format!("root enumeration failed: {error:?}"))?;
-        if batch.is_empty() {
-            break;
-        }
-        if let Some(users) = batch.iter().find(|entry| entry.name == b"Users") {
-            assert_eq!(users.enumerated_kind, ObservedKind::Firmlink);
-            assert_eq!(
-                users
-                    .metadata
-                    .as_ref()
-                    .map_err(|error| format!("Users metadata failed: {error:?}"))?
-                    .kind,
-                ObservedKind::Firmlink
-            );
-            return Ok(());
-        }
-    }
-    Err("the root enumeration did not contain Users".into())
+    let users = find_entry(&mut *root.directory, b"Users")?;
+    assert_eq!(users.enumerated_kind, ObservedKind::Firmlink);
+    let users_metadata = users
+        .metadata
+        .as_ref()
+        .map_err(|error| format!("Users metadata failed: {error:?}"))?;
+    assert_eq!(users_metadata.kind, ObservedKind::Firmlink);
+    assert_eq!(
+        (users_metadata.device, users_metadata.inode),
+        (users_firmlink.device, users_firmlink.inode)
+    );
+
+    let mut volumes = MacScopeRoots
+        .open_root(b"/System/Volumes")
+        .map_err(|error| format!("opening volumes failed: {error:?}"))?;
+    let data = find_entry(&mut *volumes.directory, b"Data")?;
+    let data_metadata = data
+        .metadata
+        .as_ref()
+        .map_err(|error| format!("Data metadata failed: {error:?}"))?;
+    assert_eq!(data_metadata.kind, ObservedKind::MountPoint);
+    assert_eq!(
+        (data_metadata.device, data_metadata.inode),
+        (group.device, group.data_inode)
+    );
+    Ok(())
 }

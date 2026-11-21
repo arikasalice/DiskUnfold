@@ -1,3 +1,5 @@
+use crate::macos_observation::MacScopeRoots;
+use du_core_contracts::scan_observation::{DirectoryObservations, ScopeRootPort};
 use du_core_contracts::volume::{ConfirmedFirmlink, RootVolumeGroup, RootVolumeGroupObservation};
 use rustix::{
     fs::{AtFlags, CWD, FileType, statat},
@@ -30,7 +32,10 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
     let Some(path) = field(&flagged[0].f_mntonname) else {
         return RootVolumeGroupObservation::Unconfirmed;
     };
-    let Ok(Some((device, inode))) = directory_identity(&path) else {
+    let Ok(Some((device, _))) = directory_identity(&path) else {
+        return RootVolumeGroupObservation::Unconfirmed;
+    };
+    let Some(inode) = enumerated_mount_inode(&path, root.0) else {
         return RootVolumeGroupObservation::Unconfirmed;
     };
     let data_mounts = [DataMount {
@@ -69,6 +74,33 @@ fn field(raw: &[libc::c_char]) -> Option<Vec<u8>> {
             .map(|&byte| u8::from_ne_bytes(byte.to_ne_bytes()))
             .collect(),
     )
+}
+
+fn enumerated_mount_inode(data_mount: &[u8], group_device: u64) -> Option<u64> {
+    let separator = data_mount.iter().rposition(|&byte| byte == b'/')?;
+    let parent_path = if separator == 0 {
+        b"/".as_slice()
+    } else {
+        &data_mount[..separator]
+    };
+    let name = data_mount.get(separator + 1..)?;
+    if name.is_empty() {
+        return None;
+    }
+    let mut parent = MacScopeRoots.open_root(parent_path).ok()?;
+    loop {
+        let batch = parent.directory.next_batch().ok()?;
+        if batch.is_empty() {
+            return None;
+        }
+        if let Some(entry) = batch.iter().find(|entry| entry.name == name) {
+            let metadata = entry.metadata.as_ref().ok()?;
+            return (metadata.kind
+                == du_core_contracts::scan_observation::ObservedKind::MountPoint
+                && metadata.device == group_device)
+                .then_some(metadata.inode);
+        }
+    }
 }
 
 fn directory_identity(path: &[u8]) -> Result<Option<(u64, u64)>, ()> {

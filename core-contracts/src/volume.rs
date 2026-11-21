@@ -158,7 +158,7 @@ pub struct RootVolumeGroup {
     pub data_mount: Vec<u8>,
     /// The device that `/` and the data volume both report.
     pub device: u64,
-    /// Inode of the data volume's root directory, as the mount point reports it.
+    /// Inode reported for the Data mount point entry by its parent directory's enumeration.
     pub data_inode: u64,
     /// Confirmed firmlinks, sorted by `source` bytes.
     pub firmlinks: Vec<ConfirmedFirmlink>,
