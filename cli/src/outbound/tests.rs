@@ -18,7 +18,8 @@ fn a_review_keeps_its_fingerprint_and_drops_every_path() -> Result<(), String> {
         ],
         "reviewFingerprint": "abc",
         "observedAt": "2026-11-20T00:00:00Z",
-        "requestSeq": 1
+        "requestSeq": 1,
+        "volumeGroup": {"dataMount": {"display": "/System/Volumes/Data"}}
     });
     let kept = CliOutbound
         .filter("scope.review", &caller(), review)

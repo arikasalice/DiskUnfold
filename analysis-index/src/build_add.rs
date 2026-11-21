@@ -97,4 +97,32 @@ impl BuildHandle {
             },
         )
     }
+    pub(crate) fn insert(
+        &mut self,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
+        self.insert_at(0, path, observation)
+    }
+    pub(crate) fn insert_at(
+        &mut self,
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+    ) -> Result<(), BuildError> {
+        if self.finished {
+            return Err(BuildError::Unavailable);
+        }
+        if !self.valid_root(root_index) || path.iter().any(Vec::is_empty) {
+            self.abort();
+            return Err(BuildError::InvalidTree);
+        }
+        let inserted = self.observations.insert(root_index, &path, observation);
+        if inserted.is_ok() {
+            self.numbered_nodes = None;
+        } else {
+            self.abort();
+        }
+        inserted.map_err(Into::into)
+    }
 }

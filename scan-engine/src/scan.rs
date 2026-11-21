@@ -12,7 +12,7 @@ use du_core_contracts::{
 };
 pub(crate) use parallel::{
     DevicePlan, LaneDevice, ScanControlSession, collect_open_build, collect_open_forest_diagnostic,
-    collect_open_forest_filtered,
+    collect_open_forest_diagnostic_with_group, collect_open_forest_filtered,
 };
 pub use parallel::{ScanControlError, ScanControlHandle, ScanPriorityOutcome};
 

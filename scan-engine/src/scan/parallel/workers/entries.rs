@@ -153,7 +153,7 @@ pub(super) fn process_entry(
         child_entry,
         child_permit,
         path_permit.take(),
-        child_attempt,
+        (child_attempt, &services.shared.visited, frame.boundary),
     );
     Ok(schedule(
         services.shared,

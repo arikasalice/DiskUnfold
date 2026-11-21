@@ -3,6 +3,7 @@
 use du_core_contracts::{
     OsPath, PathEncoding,
     analysis_ipc::{ScopeBoundary, ScopeDraft, ScopeExclusion},
+    volume::{RootVolumeGroup, RootVolumeGroupObservation},
 };
 
 use crate::error::EngineError;
@@ -86,16 +87,52 @@ fn exclusions(hash: &mut blake3::Hasher, rules: &[ScopeExclusion]) -> Result<(),
 
 /// Hashes normalized path keys and scope conditions independently of their observation.
 pub(super) fn scope(draft: &ScopeDraft) -> Result<blake3::Hash, EngineError> {
+    scope_with_group(draft, None)
+}
+
+/// Hashes a scope with the observed macOS group state, preserving legacy bytes
+/// for systems that do not expose root volume groups.
+pub(super) fn scope_observed(
+    draft: &ScopeDraft,
+    observation: &RootVolumeGroupObservation,
+) -> Result<blake3::Hash, EngineError> {
+    match observation {
+        RootVolumeGroupObservation::NotApplicable => scope(draft),
+        RootVolumeGroupObservation::Unconfirmed => scope_with_group(draft, Some(None)),
+        RootVolumeGroupObservation::Confirmed(group) => scope_with_group(draft, Some(Some(group))),
+    }
+}
+
+fn scope_with_group(
+    draft: &ScopeDraft,
+    group: Option<Option<&RootVolumeGroup>>,
+) -> Result<blake3::Hash, EngineError> {
     let mut hash = blake3::Hasher::new();
     hash.update(b"diskunfold.scope.v1\0");
-    let boundary = match draft.boundary {
-        ScopeBoundary::CurrentVolume => 0,
-        ScopeBoundary::IncludeSelected => 1,
+    let boundary = match (draft.boundary, group) {
+        (_, Some(None)) => 1,
+        (_, Some(Some(_))) => 2,
+        (ScopeBoundary::CurrentVolume, None) => 0,
+        (ScopeBoundary::IncludeSelected, None) => 1,
     };
     hash.update(&[boundary]);
     paths(&mut hash, &draft.includes)?;
     exclusions(&mut hash, &draft.exclusions)?;
     paths(&mut hash, &draft.included_mounts)?;
+    if let Some(Some(group)) = group {
+        bytes(&mut hash, &group.data_mount);
+        bytes(&mut hash, &group.device.to_le_bytes());
+        bytes(&mut hash, &group.data_inode.to_le_bytes());
+        let mut firmlinks = group.firmlinks.iter().collect::<Vec<_>>();
+        firmlinks.sort_by(|left, right| left.source.cmp(&right.source));
+        length(&mut hash, firmlinks.len());
+        for firmlink in firmlinks {
+            bytes(&mut hash, &firmlink.source);
+            bytes(&mut hash, &firmlink.target);
+            bytes(&mut hash, &firmlink.device.to_le_bytes());
+            bytes(&mut hash, &firmlink.inode.to_le_bytes());
+        }
+    }
     Ok(hash.finalize())
 }
 

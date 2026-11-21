@@ -103,6 +103,7 @@ pub struct ResultVersion {
     scope_version_id: Id,
     lineage_id: Option<Id>,
     scope_fingerprint: Option<String>,
+    volume_group: Option<du_core_contracts::volume::RootVolumeGroup>,
     completeness: ResultCompleteness,
     size_rule: BoundSizeRule,
     items: Vec<ResultItem>,
@@ -215,6 +216,7 @@ impl IngestSink {
             shared_table_limit: physical::IDENTITY_LIMIT,
             scope_version_id,
             scope_fingerprint: None,
+            volume_group: None,
             roots,
             gaps: Vec::new(),
             observations: observation_store::ObservationStore::default(),
@@ -246,6 +248,7 @@ pub struct BuildHandle {
     shared_table_limit: usize,
     scope_version_id: Id,
     scope_fingerprint: Option<String>,
+    volume_group: Option<du_core_contracts::volume::RootVolumeGroup>,
     roots: Vec<ResultScopeRoot>,
     gaps: Vec<ResultScopeGap>,
     observations: observation_store::ObservationStore,
@@ -261,13 +264,6 @@ pub struct BuildHandle {
     folder_attempts: folder_evidence_receiver::FolderAttemptLedger,
 }
 impl BuildHandle {
-    fn insert(
-        &mut self,
-        path: Vec<Vec<u8>>,
-        observation: StoredObservation,
-    ) -> Result<(), BuildError> {
-        self.insert_at(0, path, observation)
-    }
     fn valid_root(&self, root_index: u32) -> bool {
         if self.roots.is_empty() {
             root_index == 0
@@ -276,27 +272,6 @@ impl BuildHandle {
         }
     }
 
-    fn insert_at(
-        &mut self,
-        root_index: u32,
-        path: Vec<Vec<u8>>,
-        observation: StoredObservation,
-    ) -> Result<(), BuildError> {
-        if self.finished {
-            return Err(BuildError::Unavailable);
-        }
-        if !self.valid_root(root_index) || path.iter().any(Vec::is_empty) {
-            self.abort();
-            return Err(BuildError::InvalidTree);
-        }
-        let inserted = self.observations.insert(root_index, &path, observation);
-        if inserted.is_ok() {
-            self.numbered_nodes = None;
-        } else {
-            self.abort();
-        }
-        inserted.map_err(Into::into)
-    }
     pub fn publish_partial(&mut self, version_id: Id) -> Result<Arc<ResultVersion>, BuildError> {
         self.publish_partial_at(version_id, None)
     }
@@ -421,6 +396,7 @@ impl BuildHandle {
             scope_version_id: self.scope_version_id.clone(),
             lineage_id: self.lineage.clone(),
             scope_fingerprint: self.scope_fingerprint.clone(),
+            volume_group: self.volume_group.clone(),
             completeness: result_completeness,
             size_rule: self.size_rule,
             items: built.items,

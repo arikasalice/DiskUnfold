@@ -295,9 +295,10 @@ impl Frame {
         entry: ObservedEntry,
         entry_permit: Option<Permit>,
         path_permit: Option<Permit>,
-        correlated: correlated::Attempt,
+        context: (correlated::Attempt, &super::admission::Visited, Boundary),
     ) -> Self {
-        let boundary = Boundary::child(&entry);
+        let (correlated, visited, parent_boundary) = context;
+        let boundary = visited.child_boundary(&entry, parent_boundary);
         let mut frame = Self::with_directory(
             root_index,
             path,

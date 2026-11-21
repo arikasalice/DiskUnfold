@@ -27,6 +27,7 @@ pub(super) fn run(
         diagnostics,
         scan_control,
         correlated_budget,
+        volume_group,
     } = options;
     let root_count = roots.len();
     let sharing = roots
@@ -43,13 +44,14 @@ pub(super) fn run(
     if context.checkpoint() == Checkpoint::Cancel {
         return seal_unstarted(build, ids, root_count, None);
     }
-    let prepared = match preparation::prepare(&mut reports, roots, context, &disconnects) {
-        Ok(prepared) => prepared,
-        Err(JobFlowError::Cancelled) => {
-            return seal_unstarted(build, ids, root_count, None);
-        }
-        Err(_) => return Err(BuildError::Unavailable),
-    };
+    let prepared =
+        match preparation::prepare(&mut reports, roots, context, &disconnects, volume_group) {
+            Ok(prepared) => prepared,
+            Err(JobFlowError::Cancelled) => {
+                return seal_unstarted(build, ids, root_count, None);
+            }
+            Err(_) => return Err(BuildError::Unavailable),
+        };
     build.set_volume_reports(reports.snapshot())?;
     let counted_roots =
         preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;

@@ -7,6 +7,7 @@ use du_core_contracts::{
     analysis_ipc::{ScanCollection, ScanResourceMode, ScanStart, ScanStartRequest},
     job::JobBody,
     scan_observation::ScopeRootPort,
+    volume::VolumePort,
 };
 use du_job_runtime::{
     DeduplicationKey, JobIdentity, JobPriority, ResultBinding, RuntimeError, Submission,
@@ -52,6 +53,7 @@ pub(crate) fn register_with_limit(
         ids,
         ScanRegistrationOptions {
             comparison: None,
+            volumes: None,
             limit,
             diagnostics,
             admissions: None,
@@ -79,6 +81,7 @@ pub(crate) fn register_with_admissions(
         ids,
         ScanRegistrationOptions {
             comparison: None,
+            volumes: None,
             limit,
             diagnostics,
             admissions: Some(admissions),
@@ -103,6 +106,7 @@ pub(crate) fn register_with_comparison(
         ids,
         ScanRegistrationOptions {
             comparison,
+            volumes: None,
             limit: Arc::new(SharedTableLimit::default),
             diagnostics: None,
             admissions: None,
@@ -127,6 +131,7 @@ pub(crate) fn register_with_priority(
         ids,
         ScanRegistrationOptions {
             comparison: None,
+            volumes: None,
             limit: Arc::new(SharedTableLimit::default),
             diagnostics: None,
             admissions: None,
@@ -140,6 +145,7 @@ pub(crate) fn register_with_priority(
 /// Everything the scan registration composes besides the engine ports.
 pub(crate) struct ScanRegistrationOptions {
     pub(crate) comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    pub(crate) volumes: Option<Arc<dyn VolumePort>>,
     pub(crate) limit: SharedTableLimitSource,
     pub(crate) diagnostics: Option<ScanDiagnosticsFactory>,
     pub(crate) admissions: Option<crate::recent_scope::RecentScopeAdmissionPublisher>,
@@ -181,6 +187,7 @@ pub(crate) fn register_with_options(
         store: store.clone(),
         admitted: admitted.clone(),
         comparison: options.comparison,
+        volumes: options.volumes,
         limit: options.limit,
         size_rules,
         diagnostics: options.diagnostics,
@@ -218,6 +225,7 @@ struct StartScan {
     store: IngestSink,
     admitted: Arc<Mutex<Option<Admitted>>>,
     comparison: Option<Arc<dyn scope::exclusion::PathComparison>>,
+    volumes: Option<Arc<dyn VolumePort>>,
     limit: SharedTableLimitSource,
     size_rules: size_rule::SizeRules,
     diagnostics: Option<ScanDiagnosticsFactory>,
@@ -280,6 +288,7 @@ impl UseCase for StartScan {
             &request.draft,
             &request.review_fingerprint,
             &*self.roots,
+            self.volumes.as_deref(),
             self.comparison.clone(),
             self.admissions.is_some(),
             caller.channel,
@@ -326,7 +335,8 @@ impl UseCase for StartScan {
         .with_scope_fingerprint(scope_fingerprint.clone())
         .with_resource_condition(resource_mode, user_limit)
         .with_shared_table_limit((self.limit)().entries())
-        .with_size_rule(size_rule);
+        .with_size_rule(size_rule)
+        .with_volume_group(verified.volume_group.clone());
         if let Some(factory) = &self.diagnostics {
             job = job.with_diagnostics(factory());
         }

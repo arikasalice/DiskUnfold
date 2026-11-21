@@ -60,6 +60,7 @@ fn cancel_drains_two_lanes_under_backpressure_once_and_stops_reads() -> Result<(
                 diagnostics: None,
                 scan_control: None,
                 correlated_budget: None,
+                volume_group: None,
             },
         )
         .map_err(|error| format!("{error:?}"));

@@ -50,6 +50,7 @@ fn test_hook_retains_initial_shared_ready_peak_for_each_scan()
                 diagnostics: Some(&peak),
                 scan_control: None,
                 correlated_budget: None,
+                volume_group: None,
             },
         )
         .map_err(|e| format!("{e:?}"))?;
