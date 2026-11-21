@@ -265,6 +265,8 @@ jobs:
           save-cache: ${{ env.CACHE_SAVE }}
       - name: Install pinned Rust
         shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rustTarget }}
         run: |
           set -euo pipefail
           if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
@@ -275,6 +277,9 @@ jobs:
               curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             fi
           fi
+          # The rustup default host follows the machine (a self-hosted Intel runner on an Apple silicon host
+          # would pick aarch64), so pin it to the target's triple before the pinned toolchain resolves.
+          rustup set default-host "$RUST_TARGET"
           rustup toolchain install 1.99.1 --profile minimal --component clippy
           rustup default 1.99.1
       - name: Confirm native architecture
