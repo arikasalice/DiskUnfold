@@ -24,7 +24,7 @@ There is no `lint`-only matrix: each `native` matrix job runs both clippy comman
 
 | Job | Work |
 | --- | --- |
-| `gate` | On scheduled runs, stops the workflow if the last successful scheduled run already covered the same commit. Runs on `ubuntu-slim`. |
+| `gate` | On scheduled runs, stops the workflow if the last successful scheduled run already covered the same commit. Runs on `ubuntu-24.04`. |
 | `prepare` | Runs `npm ci --ignore-scripts` and the Vite build once; publishes `gui-dist` and `targets` artifacts and outputs the native matrix and `ui_smoke` decision. |
 | `static` | Formatting, GUI checks, Windows drop-bridge tests, architecture check, generated-contract diff, cargo-deny, npm licenses, dependency register, release workflow policy, coverage/matrix/fuzz checks, and jscpd outside PRs. Artifact `quality-policy`. |
 | `native` (per selected target) | Two clippy commands and workspace tests; ignored NTFS or btrfs observation tests where applicable; Linux launch and WebKit smoke. Uses the `prCheck` targets (currently all six) for PRs or all six full-tier targets. Runner selection follows [Runners](#runners). |

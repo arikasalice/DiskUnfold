@@ -9,8 +9,8 @@ permissions:
 
 jobs:
   check-author:
-    # The job only calls the GitHub API with curl, so the one-vCPU runner is enough.
-    runs-on: ubuntu-slim
+    # The job only calls the GitHub API with curl.
+    runs-on: ubuntu-24.04
     steps:
       - name: Close pull requests from non-collaborators
         env:

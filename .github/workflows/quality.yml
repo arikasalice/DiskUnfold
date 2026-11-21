@@ -52,7 +52,7 @@ env:
 jobs:
   # Scheduled runs stop here when the last successful scheduled run already covered this commit.
   gate:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
