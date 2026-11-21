@@ -51,7 +51,11 @@ const folder: FolderQueryRow = {
   correspondence: unknown,
 };
 
-function opened(origin: string, row: FolderQueryRow): BrowseOpenResponse {
+function opened(
+  origin: string,
+  row: FolderQueryRow,
+  observedAt: string | null = "2026-11-14T10:00:00Z",
+): BrowseOpenResponse {
   return {
     kind: "opened",
     requestSeq: 1,
@@ -67,7 +71,7 @@ function opened(origin: string, row: FolderQueryRow): BrowseOpenResponse {
       rows: [row],
       total: { state: "lower_bound", count: 1 },
       unknownCount: 0,
-      observedAt: "2026-11-14T10:00:00Z",
+      observedAt,
       completeness: "partial",
       nextCursor: null,
     },
@@ -80,11 +84,12 @@ async function browse(
   origin: string,
   row: FolderQueryRow = folder,
   regional?: RegionalFormat,
+  observedAt?: string | null,
 ) {
   const port: BrowsePort = {
     open: vi.fn((request) =>
       Promise.resolve({
-        ...opened(origin, row),
+        ...opened(origin, row, observedAt),
         requestSeq: request.requestSeq,
       }),
     ),
@@ -103,7 +108,7 @@ async function browse(
 test("the browse header names the scan origin and a lower-bound count in Korean", async () => {
   await browse("scan");
   expect(
-    screen.getByText("현재 분석 · 2026-11-14 · 항목 최소 1개"),
+    screen.getByText("현재 분석 · 2026-11-14 10:00 · 항목 최소 1개"),
   ).toBeDefined();
 });
 
@@ -119,11 +124,54 @@ test("F02 #353: the observation time follows the app date and time format", asyn
     timeZonePolicy: "utc",
     localTimeZoneStatus: "identified",
   });
-  expect(screen.getByText(/^현재 분석 · 2026\.11\.14 · /)).toBeDefined();
+  expect(
+    screen.getByText("현재 분석 · 2026.11.14 10:00 · 항목 최소 1개"),
+  ).toBeDefined();
   fireEvent.click(screen.getByText("관측 상세 정보"));
   const details = screen.getByText("관측 시각").nextElementSibling;
   expect(details?.textContent).toBe("2026.11.14 10:00:00 UTC");
   expect(document.body.textContent).not.toContain("2026-11-14T10:00:00Z");
+});
+
+test("F02 #353: an ISO 8601 pattern keeps its T to the minute, and an unreadable time is unavailable", async () => {
+  await browse(
+    "scan",
+    folder,
+    {
+      language: "ko",
+      decimalSeparator: ".",
+      groupingSeparator: ",",
+      groupingSize: 3,
+      datePattern: "yyyy-MM-dd'T'HH:mm:ss",
+      dateFormat: "iso8601",
+      groupNumbers: true,
+      timeZonePolicy: "utc",
+      localTimeZoneStatus: "identified",
+    },
+    "not a time",
+  );
+  expect(
+    screen.getByText("현재 분석 · 확인 불가 · 항목 최소 1개"),
+  ).toBeDefined();
+  fireEvent.click(screen.getByText("관측 상세 정보"));
+  expect(screen.getByText("관측 시각").nextElementSibling?.textContent).toBe(
+    "확인 불가",
+  );
+  cleanup();
+  await browse("scan", folder, {
+    language: "ko",
+    decimalSeparator: ".",
+    groupingSeparator: ",",
+    groupingSize: 3,
+    datePattern: "yyyy-MM-dd'T'HH:mm:ss",
+    dateFormat: "iso8601",
+    groupNumbers: true,
+    timeZonePolicy: "utc",
+    localTimeZoneStatus: "identified",
+  });
+  expect(
+    screen.getByText("현재 분석 · 2026-11-14T10:00 · 항목 최소 1개"),
+  ).toBeDefined();
 });
 
 test("an origin without copy reads as unknown and is not shown", async () => {

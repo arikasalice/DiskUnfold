@@ -169,10 +169,8 @@ export function useTimestampText() {
     timestampString(parts(value, fallback));
 }
 
-/** The day of a timestamp in the app's pattern, without the time of day. */
-export function displayDay(value: number, format: RegionalFormat) {
-  const clock = format.datePattern.search(/'T'|HH/);
-  const datePattern =
-    clock > 0 ? format.datePattern.slice(0, clock).trim() : format.datePattern;
+/** A timestamp in the app's pattern down to the minute, without seconds or zone. */
+export function displayMinute(value: number, format: RegionalFormat) {
+  const datePattern = format.datePattern.replace(/[^HHmm]*ss.*$/, "");
   return displayTimestamp(value, { ...format, datePattern })?.date;
 }

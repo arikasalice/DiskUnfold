@@ -9,7 +9,7 @@ import {
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import {
-  displayDay,
+  displayMinute,
   useRegionalFormat,
   useTimestampText,
 } from "../../i18n/regional-format";
@@ -140,22 +140,26 @@ export function ObservationSummary({
   const regional = useRegionalFormat();
   const timestamp = useTimestampText();
   const page = opened.page;
-  // The observation time reads in the app's date and time format; a value that
-  // cannot be parsed stays as the engine wrote it.
+  // The observation time reads in the app's date and time format, to the minute
+  // above the table and in full in the details; a value that cannot be read is
+  // unavailable, not the engine's raw text.
   const observed = page.observedAt;
   const observedMillis = observed === null ? Number.NaN : Date.parse(observed);
-  const observedDay =
-    observed === null
-      ? undefined
-      : ((regional && displayDay(observedMillis, regional)) ??
-        observed.slice(0, 10));
-  const observedFull =
-    observed === null ? undefined : timestamp(observedMillis, () => observed);
+  const unavailable = text("ui.browse.unavailable", "Unavailable");
+  const readable = observed !== null && Number.isFinite(observedMillis);
+  // Without a regional setting the time reads in UTC, as ISO 8601 without the T.
+  const utc = readable ? observed.slice(0, 19).replace("T", " ") : "";
+  const observedShort = !readable
+    ? unavailable
+    : ((regional && displayMinute(observedMillis, regional)) ??
+      utc.slice(0, 16));
+  const observedFull = !readable
+    ? unavailable
+    : timestamp(observedMillis, () => `${utc} UTC`);
   return (
     <div className="du-browse-observation">
       <Text kind="muted">
-        {originText(opened.origin, text)} ·{" "}
-        {observedDay ?? text("ui.browse.unavailable", "Unavailable")} ·{" "}
+        {originText(opened.origin, text)} · {observedShort} ·{" "}
         {page.total.state === "lower_bound"
           ? text("ui.browse.item_count_at_least", "At least {count} items", {
               count: String(page.total.count),
@@ -206,8 +210,7 @@ export function ObservationSummary({
               },
               {
                 label: text("ui.browse.observed", "Observed"),
-                value:
-                  observedFull ?? text("ui.browse.unavailable", "Unavailable"),
+                value: observedFull,
               },
               {
                 label: text("ui.browse.result", "Result"),
