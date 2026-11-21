@@ -1730,6 +1730,7 @@ function Test-CaptureTreemapLink {
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
     # #175: the folder items table fits the window without scrolling sideways.
     # The scroll area's name fills a template with the table's own (translated) name.
+    Open-FolderRows
     $tableName = Get-UiName 'Items in this folder'
     $areaName = (Get-UiName 'Items in this folder scroll area').Replace('Items in this folder', $tableName)
     $tableArea = Wait-UI 'folder items table' { Find-UI $areaName $null } 30
@@ -1802,6 +1803,17 @@ function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
   Wait-UI "$title $(if ($expanded) { 'expanded' } else { 'collapsed' }) by $how" {
     $toggle = Find-UI $title $button
     if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
+  }
+}
+# Under a chart the folder's rows open folded, since each shape has its info card (F06 README 22).
+# A histogram's rows are named by size range.
+function Open-FolderRows([string]$english = 'Items in this folder') {
+  $title = Get-UiName $english
+  $toggle = Wait-UI 'the folder rows toggle' { Find-UI $title $button }
+  if (-not (Get-SmokeExpanded $toggle)) {
+    # The disclosure exposes expand and collapse, not invoke.
+    $toggle.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $null = Wait-SmokeExpanded $title $true 'opening'
   }
 }
 # Chooses the unique physical size basis in the display options of a finished scan.
@@ -1959,6 +1971,8 @@ function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
   Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
   if ($Short) { return }
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
+  $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
+  Open-FolderRows
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
   Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
   # The bar chart narrows too: clip.mp4 and docs by their video bytes (#301).
@@ -2205,6 +2219,7 @@ function Test-CaptureHistogramGaps {
   # as a range. The last interval's button brings the rows into the window.
   $buttonType = [Windows.Automation.ControlType]::Button
   $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)
+  Open-FolderRows 'Items by size range'
   $openButton = { param($range) @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -like "*$range*" }) | Select-Object -First 1 }
   $openLast = Wait-UI 'the open button of the 1 GiB interval' { & $openButton '1 GiB*1 TiB' }
   $openEmpty = & $openButton '1 MiB*1 GiB'
@@ -2225,6 +2240,8 @@ function Test-CaptureHistogramGaps {
   $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
   "Empty interval on the size axis: '$($empty.Current.Name)'"
   Save-SmokeCapture '02-histogram-gaps-size'
+  # A new model opens its rows folded again.
+  Open-FolderRows 'Items by size range'
   $openLast = Wait-UI 'the open button on the size axis' { & $openButton '1 GiB*1 TiB' }
   Save-SmokeCapture '04-histogram-gaps-size-table' -Prepare { $null = Show-InWindow $openLast }
   "Histogram gaps capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
