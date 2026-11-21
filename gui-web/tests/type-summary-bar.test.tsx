@@ -74,7 +74,7 @@ function show(
   );
 }
 
-test("F02 #300: the five largest types and the rest are a bar with the same words under it", async () => {
+test("F02 #300: the five largest types and the rest are a bar and a list in the same order", async () => {
   const { call, client } = answering({
     resultVersion: version,
     slices: [
@@ -97,25 +97,33 @@ test("F02 #300: the five largest types and the rest are a bar with the same word
     resultVersion: version,
     basis: "allocated",
   });
-  // Five named types and one slice for the rest, in a bar 12 px high.
+  // Five named types, largest first, and one slice for the rest, in a bar 12 px high.
   const slices = container.querySelectorAll(".du-stacked-bar__slice");
   expect([...slices].map((s) => s.getAttribute("data-key"))).toEqual([
-    "type.document",
-    "type.audio",
-    "type.image",
     "type.video",
+    "type.document",
+    "type.image",
+    "type.audio",
     "type.archive",
     "other",
   ]);
   expect(
     container.querySelector(".du-stacked-bar")?.getAttribute("data-height"),
   ).toBe("12");
-  // The same content as text: the largest first, the rest said once.
-  expect(card.textContent).toContain("동영상");
-  expect(card.textContent).toContain("나머지 유형 2개");
-  expect(card.textContent?.indexOf("동영상")).toBeLessThan(
-    card.textContent?.indexOf("문서") ?? 0,
-  );
+  // The same content as a list: a colour square before each item, spaces inside it,
+  // the rest of the types, and the part no type holds last.
+  const items = [...card.querySelectorAll("li")].map((li) => li.textContent);
+  expect(items).toEqual([
+    "동영상 400.0 MiB",
+    "문서 300.0 MiB",
+    "이미지 200.0 MiB",
+    "오디오 100.0 MiB",
+    "압축 파일 50.0 MiB",
+    "나머지 유형 2개 50.0 MiB",
+    "유형별로 나누지 못함 100.0 MiB",
+  ]);
+  expect(card.querySelectorAll("li > [data-tone]")).toHaveLength(7);
+  expect(card.querySelector('[data-tone="unsplit"]')).not.toBeNull();
 });
 
 test("F02 #300: an empty answer is a scope without files only when every range was read", async () => {

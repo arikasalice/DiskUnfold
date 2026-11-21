@@ -572,6 +572,12 @@ const shots =
           { name: "light-1280", theme: "light", width: 1280 },
           { name: "dark-1280", theme: "dark", width: 1280 },
           { name: "light-700", theme: "light", width: 700 },
+          {
+            name: "forced-colors-1280",
+            theme: "light",
+            width: 1280,
+            forcedColors: "active",
+          },
         ]
       : surface === "target-picker"
         ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
@@ -882,6 +888,18 @@ async function open(
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
       );
+    if (surface === "summary") {
+      // The type card asks the fixed client, so it is drawn a moment after the rest.
+      for (let tries = 0; tries < 40; tries++) {
+        if (
+          await session.run(() =>
+            Boolean(document.querySelector(".du-type-summary__list")),
+          )
+        )
+          break;
+        await sleep(100);
+      }
+    }
     if (surface === "summary" && scene === "type-summary") {
       // F02 #300: the type bar is drawn, 12 px high, with its words under it.
       const bar = await session.run(() => {
@@ -890,11 +908,12 @@ async function open(
         const height = card
           ?.querySelector(".du-stacked-bar")
           ?.getBoundingClientRect().height;
-        return { slices, height, words: card?.textContent ?? "" };
+        const items = card?.querySelectorAll("li").length;
+        return { slices, items, height, words: card?.textContent ?? "" };
       });
-      if (bar.slices !== 6 || Math.round(bar.height) !== 12)
+      if (bar.slices !== 6 || Math.round(bar.height) !== 12 || bar.items !== 7)
         throw new Error("Unexpected type bar: " + JSON.stringify(bar));
-      if (!bar.words.includes("나머지 유형 2개"))
+      if (!bar.words.includes("나머지 유형 2개 3.0 MiB"))
         throw new Error("The type bar has no words under it: " + bar.words);
     }
     if (surface === "summary" && scene === "shared-limit") {

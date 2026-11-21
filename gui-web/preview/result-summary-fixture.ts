@@ -166,7 +166,6 @@ const volume: VolumeGapResponse = {
   osCategories: { state: "available", rows: [] },
 };
 
-/** Answers the reads the summary can make; nothing reaches an engine. */
 const typeSlice = (classKey: string, count: number, mebibytes: number) => ({
   classKey,
   itemCount: { unit: "items", state: "exact" as const, value: String(count) },
@@ -177,10 +176,13 @@ const typeSlice = (classKey: string, count: number, mebibytes: number) => ({
   },
 });
 
-/** The classes of the fixed result: seven types, so the card names five and the rest. */
-const typeSummary = {
-  resultVersion: version,
-  slices: [
+/**
+ * The classes of the fixed result: seven types, so the card names five and the rest.
+ * They divide the size of the basis asked for, 50 MiB logical or 2.09 TB allocated in
+ * the shared-space scene, and leave a part that no type holds.
+ */
+const typeSlices = {
+  logical: [
     typeSlice("type.video", 12, 20),
     typeSlice("type.document", 640, 10),
     typeSlice("type.image", 2100, 7),
@@ -189,6 +191,20 @@ const typeSummary = {
     typeSlice("type.no_extension", 90, 2),
     typeSlice("unclassified", 40, 1),
   ],
+  allocated: [
+    typeSlice("type.video", 12, 700_000),
+    typeSlice("type.document", 640, 450_000),
+    typeSlice("type.image", 2100, 300_000),
+    typeSlice("type.archive", 18, 150_000),
+    typeSlice("type.audio", 300, 100_000),
+    typeSlice("type.no_extension", 90, 60_000),
+    typeSlice("unclassified", 40, 20_000),
+  ],
+};
+
+const typeSummary = (basis: "logical" | "allocated") => ({
+  resultVersion: version,
+  slices: typeSlices[basis],
   legendOrder: [
     "type.document",
     "type.audio",
@@ -200,12 +216,17 @@ const typeSummary = {
     "type.no_extension",
     "unclassified",
   ],
-  lowerBound: false,
-};
+  lowerBound: basis === "allocated",
+});
+
+/** Answers the reads the summary can make; nothing reaches an engine. */
 
 /** Answers the reads the summary can make; nothing reaches an engine. */
 export const summaryClient: AnalysisClient = {
-  call: (async (name: string, body: { requestSeq?: number }) => {
+  call: (async (
+    name: string,
+    body: { requestSeq?: number; basis?: "logical" | "allocated" },
+  ) => {
     switch (name) {
       case "scan.failures":
         return { resultVersion: version, rows: [], totalCount: 0 };
@@ -214,7 +235,9 @@ export const summaryClient: AnalysisClient = {
       case "browse.detail":
         return folder;
       case "space.type_summary":
-        return typeSummary;
+        return typeSummary(
+          body.basis === "allocated" ? "allocated" : "logical",
+        );
       default:
         throw new Error("The preview has no answer for " + name);
     }
