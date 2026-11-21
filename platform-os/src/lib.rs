@@ -33,6 +33,8 @@ pub mod path_link;
 #[allow(unsafe_code)]
 pub mod process_memory;
 pub mod self_executable;
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+pub mod snapshot_file_system;
 pub mod startup;
 pub mod support_environment;
 pub mod volume;
