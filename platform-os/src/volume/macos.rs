@@ -187,7 +187,9 @@ fn container(source: &[u8]) -> Option<Vec<u8>> {
     if number.is_empty()
         || slice.is_empty()
         || !number.iter().all(u8::is_ascii_digit)
-        || !slice.iter().all(u8::is_ascii_digit)
+        // `3`, or `3s1` for a volume mounted from a snapshot of its own.
+        || !slice.iter().all(|byte| byte.is_ascii_digit() || *byte == b's')
+        || !slice.last().is_some_and(u8::is_ascii_digit)
     {
         return None;
     }
