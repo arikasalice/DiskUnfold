@@ -3,6 +3,7 @@
 use super::{FileIdentity, SharingEvidence, SpaceObservation};
 use crate::BuildError;
 use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 const HAS_OBSERVATION: u32 = 1 << 0;
@@ -11,6 +12,8 @@ const HAS_IDENTITY: u32 = 1 << 2;
 const INLINE_IDENTITY: u32 = 1 << 3;
 const HAS_LINK_COUNT: u32 = 1 << 4;
 const SHARING_UNKNOWN: u32 = 1 << 5;
+const INLINE_FILE_IDENTITY: u32 = 1 << 6;
+const MAX_INTERNED_VOLUMES: usize = 256;
 
 #[derive(Clone, Debug)]
 pub(crate) struct PhysicalRecord {
@@ -86,6 +89,13 @@ impl<'a> PhysicalObservationRef<'a> {
                 }
                 let (volume, file) = if record.flags & INLINE_IDENTITY != 0 {
                     (&record.identity[..8], &record.identity[8..])
+                } else if record.flags & INLINE_FILE_IDENTITY != 0 {
+                    let offset =
+                        u32::from_le_bytes(record.identity[8..12].try_into().ok()?) as usize;
+                    let volume_len =
+                        u32::from_le_bytes(record.identity[12..16].try_into().ok()?) as usize;
+                    let volume_end = offset.checked_add(volume_len)?;
+                    (arena.get(offset..volume_end)?, &record.identity[..8])
                 } else {
                     let offset =
                         usize::try_from(u64::from_le_bytes(record.identity[..8].try_into().ok()?))
@@ -226,6 +236,7 @@ pub(crate) fn compact_test_observations(
 pub(crate) struct PhysicalObservationsBuilder {
     records: Records,
     arena: Vec<u8>,
+    volumes: HashMap<Vec<u8>, (u32, u32)>,
     present_count: usize,
 }
 
@@ -243,6 +254,7 @@ impl PhysicalObservationsBuilder {
         Self {
             records,
             arena: Vec::new(),
+            volumes: HashMap::new(),
             present_count,
         }
     }
@@ -253,7 +265,7 @@ impl PhysicalObservationsBuilder {
         observation: Option<&SpaceObservation>,
     ) -> Result<(), BuildError> {
         let record = match observation {
-            Some(observation) => encode(observation, &mut self.arena)?,
+            Some(observation) => encode(observation, &mut self.arena, &mut self.volumes)?,
             None => PhysicalRecord::default(),
         };
         match &mut self.records {
@@ -284,6 +296,7 @@ impl PhysicalObservationsBuilder {
 fn encode(
     observation: &SpaceObservation,
     arena: &mut Vec<u8>,
+    volumes: &mut HashMap<Vec<u8>, (u32, u32)>,
 ) -> Result<PhysicalRecord, BuildError> {
     let mut record = PhysicalRecord {
         flags: HAS_OBSERVATION,
@@ -299,17 +312,17 @@ fn encode(
             record.flags |= INLINE_IDENTITY;
             record.identity[..8].copy_from_slice(&identity.volume);
             record.identity[8..].copy_from_slice(&identity.file);
+        } else if identity.file.len() == 8 {
+            if let Some((offset, length)) = intern_volume(&identity.volume, arena, volumes) {
+                record.flags |= INLINE_FILE_IDENTITY;
+                record.identity[..8].copy_from_slice(&identity.file);
+                record.identity[8..12].copy_from_slice(&offset.to_le_bytes());
+                record.identity[12..].copy_from_slice(&length.to_le_bytes());
+            } else {
+                encode_arena_identity(&mut record, identity, arena)?;
+            }
         } else {
-            let offset = u64::try_from(arena.len()).map_err(|_| BuildError::CapacityExceeded)?;
-            let volume_len =
-                u64::try_from(identity.volume.len()).map_err(|_| BuildError::CapacityExceeded)?;
-            let file_len =
-                u64::try_from(identity.file.len()).map_err(|_| BuildError::CapacityExceeded)?;
-            record.identity[..8].copy_from_slice(&offset.to_le_bytes());
-            arena.extend_from_slice(&volume_len.to_le_bytes());
-            arena.extend_from_slice(&file_len.to_le_bytes());
-            arena.extend_from_slice(&identity.volume);
-            arena.extend_from_slice(&identity.file);
+            encode_arena_identity(&mut record, identity, arena)?;
         }
     }
     if let Some(link_count) = observation.link_count {
@@ -320,6 +333,45 @@ fn encode(
         record.flags |= SHARING_UNKNOWN;
     }
     Ok(record)
+}
+
+fn intern_volume(
+    volume: &[u8],
+    arena: &mut Vec<u8>,
+    volumes: &mut HashMap<Vec<u8>, (u32, u32)>,
+) -> Option<(u32, u32)> {
+    if let Some(location) = volumes.get(volume) {
+        return Some(*location);
+    }
+    if volumes.len() >= MAX_INTERNED_VOLUMES {
+        return None;
+    }
+    let offset = u32::try_from(arena.len()).ok()?;
+    let length = u32::try_from(volume.len()).ok()?;
+    let end = usize::try_from(offset).ok()?.checked_add(volume.len())?;
+    if end > u32::MAX as usize {
+        return None;
+    }
+    arena.extend_from_slice(volume);
+    volumes.insert(volume.to_vec(), (offset, length));
+    Some((offset, length))
+}
+
+fn encode_arena_identity(
+    record: &mut PhysicalRecord,
+    identity: &FileIdentity,
+    arena: &mut Vec<u8>,
+) -> Result<(), BuildError> {
+    let offset = u64::try_from(arena.len()).map_err(|_| BuildError::CapacityExceeded)?;
+    let volume_len =
+        u64::try_from(identity.volume.len()).map_err(|_| BuildError::CapacityExceeded)?;
+    let file_len = u64::try_from(identity.file.len()).map_err(|_| BuildError::CapacityExceeded)?;
+    record.identity[..8].copy_from_slice(&offset.to_le_bytes());
+    arena.extend_from_slice(&volume_len.to_le_bytes());
+    arena.extend_from_slice(&file_len.to_le_bytes());
+    arena.extend_from_slice(&identity.volume);
+    arena.extend_from_slice(&identity.file);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -394,6 +446,36 @@ mod tests {
         assert_eq!(
             dense.get(1).map(PhysicalObservationRef::to_owned),
             Some(inline)
+        );
+
+        let volume = b"volume-identifier";
+        let mut builder = PhysicalObservations::builder(2, 2);
+        for file_number in 0..2_u64 {
+            let shared_volume = observation(
+                FileIdentity {
+                    volume: volume.to_vec(),
+                    file: file_number.to_le_bytes().to_vec(),
+                },
+                SharingEvidence::None,
+            );
+            builder
+                .push(file_number as u32, Some(&shared_volume))
+                .map_err(|error| format!("{error:?}"))?;
+        }
+        let interned = builder.finish();
+        assert_eq!(interned.arena, volume);
+        assert_eq!(
+            interned
+                .get(0)
+                .map(PhysicalObservationRef::to_owned)
+                .and_then(|value| value.identity),
+            Some(FileIdentity {
+                volume: volume.to_vec(),
+                file: 0_u64.to_le_bytes().to_vec(),
+            })
+        );
+        assert!(
+            matches!(&interned.records, Records::Dense(records) if records.iter().all(|r| r.flags & INLINE_FILE_IDENTITY != 0))
         );
         Ok(())
     }
