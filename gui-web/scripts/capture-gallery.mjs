@@ -13,6 +13,7 @@
 // - scan-lanes scenes: the F02 #317 collection-condition states and the
 //   accepted resource change while the current folder is still being read,
 //   plus the F02 #257 lane failure link and issue filters.
+// - summary scene: F03 #386 allocated shared-space measurement limitation.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
@@ -21,6 +22,8 @@
 //   npm run capture:date-picker-gallery -- [output folder]
 //   node scripts/capture-gallery.mjs target-picker <output folder> [scene]
 //     scene: default | checking | hidden-all   (F02 #350)
+//   node scripts/capture-gallery.mjs summary <output folder> [scene]
+//     scene: shared-limit   (F03 #386)
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error |
@@ -69,12 +72,14 @@ const surfaces = {
   },
   // F02 #350: the location picker with a network volume and 9 hidden volumes.
   "target-picker": { ready: ".du-drive-picker", count: 1, pointer: false },
+  summary: { ready: ".du-metric__detail", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
 const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const summaryScenes = ["shared-limit"];
 const scanLaneScenes = [
   "scope-collapsed",
   "scope-expanded",
@@ -90,6 +95,8 @@ const scanLaneScenes = [
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
 const targetPickerScenes = ["default", "checking", "hidden-all"];
+const requestedSummaryScene =
+  surface === "summary" ? process.argv[4] : undefined;
 const requestedScanLaneScene =
   surface === "scan-lanes" ? process.argv[4] : undefined;
 const selectedBrowseScene =
@@ -100,18 +107,22 @@ if (selectedBrowseScene && !browseScenes.includes(selectedBrowseScene))
   throw new Error("Unknown browse scene: " + selectedBrowseScene);
 if (requestedScanLaneScene && !scanLaneScenes.includes(requestedScanLaneScene))
   throw new Error("Unknown scan-lanes scene: " + requestedScanLaneScene);
+if (requestedSummaryScene && !summaryScenes.includes(requestedSummaryScene))
+  throw new Error("Unknown summary scene: " + requestedSummaryScene);
 const captureScenes =
-  surface === "browse"
-    ? selectedBrowseScene
-      ? [selectedBrowseScene]
-      : browseScenes
-    : surface === "scan-lanes" && requestedScanLaneScene
-      ? [requestedScanLaneScene]
-      : surface === "target-picker"
-        ? process.argv[4]
-          ? [process.argv[4]]
-          : targetPickerScenes
-        : [undefined];
+  surface === "summary"
+    ? [requestedSummaryScene ?? "shared-limit"]
+    : surface === "browse"
+      ? selectedBrowseScene
+        ? [selectedBrowseScene]
+        : browseScenes
+      : surface === "scan-lanes" && requestedScanLaneScene
+        ? [requestedScanLaneScene]
+        : surface === "target-picker"
+          ? process.argv[4]
+            ? [process.argv[4]]
+            : targetPickerScenes
+          : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -433,9 +444,11 @@ const shots =
           locale: "en",
         },
       ]
-    : surface === "target-picker"
-      ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
-      : galleryShots;
+    : surface === "summary"
+      ? [{ name: "light-1280", theme: "light", width: 1280 }]
+      : surface === "target-picker"
+        ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
+        : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -725,6 +738,23 @@ async function open(
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
       );
+    if (surface === "summary" && scene === "shared-limit") {
+      const placed = await session.run(() => {
+        const metric = document.querySelector(
+          '[role="group"][aria-label="할당 크기"]',
+        );
+        const detail = metric?.querySelector(".du-metric__detail");
+        const notice = metric?.parentElement?.nextElementSibling;
+        return (
+          detail?.textContent === "불완전 측정 · 파일 시스템이 알려 준 값" &&
+          notice?.classList.contains("du-notice--info") === true
+        );
+      });
+      if (!placed)
+        throw new Error(
+          "The shared-space info notice is not immediately below the allocated measurement detail",
+        );
+    }
   }
 }
 
