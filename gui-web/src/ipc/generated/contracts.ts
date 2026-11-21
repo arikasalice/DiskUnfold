@@ -1563,6 +1563,19 @@ boundary?: BrowseValue<FolderBoundary>,
  */
 countedAt?: OsPath,
 /**
+ * The item that `counted_at` names in the same result version, for moving there
+ * (#263). Present only with `counted_at` and only when that folder is in the
+ * result; never used for sizes. `null` is rejected. GUI channel only.
+ */
+countedAtItem?: ItemRef,
+/**
+ * The folder's place in the result's confirmed root volume group (#263), an
+ * open set: [`FolderFlags::GROUP_ROLE_DATA`] marks the data mount itself.
+ * Omitted for every other folder and an unknown value means no mark; the
+ * screen never compares paths for it. `null` is rejected. GUI channel only.
+ */
+groupVolumeRole?: string,
+/**
  * Unread ranges inside a folder that was itself read (#226).
  *
  * Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:

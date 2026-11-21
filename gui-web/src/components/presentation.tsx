@@ -288,7 +288,16 @@ export function Notice({
   if (announce) role = tone === "error" ? "alert" : "status";
   return (
     <div id={id} className={`du-notice du-notice--${tone}`} role={role}>
-      <Icon name={icon ?? (tone === "info" ? "activity" : "alert")} />
+      <Icon
+        name={
+          icon ??
+          (tone === "error"
+            ? "alert"
+            : tone === "warning"
+              ? "warning"
+              : "activity")
+        }
+      />
       <div>{children}</div>
     </div>
   );

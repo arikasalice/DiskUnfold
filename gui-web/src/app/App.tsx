@@ -489,12 +489,25 @@ function BrowseSurface({
         focusTitle
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}
-        inspectItem={(item, kind) => (
+        inspectItem={(
+          item,
+          kind,
+          countedAt,
+          countedAtItem,
+          groupVolumeRole,
+          navigateItem,
+          focusCountedAtItem,
+        ) => (
           <FileInspection
             key={`${item.resultVersion}:${item.itemNo}`}
             client={client}
             item={item}
             itemKind={kind}
+            {...(countedAt ? { countedAt } : {})}
+            {...(countedAtItem ? { countedAtItem } : {})}
+            {...(groupVolumeRole ? { groupVolumeRole } : {})}
+            {...(navigateItem ? { navigateItem } : {})}
+            {...(focusCountedAtItem ? { focusCountedAtItem } : {})}
             display={display}
           />
         )}
