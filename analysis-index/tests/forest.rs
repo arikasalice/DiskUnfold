@@ -213,11 +213,7 @@ fn one_root_forest_preserves_existing_root_and_default_browse() -> Result<(), St
             .item_no,
         0
     );
-    assert_eq!(result.scope_total(), result.space(0).ok_or("root")?);
-    assert!(std::ptr::eq(
-        result.scope_total(),
-        result.space(0).ok_or("root")?
-    ));
+    assert_eq!(result.scope_total(), &result.space(0).ok_or("root")?);
     Ok(())
 }
 
@@ -326,10 +322,7 @@ fn one_root_gap_is_included_in_the_reused_scope_aggregate() -> Result<(), String
     let result = build
         .seal(id(2)?, ResultCompleteness::Complete)
         .map_err(|e| format!("{e:?}"))?;
-    assert!(std::ptr::eq(
-        result.scope_total(),
-        result.space(0).ok_or("root")?
-    ));
+    assert_eq!(result.scope_total(), &result.space(0).ok_or("root")?);
     assert_eq!(
         result.scope_total().logical.amount,
         SizeAmount::LowerBound {
