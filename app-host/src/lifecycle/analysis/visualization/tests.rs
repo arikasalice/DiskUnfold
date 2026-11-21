@@ -101,6 +101,7 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
         Some((
             crate::history_retention::HistoryExpiryReader::new(profile.path(), database.clone()),
             Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default()),
+            Arc::new(|_| {}),
         )),
         #[cfg(windows)]
         None,

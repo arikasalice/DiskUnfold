@@ -127,6 +127,26 @@ impl StartupSettings {
             .unwrap_or_else(|_| du_user_env::history_retention::unreadable_policy())
     }
 
+    /// Holds the settings owner lock through a guarded history deletion commit.
+    pub(super) fn with_history_retention_policy<T>(
+        &self,
+        expected_fingerprint: &str,
+        delete: impl FnOnce() -> Result<T, du_core_contracts::job::HistoryPruneDeleteError>,
+    ) -> Result<Option<T>, du_core_contracts::job::HistoryPruneDeleteError> {
+        let service = self
+            .service
+            .lock()
+            .map_err(|_| du_core_contracts::job::HistoryPruneDeleteError::Unavailable)?;
+        let policy = service.history_retention_policy();
+        if !policy.enabled
+            || policy.unavailable_reason.is_some()
+            || policy.policy_fingerprint != expected_fingerprint
+        {
+            return Ok(None);
+        }
+        delete().map(Some)
+    }
+
     /// Supplies the current policy whenever the GUI reads it.
     pub(super) fn history_retention_policy_source(
         self: Arc<Self>,
@@ -139,6 +159,7 @@ impl StartupSettings {
     /// Supplies an owner-only saver for the reviewed F21 retention policy.
     pub(super) fn history_retention_policy_saver(
         self: Arc<Self>,
+        policy_changed: Arc<dyn Fn(bool) + Send + Sync>,
     ) -> du_engine_api::history::retention::HistoryRetentionPolicySaver {
         Arc::new(move |enabled, days| {
             let mut service = self.service.lock().map_err(|_| {
@@ -149,7 +170,10 @@ impl StartupSettings {
                 .map_err(|_| {
                     du_engine_api::history::retention::HistoryRetentionPolicySaveError::Unavailable
                 })?;
-            Ok(service.history_retention_policy())
+            let policy = service.history_retention_policy();
+            drop(service);
+            policy_changed(policy.unavailable_reason.is_none() && policy.enabled);
+            Ok(policy)
         })
     }
 

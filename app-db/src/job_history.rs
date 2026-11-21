@@ -22,6 +22,7 @@ use crate::{
     AppDb, BUSY_TIMEOUT, HISTORY_SCHEMA_VERSION, OpenError, history_open::refuse_history_migration,
 };
 
+pub mod prune;
 pub mod read;
 
 impl AppDb {

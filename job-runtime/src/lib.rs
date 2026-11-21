@@ -3,6 +3,7 @@ pub mod bound_subscribers;
 mod control;
 mod delivery;
 mod flows;
+mod history_prune;
 mod history_recovery;
 mod history_retention;
 mod listing;
@@ -82,6 +83,7 @@ impl JobRuntime {
         let consumer_outstanding = outstanding.clone();
         let weak_table = Arc::downgrade(&table);
         let consumer_clock = clock.clone();
+        let event_sink = events.clone();
         let consumer = std::thread::Builder::new()
             .name("job-delivery".into())
             .spawn(move || {
@@ -99,6 +101,7 @@ impl JobRuntime {
             table,
             identity,
             clock,
+            events: event_sink,
             queue_limit: 64,
             consumer: Mutex::new(Some(consumer)),
             outstanding,

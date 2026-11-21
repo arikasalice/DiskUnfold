@@ -139,7 +139,7 @@ fn history_change_uses_the_public_revision_and_omits_internal_references()
             delete_generation: 2,
             max_record_seq: 9_007_199_254_740_993,
         },
-        reason: HistoryChangeReason::Appended,
+        reason: HistoryChangeReason::RetentionPrune,
         count: 1,
         observed_at_ms: 42,
         deleted_job_ids: vec![job.clone()],
@@ -161,7 +161,7 @@ fn history_change_uses_the_public_revision_and_omits_internal_references()
         wire["body"],
         json!({
             "revision": {"deleteGeneration": "2", "maxRecordSeq": "9007199254740993"},
-            "reason": "appended",
+            "reason": "retention_prune",
             "count": "1",
             "observedAt": wire["occurredAt"],
         })

@@ -1,36 +1,33 @@
 use super::*;
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 use du_core_contracts::{
     CallEnvelope, ENVELOPE_VERSION, ErrorCode,
     history_retention_ipc::HistoryRetentionPolicy,
-    job::{
-        HistoryAppend, HistoryExpiryCandidate, HistoryExpiryCandidates, HistoryExpiryReadError,
-        JobHistory, JobSummary,
-    },
+    job::{HistoryAppend, HistoryExpiryCandidate, JobHistory, JobSummary},
 };
 use du_job_runtime::{JobClock, JobEvent, JobEvents, JobIdentity, RuntimeError};
 use serde_json::{Value, json};
 
-struct Clock(AtomicI64);
+struct Clock(i64);
 
 impl JobClock for Clock {
     fn now_ms(&self) -> i64 {
-        self.0.fetch_add(1, Ordering::SeqCst)
+        self.0
     }
 }
 
-struct Identity;
+struct Identity(AtomicUsize);
 
 impl JobIdentity for Identity {
     fn next_id(&self) -> Id {
-        id(250)
+        id(self.0.fetch_add(1, Ordering::SeqCst) as u8)
     }
 }
 
@@ -48,130 +45,20 @@ impl JobEvents for Events {
     fn publish(&self, _: JobEvent) {}
 }
 
-#[derive(Clone)]
-struct CandidateReader(Arc<Mutex<ReaderState>>);
-
-struct ReaderState {
-    delete_generation: u64,
-    candidates: Vec<HistoryExpiryCandidate>,
-    fail: bool,
-}
-
-impl HistoryExpiryRead for CandidateReader {
-    fn delete_generation(&mut self) -> Result<u64, HistoryExpiryReadError> {
-        let state = self
-            .0
-            .lock()
-            .map_err(|_| HistoryExpiryReadError::Unavailable)?;
-        if state.fail {
-            return Err(HistoryExpiryReadError::Unavailable);
-        }
-        Ok(state.delete_generation)
-    }
-
-    fn expiry_candidates(
-        &mut self,
-        _: u32,
-        _: i64,
-    ) -> Result<HistoryExpiryCandidates, HistoryExpiryReadError> {
-        let state = self
-            .0
-            .lock()
-            .map_err(|_| HistoryExpiryReadError::Unavailable)?;
-        if state.fail {
-            return Err(HistoryExpiryReadError::Unavailable);
-        }
-        let mut candidates = state.candidates.clone();
-        candidates.sort_by_key(|candidate| candidate.job_id.v7_bytes().unwrap_or([0; 16]));
-        let mut hasher = blake3::Hasher::new();
-        for candidate in &candidates {
-            let bytes = candidate
-                .job_id
-                .v7_bytes()
-                .ok_or(HistoryExpiryReadError::Unavailable)?;
-            hasher.update(&bytes);
-        }
-        let count =
-            u64::try_from(candidates.len()).map_err(|_| HistoryExpiryReadError::Unavailable)?;
-        let earliest = candidates
-            .iter()
-            .map(|candidate| candidate.reckon_at_ms)
-            .min();
-        let latest = candidates
-            .iter()
-            .map(|candidate| candidate.reckon_at_ms)
-            .max();
-        Ok(HistoryExpiryCandidates {
-            delete_generation: state.delete_generation,
-            count,
-            earliest_reckon_at_ms: earliest,
-            latest_reckon_at_ms: latest,
-            digest: *hasher.finalize().as_bytes(),
-            candidates,
-        })
-    }
-}
-
-#[derive(Default)]
-struct UndoRegistry {
-    present: Mutex<HashSet<Id>>,
-    in_use: Mutex<HashSet<Id>>,
-    in_use_errors: Mutex<HashSet<Id>>,
-    unavailable: AtomicBool,
-}
-
-impl SessionUndoInfo for UndoRegistry {
-    fn present(
-        &self,
-        job_ids: &[Id],
-    ) -> Result<Vec<Id>, du_core_contracts::job::UndoInfoUnavailable> {
-        if self.unavailable.load(Ordering::SeqCst) {
-            return Err(du_core_contracts::job::UndoInfoUnavailable);
-        }
-        let present = self
-            .present
-            .lock()
-            .map_err(|_| du_core_contracts::job::UndoInfoUnavailable)?;
-        Ok(job_ids
-            .iter()
-            .filter(|job| present.contains(*job))
-            .cloned()
-            .collect())
-    }
-
-    fn in_use(&self, job_id: &Id) -> Result<bool, du_core_contracts::job::UndoInfoUnavailable> {
-        if self.unavailable.load(Ordering::SeqCst)
-            || self
-                .in_use_errors
-                .lock()
-                .map_err(|_| du_core_contracts::job::UndoInfoUnavailable)?
-                .contains(job_id)
-        {
-            return Err(du_core_contracts::job::UndoInfoUnavailable);
-        }
-        Ok(self
-            .in_use
-            .lock()
-            .map_err(|_| du_core_contracts::job::UndoInfoUnavailable)?
-            .contains(job_id))
-    }
-
-    fn reserve_removal(&self, _: &[Id]) -> Vec<Id> {
-        Vec::new()
-    }
-
-    fn release(&self, _: &[Id]) {}
-
-    fn remove(&self, _: &[Id]) {}
-}
+mod fakes;
+use fakes::{CandidateReader, MemoryPruneDelete, ReaderState, UndoRegistry};
 
 struct Setup {
     engine: crate::api::Engine,
+    runtime: Arc<du_job_runtime::JobRuntime>,
+    trigger: HistoryPruneTrigger,
+    prune_delete: Arc<MemoryPruneDelete>,
     policy: Arc<Mutex<HistoryRetentionPolicy>>,
     reader: Arc<Mutex<ReaderState>>,
     undo: Arc<UndoRegistry>,
     save_fails: Arc<AtomicBool>,
     saves: Arc<AtomicUsize>,
+    wake_count: Arc<AtomicUsize>,
 }
 
 fn setup(
@@ -179,14 +66,31 @@ fn setup(
     candidates: Vec<HistoryExpiryCandidate>,
 ) -> Result<Setup, String> {
     let policy_store = Arc::new(Mutex::new(initial_policy));
+    let mut ordered = candidates.clone();
+    ordered.sort_by_key(|candidate| {
+        (
+            candidate.reckon_at_ms,
+            candidate.job_id.v7_bytes().unwrap_or([0; 16]),
+        )
+    });
+    let positions = ordered
+        .into_iter()
+        .enumerate()
+        .map(|(index, candidate)| (candidate.job_id, index as u64 + 1))
+        .collect();
     let reader = Arc::new(Mutex::new(ReaderState {
         delete_generation: 7,
         candidates,
+        positions,
+        row_counts: HashMap::new(),
+        prune_reads: Vec::new(),
+        apply_expiry_filter: false,
         fail: false,
     }));
     let undo = Arc::new(UndoRegistry::default());
     let save_fails = Arc::new(AtomicBool::new(false));
     let saves = Arc::new(AtomicUsize::new(0));
+    let wake_count = Arc::new(AtomicUsize::new(0));
     let policy_source = policy_store.clone();
     let source = Arc::new(move || {
         policy_source
@@ -209,30 +113,49 @@ fn setup(
         Ok(next)
     });
     let runtime = Arc::new(runtime()?);
+    let wake_sink = wake_count.clone();
+    let prune_delete = Arc::new(MemoryPruneDelete {
+        reader: reader.clone(),
+        policy: policy_store.clone(),
+        fail: AtomicBool::new(false),
+        fail_after_first_batch: AtomicBool::new(false),
+        calls: AtomicUsize::new(0),
+        change_policy_after_delete: AtomicBool::new(false),
+        cancel_after_delete: Mutex::new(None),
+    });
     let mut builder = EngineBuilder::default();
-    register(
+    let trigger = register(
         &mut builder,
-        runtime,
+        runtime.clone(),
         source,
         saver,
         CandidateReader(reader.clone()),
         undo.clone(),
-    );
+        prune_delete.clone(),
+        Arc::new(move || {
+            wake_sink.fetch_add(1, Ordering::SeqCst);
+        }),
+    )
+    .map_err(|error| error.to_string())?;
     let engine = builder.build().map_err(|error| error.to_string())?;
     Ok(Setup {
         engine,
+        runtime,
+        trigger,
+        prune_delete,
         policy: policy_store,
         reader,
         undo,
         save_fails,
         saves,
+        wake_count,
     })
 }
 
 fn runtime() -> Result<du_job_runtime::JobRuntime, String> {
     du_job_runtime::JobRuntime::new(
-        Arc::new(Identity),
-        Arc::new(Clock(AtomicI64::new(10_000))),
+        Arc::new(Identity(AtomicUsize::new(240))),
+        Arc::new(Clock(10_000)),
         Arc::new(History),
         Arc::new(Events),
     )
@@ -244,7 +167,7 @@ fn policy(enabled: bool, specified_days: Option<u32>) -> HistoryRetentionPolicy 
         enabled,
         specified_days,
         suggested_days: 90,
-        policy_fingerprint: "0123456789abcdef0123456789abcdef".into(),
+        policy_fingerprint: format!("policy-{enabled}-{}", specified_days.unwrap_or(0)),
         unavailable_reason: None,
     }
 }
@@ -312,4 +235,5 @@ fn apply(setup: &Setup, review: &Value, fingerprint: &str) -> du_core_contracts:
 
 mod apply;
 mod protocol;
+mod prune;
 mod review;

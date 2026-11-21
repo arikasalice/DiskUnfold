@@ -7,7 +7,7 @@ use std::{
 
 use du_core_contracts::{
     Id,
-    job::{HistoryChanged, JobHistory},
+    job::{HistoryChanged, HistoryPruneDelete, JobHistory, SessionUndoInfo},
     ports::Random,
     scan_observation::ScopeRootPort,
     scope_observation_log::ScopeObservationLog,
@@ -136,6 +136,7 @@ pub struct DesktopServices {
     pub groups: crate::group::GroupAssembly,
     scan_events: Arc<scan_completion::ScanEvents>,
     runtime: Arc<JobRuntime>,
+    workers: Arc<Workers>,
 }
 
 impl DesktopServices {
@@ -143,15 +144,20 @@ impl DesktopServices {
     ///
     /// The host supplies its current policy source, owner saver, read-only
     /// history adapter and session undo-info port. Retention remains GUI-only.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_history_retention<R>(
         &self,
         builder: &mut EngineBuilder,
         policy_source: crate::history::retention::HistoryRetentionPolicySource,
         policy_saver: crate::history::retention::HistoryRetentionPolicySaver,
         expiry_reader: R,
-        undo_info: Arc<dyn du_core_contracts::job::SessionUndoInfo>,
-    ) where
-        R: du_core_contracts::job::HistoryExpiryRead + 'static,
+        undo_info: Arc<dyn SessionUndoInfo>,
+        prune_delete: Arc<dyn HistoryPruneDelete>,
+    ) -> Result<crate::history::retention::HistoryPruneTrigger, du_job_runtime::RuntimeError>
+    where
+        R: du_core_contracts::job::HistoryExpiryRead
+            + du_core_contracts::job::HistoryPruneRead
+            + 'static,
     {
         crate::history::retention::register(
             builder,
@@ -160,7 +166,12 @@ impl DesktopServices {
             policy_saver,
             expiry_reader,
             undo_info,
-        );
+            prune_delete,
+            {
+                let workers = self.workers.clone();
+                Arc::new(move || workers.notify())
+            },
+        )
     }
 
     /// Binds the log that stores one observation of the scope totals per finished GUI scan.
@@ -358,7 +369,8 @@ fn register_services_inner(
         &events,
     )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
-    let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
+    let search =
+        crate::browse::folder::commands::register(builder, sets, ids, workers.clone(), random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
     jobs::register_with_scan_store(builder, runtime.clone(), store);
@@ -372,6 +384,7 @@ fn register_services_inner(
         groups,
         scan_events,
         runtime,
+        workers,
     })
 }
 

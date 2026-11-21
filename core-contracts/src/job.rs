@@ -8,6 +8,11 @@ mod history_retention;
 pub use history_retention::{
     HistoryExpiryCandidate, HistoryExpiryCandidates, HistoryExpiryRead, HistoryExpiryReadError,
 };
+mod history_prune;
+pub use history_prune::{
+    HistoryPruneCandidate, HistoryPruneDelete, HistoryPruneDeleteError, HistoryPruneDeleteReceipt,
+    HistoryPrunePosition, HistoryPruneRead, HistoryPruneReadError,
+};
 mod session_undo_info;
 pub use session_undo_info::{SessionUndoInfo, UndoInfoUnavailable};
 
@@ -195,6 +200,8 @@ pub enum HistoryChangeReason {
     Appended,
     /// A startup check marked unfinished operations as interrupted.
     Interrupted,
+    /// Retention pruning removed expired history.
+    RetentionPrune,
 }
 
 /// The persisted outcome of a startup interruption check.

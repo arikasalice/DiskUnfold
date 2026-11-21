@@ -1,11 +1,15 @@
 //! Read retention candidates through a separate live, read-only SQLite connection.
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use du_app_db::AppDb;
-use du_core_contracts::job::{HistoryExpiryCandidates, HistoryExpiryRead, HistoryExpiryReadError};
+use du_core_contracts::job::{
+    HistoryExpiryCandidates, HistoryExpiryRead, HistoryExpiryReadError, HistoryPruneCandidate,
+    HistoryPruneDelete, HistoryPruneDeleteError, HistoryPruneDeleteReceipt, HistoryPrunePosition,
+    HistoryPruneRead, HistoryPruneReadError,
+};
 
-use crate::shared_database::SharedDatabase;
+use crate::{settings::StartupSettings, shared_database::SharedDatabase};
 
 pub(super) struct HistoryExpiryReader {
     path: std::path::PathBuf,
@@ -51,5 +55,53 @@ impl HistoryExpiryRead for HistoryExpiryReader {
         self.connection()?
             .read_history_expiry_candidates(days, reference_ms)
             .map_err(|_| HistoryExpiryReadError::Unavailable)
+    }
+}
+
+impl HistoryPruneRead for HistoryExpiryReader {
+    fn expired_candidates(
+        &mut self,
+        days: u32,
+        reference_ms: i64,
+        after: Option<HistoryPrunePosition>,
+        limit: usize,
+    ) -> Result<Vec<HistoryPruneCandidate>, HistoryPruneReadError> {
+        self.connection()
+            .map_err(|_| HistoryPruneReadError::Unavailable)?
+            .read_history_prune_candidates(days, reference_ms, after, limit)
+            .map_err(|_| HistoryPruneReadError::Unavailable)
+    }
+}
+
+/// Applies the current policy guard and deletes one history batch on the shared writer.
+pub(super) struct HistoryPruneWriter {
+    settings: Arc<StartupSettings>,
+    database: SharedDatabase,
+}
+
+impl HistoryPruneWriter {
+    pub(super) fn new(settings: Arc<StartupSettings>, database: SharedDatabase) -> Self {
+        Self { settings, database }
+    }
+}
+
+impl HistoryPruneDelete for HistoryPruneWriter {
+    fn delete_expired(
+        &self,
+        expected_policy_fingerprint: &str,
+        days: u32,
+        reference_ms: i64,
+        candidates: &[HistoryPruneCandidate],
+        observed_at_ms: i64,
+    ) -> Result<Option<HistoryPruneDeleteReceipt>, HistoryPruneDeleteError> {
+        self.settings
+            .with_history_retention_policy(expected_policy_fingerprint, || {
+                self.database
+                    .0
+                    .connection
+                    .lock()
+                    .map_err(|_| HistoryPruneDeleteError::Unavailable)?
+                    .delete_expired_history_batch(candidates, days, reference_ms, observed_at_ms)
+            })
     }
 }
