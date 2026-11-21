@@ -5,6 +5,7 @@ import {
   ChartFallbackContext,
   DataTable,
   DetailDisclosure,
+  StackedBar,
   Text,
 } from "../../components";
 import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
@@ -14,6 +15,7 @@ import {
   plainRowName,
   rowName,
   rowRatioText,
+  rowFolderTypes,
   vizMessage,
 } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
@@ -26,6 +28,8 @@ const UNCLASSIFIED = new Set([
 ]);
 /** A row of the table: one fixed height, so the table is as tall as its rows. */
 const ROW_HEIGHT = 48;
+/** The length of a folder's type bar in the class cell (README 54.6). */
+const TYPE_BAR_WIDTH = 96;
 /** A page with a folder's unread line under its value gives every row room for it. */
 const TWO_LINE_ROW_HEIGHT = 64;
 /** Notes the value column already shows (unconfirmed, lower bound); they are not written again. */
@@ -272,7 +276,20 @@ function classification(
   row: VizRow,
   text: VizText,
 ) {
-  if (!UNCLASSIFIED.has(row.legendClassKey))
+  // A folder by its types: the bar and its largest type (README 54.6).
+  const types = rowFolderTypes(model, row, text);
+  if (types && types.bar.length > 0)
+    return (
+      <>
+        <StackedBar
+          slices={types.bar}
+          width={TYPE_BAR_WIDTH}
+          {...(types.total === undefined ? {} : { total: types.total })}
+        />
+        <div>{types.cell}</div>
+      </>
+    );
+  if (!types && !UNCLASSIFIED.has(row.legendClassKey))
     return classCell(model, row.legendClassKey, text);
   return (
     <>

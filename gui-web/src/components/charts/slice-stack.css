@@ -1,0 +1,69 @@
+/* A folder's type slices inside its bar or along its rectangle (F06 README 54). */
+.du-slice-stack [data-tone="1"] > .du-slice-stack__slice {
+  fill: var(--du-chart-1);
+}
+.du-slice-stack [data-tone="2"] > .du-slice-stack__slice {
+  fill: var(--du-chart-2);
+}
+.du-slice-stack [data-tone="3"] > .du-slice-stack__slice {
+  fill: var(--du-chart-3);
+}
+.du-slice-stack [data-tone="4"] > .du-slice-stack__slice {
+  fill: var(--du-chart-4);
+}
+.du-slice-stack [data-tone="5"] > .du-slice-stack__slice {
+  fill: var(--du-chart-5);
+}
+.du-slice-stack [data-tone="6"] > .du-slice-stack__slice {
+  fill: var(--du-chart-6);
+}
+.du-slice-stack [data-tone="7"] > .du-slice-stack__slice {
+  fill: var(--du-chart-7);
+}
+.du-slice-stack [data-tone="8"] > .du-slice-stack__slice {
+  fill: var(--du-chart-8);
+}
+.du-slice-stack [data-tone="neutral"] > .du-slice-stack__slice {
+  fill: var(--du-chart-neutral);
+}
+.du-slice-stack [data-tone="neutral-2"] > .du-slice-stack__slice {
+  fill: var(--du-chart-neutral-2);
+}
+
+.du-slice-stack,
+.du-slice-stack rect {
+  stroke: none;
+  pointer-events: none;
+}
+
+/* What the value holds beyond the slices: neutral, no pattern. */
+.du-slice-stack__rest {
+  fill: var(--du-subtle);
+}
+
+/* Another class is chosen in the legend: faded (README 4.7). */
+.du-slice-stack [data-dimmed] {
+  opacity: 0.35;
+}
+
+@media (forced-colors: active) {
+  .du-slice-stack [data-tone] > .du-slice-stack__slice {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-width: 1;
+  }
+
+  .du-slice-stack__rest {
+    fill: Canvas;
+    stroke: GrayText;
+    stroke-width: 1;
+  }
+
+  .du-slice-stack [data-dimmed] {
+    opacity: 1;
+  }
+
+  .du-slice-stack [data-dimmed] > .du-slice-stack__slice {
+    stroke: GrayText;
+  }
+}

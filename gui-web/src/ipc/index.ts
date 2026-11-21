@@ -347,6 +347,7 @@ export type {
   VizRows,
   VizRowsRequest,
   VizSizeRange,
+  VizTypeSlice,
   VizShape,
   VizSourceRef,
   VizViewChannel,

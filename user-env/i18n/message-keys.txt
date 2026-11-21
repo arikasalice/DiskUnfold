@@ -1143,6 +1143,9 @@ ui.visualization.stalenessUnwatched
 ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
+ui.visualization.typeSlicesMore count:count name:name
+ui.visualization.typeSlicesRest count:count size:name
+ui.visualization.typeSlicesUnsplit size:name
 ui.visualization.unavailable
 ui.visualization.unavailableBodyBasisNotCounted basis:name
 ui.visualization.unavailableBodyNegativeFlow
