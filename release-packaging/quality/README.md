@@ -18,14 +18,13 @@ The npm gate uses the complete CycloneDX output from `npm sbom --sbom-format=cyc
 
 - Pull requests run every target marked `prCheck: true` in `targets.json` (currently all six), `static`, and UI smoke only when its GUI path expression matches a changed file. Each OS (Linux, Windows and macOS) must have at least one PR target; a target without `prCheck: true` runs only in the full tier (scheduled and manual runs).
 - Pushes to `main` or `0.0.1` run the pull-request set plus all UI smoke shards, coverage and jscpd. Caches are saved only on a push to the repository's default branch.
-- The schedule (every six hours at minute 37 UTC, that is 09:37, 15:37, 21:37 and 03:37 KST; `37 */6 * * *`) and manual dispatches with `full=true` (the default) run all six native targets, UI smoke, three treemap repeats, coverage and jscpd. For a scheduled run, `gate` skips the remaining work when the most recent successful scheduled run has the same `head_sha`.
+- The schedule (every six hours at minute 37 UTC, that is 09:37, 15:37, 21:37 and 03:37 KST; `37 */6 * * *`) and manual dispatches with `full=true` (the default) run all six native targets, UI smoke, three treemap repeats, coverage and jscpd. For a scheduled run, the gate step of `prepare` skips the remaining work when the most recent successful scheduled run has the same `head_sha`.
 
 There is no `lint`-only matrix: each `native` matrix job runs both clippy commands and the workspace tests for its target. No quality job is currently configured as a required check in the repository ruleset.
 
 | Job | Work |
 | --- | --- |
-| `gate` | On scheduled runs, stops the workflow if the last successful scheduled run already covered the same commit. Runs on `ubuntu-24.04`. |
-| `prepare` | Runs `npm ci --ignore-scripts` and the Vite build once; publishes `gui-dist` and `targets` artifacts and outputs the native matrix and `ui_smoke` decision. |
+| `prepare` | Starts with the gate step: on scheduled runs it stops the workflow (the later jobs are skipped) when the last successful scheduled run already covered the same commit. Then queries the self-hosted runners, plans the native matrix and the `ui_smoke` decision, runs `npm ci --ignore-scripts` and the Vite build once, and publishes the `gui-dist` and `targets` artifacts. The gate shares this job so that no extra runner has to be waited for. |
 | `static` | Formatting, GUI checks, Windows drop-bridge tests, architecture check, generated-contract diff, cargo-deny, npm licenses, dependency register, release workflow policy, coverage/matrix/fuzz checks, and jscpd outside PRs. Artifact `quality-policy`. |
 | `native` (per selected target) | Two clippy commands and workspace tests; ignored NTFS or btrfs observation tests where applicable; Linux launch and WebKit smoke. Uses the `prCheck` targets (currently all six) for PRs or all six full-tier targets. Runner selection follows [Runners](#runners). |
 | `ui-smoke` | Three shards on `windows-2022`; each uploads `ui-smoke-windows-<n>`. Not configured as a required check. |

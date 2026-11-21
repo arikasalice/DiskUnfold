@@ -9,7 +9,7 @@ on:
     branches: [main, 0.0.1]
   schedule:
     # Every six hours (00:37, 06:37, 12:37 and 18:37 UTC; 09:37, 15:37, 21:37 and 03:37 in Korea).
-    # The gate job ends the run when the last successful scheduled run saw the same commit.
+    # The gate step of the prepare job ends the run when the last successful scheduled run saw the same commit.
     - cron: "37 */6 * * *"
   workflow_dispatch:
     inputs:
@@ -50,14 +50,19 @@ env:
   # One package list for every Linux job keeps a single apt cache per CPU architecture.
   LINUX_PACKAGES: libgtk-4-dev libwebkitgtk-6.0-dev pkg-config xvfb openbox xdotool dbus-x11 btrfs-progs
 jobs:
-  # Scheduled runs stop here when the last successful scheduled run already covered this commit.
-  gate:
+  # Decides what this run needs and builds the GUI assets once. The gate step ends a scheduled run
+  # (the later jobs are skipped) when the last successful scheduled run already covered this commit.
+  # It shares this job with the plan so that no extra runner has to be waited for.
+  prepare:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     outputs:
       run: ${{ steps.gate.outputs.run }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      ui_smoke: ${{ steps.plan.outputs.ui_smoke }}
     steps:
       - id: gate
         shell: bash
@@ -79,18 +84,6 @@ jobs:
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
-  # Builds the GUI assets once and decides which targets and UI smoke shards this run needs.
-  prepare:
-    needs: gate
-    if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      ui_smoke: ${{ steps.plan.outputs.ui_smoke }}
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -151,12 +144,15 @@ jobs:
           echo "ui_smoke=$ui_smoke" >> "$GITHUB_OUTPUT"
           echo "tier=$tier ui_smoke=$ui_smoke"
       - name: Install GUI dependencies
+        if: steps.gate.outputs.run == 'true'
         working-directory: gui-web
         run: npm ci --ignore-scripts
       - name: Build GUI assets for Rust
+        if: steps.gate.outputs.run == 'true'
         working-directory: gui-web
         run: npm run build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.gate.outputs.run == 'true'
         with:
           name: gui-dist
           path: gui-web/dist/
@@ -169,8 +165,8 @@ jobs:
           path: quality-output/targets.json
   # Platform independent checks run once, here, beside the native jobs.
   static:
-    needs: gate
-    if: needs.gate.outputs.run == 'true' && inputs.only_targets == ''
+    needs: prepare
+    if: needs.prepare.outputs.run == 'true' && inputs.only_targets == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -247,6 +243,7 @@ jobs:
   # dependency cache, and one runner per target avoids two jobs queueing for the same scarce OS.
   native:
     needs: prepare
+    if: needs.prepare.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -355,7 +352,7 @@ jobs:
   # Not a required check; see the quality guide.
   ui-smoke:
     needs: prepare
-    if: needs.prepare.outputs.ui_smoke == 'true'
+    if: needs.prepare.outputs.run == 'true' && needs.prepare.outputs.ui_smoke == 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     strategy:
@@ -395,7 +392,7 @@ jobs:
   # Coverage is informational. Pull requests skip it; pushes and the scheduled run report it.
   reports:
     needs: prepare
-    if: github.event_name != 'pull_request' && inputs.only_targets == ''
+    if: needs.prepare.outputs.run == 'true' && github.event_name != 'pull_request' && inputs.only_targets == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
