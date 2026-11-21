@@ -18,6 +18,7 @@ import {
   Input,
   I18nProvider,
   Label,
+  Link as AriaLink,
   Popover,
   Radio,
   RadioGroup,
@@ -54,6 +55,7 @@ type ActionProps = Pick<
   | "aria-disabled"
   | "aria-describedby"
 > & {
+  title?: string;
   variant?: "primary" | "secondary" | "quiet" | "danger";
   compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
@@ -82,6 +84,37 @@ export function Action({
         children
       )}
     </Button>
+  );
+}
+
+/** An in-place navigation link that keeps React Aria's link keyboard behavior. */
+export function TextLink({
+  children,
+  onPress,
+  title,
+  "aria-label": ariaLabel,
+  ...props
+}: {
+  children: ReactNode;
+  onPress: () => void;
+  title?: string | undefined;
+  "aria-label"?: string | undefined;
+}) {
+  const titleProps = title ? { title } : {};
+  return (
+    <AriaLink
+      href="#"
+      {...(ariaLabel !== undefined && { "aria-label": ariaLabel })}
+      {...props}
+      {...titleProps}
+      className="du-text-link"
+      onClick={(event) => {
+        event.preventDefault();
+        onPress();
+      }}
+    >
+      {children}
+    </AriaLink>
   );
 }
 

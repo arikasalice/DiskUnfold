@@ -7,6 +7,7 @@ import {
   LiveStatus,
   MiddleEllipsisText,
   Text,
+  TextLink,
   withProgressEllipsis,
 } from "../../components";
 import type { LocaleText } from "../../i18n/presentation";
@@ -22,6 +23,7 @@ import type {
   ScanResourceMode,
 } from "../../ipc";
 import type { ScanPriorityArea } from "../../state/scan-priority";
+import type { ScanIssueLaneSelection } from "./scan-issue-filter";
 import {
   ResourceLimitDisclosure,
   ResourceModeSelector,
@@ -285,16 +287,48 @@ function priorityText(name: string | undefined, text: LocaleText) {
     : undefined;
 }
 
+function laneStorage(
+  lane: ScanLane,
+  roots: readonly OsPath[],
+  text: LocaleText,
+) {
+  const path = roots[lane.rootIndexes[0] ?? -1]?.display;
+  const total = BigInt(lane.rootCount ?? String(lane.rootIndexes.length));
+  const otherRoots = total > 0n ? total - 1n : 0n;
+  const storagePaths = lane.rootIndexes.flatMap((index) => {
+    const value = roots[index]?.display;
+    return value ? [value] : [];
+  });
+  const allStorages = total > 64n;
+  const storageTail =
+    otherRoots > 0n
+      ? text("ui.analysis.lanes_and_more", "and {count} more", {
+          count: otherRoots,
+        })
+      : undefined;
+  return {
+    path,
+    otherRoots,
+    selection: {
+      ...(!allStorages && { rootIndexes: [...lane.rootIndexes] }),
+      ...(path && { storagePath: path }),
+      ...(storageTail && { storageTail }),
+      storageLabel: path
+        ? [path, storageTail].filter(Boolean).join(" ")
+        : text("ui.analysis.lanes_root_unavailable", "Scope path unavailable"),
+      storagePaths,
+      allStorages,
+    } satisfies ScanIssueLaneSelection,
+  };
+}
+
 function rootTitle(
   lane: ScanLane,
   roots: readonly OsPath[],
   text: LocaleText,
   name: string | undefined,
 ) {
-  const rootIndex = lane.rootIndexes[0];
-  const path = rootIndex === undefined ? undefined : roots[rootIndex]?.display;
-  const total = BigInt(lane.rootCount ?? String(lane.rootIndexes.length));
-  const otherRoots = total > 0n ? total - 1n : 0n;
+  const { path, otherRoots } = laneStorage(lane, roots, text);
   const areaLabel = priorityText(name, text);
   return (
     <div className="du-scan-lane__root-title">
@@ -332,9 +366,20 @@ function laneCells(
   regional: ReturnType<typeof useRegionalFormat>,
   requested: ScanPriorityArea | undefined,
   pendingResources: ReadonlyMap<number, PendingResource>,
+  onViewUnreadableLocations:
+    ((selection: ScanIssueLaneSelection) => void) | undefined,
 ) {
   const failures = BigInt(lane.failures);
   const name = priorityName(lane, jobRef, requested);
+  const storage = laneStorage(lane, roots, text);
+  const failureLabel = text(
+    "ui.analysis.lanes_view_failures",
+    "View {count} unreadable locations",
+    { count: failures },
+  );
+  const viewFailures = onViewUnreadableLocations
+    ? () => onViewUnreadableLocations(storage.selection)
+    : undefined;
   return [
     <DetailDisclosure key="storage" title={rootTitle(lane, roots, text, name)}>
       <Text>
@@ -352,6 +397,14 @@ function laneCells(
           )}
         </Text>
       )}
+      {failures > 0n && viewFailures && (
+        <TextLink onPress={viewFailures}>
+          {text(
+            "ui.analysis.lanes_view_failures_action",
+            "View unreadable locations",
+          )}
+        </TextLink>
+      )}
     </DetailDisclosure>,
     <div className="du-scan-lane__status" key="status">
       {laneStatusText(lane, text)}
@@ -367,8 +420,18 @@ function laneCells(
     <div className="du-scan-lane__number" key="folders">
       {folderCount(lane, text)}
     </div>,
-    <div className="du-scan-lane__number" key="failures">
-      {failures === 0n ? "" : displayInteger(failures, regional)}
+    <div className="du-scan-lane__number du-scan-lane__failures" key="failures">
+      {failures > 0n && viewFailures ? (
+        <TextLink
+          aria-label={failureLabel}
+          title={failureLabel}
+          onPress={viewFailures}
+        >
+          {displayInteger(failures, regional)}
+        </TextLink>
+      ) : (
+        displayInteger(failures, regional)
+      )}
     </div>,
   ];
 }
@@ -378,11 +441,14 @@ export function ScanLaneProgress({
   status,
   roots,
   priorityArea,
+  onViewUnreadableLocations,
 }: {
   jobRef: string;
   status: ScanLaneStatus;
   roots: readonly OsPath[];
   priorityArea?: ScanPriorityArea | undefined;
+  onViewUnreadableLocations?:
+    ((selection: ScanIssueLaneSelection) => void) | undefined;
 }) {
   const text = useLocaleText();
   const regional = useRegionalFormat();
@@ -736,6 +802,7 @@ export function ScanLaneProgress({
                 regional,
                 priorityArea,
                 pendingResources,
+                onViewUnreadableLocations,
               )
             }
           />

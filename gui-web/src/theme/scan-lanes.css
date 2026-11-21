@@ -65,6 +65,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+.du-scan-lanes .du-data-table td:nth-child(4) > .du-table-cell {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.du-scan-lane__failures {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  flex: 1;
+  padding-block: 0;
+}
+
+.du-scan-lane__failures .du-text-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-inline-size: 24px;
+  min-block-size: 24px;
+  padding-inline: 8px;
+}
+
 .du-scan-lanes .du-data-table th:first-child {
   width: 36%;
 }

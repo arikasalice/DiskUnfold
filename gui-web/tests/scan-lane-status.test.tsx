@@ -11,6 +11,7 @@ import { RegionalFormatContext } from "../src/i18n/regional-format";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import type { OsPath, ScanLane, ScanLaneStatus } from "../src/ipc";
 import type { ScanPriorityArea } from "../src/state/scan-priority";
+import type { ScanIssueLaneSelection } from "../src/features/analysis/scan-issue-filter";
 import {
   ScanLaneProgress,
   createScanLaneThrottle,
@@ -68,6 +69,8 @@ function renderProgress(
   value: ScanLaneStatus,
   laneRoots: readonly OsPath[] = roots,
   priorityArea?: ScanPriorityArea | undefined,
+  onViewUnreadableLocations?:
+    ((selection: ScanIssueLaneSelection) => void) | undefined,
 ) {
   return render(
     <LocaleTextContext.Provider value={koreanText}>
@@ -77,6 +80,7 @@ function renderProgress(
           status={value}
           roots={laneRoots}
           priorityArea={priorityArea}
+          onViewUnreadableLocations={onViewUnreadableLocations}
         />
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>,
@@ -129,7 +133,7 @@ test("shows Done for an idle lane and leaves zero failures empty", () => {
   );
   expect(screen.getByText("끝남")).toBeTruthy();
   const rows = within(screen.getByRole("table")).getAllByRole("row");
-  expect(rows[2]!.querySelectorAll("td")[3]?.textContent).toBe("");
+  expect(rows[2]!.querySelectorAll("td")[3]?.textContent).toBe("0");
   expect(rows[3]!.querySelectorAll("td")[2]?.textContent).toBe("0개");
 });
 
@@ -179,7 +183,7 @@ test("shows the same request name below the single-lane status", () => {
   expect(screen.queryByRole("table")).toBeNull();
 });
 
-test("shows failures as plain text and uses rootCount when paths are cut", () => {
+test("links positive failure counts, keeps zero plain, and skips root filters when paths are cut", () => {
   const longRoots = Array.from({ length: 64 }, (_, index) =>
     windowsPath(`C:\\fixture\\root-${index}`),
   );
@@ -188,13 +192,31 @@ test("shows failures as plain text and uses rootCount when paths are cut", () =>
     rootCount: "65",
     failures: "2000",
   });
-  renderProgress(status(1, [longLane, lane(1)]), longRoots);
+  const selected = vi.fn();
+  renderProgress(
+    status(1, [longLane, lane(1)]),
+    longRoots,
+    undefined,
+    selected,
+  );
   const table = screen.getByRole("table");
   const row = within(table).getAllByRole("row")[1]!;
   const pathDisclosure = within(row).getByRole("button", { name: /외 64개/ });
   expect(pathDisclosure).toBeTruthy();
-  const failures = within(row).getByText("2,000");
-  expect(failures.closest("button")).toBeNull();
+  const failures = within(row).getByRole("link", {
+    name: "읽지 못한 위치 2000곳 보기",
+  });
+  expect(failures.textContent).toBe("2,000");
+  fireEvent.click(failures);
+  expect(selected).toHaveBeenCalledTimes(1);
+  expect(selected.mock.calls[0]?.[0].allStorages).toBe(true);
+  expect(selected.mock.calls[0]?.[0].rootIndexes).toBeUndefined();
+  const zeroRow = within(table).getAllByRole("row")[2]!;
+  expect(within(zeroRow).getByText("0").closest("a")).toBeNull();
+  fireEvent.click(within(row).getByRole("button", { name: /외 64개/ }));
+  expect(
+    within(row).getByRole("link", { name: "읽지 못한 위치 보기" }),
+  ).toBeTruthy();
 });
 
 test("does not put live announcements on changing rows", () => {
