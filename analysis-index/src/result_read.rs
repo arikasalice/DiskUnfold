@@ -229,6 +229,16 @@ impl ResultVersion {
         (size.basis == basis).then_some(size)
     }
 
+    /// The file identity recorded for an item, when its space evidence carries one.
+    pub fn file_identity(&self, item_no: u32) -> Option<&crate::FileIdentity> {
+        self.physical
+            .as_ref()?
+            .get(item_no as usize)?
+            .as_ref()?
+            .identity
+            .as_ref()
+    }
+
     /// Resolves an item reference against this snapshot, including an older snapshot held open.
     pub fn detail(&self, item: &ItemRef) -> Result<ItemDetail<'_>, QueryError> {
         if item.result_version != self.version_id {

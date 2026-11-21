@@ -201,8 +201,6 @@ fn a_hard_linked_file_adds_its_allocation_once() -> Result<(), Failure> {
     );
     let answer = render(&assembled, &revision, "allocated")?;
     let model = &answer["model"];
-    eprintln!("F03_348 kind={} totals={}", answer["kind"], model["totals"]);
-    eprintln!("F03_348 rows={}", rows_of(&assembled, &answer)?);
     assert_eq!(
         bytes(&model["totals"]["scope"]["quantity"]["value"])?,
         expected
