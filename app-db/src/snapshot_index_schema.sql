@@ -25,8 +25,6 @@ BEGIN SELECT RAISE(ABORT, 'snapshot_state_only'); END;
 
 CREATE UNIQUE INDEX ux_snapshot_store_snapshot_active_source
  ON snapshot_store_snapshot(source_version_id) WHERE state = 'active';
-CREATE INDEX ix_snapshot_store_snapshot_list
- ON snapshot_store_snapshot(state, observed_at_ms, scope_label, snapshot_id);
 CREATE INDEX ix_snapshot_store_snapshot_list_order
  ON snapshot_store_snapshot(state, observed_at_ms DESC, snapshot_id ASC);
 
@@ -34,8 +32,8 @@ CREATE TABLE snapshot_store_snapshot_volume (
  snapshot_id BLOB NOT NULL REFERENCES snapshot_store_snapshot(snapshot_id),
  volume_index INTEGER NOT NULL CHECK(volume_index BETWEEN 0 AND 65534),
  observed_volume_id BLOB,
- identity_kind TEXT NOT NULL CHECK(identity_kind = 'none'),
- identity_capability TEXT NOT NULL CHECK(identity_capability = 'unknown'),
+ identity_kind TEXT NOT NULL CHECK(identity_kind IN ('guid','uuid','fs_uuid','none')),
+ identity_capability TEXT NOT NULL CHECK(identity_capability IN ('supported','partial','unsupported','unknown')),
  PRIMARY KEY(snapshot_id, volume_index)
 ) STRICT;
 -- This index stays empty until identity values are allowed by the schema.

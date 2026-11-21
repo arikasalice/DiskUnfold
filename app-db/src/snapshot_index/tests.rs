@@ -325,22 +325,42 @@ fn volume_identity_writers_are_restricted_and_debug_redacts_sensitive_values() -
     sensitive_volume.observed_volume_id = Some(b"raw-secret".to_vec());
     db.register(&row(1, 101, Some(100)), &[sensitive_volume.clone()], None)?;
     db.register(&row(2, 102, Some(90)), &[sensitive_volume.clone()], None)?;
-    let unsupported_kind_check = db.connection.execute(
+    let supported_identity_values = [
+        ("guid", "supported"),
+        ("uuid", "partial"),
+        ("fs_uuid", "unsupported"),
+        ("none", "unknown"),
+    ];
+    for (index, (kind, capability)) in supported_identity_values.into_iter().enumerate() {
+        db.connection.execute(
+            "INSERT INTO snapshot_store_snapshot_volume
+             (snapshot_id, volume_index, observed_volume_id, identity_kind,
+              identity_capability)
+             VALUES (?1, ?2, X'01', ?3, ?4)",
+            rusqlite::params![
+                id(1).v7_bytes().ok_or("invalid test id")?.as_slice(),
+                index as i64 + 1,
+                kind,
+                capability,
+            ],
+        )?;
+    }
+    let invalid_kind_check = db.connection.execute(
         "INSERT INTO snapshot_store_snapshot_volume
              (snapshot_id, volume_index, observed_volume_id, identity_kind,
               identity_capability)
-         VALUES (?1, 1, X'01', 'guid', 'unknown')",
-        [id(1).v7_bytes().ok_or("invalid test id")?.as_slice()],
-    );
-    assert!(unsupported_kind_check.is_err());
-    let unsupported_capability_check = db.connection.execute(
-        "INSERT INTO snapshot_store_snapshot_volume
-             (snapshot_id, volume_index, observed_volume_id, identity_kind,
-              identity_capability)
-         VALUES (?1, 1, X'01', 'none', 'supported')",
+         VALUES (?1, 10, X'01', 'invalid', 'unknown')",
         [id(2).v7_bytes().ok_or("invalid test id")?.as_slice()],
     );
-    assert!(unsupported_capability_check.is_err());
+    assert!(invalid_kind_check.is_err());
+    let invalid_capability_check = db.connection.execute(
+        "INSERT INTO snapshot_store_snapshot_volume
+             (snapshot_id, volume_index, observed_volume_id, identity_kind,
+              identity_capability)
+         VALUES (?1, 10, X'01', 'none', 'invalid')",
+        [id(2).v7_bytes().ok_or("invalid test id")?.as_slice()],
+    );
+    assert!(invalid_capability_check.is_err());
     let page = db.list_active(10, None)?;
     assert_eq!(
         page.rows[0].volumes[0].observed_volume_id,
