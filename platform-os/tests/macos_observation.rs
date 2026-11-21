@@ -407,7 +407,10 @@ fn firmlinks_are_classified_and_mount_points_are_reported() -> TestResult {
     assert_eq!(kind(data), Some(ObservedKind::MountPoint));
     // The data mount opens as the root of the same volume group; whether a scan
     // enters it is the admission table's decision (#263).
-    let opened = volumes.directory.open_child(data)?;
+    let opened = volumes
+        .directory
+        .open_child(data)
+        .map_err(|error| format!("{error:?}"))?;
     let opened = opened.observed_identity().ok_or("no identity")?;
     let system_identity = system.directory.observed_identity().ok_or("no identity")?;
     assert_eq!(opened.device, system_identity.device);
