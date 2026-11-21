@@ -46,7 +46,7 @@ pub struct PlanVersionRecord {
     pub readiness: PlanReadiness,
     /// Application channel that fixed the plan; excluded from its digest.
     pub origin_channel: PlanOriginChannel,
-    /// Validated JSON containing the remaining plan header and item values (maximum 1 MiB).
+    /// Validated JSON containing the remaining plan header and item values (maximum 128 MiB).
     pub body: String,
     /// Time the version was fixed, in milliseconds since the Unix epoch.
     pub created_at_ms: i64,
@@ -72,13 +72,56 @@ impl fmt::Debug for PlanVersionRecord {
     }
 }
 
+/// Plan-version metadata without the potentially large serialized body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanVersionHead {
+    /// UUID v7 identifier for this immutable version.
+    pub plan_version_id: Id,
+    /// Stable identifier shared by versions in one plan history.
+    pub lineage_id: Id,
+    /// Parent version when this version revises an earlier plan.
+    pub parent_plan_version_id: Option<Id>,
+    /// Stored digest for the canonical plan content.
+    pub version_hash: [u8; 32],
+    /// Tag selecting the canonical digest format.
+    pub hash_format: String,
+    /// Immutable protection ruleset version used to build the plan.
+    pub ruleset_version: u64,
+    /// Whether the fixed plan is ready for an approval request.
+    pub readiness: PlanReadiness,
+    /// Application channel that fixed the plan.
+    pub origin_channel: PlanOriginChannel,
+    /// Time the version was fixed, in milliseconds since the Unix epoch.
+    pub created_at_ms: i64,
+    /// Persistent plan versions always have a real data source.
+    pub data_source: DataSource,
+}
+
+impl From<PlanVersionRecord> for PlanVersionHead {
+    fn from(version: PlanVersionRecord) -> Self {
+        Self {
+            plan_version_id: version.plan_version_id,
+            lineage_id: version.lineage_id,
+            parent_plan_version_id: version.parent_plan_version_id,
+            version_hash: version.version_hash,
+            hash_format: version.hash_format,
+            ruleset_version: version.ruleset_version,
+            readiness: version.readiness,
+            origin_channel: version.origin_channel,
+            created_at_ms: version.created_at_ms,
+            data_source: version.data_source,
+        }
+    }
+}
+
 /// Storage contract for immutable plan versions.
 ///
-/// A lineage read is ordered by creation time and plan-version ID so the owner
-/// can inspect its history and newest stored version. It materializes every
-/// stored version for that lineage; no row-count limit is imposed. The store
-/// does not verify parent existence or lineage equality; the change-planner
-/// writer is responsible. Parallel fixations are stored independently.
+/// Lineage reads are ordered by creation time and plan-version ID. Prefer
+/// read_lineage_heads for history listings and read_body when the body is
+/// needed; read_lineage retains its full-body behavior for compatibility.
+/// The store does not verify parent existence or lineage equality; the
+/// change-planner writer is responsible. Parallel fixations are stored
+/// independently.
 pub trait PlanVersionStore {
     /// Appends one complete fixed version in one transaction.
     ///
@@ -89,10 +132,29 @@ pub trait PlanVersionStore {
     /// Reads exactly one stored version by ID.
     fn read(&self, version_id: &Id) -> Result<PlanVersionRecord, PortError>;
 
+    /// Reads the body of exactly one stored version by ID.
+    ///
+    /// The default preserves compatibility with stores that only implement
+    /// read; storage adapters should override it to avoid loading other
+    /// version fields when that is useful.
+    fn read_body(&self, version_id: &Id) -> Result<String, PortError> {
+        self.read(version_id).map(|version| version.body)
+    }
+
+    /// Reads metadata for all versions in one lineage without their bodies.
+    ///
+    /// The result is ordered by creation time and plan-version ID. The default
+    /// preserves compatibility with stores that only implement read_lineage;
+    /// storage adapters should override it to avoid materializing bodies.
+    fn read_lineage_heads(&self, lineage_id: &Id) -> Result<Vec<PlanVersionHead>, PortError> {
+        self.read_lineage(lineage_id)
+            .map(|versions| versions.into_iter().map(PlanVersionHead::from).collect())
+    }
+
     /// Reads all stored versions for one lineage in creation-time and ID order.
     ///
-    /// The result is not paged or capped and is bounded only by the number of
-    /// versions already stored for the lineage.
+    /// The result is not paged or capped and includes every full body. Prefer
+    /// read_lineage_heads when a caller only needs history metadata.
     fn read_lineage(&self, lineage_id: &Id) -> Result<Vec<PlanVersionRecord>, PortError>;
 }
 
