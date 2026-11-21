@@ -35,7 +35,7 @@ type HistoryRetentionRegistration = (
 /// the same step as `scan.start`, which supplies its job bodies.
 /// FR10.HD1.app-host.DD2: the visualization registration adds the `viz.*` commands
 /// and the `viz.compute` job kind.
-const REQUIRED_USE_CASES: [&str; 11] = [
+const REQUIRED_USE_CASES: [&str; 18] = [
     "scan.start",
     "scan.failures",
     "viz.view.open",
@@ -47,6 +47,13 @@ const REQUIRED_USE_CASES: [&str; 11] = [
     "viz.locate",
     "viz.catalog",
     "viz.availability",
+    "plan.draft_open",
+    "plan.draft_edit",
+    "plan.draft_cancel",
+    "plan.build",
+    "plan.get",
+    "plan.item_reason",
+    "plan.history",
 ];
 
 /// The single per-platform injection point for scan collection adapters.
@@ -237,9 +244,50 @@ fn register_analysis_with_rules(
     size_rules: du_engine_api::size_rule::SizeRules,
     recent_capacity: Option<std::num::NonZeroUsize>,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    register_analysis_with_plan_source(
+        builder,
+        ports,
+        database,
+        scan_limit,
+        size_rules,
+        recent_capacity,
+        None,
+    )
+}
+
+#[cfg(test)]
+fn register_analysis_with_test_plan_sources(
+    builder: &mut EngineBuilder,
+    ports: ScanPorts,
+    database: &SharedDatabase,
+    scan_limit: SharedTableLimitSource,
+    size_rules: du_engine_api::size_rule::SizeRules,
+    recent_capacity: Option<std::num::NonZeroUsize>,
+    plan_sources: du_engine_api::plan::PlanSources,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
+    register_analysis_with_plan_source(
+        builder,
+        ports,
+        database,
+        scan_limit,
+        size_rules,
+        recent_capacity,
+        Some(plan_sources),
+    )
+}
+
+fn register_analysis_with_plan_source(
+    builder: &mut EngineBuilder,
+    ports: ScanPorts,
+    database: &SharedDatabase,
+    scan_limit: SharedTableLimitSource,
+    size_rules: du_engine_api::size_rule::SizeRules,
+    recent_capacity: Option<std::num::NonZeroUsize>,
+    plan_sources: Option<du_engine_api::plan::PlanSources>,
+) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let history = Arc::new(database.history(crate::settings::current_time_ms));
     let random = &du_platform_os::entropy::OsRandom;
-    desktop::register_services_with_sources(
+    let services = desktop::register_services_with_sources(
         builder,
         ports.roots,
         ports.volumes,
@@ -250,7 +298,14 @@ fn register_analysis_with_rules(
             size_rules,
             recent_admission_capacity: recent_capacity,
         },
-    )
+    )?;
+    let plan_sources = plan_sources.unwrap_or_else(|| {
+        let versions: du_engine_api::plan::SharedVersionStore =
+            Arc::new(std::sync::Mutex::new(database.clone()));
+        du_engine_api::plan::PlanSources::new(versions, Arc::new(database.clone()))
+    });
+    services.register_plans(builder, plan_sources)?;
+    Ok(services)
 }
 
 /// Stops startup when a registered analysis flow lacks a required use case.
@@ -322,6 +377,8 @@ mod linux_scan_tests;
 mod macos_scan_tests;
 #[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 mod native_cancel_seal_tests;
+#[cfg(test)]
+mod plan_tests;
 #[cfg(test)]
 mod size_rules;
 #[cfg(test)]

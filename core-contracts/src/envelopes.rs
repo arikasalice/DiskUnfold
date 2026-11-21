@@ -95,6 +95,11 @@ impl ErrorEnvelope {
             | "group.rule_invalid"
             | "group.name_duplicate"
             | "group.rule_limit"
+            | "plan.source_not_current"
+            | "plan.source_channel_denied"
+            | "plan.empty"
+            | "plan.too_many_items"
+            | "plan.not_ready"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -104,7 +109,9 @@ impl ErrorEnvelope {
             | "result.requery_required"
             | "group.rules_modified"
             | "history.version_changed"
-            | "history.review_stale" => ErrorCode::StaleVersion,
+            | "history.review_stale"
+            | "plan.result_stale"
+            | "plan.draft_stale" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"
@@ -116,6 +123,7 @@ impl ErrorEnvelope {
             | "group.result_expired"
             | "locale.bundle_unavailable"
             | "history.review_not_found"
+            | "plan.not_found"
             | "session.evicted" => ErrorCode::NotFound,
             "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
@@ -128,6 +136,7 @@ impl ErrorEnvelope {
             | "history.storage_unavailable"
             | "history.count_unavailable"
             | "history.policy_store_failed"
+            | "plan.store_failed"
             | "locale.registration_failed" => ErrorCode::Internal,
             _ => return None,
         })
@@ -173,6 +182,28 @@ mod tests {
                 .ok_or("locale reason was not registered")?;
             assert_eq!(envelope.reason_key, reason);
             assert_eq!(envelope.code, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn plan_reasons_keep_their_published_error_codes() -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = crate::Id::from_v7_bytes([9; 16]);
+        for (reason, expected) in [
+            ("plan.source_not_current", ErrorCode::InvalidArgument),
+            ("plan.source_channel_denied", ErrorCode::InvalidArgument),
+            ("plan.empty", ErrorCode::InvalidArgument),
+            ("plan.too_many_items", ErrorCode::InvalidArgument),
+            ("plan.result_stale", ErrorCode::StaleVersion),
+            ("plan.draft_stale", ErrorCode::StaleVersion),
+            ("plan.not_found", ErrorCode::NotFound),
+            ("session.evicted", ErrorCode::NotFound),
+            ("plan.not_ready", ErrorCode::InvalidArgument),
+            ("plan.store_failed", ErrorCode::Internal),
+        ] {
+            let error = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("plan reason was not registered")?;
+            assert_eq!(error.code, expected, "{reason}");
         }
         Ok(())
     }
