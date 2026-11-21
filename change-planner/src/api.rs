@@ -149,7 +149,7 @@ impl<'a> PlanBuilder<'a> {
             expected_effect,
             confirmations,
             readiness,
-            hash_format: PLAN_HASH_FORMAT,
+            hash_format: PLAN_HASH_FORMAT.to_owned(),
             hash: [0; 32],
             created_at: now,
         };

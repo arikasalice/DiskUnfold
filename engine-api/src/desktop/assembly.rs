@@ -137,9 +137,29 @@ pub struct DesktopServices {
     scan_events: Arc<scan_completion::ScanEvents>,
     runtime: Arc<JobRuntime>,
     workers: Arc<Workers>,
+    analysis_index: du_analysis_index::IngestSink,
+    identity: Arc<dyn JobIdentity>,
+    clock: Arc<dyn JobClock>,
 }
 
 impl DesktopServices {
+    /// Registers F10 plan drafting and the `plan.build` job with host-owned storage.
+    pub fn register_plans(
+        &self,
+        builder: &mut EngineBuilder,
+        sources: crate::plan::PlanSources,
+    ) -> Result<(), du_job_runtime::RuntimeError> {
+        crate::plan::register(
+            builder,
+            self.runtime.clone(),
+            self.workers.clone(),
+            self.events.clone(),
+            self.analysis_index.clone(),
+            crate::plan::PlanJobPorts::new(self.identity.clone(), self.clock.clone()),
+            sources,
+        )
+    }
+
     /// Registers retention commands using this desktop runtime's clock.
     ///
     /// The host supplies its current policy source, owner saver, read-only
@@ -329,7 +349,7 @@ fn register_services_inner(
     targets::register_with_probe(
         builder,
         volumes.clone(),
-        clock,
+        clock.clone(),
         workers.clone(),
         targets::Deadlines {
             enumeration: TARGET_ENUMERATION_DEADLINE,
@@ -359,6 +379,7 @@ fn register_services_inner(
         },
     )?;
     let store = sets.source();
+    let analysis_index = store.clone();
     let groups = crate::group::compose(&store, &runtime, &workers, ids.clone());
     let completed_scans = scan_events.bind(store.clone())?;
     super::sample_sink::bind(
@@ -370,8 +391,13 @@ fn register_services_inner(
         &events,
     )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
-    let search =
-        crate::browse::folder::commands::register(builder, sets, ids, workers.clone(), random)?;
+    let search = crate::browse::folder::commands::register(
+        builder,
+        sets,
+        ids.clone(),
+        workers.clone(),
+        random,
+    )?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
     jobs::register_with_scan_store(builder, runtime.clone(), store);
@@ -386,6 +412,9 @@ fn register_services_inner(
         scan_events,
         runtime,
         workers,
+        analysis_index,
+        identity: ids,
+        clock,
     })
 }
 

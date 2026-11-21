@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 blake3 = { workspace = true }
 du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
+serde.workspace = true
 
 [lints]
 workspace = true

@@ -8,10 +8,12 @@ use du_core_contracts::{
     Id, ItemRef, OsPath, SizeValue, Timestamp, data_source::DataSource, ports::PortError,
     result::ResultItemKind, volume::CapabilityState,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The operation requested for one selected target.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanAction {
     /// Move the target into the operating system trash.
     Trash,
@@ -22,7 +24,8 @@ pub enum PlanAction {
 }
 
 /// The trusted origin kind attached by the request adapter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanSourceKind {
     /// A user-selected item list.
     UserSelection,
@@ -35,7 +38,8 @@ pub enum PlanSourceKind {
 }
 
 /// The request channel used only for admission and display metadata.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestChannel {
     /// The desktop GUI.
     Gui,
@@ -46,7 +50,8 @@ pub enum RequestChannel {
 }
 
 /// Confirmation choices supplied by the caller before plan construction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ConfirmationChoice {
     /// Release default protection for eligible classifications in this plan.
     ReleaseDefaultProtection,
@@ -95,7 +100,8 @@ pub struct AnalysisItemFacts {
 }
 
 /// Stable identity used for duplicate detection and effect aggregation.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TargetIdentity {
     /// Native volume identity bytes.
     pub volume_id: Vec<u8>,
@@ -218,7 +224,8 @@ pub trait ProtectionEvaluator: Send + Sync {
 }
 
 /// Stable identity of one of the twelve registered protection evaluators.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EvaluatorId {
     /// Expected file identity.
     Identity,
@@ -283,7 +290,8 @@ impl EvaluatorId {
 }
 
 /// Protection decision emitted by one evaluator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProtectionVerdict {
     /// No protection applies.
     Allow,
@@ -332,7 +340,8 @@ pub struct ProtectionEvaluatorInput<'a> {
 }
 
 /// Current summary of the protection evaluation stored with one item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProtectionSummary {
     /// Combined verdict.
     pub verdict: ProtectionVerdict,
@@ -347,7 +356,8 @@ pub struct ProtectionSummary {
 }
 
 /// Final item state in the immutable plan.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanItemState {
     /// Included in the proposed operation set.
     Included,
@@ -358,7 +368,8 @@ pub enum PlanItemState {
 }
 
 /// Restore limitation attached to a planned operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RestoreRestriction {
     /// Restore is supported or partially supported.
     Supported,
@@ -369,7 +380,8 @@ pub enum RestoreRestriction {
 }
 
 /// Per-volume estimate quality.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EstimateQuality {
     /// Every included item had an exact, established size.
     Exact,
@@ -380,7 +392,8 @@ pub enum EstimateQuality {
 }
 
 /// Estimated change to one volume under change_estimate version 1.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VolumeEstimate {
     /// Volume identity bytes.
     pub volume_id: Vec<u8>,
@@ -393,7 +406,8 @@ pub struct VolumeEstimate {
 }
 
 /// One plan item, including retained selection and protection evidence.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlanItem {
     /// Stable one-based position in the path-sorted item list.
     pub item_no: u32,
