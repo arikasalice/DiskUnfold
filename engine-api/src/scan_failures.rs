@@ -5,6 +5,7 @@ use du_analysis_index::{IngestSink, QueryError, ResultVersion};
 use du_core_contracts::{
     PathBytes,
     ports::Random,
+    result::ResultItemKind,
     scan_failures::{
         ScanFailurePathRef, ScanFailureRow, ScanFailures, ScanFailuresRequest, ScanIssue,
     },
@@ -35,8 +36,16 @@ impl UseCase for Failures {
     type Request = ScanFailuresRequest;
     type Response = ScanFailures;
 
-    fn check_scope(&self, _: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
-        // The only source is a result version in this local GUI's store.
+    fn check_scope(&self, request: &Self::Request, _: &CallerCtx) -> Result<(), EngineError> {
+        // The only source is a result version in this local GUI's store. A folder
+        // reference must pin the request's own version, before either is looked up.
+        if request
+            .under_item
+            .as_ref()
+            .is_some_and(|item| item.result_version != request.result_version)
+        {
+            return Err(EngineError::reason("command.body_invalid"));
+        }
         Ok(())
     }
 
@@ -60,8 +69,12 @@ impl UseCase for Failures {
             return Err(EngineError::reason("command.body_invalid"));
         }
         let start = cursor::start(&self.key, &request)?;
+        let under = under_folder(&version, &request)?;
         let (total, matching) = version.scan_issues_page(
             request.root_indexes.as_deref(),
+            under
+                .as_ref()
+                .map(|(root, parts)| (*root, parts.as_slice())),
             request.kind,
             request.failures_only.unwrap_or(false),
             start,
@@ -89,10 +102,35 @@ impl UseCase for Failures {
 
 fn query_error(error: QueryError) -> EngineError {
     EngineError::reason(match error {
-        QueryError::NotFound => "ref.unavailable",
+        QueryError::NotFound | QueryError::PathUnavailable => "ref.unavailable",
         QueryError::StaleVersion => "result.requery_required",
         _ => "support.internal_error",
     })
+}
+
+/// The root and root-relative components of the folder a request restricts rows to.
+///
+/// The folder is resolved once per request, not per row: first the reference (a read
+/// error when it names nothing of this version), then its kind (a body error when it
+/// is not a folder). The components are the bytes the scan recorded, which are also the
+/// bytes of an issue's own path, so no comparison rule applies.
+type UnderFolder<'a> = (u32, Vec<&'a [u8]>);
+
+fn under_folder<'a>(
+    version: &'a ResultVersion,
+    request: &ScanFailuresRequest,
+) -> Result<Option<UnderFolder<'a>>, EngineError> {
+    let Some(item) = &request.under_item else {
+        return Ok(None);
+    };
+    let detail = version.detail(item).map_err(query_error)?;
+    if detail.item.kind != ResultItemKind::Directory {
+        return Err(EngineError::reason("command.body_invalid"));
+    }
+    version
+        .relative_components(item)
+        .map(Some)
+        .map_err(query_error)
 }
 
 fn project(version: &ResultVersion, issue: &ScanIssue) -> ScanFailureRow {

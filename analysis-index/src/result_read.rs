@@ -195,6 +195,34 @@ impl ResultVersion {
         Ok((root, evidence))
     }
 
+    /// The producer root index of an item and its path below that root, one name per
+    /// component and byte for byte as the scan observed them (F02 #358).
+    ///
+    /// The path is the one a scan issue of the same root records in `relative`, so an
+    /// issue is below the item when these components are a leading run of its own.
+    /// A root item has no components.
+    ///
+    /// # Errors
+    /// `StaleVersion` or `NotFound` as [`ResultVersion::detail`], and `PathUnavailable`
+    /// when the parent chain does not reach the root.
+    pub fn relative_components(&self, item: &ItemRef) -> Result<(u32, Vec<&[u8]>), QueryError> {
+        let (root, _) = self.observed_root_for(item)?;
+        let mut parts = Vec::new();
+        let mut entry = self
+            .items
+            .get(item.item_no as usize)
+            .ok_or(QueryError::PathUnavailable)?;
+        while let Some(parent) = entry.parent {
+            parts.push(entry.name.as_slice());
+            entry = self
+                .items
+                .get(parent as usize)
+                .ok_or(QueryError::PathUnavailable)?;
+        }
+        parts.reverse();
+        Ok((root, parts))
+    }
+
     /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
     pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
         self.aggregates.get(item_no as usize)

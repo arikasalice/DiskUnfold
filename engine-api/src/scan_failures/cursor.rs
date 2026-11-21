@@ -104,6 +104,8 @@ fn filter(kind: Option<ScanFailureKind>) -> u8 {
 }
 
 fn roots_filter(request: &ScanFailuresRequest) -> [u8; 32] {
+    // The roots and the folder the rows are restricted to (F02 #358) bind a cursor
+    // together: a cursor made for one folder is refused for another.
     let mut hasher = blake3::Hasher::new_derive_key("diskunfold.scan.failures.roots.sf2");
     match &request.root_indexes {
         None => {
@@ -117,6 +119,15 @@ fn roots_filter(request: &ScanFailuresRequest) -> [u8; 32] {
             }
         }
     };
+    match &request.under_item {
+        None => {
+            hasher.update(&[0]);
+        }
+        Some(item) => {
+            hasher.update(&[1]);
+            hasher.update(&item.item_no.to_le_bytes());
+        }
+    }
     *hasher.finalize().as_bytes()
 }
 
@@ -140,7 +151,7 @@ fn invalid() -> EngineError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use du_core_contracts::Id;
+    use du_core_contracts::{Id, ItemRef};
 
     #[test]
     fn authenticates_before_comparing_version_and_filter() -> Result<(), String> {
@@ -150,6 +161,7 @@ mod tests {
             kind: Some(ScanFailureKind::UnreadRange),
             root_indexes: Some(vec![0, 3]),
             failures_only: Some(true),
+            under_item: None,
             cursor: None,
             count: None,
         };
@@ -163,6 +175,12 @@ mod tests {
         request.root_indexes = Some(vec![0]);
         assert_eq!(start(&key, &request), Err(invalid()));
         request.root_indexes = Some(vec![0, 3]);
+        request.under_item = Some(ItemRef {
+            result_version: request.result_version.clone(),
+            item_no: 4,
+        });
+        assert_eq!(start(&key, &request), Err(invalid()));
+        request.under_item = None;
         request.failures_only = Some(false);
         assert_eq!(start(&key, &request), Err(invalid()));
         request.failures_only = Some(true);

@@ -1,5 +1,5 @@
 //! Classified collection observations and the local, pinned failure-list contract.
-use crate::{Id, PathBytes, Timestamp};
+use crate::{Id, ItemRef, PathBytes, Timestamp};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Failure-list categories in their deterministic publication order.
@@ -129,6 +129,17 @@ pub struct ScanFailuresRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub failures_only: Option<bool>,
+    /// Restricts rows to the folder this item names and everything below it, in the
+    /// folder's own root only (F02 #358). The reference must pin the request's own
+    /// `result_version` and name a folder. A row is kept when the folder's root-relative
+    /// path is the whole of its path or a leading run of its components, so the folder's
+    /// own unread range is kept and `/a/bc` is not below `/a/b`. Omission selects the
+    /// whole result; `null` is invalid. It combines with `root_indexes`, `kind` and
+    /// `failures_only` by AND, and a cursor is bound to it.
+    #[serde(default, deserialize_with = "deserialize_under_item")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub under_item: Option<ItemRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub cursor: Option<String>,
@@ -154,6 +165,13 @@ where
     D: Deserializer<'de>,
 {
     bool::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_under_item<'de, D>(deserializer: D) -> Result<Option<ItemRef>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    ItemRef::deserialize(deserializer).map(Some)
 }
 
 /// A filtered page and its opaque continuation, if more rows remain.
