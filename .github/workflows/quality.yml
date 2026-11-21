@@ -82,6 +82,8 @@ jobs:
         run: npm run build
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      # The CLI-only launcher (README, AGENTS.md) builds app-host without its gui feature.
+      - run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
       - name: GUI checks
         working-directory: gui-web
         run: npm run check && npm run test
