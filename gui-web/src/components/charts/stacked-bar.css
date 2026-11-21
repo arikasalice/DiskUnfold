@@ -69,8 +69,8 @@
 
 @media (forced-colors: active) {
   /* Slices fill with Canvas and are told apart by their pattern and edge
-     (README 4.9). */
-  .du-stacked-bar__slice > rect:first-child {
+     (README 4.9). The selector outranks the palette places above. */
+  .du-stacked-bar__slice[data-tone] > rect:first-child {
     fill: Canvas;
     stroke: CanvasText;
     stroke-width: 2;

@@ -85,3 +85,11 @@ test("nothing to draw draws nothing", () => {
   const { container } = render(<StackedBar slices={[slice("a", 0)]} />);
   expect(container.innerHTML).toBe("");
 });
+
+test("a bar in a table cell takes the length it is given", () => {
+  const { container } = render(
+    <StackedBar slices={[slice("a", 1)]} width={96} />,
+  );
+  const bar = container.querySelector<HTMLElement>(".du-stacked-bar");
+  expect(bar?.style.width).toBe("96px");
+});
