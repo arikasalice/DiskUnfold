@@ -1,10 +1,11 @@
 use crate::delivery::enqueue;
+use crate::history::HistoryRecorder;
 use crate::model::{Cancellation, Delivery, JobClock, JobEvent, Limits, ProgressCell, Table};
 use du_core_contracts::{
     Id, Timestamp,
     job::{
-        Checkpoint, DeviceSeat, DiskSeat, JobContext, JobCounts, JobFlow, JobFlowError,
-        JobProgress, JobState, LaneStatusReport, ResourceClass,
+        Checkpoint, DeviceSeat, DiskSeat, ItemHistoryError, ItemHistoryRecord, JobContext,
+        JobCounts, JobFlow, JobFlowError, JobProgress, JobState, LaneStatusReport, ResourceClass,
     },
 };
 use std::sync::{
@@ -36,6 +37,7 @@ pub(crate) struct Services {
     pub(crate) limits: Arc<Limits>,
     pub(crate) clock: Arc<dyn JobClock>,
     pub(crate) progress: Arc<ProgressCell>,
+    pub(crate) history_recorder: Option<Arc<HistoryRecorder>>,
 }
 impl Context {
     pub(crate) fn new(
@@ -77,10 +79,33 @@ impl Context {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         add_counts(counts, &state.counts);
+        if let Some(recorder) = &self.services.history_recorder {
+            recorder.close();
+        }
         !state.abandoned
+    }
+
+    pub(crate) fn item_history_failed(&self) -> bool {
+        self.services
+            .history_recorder
+            .as_ref()
+            .is_some_and(|recorder| recorder.failed())
     }
 }
 impl JobContext for Context {
+    fn record_item(&self, item: ItemHistoryRecord) -> Result<(), ItemHistoryError> {
+        let recorder = self
+            .services
+            .history_recorder
+            .as_ref()
+            .ok_or(ItemHistoryError::Unavailable)?;
+        let result = recorder.record(item);
+        if recorder.failed() {
+            self.abort_flows();
+        }
+        result
+    }
+
     fn utc_now(&self) -> Option<Timestamp> {
         Timestamp::from_unix_millis(self.services.clock.now_ms())
     }
@@ -98,7 +123,7 @@ impl JobContext for Context {
     }
 
     fn checkpoint(&self) -> Checkpoint {
-        if self.cancellation.0.load(Ordering::Acquire) {
+        if self.cancellation.0.load(Ordering::Acquire) || self.item_history_failed() {
             Checkpoint::Cancel
         } else {
             Checkpoint::Continue

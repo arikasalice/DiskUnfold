@@ -16,7 +16,7 @@ use du_core_contracts::{
         JobSummary,
     },
 };
-use rusqlite::{Error, ErrorCode, TransactionBehavior, params};
+use rusqlite::{Error, ErrorCode, OptionalExtension, TransactionBehavior, params};
 
 use crate::{
     AppDb, BUSY_TIMEOUT, HISTORY_SCHEMA_VERSION, OpenError, history_open::refuse_history_migration,
@@ -26,11 +26,13 @@ pub mod prune;
 pub mod read;
 
 impl AppDb {
-    /// Atomically appends the path-free terminal summary, its local history link,
-    /// and the next history sequence for a metadata scan or a duplicate check.
+    /// Atomically appends a terminal summary, its local history link, and the next
+    /// history sequence for summary-history jobs or a started per-item job.
     ///
-    /// Call through the shared write connection after applying both history
-    /// schema definitions. This method does not create or upgrade the database.
+    /// A per-item terminal row must match its immutable start row. Its link copies
+    /// plan and predecessor references from that start row. Call through the
+    /// shared write connection after applying both history schema definitions.
+    /// This method does not create or upgrade the database.
     /// Repeating a fully recorded job returns its existing history without
     /// advancing the sequence. An incomplete record is reported as a failure.
     pub fn append_scan_history(
@@ -49,7 +51,6 @@ impl AppDb {
         summary: &JobSummary,
         now_ms: i64,
     ) -> Result<HistoryAppendOutcome, String> {
-        let prepared = Prepared::new(summary).ok_or("history.record_failed")?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -68,6 +69,38 @@ impl AppDb {
                 });
             }
         }
+        let start = tx
+            .query_row(
+                "SELECT kind_id, kind_version, scope_summary, started_at_ms
+                 FROM job_runtime_job_start WHERE job_id=?1",
+                [id_bytes(&summary.job_id)
+                    .ok_or("history.record_failed")?
+                    .as_slice()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(map_error)?;
+        let per_item = match start {
+            Some((kind, version, scope, started_at)) => {
+                if kind != summary.kind_id
+                    || u32::try_from(version).ok() != Some(summary.kind_version)
+                    || scope != summary.scope_summary
+                    || summary.started_at_ms != Some(started_at)
+                {
+                    return Err("history.record_failed".into());
+                }
+                true
+            }
+            None => false,
+        };
+        let prepared = Prepared::new(summary, per_item).ok_or("history.record_failed")?;
         let [completed, overwritten, failed, skipped, unprocessed] = prepared.counts;
         let inserted = tx
             .execute(
@@ -148,8 +181,15 @@ impl AppDb {
         };
         tx.execute(
             "INSERT INTO job_runtime_job_link
-                 (job_id, record_origin, reckon_at_ms, record_seq, created_at_ms)
-             VALUES (?1, 'this_app', ?2, ?3, ?4)",
+                 (job_id, plan_version_id, plan_lineage_id, plan_hash, predecessor_job_id,
+                  relation_kind, record_origin, reckon_at_ms, record_seq, created_at_ms)
+             VALUES (?1,
+                     (SELECT plan_version_id FROM job_runtime_job_start WHERE job_id=?1),
+                     (SELECT plan_lineage_id FROM job_runtime_job_start WHERE job_id=?1),
+                     (SELECT plan_hash FROM job_runtime_job_start WHERE job_id=?1),
+                     (SELECT predecessor_job_id FROM job_runtime_job_start WHERE job_id=?1),
+                     (SELECT relation_kind FROM job_runtime_job_start WHERE job_id=?1),
+                     'this_app', ?2, ?3, ?4)",
             params![
                 prepared.job_id.as_slice(),
                 summary.finished_at_ms,
@@ -209,20 +249,28 @@ struct Prepared {
 }
 
 impl Prepared {
-    fn new(summary: &JobSummary) -> Option<Self> {
-        if !valid_record_scope(
-            &summary.kind_id,
-            summary.kind_version,
-            &summary.scope_summary,
-        ) || !valid_scope_roots(summary)
-            || !summary
-                .failure_reason_key
-                .as_deref()
-                .is_none_or(|reason| reason == "support.internal_error")
-            || !summary
-                .unprocessed_summary
-                .as_deref()
-                .is_none_or(|value| valid_unprocessed(&summary.kind_id, value))
+    fn new(summary: &JobSummary, per_item: bool) -> Option<Self> {
+        let valid_scope = if per_item {
+            valid_per_item_scope(&summary.kind_id, &summary.scope_summary)
+                && valid_per_item_roots(summary)
+        } else {
+            valid_record_scope(
+                &summary.kind_id,
+                summary.kind_version,
+                &summary.scope_summary,
+            ) && valid_scope_roots(summary)
+        };
+        if !valid_scope
+            || !summary.failure_reason_key.as_deref().is_none_or(|reason| {
+                reason == "support.internal_error" || per_item && reason == "history.record_failed"
+            })
+            || !summary.unprocessed_summary.as_deref().is_none_or(|value| {
+                if per_item {
+                    valid_per_item_text(value)
+                } else {
+                    valid_unprocessed(&summary.kind_id, value)
+                }
+            })
         {
             return None;
         }
@@ -263,6 +311,33 @@ fn valid_record_scope(kind_id: &str, kind_version: u32, scope: &str) -> bool {
         ("duplicate.check", 1) => scope == "duplicate.check",
         _ => false,
     }
+}
+
+fn valid_per_item_scope(kind_id: &str, scope: &str) -> bool {
+    kind_id_version_valid(kind_id) && valid_per_item_text(scope)
+}
+
+fn kind_id_version_valid(kind_id: &str) -> bool {
+    !kind_id.is_empty()
+        && kind_id.len() <= 128
+        && kind_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn valid_per_item_text(value: &str) -> bool {
+    value.chars().count() <= 32_768
+        && !value.chars().any(char::is_control)
+        && !value
+            .chars()
+            .any(|character| character == '/' || character == '\\')
+}
+
+fn valid_per_item_roots(summary: &JobSummary) -> bool {
+    summary
+        .scope_roots
+        .iter()
+        .all(|root| !root.is_empty() && root.chars().count() <= 32_768)
 }
 
 fn valid_scope_roots(summary: &JobSummary) -> bool {
@@ -330,5 +405,6 @@ fn map_error(error: Error) -> String {
 }
 
 mod interruption;
+mod item;
 #[cfg(test)]
 mod tests;
