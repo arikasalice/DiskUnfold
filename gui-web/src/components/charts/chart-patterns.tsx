@@ -1,3 +1,5 @@
+import "./chart-patterns.css";
+
 /**
  * The category patterns of the chart palette (F06 README 4.1): one per palette
  * place, and the two neutral ones. Lines are 1 CSS px, 6 px apart (the dense

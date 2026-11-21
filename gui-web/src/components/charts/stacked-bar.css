@@ -1,0 +1,84 @@
+/* StackedBar (F06 README 13): one line of slices, 2 px of surface between them,
+   none narrower than 2 px, ends rounded by 4 px. */
+.du-stacked-bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.du-stacked-bar[data-height="12"] {
+  height: 12px;
+}
+
+.du-stacked-bar[data-height="20"] {
+  height: 20px;
+}
+
+.du-stacked-bar__defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.du-stacked-bar__slice,
+.du-stacked-bar__rest {
+  flex-basis: 0;
+  flex-shrink: 0;
+  min-width: 2px;
+  height: 100%;
+}
+
+.du-stacked-bar__slice[data-tone="1"] > rect:first-child {
+  fill: var(--du-chart-1);
+}
+.du-stacked-bar__slice[data-tone="2"] > rect:first-child {
+  fill: var(--du-chart-2);
+}
+.du-stacked-bar__slice[data-tone="3"] > rect:first-child {
+  fill: var(--du-chart-3);
+}
+.du-stacked-bar__slice[data-tone="4"] > rect:first-child {
+  fill: var(--du-chart-4);
+}
+.du-stacked-bar__slice[data-tone="5"] > rect:first-child {
+  fill: var(--du-chart-5);
+}
+.du-stacked-bar__slice[data-tone="6"] > rect:first-child {
+  fill: var(--du-chart-6);
+}
+.du-stacked-bar__slice[data-tone="7"] > rect:first-child {
+  fill: var(--du-chart-7);
+}
+.du-stacked-bar__slice[data-tone="8"] > rect:first-child {
+  fill: var(--du-chart-8);
+}
+.du-stacked-bar__slice[data-tone="neutral"] > rect:first-child {
+  fill: var(--du-chart-neutral);
+}
+.du-stacked-bar__slice[data-tone="neutral-2"] > rect:first-child {
+  fill: var(--du-chart-neutral-2);
+}
+
+/* The part of the whole that is not a slice: neutral, no pattern. */
+.du-stacked-bar__rest {
+  background: var(--du-subtle);
+}
+
+@media (forced-colors: active) {
+  /* Slices fill with Canvas and are told apart by their pattern and edge
+     (README 4.9). */
+  .du-stacked-bar__slice > rect:first-child {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-width: 2;
+  }
+
+  .du-stacked-bar__rest {
+    background: Canvas;
+    outline: 1px solid GrayText;
+    outline-offset: -1px;
+  }
+}
