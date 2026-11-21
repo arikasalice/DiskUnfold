@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   BarRenderer,
@@ -133,6 +133,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
     [frame.model, text],
   );
   const classes = useClassChoice(entries, adapted.shapes);
+  useNarrowingReport(props.narrowing, frame);
   const legendChoice = legendSelection(
     props.narrowing,
     frame,
@@ -295,6 +296,24 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
 /** Patterns are drawn when the reader turned them on or the system asks for them. */
 function patternsOn(legend: LegendControls | undefined, auto: boolean) {
   return auto || (legend?.patterns ?? false);
+}
+
+/**
+ * Tells the narrowing what this frame shows (README 46.12): whether the scan is
+ * still running and whether the chart has an Other group. A narrowed bar chart
+ * needs a finished scan and no Other group.
+ */
+function useNarrowingReport(
+  narrowing: TypeNarrowing | undefined,
+  frame: ModelResponse,
+) {
+  const report = narrowing?.report;
+  const format = frame.model.representation.format;
+  const scanning = frame.completeness === "partial";
+  const grouped = frame.model.shapes.some((shape) => shape.groupRef != null);
+  useEffect(() => {
+    report?.({ format, scanning, grouped });
+  }, [report, format, scanning, grouped]);
 }
 
 /** The chosen type's chip and totals, or the highlighted class's chip. */

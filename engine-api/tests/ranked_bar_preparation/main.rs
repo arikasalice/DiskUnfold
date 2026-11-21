@@ -137,6 +137,7 @@ fn session_prepares_pinned_rows_before_selected_ranked_strategy() -> Result<(), 
         scale: Scale::Automatic,
         top: 2,
         max_bars: 2,
+        filter: None,
     };
     let selected = session
         .compute_ranked_bar(&source, request(), &descriptor, &mut || false)
@@ -259,6 +260,7 @@ fn make_pending(
                 scale: Scale::Automatic,
                 top,
                 max_bars: top + 1,
+                filter: None,
             },
             descriptor,
             &mut || false,

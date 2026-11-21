@@ -42,6 +42,8 @@ param(
   # type and the histogram with the chip inactive (#301); the Short form only the treemap.
   [switch]$CaptureTypeNarrowing,
   [switch]$CaptureTypeNarrowingShort,
+  # Capture the bar chart that cannot narrow because it needs an Other group (#301).
+  [switch]$CaptureTypeNarrowingMany,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1900,8 +1902,14 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
   Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
-  # The histogram does not narrow: the chip stays, inactive, with its note (46.5).
+  # The bar chart narrows too: clip.mp4 and docs by their video bytes (#301).
   $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
+  $barName = Get-UiName 'Bar chart'
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$barName*" }) | Select-Object -First 1 })
+  $barTotal = Wait-UI 'the narrowed bar total' { @($window.FindAll($scopeTree, $textCondition) | Where-Object { $_.Current.Name -like "$videosName *·*" }) | Select-Object -First 1 }
+  "Bar status line: '$($barTotal.Current.Name)'"
+  Save-SmokeCapture '02b-narrowed-bar' -Prepare { $null = Show-InWindow $clear }
+  # The histogram does not narrow: the chip stays, inactive, with its note (46.5).
   $histogramName = Get-UiName 'Histogram'
   Select-SmokeRadio (Wait-UI 'Histogram format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$histogramName*" }) | Select-Object -First 1 })
   $null = Wait-UI 'the inactive chip note' { Find-UI "Doesn't apply to this format" $null }
@@ -1921,6 +1929,40 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   } 30
   Save-SmokeCapture '04-folder-without-type'
   "Type narrowing capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# F06 #301 (README 46.12): a bar chart with more children than the shape limit has an Other
+# group, and a narrowed one would need one too, so the chosen type stays inactive with its reason.
+function Test-CaptureTypeNarrowingMany {
+  $scope = Join-Path $root 'type-narrowing-many-scope'
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  for ($index = 0; $index -lt 2100; $index++) {
+    $name = if ($index -lt 100) { "clip-$index.mp4" } else { "note-$index.txt" }
+    [IO.File]::WriteAllBytes((Join-Path $scope $name), [byte[]]::new(4096 + $index))
+  }
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 120
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'clip-0.mp4' { Find-UI 'clip-0.mp4' $null } 60
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
+  $barName = Get-UiName 'Bar chart'
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$barName*" }) | Select-Object -First 1 } 60)
+  $legendName = Get-UiName 'Legend'
+  $listType = [Windows.Automation.ControlType]::List
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  $legend = Wait-UI 'bar legend' {
+    @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $legendName)) |
+      Where-Object { $_.Current.ControlType -eq $listType }) | Select-Object -First 1
+  } 60
+  $videosName = Get-UiName 'Videos'
+  $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
+  Select-SmokeRadio $videos
+  $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
+  $null = Wait-UI 'the too-many note' { Find-UI 'Too many items for the bar chart. Use the treemap to see this filter.' $null } 30
+  Save-SmokeCapture '01-bar-too-many' -Prepare { $null = Show-InWindow $clear }
+  "Type narrowing too-many capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
 function Test-CaptureTypeLegend([switch]$More) {
   $scope = Join-Path $root 'type-legend-scope'
@@ -2441,7 +2483,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort -or $CaptureTypeNarrowingMany
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2457,6 +2499,7 @@ function Test-VirtualGroups {
   if ($CaptureTypeLegendMore) { Test-CaptureTypeLegend -More }
   if ($CaptureTypeNarrowing) { Test-CaptureTypeNarrowing }
   if ($CaptureTypeNarrowingShort) { Test-CaptureTypeNarrowing -Short }
+  if ($CaptureTypeNarrowingMany) { Test-CaptureTypeNarrowingMany }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

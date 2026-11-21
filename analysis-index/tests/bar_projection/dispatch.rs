@@ -42,6 +42,7 @@ fn ranked_bar_dispatch_preserves_evidence_and_rejects_unimplemented_modes() -> R
         scale: Scale::Fixed(50),
         top: 2,
         max_bars: 3,
+        filter: None,
     };
     let selected = dispatcher
         .execute_bar("bar", None, BarInput::Ranked(input()), &mut || false)

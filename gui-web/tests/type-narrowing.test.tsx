@@ -76,8 +76,10 @@ function narrowing(over: Partial<TypeNarrowing> = {}): TypeNarrowing {
     key: null,
     label: null,
     inactive: false,
+    reason: null,
     announced: null,
     choose: vi.fn(),
+    report: vi.fn(),
     ...over,
   };
 }
@@ -157,6 +159,7 @@ test("F06 README 46.5: a format that does not narrow keeps the chip, inactive, a
       key: "type.video",
       label: say("legend.type.video"),
       inactive: true,
+      reason: "format",
     }),
   );
   const note = screen.getByText(say("filterNotApplicable"));
@@ -197,7 +200,7 @@ const catalog: VizCatalog = {
 };
 const owner = { request: { colorCriterion: "none" } };
 
-test("F06 README 46.5, 46.6: the treemap sends the chosen type, other formats keep it inactive, and a change is announced", () => {
+test("F06 README 46.5, 46.6: the treemap and the bar chart send the chosen type, the histogram keeps it inactive, and a change is announced", () => {
   let format = "treemap";
   const hook = renderHook(() => useLegendChoice(format, catalog, owner, text));
   expect(hook.result.current.request).toEqual({ colorCriterion: "type" });
@@ -213,16 +216,89 @@ test("F06 README 46.5, 46.6: the treemap sends the chosen type, other formats ke
     condition: { kind: "normalized", condition: video },
   });
   expect(hook.result.current.narrowing?.announced).toEqual({ type: "동영상" });
-  for (const other of ["bar", "histogram"]) {
-    format = other;
-    hook.rerender();
-    expect(hook.result.current.request).not.toHaveProperty("condition");
-    expect(hook.result.current.narrowing?.inactive).toBe(true);
-  }
+  format = "bar";
+  hook.rerender();
+  expect(hook.result.current.request).toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.inactive).toBe(false);
+  format = "histogram";
+  hook.rerender();
+  expect(hook.result.current.request).not.toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.inactive).toBe(true);
   format = "treemap";
   hook.rerender();
   expect(hook.result.current.request).toHaveProperty("condition");
   act(() => hook.result.current.narrowing?.choose(null));
   expect(hook.result.current.request).toEqual({ colorCriterion: "type" });
   expect(hook.result.current.narrowing?.announced).toBe("all");
+});
+
+test("F06 README 46.12: an inactive chip says why the bar chart does not narrow", () => {
+  const chosen = {
+    key: "type.video",
+    label: say("legend.type.video"),
+    inactive: true,
+  };
+  presenter(typed(), narrowing({ ...chosen, reason: "too_many" }));
+  expect(screen.getByText(say("filterTooManyForBar"))).toBeTruthy();
+  cleanup();
+  presenter(typed(), narrowing({ ...chosen, reason: "scanning" }));
+  expect(screen.getByText(say("filterAfterScan"))).toBeTruthy();
+});
+
+test("F06 README 46.12: a shown frame reports a running scan and an Other group", () => {
+  const chosen = narrowing();
+  const input = typed();
+  presenter(input, chosen);
+  expect(chosen.report).toHaveBeenCalledWith({
+    format: input.frame.model.representation.format,
+    scanning: input.frame.completeness === "partial",
+    grouped: input.frame.model.shapes.some((shape) => shape.groupRef != null),
+  });
+});
+
+test("F06 README 46.12: the bar chart narrows only a finished result without an Other group", () => {
+  const hook = renderHook(() => useLegendChoice("bar", catalog, owner, text));
+  act(() =>
+    hook.result.current.narrowing?.choose({
+      key: "type.video",
+      label: "동영상",
+      condition: video,
+    }),
+  );
+  expect(hook.result.current.request).toHaveProperty("condition");
+  act(() =>
+    hook.result.current.narrowing?.report({
+      format: "bar",
+      scanning: true,
+      grouped: false,
+    }),
+  );
+  expect(hook.result.current.request).not.toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.reason).toBe("scanning");
+  act(() =>
+    hook.result.current.narrowing?.report({
+      format: "bar",
+      scanning: false,
+      grouped: true,
+    }),
+  );
+  expect(hook.result.current.narrowing?.reason).toBe("too_many");
+  // A treemap frame says nothing about the bar chart's Other group.
+  act(() =>
+    hook.result.current.narrowing?.report({
+      format: "treemap",
+      scanning: false,
+      grouped: false,
+    }),
+  );
+  expect(hook.result.current.narrowing?.reason).toBe("too_many");
+  act(() =>
+    hook.result.current.narrowing?.report({
+      format: "bar",
+      scanning: false,
+      grouped: false,
+    }),
+  );
+  expect(hook.result.current.request).toHaveProperty("condition");
+  expect(hook.result.current.narrowing?.reason).toBeNull();
 });

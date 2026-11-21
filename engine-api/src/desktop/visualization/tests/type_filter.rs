@@ -138,15 +138,10 @@ fn a_format_that_does_not_narrow_and_a_foreign_operand_are_refused() -> TestResu
     harness.publish(&mixed())?;
     let view = harness.open_view()?;
     let condition = narrowed(&harness, &view, "type.video", "treemap")?["condition"].clone();
-    for (seq, format) in [(3, "histogram"), (4, "bar")] {
-        let mut body = typed(&view, seq, format);
-        body["condition"] = condition.clone();
-        assert_eq!(
-            harness.reason("viz.render", body)?,
-            "predicate.not_allowed",
-            "{format}"
-        );
-    }
+    // The histogram groups by size, not by folder: it does not narrow.
+    let mut body = typed(&view, 3, "histogram");
+    body["condition"] = condition;
+    assert_eq!(harness.reason("viz.render", body)?, "predicate.not_allowed");
     for (seq, operand) in [
         (5, b"unclassified".as_slice()),
         (6, b"type.folder"),
@@ -156,5 +151,39 @@ fn a_format_that_does_not_narrow_and_a_foreign_operand_are_refused() -> TestResu
         body["condition"] = type_condition(operand);
         assert_eq!(harness.reason("viz.render", body)?, "query.syntax_invalid");
     }
+    Ok(())
+}
+
+#[test]
+fn a_legend_row_narrows_the_bar_chart_to_its_type() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&mixed())?;
+    let view = harness.open_view()?;
+    let body = narrowed(&harness, &view, "type.video", "bar")?;
+    let answer = harness.ok("viz.render", body)?;
+    assert_eq!(answer["kind"], "model", "{answer}");
+    let mut shown = names(&rows_of(&harness, &answer)?)?;
+    shown.sort();
+    // clip.mp4 by its 60 bytes and docs by talk.mp4's 40; songs keeps no video.
+    assert_eq!(shown, ["clip.mp4", "docs"]);
+    // Narrowed, the folder holds only videos and takes their class (README 46.12).
+    let rows = rows_of(&harness, &answer)?;
+    let classes: Vec<_> = rows["rows"]
+        .as_array()
+        .ok_or("no rows")?
+        .iter()
+        .map(|row| row["legendClassKey"].clone())
+        .collect();
+    assert_eq!(classes, [json!("type.video"), json!("type.video")]);
+    let totals = &answer["model"]["totals"];
+    assert_eq!(bytes(&totals["scope"]), "220");
+    assert_eq!(bytes(&totals["drawn"]), "100");
+    assert_eq!(bytes(&totals["filteredOut"]), "120");
+    assert_eq!(bytes(&totals["remainder"]), "0");
+    // The legend keeps the whole scope's values, as on the treemap.
+    assert_eq!(
+        bytes(&legend_entry(&answer["model"], "type.video")?["total"]),
+        "100"
+    );
     Ok(())
 }

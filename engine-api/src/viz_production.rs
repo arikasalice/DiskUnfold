@@ -137,6 +137,7 @@ impl EvidenceProducer for ProductionEvidence {
             item,
             &request.size_basis,
             request.color_criterion == policy::COLOR_CRITERION_TYPE,
+            crate::viz_runtime::narrowed_type_key(request),
         ))
     }
 }

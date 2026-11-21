@@ -18,6 +18,7 @@ use super::{
 };
 use crate::ResultVersion;
 
+mod filtered;
 mod other;
 
 /// Source identity and original F03 size for one ranked candidate.
@@ -69,6 +70,8 @@ pub struct ChildrenRequest<'a> {
     pub scale: Scale,
     pub top: usize,
     pub max_bars: usize,
+    /// Files the ranking keeps; every file without one (F06 #301).
+    pub filter: Option<super::filter::ItemFilter>,
 }
 
 /// Builds a ranked model from the folder's actual pinned children and F03 total.
@@ -87,6 +90,9 @@ pub fn prepare_children<'a>(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Prepared<'a>, Error> {
     check(cancelled)?;
+    if let Some(filter) = request.filter {
+        return filtered::prepare(request, filter, cancelled);
+    }
     let scope_no = root_ref(request.version, request.scope).map_err(|_| Error::InvalidEvidence)?;
     let total = AggregateEvidence {
         result_version: request.version.version_id().clone(),
@@ -125,6 +131,7 @@ pub fn prepare_children<'a>(
         rows,
         input,
         sources,
+        filtered_bytes: 0,
     })
 }
 
@@ -159,6 +166,8 @@ pub struct Ranking {
     pub completeness: ResultCompleteness,
     pub ranking_incomplete: bool,
     pub axis_max: Option<u64>,
+    /// Bytes a filter removed from the attributed children; zero without one.
+    pub filtered_bytes: u64,
 }
 
 /// Inputs or an F03 grouping cannot be safely admitted, or calculation failed.
@@ -203,6 +212,7 @@ pub struct Prepared<'a> {
     rows: Vec<Row>,
     input: Vec<bar::Item>,
     sources: HashMap<u32, ItemRef>,
+    filtered_bytes: u64,
 }
 
 /// Validates the source, aggregation evidence and members without calculating geometry.
@@ -259,6 +269,7 @@ pub fn prepare<'a>(
         rows: retained_rows,
         input,
         sources,
+        filtered_bytes: 0,
     })
 }
 
@@ -358,6 +369,7 @@ impl Prepared<'_> {
             completeness: layout.source_completeness,
             ranking_incomplete: layout.ranking_incomplete,
             axis_max: layout.axis_max,
+            filtered_bytes: self.filtered_bytes,
         })
     }
 }

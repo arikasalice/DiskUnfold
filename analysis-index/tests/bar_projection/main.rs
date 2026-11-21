@@ -40,6 +40,7 @@ fn pinned_children_build_the_same_ranked_model_as_verified_f03_rows() -> Result<
         scale: Scale::Fixed(50),
         top: 2,
         max_bars: 3,
+        filter: None,
     };
     let model =
         bar_projection::project_children(input(), &mut || false).map_err(|e| format!("{e:?}"))?;

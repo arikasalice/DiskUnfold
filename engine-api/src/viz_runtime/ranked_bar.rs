@@ -86,6 +86,7 @@ fn prepare(
             scale: Scale::Automatic,
             top,
             max_bars: admitted.max_shapes,
+            filter: admitted.filter,
         },
         &admitted.descriptor,
         cancelled,
@@ -99,6 +100,11 @@ fn prepare(
                 .iter()
                 .any(|bar| matches!(bar.identity, BarIdentity::Other { .. })) =>
         {
+            // An Other group is verified on unfiltered children only; a narrowed bar
+            // chart that would need one does not narrow (README 46.5).
+            if admitted.filter.is_some() {
+                return Err(super::condition::not_allowed());
+            }
             return super::ranked_group_model::prepare(
                 work,
                 pinned,
@@ -112,9 +118,15 @@ fn prepare(
         }
         Err(typed_layout::BarDispatchError::Bar(typed_layout::BarError::Projection(
             du_analysis_index::visualization::bar_projection::Error::GroupAttributionUnavailable,
-        ))) => None,
+        ))) if admitted.filter.is_none() => None,
+        Err(_) if admitted.filter.is_some() => return Err(super::condition::not_allowed()),
         Err(_) => return Err(internal()),
     };
+    // The fallback table lists the children unfiltered, so a narrowed bar chart
+    // whose kept bytes cannot all be proven does not narrow instead.
+    if layout.is_none() && admitted.filter.is_some() {
+        return Err(super::condition::not_allowed());
+    }
     let candidate = work
         .session
         .prepare_ranked(

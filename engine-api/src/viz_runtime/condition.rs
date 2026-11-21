@@ -15,7 +15,7 @@ use du_core_contracts::{
 };
 
 /// Formats whose shapes stand for folders and files, which a type filter narrows.
-const FILTERED_FORMATS: [&str; 1] = ["treemap"];
+const FILTERED_FORMATS: [&str; 2] = ["treemap", "bar"];
 
 /// The condition fragment of a legend class: files of its type. The class of no
 /// type and the folder class have none.
@@ -67,6 +67,15 @@ pub(super) fn filter_of(request: &VizRenderRequest) -> Result<Option<ItemFilter>
         .ok_or_else(|| EngineError::reason("query.syntax_invalid"))
 }
 
-fn not_allowed() -> EngineError {
+pub(super) fn not_allowed() -> EngineError {
     EngineError::reason("predicate.not_allowed")
+}
+
+/// The type key a request narrows to, when its condition is a type fragment a
+/// narrowing format accepts; none otherwise, also for a condition it refuses.
+pub(crate) fn narrowed_type_key(request: &VizRenderRequest) -> Option<&'static str> {
+    match filter_of(request) {
+        Ok(Some(ItemFilter::FileType(kind))) => Some(type_legend::key_of(kind)),
+        _ => None,
+    }
 }
