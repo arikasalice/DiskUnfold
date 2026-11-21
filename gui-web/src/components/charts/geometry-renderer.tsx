@@ -69,6 +69,11 @@ type Shape = {
   patternAlways?: boolean;
   /** Another legend class is chosen: drawn faded, still selectable (README 4.7). */
   dimmed?: boolean;
+  /**
+   * The class shown from the legend before narrowing (README 46.1, 44.4): in
+   * forced colours, where fading is not seen, its edge is the highlight.
+   */
+  highlighted?: boolean;
   /** The key of its legend class, for choosing a class in the legend. */
   legendClass?: string;
   /**
@@ -1008,6 +1013,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   data-selected={selected ? "true" : undefined}
                   data-tone={shape.tone}
                   data-dimmed={shape.dimmed ? "true" : undefined}
+                  data-highlighted={shape.highlighted ? "true" : undefined}
                   data-dashed={shape.dashed ? "true" : undefined}
                 >
                   {drawing}

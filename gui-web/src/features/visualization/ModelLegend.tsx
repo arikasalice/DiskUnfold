@@ -33,34 +33,42 @@ export function useAutoPatterns() {
 
 /**
  * The class chosen in the legend and the shapes it leaves faded (README 4.7).
- * A choice the model no longer lists lets go by itself.
+ * A choice the model no longer lists lets go by itself. A class previewed from
+ * its legend row fades the others the same way while nothing is chosen
+ * (README 46.1); the preview is not a choice and leaves the request alone.
  */
 export function useClassChoice(
   entries: readonly LegendEntry[],
   shapes: GeometryRendererProps["shapes"],
 ) {
   const [chosen, setChosen] = useState<string | null>(null);
-  const selected =
-    chosen !== null && entries.some((entry) => entry.key === chosen)
-      ? chosen
-      : null;
+  const [previewed, setPreviewed] = useState<string | null>(null);
+  const listed = (key: string | null) =>
+    key !== null && entries.some((entry) => entry.key === key) ? key : null;
+  const selected = listed(chosen);
+  const shown = selected ?? listed(previewed);
   const drawn = useMemo(
     () =>
-      selected === null
+      shown === null
         ? shapes
         : shapes.map((shape) => {
-            // A folder holding the chosen type keeps it bright among its
+            // A folder holding the shown type keeps it bright among its
             // slices and fades the others (README 54).
-            if (shape.slices?.some((slice) => slice.key === selected))
-              return { ...shape, chosenSlice: selected };
-            return shape.legendClass !== undefined &&
-              shape.legendClass !== selected
-              ? { ...shape, dimmed: true }
-              : shape;
+            if (shape.slices?.some((slice) => slice.key === shown))
+              return { ...shape, chosenSlice: shown };
+            if (shape.legendClass === undefined) return shape;
+            return shape.legendClass === shown
+              ? { ...shape, highlighted: true }
+              : { ...shape, dimmed: true };
           }),
-    [selected, shapes],
+    [shown, shapes],
   );
-  return { selected, choose: setChosen, shapes: drawn };
+  return {
+    selected,
+    choose: setChosen,
+    preview: setPreviewed,
+    shapes: drawn,
+  };
 }
 
 /**
@@ -103,6 +111,7 @@ export function ModelLegend({
   entries,
   selected,
   onSelect,
+  onPreview,
   forced,
 }: {
   frame: ModelResponse;
@@ -112,6 +121,8 @@ export function ModelLegend({
   entries: readonly LegendEntry[];
   selected: string | null;
   onSelect: (key: string | null) => void;
+  /** The class whose row is hovered or focused, before it is pressed (46.1). */
+  onPreview?: (key: string | null) => void;
   /** Patterns are on by the system's request (forced colours, more contrast). */
   forced: boolean;
 }) {
@@ -139,6 +150,7 @@ export function ModelLegend({
       entries={entries}
       selectedKey={selected}
       onSelect={onSelect}
+      onPreview={onPreview}
       moreLabel={(hidden) =>
         vizMessage(text, "legendMore", { count: String(hidden) })
       }
