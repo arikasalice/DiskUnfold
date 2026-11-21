@@ -147,6 +147,7 @@ pub(super) fn build_model(
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, row.item.item_no),
+            type_slices: None,
         });
     }
     for shape in &projection.descendants {
@@ -169,6 +170,7 @@ pub(super) fn build_model(
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, shape.item.item_no),
+            type_slices: None,
         });
     }
     for group in &projection.detail.groups {
@@ -183,6 +185,19 @@ pub(super) fn build_model(
         }
         display_flags.sort_unstable();
         display_flags.dedup();
+        let members: Vec<_> = group
+            .members
+            .iter()
+            .map(|member| member.item.clone())
+            .collect();
+        let type_slices = crate::viz_pages::type_slices::group_slices(
+            admitted.source.version(),
+            &members,
+            &request.size_basis,
+            other.type_slices && admitted.filter.is_none(),
+            cancelled,
+        )
+        .map_err(|_| internal())?;
         shapes.push(VizShape {
             item_ref: None,
             group_ref: Some(group.group_ref.clone()),
@@ -198,8 +213,10 @@ pub(super) fn build_model(
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
             member_count: Some(quantity("items", group.members.len() as u64)?),
             item_kind: None,
+            type_slices,
         });
     }
+    super::shape_slices::add(admitted, &mut shapes, cancelled)?;
     let classes = super::legend_totals::classes(admitted, projection, evidence, cancelled)?;
     let mut legend = Vec::with_capacity(classes.len());
     for (key, (count, total, lower)) in
@@ -434,6 +451,7 @@ mod tests {
             root_branch_ref: None,
             member_count: count,
             item_kind: None,
+            type_slices: None,
         })
     }
 

@@ -49,7 +49,8 @@ pub const FLAG_OTHER_GROUP: &str = "viz.flag.other_group";
 ///
 /// A consumer that does not know the row's label key shows this key itself rather
 /// than a blank name.
-pub const GROUP_OTHER_NAME_KEY: &str = "ui.visualization.group.other";
+pub const GROUP_OTHER_NAME_KEY: &str =
+    du_core_contracts::visualization::type_slices::OTHER_GROUP_LABEL_KEY;
 /// Model-local reference of the Other group.
 pub const GROUP_OTHER_REF: &str = "viz.group.other";
 /// Prefix of the model-local reference of a histogram interval.

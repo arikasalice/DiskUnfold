@@ -14,6 +14,7 @@ use du_core_contracts::{
         item_kind::VizItemKind,
         quantity::VizQuantity,
         rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizUnread},
+        type_slices::VizTypeSlice,
     },
 };
 use std::{
@@ -51,6 +52,9 @@ pub struct OtherPresentation {
     pub legend_class_key: String,
     /// Display flags supplied by their owner.
     pub display_flags: Vec<String>,
+    /// The group carries its members' type slices (F06 README 54.2): set by the
+    /// presentation owner under the type criterion when nothing narrows the model.
+    pub type_slices: bool,
 }
 
 /// Assembly refuses inputs when required source or presentation evidence is unavailable.
@@ -131,6 +135,7 @@ pub(super) fn project_rows(
             row,
             presentation,
             &denominator,
+            cancelled,
         )?);
     }
     if !by_item.is_empty() {
@@ -185,7 +190,15 @@ pub(super) fn project_fallback(
             .remove(&item.item_no)
             .ok_or(Error::MissingClassification)?;
         let size = original_size(&version, item.item_no, basis).ok_or(Error::SourceMismatch)?;
-        rows.push(make_row(&version, item, size, presentation, &denominator)?);
+        let slices = row_slices(&version, &presentation, basis, false, cancelled)?;
+        rows.push(make_row(
+            &version,
+            item,
+            size,
+            presentation,
+            &denominator,
+            slices,
+        )?);
     }
     if cancelled() {
         return Err(Error::Cancelled);
@@ -249,6 +262,7 @@ fn project_row(
     row: &projection::Row,
     presentation: RowPresentation,
     denominator: &VizDenominator,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<VizRow, Error> {
     let item = version
         .items()
@@ -264,7 +278,9 @@ fn project_row(
     {
         return Err(Error::SourceMismatch);
     }
-    let projected = make_row(version, item, &row.size, presentation, denominator)?;
+    let filtered = model.filter.is_some();
+    let slices = row_slices(version, &presentation, &model.basis, filtered, cancelled)?;
+    let projected = make_row(version, item, &row.size, presentation, denominator, slices)?;
     if row.ratio.as_deref() != projected.ratio.as_ref().map(VizRatio::as_str) {
         return Err(Error::InvalidRatio);
     }
@@ -300,6 +316,7 @@ fn make_row(
     size: &SizeValue,
     presentation: RowPresentation,
     denominator: &VizDenominator,
+    type_slices: Option<Vec<VizTypeSlice>>,
 ) -> Result<VizRow, Error> {
     let (_, root) = version
         .observed_root_for(&presentation.item)
@@ -327,6 +344,7 @@ fn make_row(
         item_kind: VizItemKind::from_result(item.kind),
         condition: None,
         unread: row_unread(version, item),
+        type_slices,
     };
     projected
         .validate_revision(version.version_id())
@@ -353,6 +371,29 @@ fn row_unread(version: &ResultVersion, item: &ResultItem) -> Option<VizUnread> {
             _ => None,
         },
     }
+}
+
+/// A row's type slices (F06 README 54, #298), made by the function that makes its
+/// shape's.
+fn row_slices(
+    version: &ResultVersion,
+    presentation: &RowPresentation,
+    basis: &SizeBasis,
+    filtered: bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<VizTypeSlice>>, Error> {
+    super::type_slices::folder_slices(
+        version,
+        &presentation.item,
+        &presentation.legend_class_key,
+        basis,
+        filtered,
+        cancelled,
+    )
+    .map_err(|error| match error {
+        super::type_slices::SlicesError::Cancelled => Error::Cancelled,
+        super::type_slices::SlicesError::Invalid => Error::SourceMismatch,
+    })
 }
 
 fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Error> {
@@ -423,6 +464,7 @@ pub(super) fn project_sized(
             size,
             presentation,
             &denominator,
+            None,
         )?);
     }
     Ok(rows)

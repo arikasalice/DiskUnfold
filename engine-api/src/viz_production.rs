@@ -117,6 +117,11 @@ impl EvidenceProducer for ProductionEvidence {
     ) -> Result<Option<OtherPresentation>, EngineError> {
         // Narrowed, the Other group holds files of that type only and takes its class.
         let mut other = groups::other_group(&request.format);
+        // Unnarrowed under the type criterion, the group shows its members' types.
+        if let Some(other) = other.as_mut() {
+            other.type_slices = request.color_criterion == policy::COLOR_CRITERION_TYPE
+                && request.condition.is_none();
+        }
         if let (Some(other), Some(key)) = (
             other.as_mut(),
             crate::viz_runtime::narrowed_type_key(request),

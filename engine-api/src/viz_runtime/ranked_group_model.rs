@@ -33,6 +33,15 @@ pub(super) fn prepare(
     // The members of the group are expanded into bars without a shape below; only the bars
     // that were left out of the ranking itself are siblings that went missing.
     let omitted = super::ranked_projection::precision_omitted(&selected.output.bars);
+    let group_members: Vec<_> = selected
+        .output
+        .bars
+        .iter()
+        .find_map(|bar| match &bar.identity {
+            BarIdentity::Other { members, .. } => Some(members.clone()),
+            BarIdentity::Item(_) => None,
+        })
+        .unwrap_or_default();
     let (expanded, group_index, group_size, group_geometry, group_count) =
         expand(selected, cancelled)?;
     let layout = super::ranked_projection::to_projection(admitted, expanded, cancelled)?;
@@ -58,6 +67,14 @@ pub(super) fn prepare(
     )
     .ok_or_else(internal)?;
     if let Some(geometry) = group_geometry {
+        let type_slices = crate::viz_pages::type_slices::group_slices(
+            admitted.source.version(),
+            &group_members,
+            &admitted.request.size_basis,
+            other.type_slices && admitted.filter.is_none(),
+            cancelled,
+        )
+        .map_err(|_| internal())?;
         model.shapes.push(VizShape {
             item_ref: None,
             group_ref: Some(other.group_ref.clone()),
@@ -79,6 +96,7 @@ pub(super) fn prepare(
                 .ok_or_else(internal)?,
             ),
             item_kind: None,
+            type_slices,
         });
     }
     model
