@@ -36,6 +36,7 @@ mod commands;
 mod compute;
 mod condition;
 pub(crate) use condition::fragment as type_fragment;
+pub(crate) use condition::narrowed_type_key;
 mod control;
 mod envelope;
 mod histogram;

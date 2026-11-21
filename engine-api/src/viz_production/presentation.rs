@@ -19,17 +19,24 @@ use crate::{
 ///
 /// With the type criterion the item's legend class is its type, decided by the type
 /// classification table from its native name; otherwise every item shares one class.
+/// Narrowed to one type, a folder holds only files of that type, so it takes that
+/// type's class (F06 README 46.12).
 pub(super) fn child(
     source: &CurrentAnalysis,
     item: &ResultItem,
     basis: &SizeBasis,
     by_type: bool,
+    narrowed_to: Option<&'static str>,
 ) -> ItemEvidence {
     let size = row_size(source.version(), item.item_no, basis);
-    let legend_class_key = if by_type {
-        type_class(source, item)
-    } else {
-        policy::LEGEND_CLASS_UNCLASSIFIED
+    let legend_class_key = match narrowed_to {
+        Some(key)
+            if by_type && item.kind == du_core_contracts::result::ResultItemKind::Directory =>
+        {
+            key
+        }
+        _ if by_type => type_class(source, item),
+        _ => policy::LEGEND_CLASS_UNCLASSIFIED,
     };
     ItemEvidence {
         presentation: ChildPolicyEvidence {

@@ -166,6 +166,15 @@ fn a_legend_row_narrows_the_bar_chart_to_its_type() -> TestResult {
     shown.sort();
     // clip.mp4 by its 60 bytes and docs by talk.mp4's 40; songs keeps no video.
     assert_eq!(shown, ["clip.mp4", "docs"]);
+    // Narrowed, the folder holds only videos and takes their class (README 46.12).
+    let rows = rows_of(&harness, &answer)?;
+    let classes: Vec<_> = rows["rows"]
+        .as_array()
+        .ok_or("no rows")?
+        .iter()
+        .map(|row| row["legendClassKey"].clone())
+        .collect();
+    assert_eq!(classes, [json!("type.video"), json!("type.video")]);
     let totals = &answer["model"]["totals"];
     assert_eq!(bytes(&totals["scope"]), "220");
     assert_eq!(bytes(&totals["drawn"]), "100");

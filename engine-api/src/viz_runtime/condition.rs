@@ -70,3 +70,12 @@ pub(super) fn filter_of(request: &VizRenderRequest) -> Result<Option<ItemFilter>
 pub(super) fn not_allowed() -> EngineError {
     EngineError::reason("predicate.not_allowed")
 }
+
+/// The type key a request narrows to, when its condition is a type fragment a
+/// narrowing format accepts; none otherwise, also for a condition it refuses.
+pub(crate) fn narrowed_type_key(request: &VizRenderRequest) -> Option<&'static str> {
+    match filter_of(request) {
+        Ok(Some(ItemFilter::FileType(kind))) => Some(type_legend::key_of(kind)),
+        _ => None,
+    }
+}
