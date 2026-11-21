@@ -2,7 +2,6 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   Action,
-  Choice,
   ChoiceGroup,
   FolderDropSurface,
   Heading,
@@ -16,14 +15,16 @@ import { nativePath } from "../../ipc";
 import type { OsPath } from "../../ipc";
 import type { useTargets } from "../../state/analysis-targets";
 import { useRegionalFormat } from "../../i18n/regional-format";
-import { describeTargetCapacity } from "./target-capacity";
-import { accessLabel, defaultListing, shownAccess } from "./target-access";
+import { DriveChoice } from "./DriveChoice";
+import { defaultListing, shownAccess } from "./target-access";
 import type { ScopeReview } from "../../ipc";
 import { useLocaleText } from "../../i18n/presentation";
 
 /** The latest scope review as far as it checks a selected target (F01 #266). */
 export type TargetReview = {
   reviewing: boolean;
+  /** A review of the selection is scheduled and has not failed (F02 #350). */
+  awaiting: boolean;
   targets: ScopeReview["targets"] | undefined;
   openPrivacySettings: () => void;
 };
@@ -237,8 +238,34 @@ function DrivePicker({
   const [showDriveDetails, setShowDriveDetails] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const { listed, hidden } = defaultListing(entries, selected, showHidden);
-  let deniedNetworkVolume = false;
   const driveGroupId = useId();
+  const rows = listed.map((target) => {
+    const probe = targets.probes[target.path.raw];
+    const shown = shownAccess(target, probe, targets.finished, {
+      selected: target.path.raw === selected?.raw,
+      reviewing: review.reviewing,
+      awaiting: review.awaiting,
+      reviewed: review.targets,
+    });
+    const choice = (
+      <DriveChoice
+        key={target.path.raw}
+        target={target}
+        probe={probe}
+        {...shown}
+        checkingCapacity={checkingCapacity}
+        showSummary={!showDriveDetails}
+        text={text}
+        regional={regional}
+      />
+    );
+    return { line: target.defaultVisible === false, choice, ...shown };
+  });
+  const deniedNetworkVolume = rows.some(
+    ({ deferred, access }) => deferred && access === "denied",
+  );
+  const cards = rows.filter(({ line }) => !line).map(({ choice }) => choice);
+  const lines = rows.filter(({ line }) => line).map(({ choice }) => choice);
   return (
     <section
       className="du-drive-picker"
@@ -302,71 +329,10 @@ function DrivePicker({
               choose(entries.find(({ path }) => path.raw === raw)?.path)
             }
           >
-            {listed.map((target) => {
-              const probe = targets.probes[target.path.raw];
-              const isSelected = target.path.raw === selected?.raw;
-              const { access, deferred } = shownAccess(
-                target,
-                probe,
-                targets.finished,
-                {
-                  selected: isSelected,
-                  reviewing: review.reviewing,
-                  reviewed: review.targets,
-                },
-              );
-              deniedNetworkVolume ||= deferred && access === "denied";
-              const capacity = describeTargetCapacity(
-                probe,
-                checkingCapacity,
-                text,
-                regional,
-              );
-              const kind = target.kind
-                ? ({
-                    internal: text("ui.analysis.target_internal", "internal"),
-                    external: text("ui.analysis.target_external", "external"),
-                    network_mount: text(
-                      "ui.analysis.target_network_mount",
-                      "network mount",
-                    ),
-                    folder_mount: text(
-                      "ui.analysis.target_folder_mount",
-                      "folder mount",
-                    ),
-                  }[target.kind] ?? text("ui.common.unknown", "Unknown"))
-                : text(
-                    "ui.analysis.target_type_unavailable",
-                    "Type unavailable",
-                  );
-              return (
-                <Choice
-                  key={target.path.raw}
-                  value={target.path.raw}
-                  label={target.path.display}
-                  icon="drive"
-                  description={[
-                    kind,
-                    capacity.evidence,
-                    ...(deferred
-                      ? [
-                          text(
-                            "ui.analysis.target_network_checked_on_select",
-                            "Network volumes are checked when you select them.",
-                          ),
-                        ]
-                      : []),
-                  ].join(" · ")}
-                  summary={showDriveDetails ? undefined : capacity.summary}
-                  availablePercent={capacity.availablePercent}
-                  secondary={target.defaultVisible === false}
-                  status={{
-                    text: accessLabel(access, text),
-                    tone: access === "accessible" ? "good" : "neutral",
-                  }}
-                />
-              );
-            })}
+            {cards}
+            {lines.length > 0 && (
+              <div className="du-choices__more">{lines}</div>
+            )}
           </ChoiceGroup>
           {deniedNetworkVolume && (
             <NetworkVolumeDenied openSettings={review.openPrivacySettings} />

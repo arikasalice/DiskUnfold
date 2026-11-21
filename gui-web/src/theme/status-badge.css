@@ -2,3 +2,27 @@
   flex: none;
   margin-inline-end: 4px;
 }
+
+/* A volume check in progress turns its mark; with reduced motion, from the OS or the
+   app setting, the mark stands still (F02 #350). */
+.du-badge[data-status-shape="progress"] .du-badge__shape {
+  animation: du-badge-spin 1s linear infinite;
+}
+
+@keyframes du-badge-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .du-badge[data-status-shape="progress"] .du-badge__shape {
+    animation: none;
+  }
+}
+
+:root[data-du-motion="reduce"]
+  .du-badge[data-status-shape="progress"]
+  .du-badge__shape {
+  animation: none;
+}

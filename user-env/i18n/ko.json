@@ -1227,7 +1227,7 @@
     ["ui.analysis.target_network_mount","네트워크 마운트",[]],
     ["ui.analysis.target_folder_mount","폴더 마운트",[]],
     ["ui.analysis.target_type_unavailable","유형 확인 불가",[]],
-    ["ui.analysis.target_access_checking","확인 중",[]],
+    ["ui.analysis.target_access_checking","확인 중…",[]],
     ["ui.analysis.target_access_accessible","접근 가능",[]],
     ["ui.analysis.target_access_denied","접근 거부됨",[]],
     ["ui.analysis.target_access_disconnected","연결 끊김",[]],

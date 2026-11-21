@@ -18,6 +18,8 @@
 //   npm run capture:browse-gallery -- [output folder] [scene]
 //     scene: scan-status | lower-bounds | lower-bounds-notice
 //   npm run capture:date-picker-gallery -- [output folder]
+//   node scripts/capture-gallery.mjs target-picker <output folder> [scene]
+//     scene: default | checking | hidden-all   (F02 #350)
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error
@@ -62,6 +64,8 @@ const surfaces = {
     count: 1,
     pointer: false,
   },
+  // F02 #350: the location picker with a network volume and 9 hidden volumes.
+  "target-picker": { ready: ".du-drive-picker", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -77,6 +81,7 @@ const scanLaneScenes = [
   "progress-limit-error",
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
+const targetPickerScenes = ["default", "checking", "hidden-all"];
 const requestedScanLaneScene =
   surface === "scan-lanes" ? process.argv[4] : undefined;
 const selectedBrowseScene =
@@ -94,7 +99,11 @@ const captureScenes =
       : browseScenes
     : surface === "scan-lanes" && requestedScanLaneScene
       ? [requestedScanLaneScene]
-      : [undefined];
+      : surface === "target-picker"
+        ? process.argv[4]
+          ? [process.argv[4]]
+          : targetPickerScenes
+        : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -373,7 +382,9 @@ const shots =
           locale: "en",
         },
       ]
-    : galleryShots;
+    : surface === "target-picker"
+      ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
+      : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -760,6 +771,44 @@ async function histogramListStep(session, step) {
     throw new Error("The focus did not return to the bar: " + back);
 }
 
+/**
+ * The checking mark turns, and stands still with reduced motion from the OS or from
+ * the app setting (F02 #350).
+ */
+async function checkProgressMarkMotion(session) {
+  const animation = () =>
+    session.run(
+      () =>
+        getComputedStyle(
+          document.querySelector(
+            '.du-badge[data-status-shape="progress"] .du-badge__shape',
+          ),
+        ).animationName,
+    );
+  if ((await animation()) === "none")
+    throw new Error("The checking mark does not turn");
+  await session.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "prefers-color-scheme", value: "light" },
+      { name: "prefers-reduced-motion", value: "reduce" },
+    ],
+  });
+  if ((await animation()) !== "none")
+    throw new Error("The checking mark turns with reduced motion from the OS");
+  await session.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "prefers-color-scheme", value: "light" },
+      { name: "prefers-reduced-motion", value: "no-preference" },
+    ],
+  });
+  await session.run(() => {
+    document.documentElement.dataset.duMotion = "reduce";
+  });
+  if ((await animation()) !== "none")
+    throw new Error("The checking mark turns with reduced motion in the app");
+  console.log("checking mark: turns, and stands still with reduced motion");
+}
+
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
@@ -945,7 +994,26 @@ try {
           );
         await saveLanes(session, shot.name, shot.locale);
       } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
-      else if (surface === "history-retention") {
+      else if (surface === "target-picker") {
+        if (!targetPickerScenes.includes(scene))
+          throw new Error("Unknown target-picker scene: " + scene);
+        if (scene === "hidden-all") {
+          const opened = await session.run(function showHiddenVolumes() {
+            const toggle = Array.from(document.querySelectorAll("button")).find(
+              (button) => button.textContent?.includes("모두 보기"),
+            );
+            if (!toggle) return false;
+            toggle.click();
+            return true;
+          });
+          if (!opened)
+            throw new Error("The hidden volumes toggle was not found");
+          await sleep(150);
+        }
+        await save(session, shot.name, false, scene);
+        if (scene === "checking" && shot.name === "light-1280")
+          await checkProgressMarkMotion(session);
+      } else if (surface === "history-retention") {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
