@@ -152,7 +152,10 @@ fn one_unreadable_folder_does_not_prove_its_siblings_complete() -> Test {
     assert_eq!(space(&result, "af")?.logical.amount, lower(10));
     let bad = space(&result, "bad")?;
     assert_lowered(bad, 1);
-    assert_eq!(bad.logical.amount, SizeAmount::Unknown);
+    // The unreadable folder is at least zero bytes, not unknown (#341); its unique
+    // physical size stays unknown without bytes.
+    assert_eq!(bad.logical.amount, lower(0));
+    assert_eq!(bad.unique_physical.amount, SizeAmount::Unknown);
     let a = space(&result, "a")?;
     assert_lowered(a, 1);
     assert_eq!(a.logical.amount, lower(10));
