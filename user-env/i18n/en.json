@@ -293,7 +293,7 @@
     ["ui.analysis.collection_conditions_expand", "Change collection conditions", []],
     ["ui.analysis.collection_conditions_collapse", "Hide collection conditions", []],
     ["ui.analysis.resource_advanced", "Advanced", []],
-    ["ui.analysis.resource_limit_label", "Concurrent collection limit", []],
+    ["ui.analysis.resource_limit_label", "Concurrency limit", []],
     ["ui.analysis.resource_limit_automatic", "automatic", []],
     ["ui.analysis.resource_limit_description", "Leave blank to use the automatic limit.", []],
     ["ui.analysis.resource_reset", "Reset to defaults", []],

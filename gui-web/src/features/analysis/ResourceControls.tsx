@@ -135,10 +135,12 @@ export function ResourceLimitDisclosure({
         "ui.analysis.resource_limit_description",
         "Leave blank to use the automatic limit.",
       );
+  // While the field holds a refused value, the scan uses the previous one.
+  const applied = error ? previousValue : value;
   const currentValue =
-    value === undefined
+    applied === undefined
       ? text("ui.analysis.resource_limit_automatic", "automatic")
-      : String(value);
+      : String(applied);
 
   useEffect(() => {
     const input = field.current?.querySelector<HTMLInputElement>("input");
@@ -165,11 +167,8 @@ export function ResourceLimitDisclosure({
         >
           {expanded ? "▾ " : "▸ "}
           {text("ui.analysis.resource_advanced", "Advanced")} ·{" "}
-          {text(
-            "ui.analysis.resource_limit_label",
-            "Concurrent collection limit",
-          )}{" "}
-          ({currentValue})
+          {text("ui.analysis.resource_limit_label", "Concurrency limit")} (
+          {currentValue})
         </Action>
         {onReset && (
           <Action variant="quiet" isDisabled={disabled} onPress={onReset}>
@@ -182,7 +181,7 @@ export function ResourceLimitDisclosure({
           <ReviewField
             label={text(
               "ui.analysis.resource_limit_label",
-              "Concurrent collection limit",
+              "Concurrency limit",
             )}
             value={draft}
             onChange={onChange}
@@ -238,17 +237,19 @@ export function ScopeCollectionConditions({
     modeOptions.find((option) => option.value === mode)!.key,
     modeOptions.find((option) => option.value === mode)!.fallback,
   );
+  // The summary names the values the scan will use, not a refused draft.
+  const appliedLimit = error ? previousValue : userLimit;
   const summary =
-    userLimit === undefined
+    appliedLimit === undefined
       ? text("ui.analysis.resource_summary", "Resource use: {mode}", {
           mode: modeLabel,
         })
       : text(
           "ui.analysis.resource_summary_limit",
           "Resource use: {mode} · Up to {limit} at once",
-          { mode: modeLabel, limit: String(userLimit) },
+          { mode: modeLabel, limit: String(appliedLimit) },
         );
-  const isDefault = mode === "auto" && userLimit === undefined;
+  const isDefault = mode === "auto" && appliedLimit === undefined;
   return (
     <section className="du-collection-conditions">
       <div className="du-collection-conditions__header">

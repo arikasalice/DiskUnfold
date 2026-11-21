@@ -10,6 +10,7 @@ import { afterEach, expect, test } from "vitest";
 import { AnalysisPanel } from "../src/features/analysis/AnalysisPanel";
 import { ScanLaneProgress } from "../src/features/analysis/ScanLaneProgress";
 import { ScanResourceContext } from "../src/features/analysis/scan-resource-context";
+import { ScopeCollectionConditions } from "../src/features/analysis/ResourceControls";
 import { AnalysisError, windowsPath } from "../src/ipc";
 import type {
   AnalysisClient,
@@ -120,10 +121,10 @@ function openScopeConditions() {
 function openScopeLimit() {
   fireEvent.click(
     screen.getByRole("button", {
-      name: /Advanced.*Concurrent collection limit/,
+      name: /Advanced.*Concurrency limit/,
     }),
   );
-  return screen.getByLabelText("Concurrent collection limit");
+  return screen.getByLabelText("Concurrency limit");
 }
 
 test("scope conditions are collapsed and identify the default", () => {
@@ -451,7 +452,7 @@ test("the progress limit disclosure starts collapsed", async () => {
 
   const disclosure = await screen.findByRole("button", { name: /Advanced/ });
   expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-  expect(screen.queryByLabelText("Concurrent collection limit")).toBeNull();
+  expect(screen.queryByLabelText("Concurrency limit")).toBeNull();
 });
 
 test("clearing the progress limit omits userLimit and no_effect keeps the choice", async () => {
@@ -460,15 +461,15 @@ test("clearing the progress limit omits userLimit and no_effect keeps the choice
   );
   renderProgress(client, { resourceMode: "quiet", userLimit: 3 });
   fireEvent.click(await screen.findByRole("button", { name: /Advanced/ }));
-  fireEvent.change(screen.getByLabelText("Concurrent collection limit"), {
+  fireEvent.change(screen.getByLabelText("Concurrency limit"), {
     target: { value: "" },
   });
   await waitFor(() => expect(requests).toHaveLength(1));
   expect(requests[0]).toEqual({ jobRef: "scan", resourceMode: "quiet" });
   expect(screen.getByRole("radio", { name: "Quiet" })).toBeDefined();
-  expect(
-    screen.getByLabelText("Concurrent collection limit").getAttribute("max"),
-  ).toBe("4");
+  expect(screen.getByLabelText("Concurrency limit").getAttribute("max")).toBe(
+    "4",
+  );
 });
 
 test("resource_limit_invalid retries with the previous value and shows its range", async () => {
@@ -484,7 +485,7 @@ test("resource_limit_invalid retries with the previous value and shows its range
   });
   renderProgress(client);
   fireEvent.click(await screen.findByRole("button", { name: /Advanced/ }));
-  fireEvent.change(screen.getByLabelText("Concurrent collection limit"), {
+  fireEvent.change(screen.getByLabelText("Concurrency limit"), {
     target: { value: "3" },
   });
   await waitFor(() => expect(requests).toHaveLength(2));
@@ -506,7 +507,7 @@ test("a locally invalid progress limit does not block a mode change", async () =
   );
   renderProgress(client);
   fireEvent.click(await screen.findByRole("button", { name: /Advanced/ }));
-  fireEvent.change(screen.getByLabelText("Concurrent collection limit"), {
+  fireEvent.change(screen.getByLabelText("Concurrency limit"), {
     target: { value: "0" },
   });
   fireEvent.click(screen.getByRole("radio", { name: "Fast" }));
@@ -529,7 +530,7 @@ test("a mode change during a pending limit uses the last accepted limit after in
   );
   renderProgress(client, { resourceMode: "quiet", userLimit: 2 });
   fireEvent.click(await screen.findByRole("button", { name: /Advanced/ }));
-  const limit = screen.getByLabelText("Concurrent collection limit");
+  const limit = screen.getByLabelText("Concurrency limit");
   fireEvent.change(limit, { target: { value: "3" } });
   fireEvent.change(limit, { target: { value: "0" } });
   fireEvent.click(screen.getByRole("radio", { name: "Fast" }));
@@ -592,3 +593,29 @@ const preferences = {
   basis: "logical" as const,
   warning: undefined,
 };
+
+test("a refused limit is not named as the value in use", () => {
+  render(
+    <ScopeCollectionConditions
+      mode="fast"
+      userLimit={12}
+      draft="12"
+      error="rejected"
+      previousValue={4}
+      disabled={false}
+      max={6}
+      defaultExpanded
+      onModeChange={() => {}}
+      onLimitChange={() => {}}
+      onReset={() => {}}
+    />,
+  );
+
+  expect(
+    screen.getByText("Resource use: Fast · Up to 4 at once"),
+  ).toBeDefined();
+  expect(screen.queryByText(/Up to 12/)).toBeNull();
+  expect(
+    screen.getByRole("button", { name: /Advanced · Concurrency limit \(4\)/ }),
+  ).toBeDefined();
+});
