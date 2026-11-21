@@ -362,11 +362,24 @@ function histogramColumns(props: GeometryRendererProps): Column[] {
  * than the axis (F06 README 47). In forced colours they take the Canvas colour.
  */
 function breakMarks(x: number, top: number) {
-  return [0, BREAK_WIDTH + BREAK_SPACING].map((offset) => (
-    <path
-      key={offset}
-      className="du-geometry-bar-break"
-      d={`M ${x + offset} ${top + BAR} L ${x + offset + BREAK_WIDTH + 3} ${top} L ${x + offset + 2 * BREAK_WIDTH + 3} ${top} L ${x + offset + BREAK_WIDTH} ${top + BAR} Z`}
-    />
-  ));
+  // In forced colours the bar is Canvas too, so each gap is drawn as a 1 px
+  // CanvasText line through its middle instead (README 47.2).
+  return [0, BREAK_WIDTH + BREAK_SPACING].map((offset) => {
+    const start = x + offset;
+    return (
+      <g key={offset}>
+        <path
+          className="du-geometry-bar-break"
+          d={`M ${start} ${top + BAR} L ${start + BREAK_WIDTH + 3} ${top} L ${start + 2 * BREAK_WIDTH + 3} ${top} L ${start + BREAK_WIDTH} ${top + BAR} Z`}
+        />
+        <line
+          className="du-geometry-bar-break-line"
+          x1={start + BREAK_WIDTH / 2}
+          y1={top + BAR}
+          x2={start + BREAK_WIDTH / 2 + BREAK_WIDTH + 3}
+          y2={top}
+        />
+      </g>
+    );
+  });
 }
