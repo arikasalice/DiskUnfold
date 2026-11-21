@@ -64,6 +64,8 @@ export function ChartLegend({
   const forcedId = useId();
   const [open, setOpen] = useState(false);
   const shown = open ? entries : entries.slice(0, SHOWN);
+  // Forced patterns are drawn in the chart, so the swatches show them too (#201).
+  const drawn = patterns || patternsForced !== undefined;
   return (
     <section className="du-chart-legend" aria-label={label}>
       <svg
@@ -123,7 +125,7 @@ export function ChartLegend({
                   <span className="du-chart-legend__check" aria-hidden="true">
                     {isSelected ? "✓" : ""}
                   </span>
-                  <Swatch entry={entry} patterns={patterns} prefix={prefix} />
+                  <Swatch entry={entry} patterns={drawn} prefix={prefix} />
                   <span className="du-chart-legend__name">{entry.label}</span>
                   <span className="du-chart-legend__number">{entry.count}</span>
                   <span className="du-chart-legend__number">{entry.total}</span>

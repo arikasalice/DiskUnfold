@@ -176,7 +176,12 @@ test("F06 README 46.13: an empty list and the chip's × are worded as designed",
       `이 범위에는 「${say("legend.type.video")}」에 해당하는 파일이 없습니다`,
     ),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: say("filterClearType") }));
+  // The chip's name starts with its visible words (README 46.2).
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: `유형: ${say("legend.type.video")}, ${say("filterClearType")}`,
+    }),
+  );
   expect(onClear).toHaveBeenCalledTimes(1);
 });
 

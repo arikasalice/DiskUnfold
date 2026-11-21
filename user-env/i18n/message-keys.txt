@@ -960,6 +960,7 @@ ui.visualization.legendChipClear name:name
 ui.visualization.legendLess
 ui.visualization.legendFolderNote
 ui.visualization.filterClearType
+ui.visualization.filterChipName chip:name
 ui.visualization.filterNotApplicable
 ui.visualization.filterAfterScan
 ui.visualization.barDrawnShorter
@@ -1070,6 +1071,8 @@ ui.visualization.selectionLost
 ui.visualization.shapeFolder name:name value:name ratio:name denominator:name count:count
 ui.visualization.shapeInFolder name:name folder:name value:name ratio:name denominator:name
 ui.visualization.shapeTop name:name value:name ratio:name denominator:name
+ui.visualization.shapeClosedFolder name:name value:name ratio:name denominator:name
+ui.visualization.shapeClosedFolderInFolder name:name folder:name value:name ratio:name denominator:name
 ui.visualization.show_space_distribution
 ui.visualization.singleObservation
 ui.visualization.sizeAtLeast value:name

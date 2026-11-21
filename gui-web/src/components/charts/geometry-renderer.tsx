@@ -654,10 +654,14 @@ function patternOverlay(
   if (!shape.pattern || shape.container || !(patterns || shape.patternAlways))
     return null;
   const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
+  // The size rule counts the shape before its gap, so a 24 px bar takes its
+  // pattern (#201).
+  const inset = insetOf(shape, at.grid);
+  const gap = inset.start + inset.end;
   if (
     !edges ||
-    edges.right - edges.left < PATTERN_MIN ||
-    edges.bottom - edges.top < PATTERN_MIN
+    edges.right - edges.left + gap < PATTERN_MIN ||
+    edges.bottom - edges.top + gap < PATTERN_MIN
   )
     return null;
   return (
