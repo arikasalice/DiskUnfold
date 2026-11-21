@@ -41,7 +41,7 @@ pub(crate) fn mark_gaps(
         }
     }
     for (index, count) in counts {
-        space::mark_inaccessible(&mut aggregates[index], count);
+        space::mark_inaccessible(&mut aggregates[index], count, built.physical.is_some());
     }
     Ok(exact)
 }
@@ -60,7 +60,7 @@ pub(crate) fn mark_unread_folders<'a>(
             .map(|&index| index as usize);
         while let Some(index) = current {
             if let Some(aggregate) = aggregates.get_mut(index) {
-                space::mark_unread(aggregate);
+                space::mark_unread(aggregate, built.physical.is_some());
             }
             current = built.items[index].parent.map(|parent| parent as usize);
         }

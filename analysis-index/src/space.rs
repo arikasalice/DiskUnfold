@@ -221,7 +221,7 @@ pub(crate) fn known_logical(value: &SizeValue) -> bool {
 /// What was read is a lower bound: an exact size becomes a lower bound, and a folder
 /// read to no bytes at all is at least zero logical bytes. The unique physical size
 /// stays unknown without bytes, as does any value of an overflowed aggregate.
-pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
+pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64, allocation: bool) {
     fn mark(value: &mut SizeValue, zero_is_bound: bool) {
         if let SizeAmount::Exact { bytes } = &value.amount {
             value.amount = if bytes.get() == 0 && !zero_is_bound {
@@ -244,7 +244,7 @@ pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
     mark(&mut aggregate.logical, true);
     mark(&mut aggregate.allocated, true);
     mark(&mut aggregate.unique_physical, false);
-    mark_unread(aggregate);
+    mark_unread(aggregate, allocation);
     state(&mut aggregate.completeness);
     state(&mut aggregate.allocated_completeness);
     state(&mut aggregate.unique_physical_completeness);
@@ -252,16 +252,27 @@ pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
 }
 
 /// A folder whose contents were left unread, or one above it, is at least the
-/// logical bytes read below it: with none read, at least zero (#341). An overflowed
-/// aggregate stays unknown, and so do the allocated and unique physical sizes.
-pub(crate) fn mark_unread(aggregate: &mut SpaceAggregate) {
-    let overflowed = aggregate
+/// bytes read below it: with none read, at least zero (#341). The allocated size
+/// follows only when this scan collected allocation (`allocation`); otherwise its
+/// unknown means "not collected" and stays. An overflowed aggregate stays unknown,
+/// and so does the unique physical size.
+pub(crate) fn mark_unread(aggregate: &mut SpaceAggregate, allocation: bool) {
+    if aggregate
         .limitations
-        .contains(&"space.aggregation_overflow");
-    if aggregate.logical.amount == SizeAmount::Unknown && !overflowed {
-        aggregate.logical.amount = SizeAmount::LowerBound {
-            bytes: ByteSize::from(0),
-        };
-        aggregate.logical.evidence = SizeEvidence::Measured;
+        .contains(&"space.aggregation_overflow")
+    {
+        return;
+    }
+    let zero = |value: &mut SizeValue| {
+        if value.amount == SizeAmount::Unknown {
+            value.amount = SizeAmount::LowerBound {
+                bytes: ByteSize::from(0),
+            };
+            value.evidence = SizeEvidence::Measured;
+        }
+    };
+    zero(&mut aggregate.logical);
+    if allocation {
+        zero(&mut aggregate.allocated);
     }
 }
