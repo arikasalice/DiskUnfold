@@ -24,9 +24,9 @@ type Choice = { key: string; label: string; condition: QueryCondition };
 function useTypeNarrowing(format: string, criterion: string) {
   const [choice, setChoice] = useState<Choice | null>(null);
   const [announced, setAnnounced] = useState<TypeNarrowing["announced"]>(null);
-  const [seen, setSeen] = useState<Seen>({ scanning: false, grouped: false });
+  const [scanning, setScanning] = useState(false);
   const shown = criterion === TYPE_CRITERION ? choice : null;
-  const reason = shown === null ? null : refusal(format, seen);
+  const reason = shown === null ? null : refusal(format, scanning);
   const applied = shown !== null && reason === null;
   const condition: Pick<VizRenderRequest, "condition"> = applied
     ? { condition: { kind: "normalized", condition: shown.condition } }
@@ -41,35 +41,19 @@ function useTypeNarrowing(format: string, criterion: string) {
       setChoice(next);
       setAnnounced(next ? { type: next.label } : "all");
     },
-    report: (facts) =>
-      setSeen((current) => {
-        const next = {
-          scanning: facts.scanning,
-          grouped: facts.format === "bar" ? facts.grouped : current.grouped,
-        };
-        return next.scanning === current.scanning &&
-          next.grouped === current.grouped
-          ? current
-          : next;
-      }),
+    report: (facts) => setScanning(facts.scanning),
   };
   return { condition, narrowing };
 }
 
-/** What the screen last saw: a scan still running, and a bar chart with an Other group. */
-type Seen = { scanning: boolean; grouped: boolean };
-
 /**
- * Why the chosen type is not sent (README 46.5, 46.12). The bar chart narrows
- * only a finished result whose children fit without an Other group; narrowed
- * children are a subset, so an Other group in the bar chart shown means the
- * narrowed one needs one too. The engine refuses those cases the same way.
+ * Why the chosen type is not sent (README 46.5, 46.12, 47.4). The bar chart
+ * narrows only a finished result, whose values the engine can attribute; it
+ * refuses a running scan the same way. Its Other group narrows too.
  */
-function refusal(format: string, seen: Seen): TypeNarrowing["reason"] {
+function refusal(format: string, scanning: boolean): TypeNarrowing["reason"] {
   if (!NARROWED_FORMATS.has(format)) return "format";
-  if (format !== "bar") return null;
-  if (seen.scanning) return "scanning";
-  return seen.grouped ? "too_many" : null;
+  return format === "bar" && scanning ? "scanning" : null;
 }
 
 /**

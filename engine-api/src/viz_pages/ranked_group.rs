@@ -1,5 +1,6 @@
 //! Atomic, source-verified publication of ranked bars and model-local groups.
 mod grouping;
+mod source_rows;
 use super::{
     DeferredRows, Error, LayoutMetadata, ModelInput, ModelPages, PreparedModelInput, production,
 };
@@ -20,6 +21,7 @@ use du_core_contracts::{
 };
 use grouping::{GroupRequest, make_group};
 pub use production::OtherPresentation;
+use source_rows::original_rows;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Weak},
@@ -91,6 +93,8 @@ pub struct Request<'a> {
     pub fingerprint: String,
     /// Maximum number of bars admitted for this view.
     pub max_shapes: usize,
+    /// Files the ranking keeps; every file without one (F06 README 47).
+    pub filter: Option<du_analysis_index::visualization::filter::ItemFilter>,
 }
 
 impl ModelPages {
@@ -111,6 +115,7 @@ impl ModelPages {
             mut other,
             fingerprint,
             max_shapes,
+            filter,
         } = request;
         let PinnedRankedBar {
             source, selected, ..
@@ -119,18 +124,24 @@ impl ModelPages {
         other.display_flags.sort_unstable();
         other.display_flags.dedup();
         let mut by_item = original_rows(
-            &source,
-            scope,
-            &basis,
+            Origin {
+                source: &source,
+                scope,
+                basis: &basis,
+                filter,
+            },
             &selected,
             &fingerprint,
             presentations,
             cancelled,
         )?;
         let (rows, groups, shapes) = assemble(
-            &source,
-            scope,
-            &basis,
+            Origin {
+                source: &source,
+                scope,
+                basis: &basis,
+                filter,
+            },
             selected.output,
             &mut by_item,
             other,
@@ -223,15 +234,28 @@ fn exact(size: &SizeValue) -> Option<u64> {
     }
 }
 
+/// The pinned source, scope, size basis and filter the rows of one ranked model
+/// come from.
+struct Origin<'a> {
+    source: &'a Arc<ResultVersion>,
+    scope: &'a ItemRef,
+    basis: &'a SizeBasis,
+    filter: Option<du_analysis_index::visualization::filter::ItemFilter>,
+}
+
 fn assemble(
-    source: &ResultVersion,
-    scope: &ItemRef,
-    basis: &SizeBasis,
+    origin: Origin<'_>,
     ranking: Ranking,
     by_item: &mut HashMap<u32, VizRow>,
     other: OtherPresentation,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<RankedAssembly, Error> {
+    let Origin {
+        source,
+        scope,
+        basis,
+        filter,
+    } = origin;
     let mut output = Vec::new();
     let mut groups = HashMap::new();
     let mut shapes = Vec::new();
@@ -265,6 +289,7 @@ fn assemble(
                     by_item,
                     seen: &mut seen,
                     other: &other,
+                    filter,
                     cancelled,
                 })?;
                 groups.insert(other.group_ref.clone(), group);
@@ -319,68 +344,6 @@ fn validate_request(
         return Err(Error::InvalidModel);
     }
     Ok(())
-}
-
-fn original_rows(
-    source: &Arc<ResultVersion>,
-    scope: &ItemRef,
-    basis: &SizeBasis,
-    selected: &SelectedBar,
-    fingerprint: &str,
-    presentations: Vec<production::RowPresentation>,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<HashMap<u32, VizRow>, Error> {
-    let original = production::project_fallback(
-        source.clone(),
-        scope,
-        basis,
-        fingerprint.to_owned(),
-        presentations,
-        cancelled,
-    )
-    .map_err(|error| {
-        if error == production::Error::Cancelled {
-            Error::Cancelled
-        } else {
-            Error::InvalidModel
-        }
-    })?;
-    let scope_total = source.space(scope.item_no).ok_or(Error::InvalidModel)?;
-    let scope_total = match basis {
-        SizeBasis::Logical => &scope_total.logical,
-        SizeBasis::Allocated => &scope_total.allocated,
-        SizeBasis::UniquePhysical => &scope_total.unique_physical,
-    };
-    if selected.output.scope_total.result_version != *source.version_id()
-        || selected.output.scope_total.target
-            != du_analysis_index::visualization::bar_projection::AggregateTarget::Folder(
-                scope.clone(),
-            )
-        || &selected.output.scope_total.size != scope_total
-        || selected.output.denominator != selected.output.scope_total
-    {
-        return Err(Error::InvalidModel);
-    }
-    let mut sum = 0_u64;
-    for row in &original.rows {
-        if cancelled() {
-            return Err(Error::Cancelled);
-        }
-        sum = sum
-            .checked_add(exact(&row.size).ok_or(Error::InvalidModel)?)
-            .ok_or(Error::InvalidModel)?;
-    }
-    if Some(sum) != exact(scope_total) {
-        return Err(Error::InvalidModel);
-    }
-    let mut by_item = HashMap::new();
-    for row in original.rows {
-        let item = row.item_ref.as_ref().ok_or(Error::InvalidModel)?;
-        if by_item.insert(item.item_no, row).is_some() {
-            return Err(Error::InvalidModel);
-        }
-    }
-    Ok(by_item)
 }
 
 fn candidate_key(

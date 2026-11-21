@@ -365,3 +365,40 @@ fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {
     };
     value.ok_or(Error::InvalidQuantity)
 }
+
+/// Rows for the given children with the given values, such as the kept bytes of a
+/// narrowed ranking (F06 README 47), against the parent's original total.
+pub(super) fn project_sized(
+    version: &ResultVersion,
+    parent: &ItemRef,
+    basis: &SizeBasis,
+    sized: &[(ItemRef, SizeValue)],
+    presentations: Vec<RowPresentation>,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<VizRow>, Error> {
+    let total = original_size(version, parent.item_no, basis).ok_or(Error::SourceMismatch)?;
+    let denominator = denominator(total, basis)?;
+    let mut by_item = presentations_by_item(version.version_id(), presentations, cancelled)?;
+    let mut rows = Vec::with_capacity(sized.len());
+    for (item, size) in sized {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let observed = version
+            .items()
+            .get(item.item_no as usize)
+            .filter(|observed| observed.parent == Some(parent.item_no))
+            .ok_or(Error::SourceMismatch)?;
+        let presentation = by_item
+            .remove(&item.item_no)
+            .ok_or(Error::MissingClassification)?;
+        rows.push(make_row(
+            version,
+            observed,
+            size,
+            presentation,
+            &denominator,
+        )?);
+    }
+    Ok(rows)
+}

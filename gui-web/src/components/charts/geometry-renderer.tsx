@@ -31,6 +31,12 @@ type Shape = {
   container?: boolean;
   /** A folder, expanded or not; a bar chart marks its name with the folder icon (#318). */
   folder?: boolean;
+  /** A group of items, such as the bar chart's "Other n" (F06 README 47). */
+  group?: boolean;
+  /** A border of dashes: a group narrowed to one type (README 47.4, 4.6). */
+  dashed?: boolean;
+  /** Said on hover and to assistive technology besides the name, such as a bar drawn shorter. */
+  note?: string;
   /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
   lowerBound?: boolean;
   /**
@@ -92,6 +98,10 @@ export type GeometryRendererProps = {
   fallback: Fallback;
   /** Text drawn over the shapes in chart pixels, such as the names and values of a bar chart. */
   decorations?: ReactNode;
+  /** Said of a bar drawn shorter than the axis (F06 README 47): "Drawn shorter than scale". */
+  drawnShorterNote?: string;
+  /** The short mark after such a bar's value (README 47, 3번 고침): "not to scale". */
+  notToScaleMark?: string;
   /**
    * "ranked" fills shapes with the first chart colour and leaves their inner labels
    * out; the caller draws names and values beside them (bar chart, histogram).
@@ -877,6 +887,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   data-selected={selected ? "true" : undefined}
                   data-tone={shape.tone}
                   data-dimmed={shape.dimmed ? "true" : undefined}
+                  data-dashed={shape.dashed ? "true" : undefined}
                 >
                   {drawing}
                   {overlay}
@@ -919,6 +930,9 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               data-shape-index={index}
               aria-selected={shape.rowRef === props.selectedRowRef}
               aria-label={shape.accessibleLabel}
+              {...(shape.note
+                ? { title: shape.note, "aria-description": shape.note }
+                : {})}
               tabIndex={shape.shapeRef === stop ? 0 : -1}
               style={{
                 left: box.left,

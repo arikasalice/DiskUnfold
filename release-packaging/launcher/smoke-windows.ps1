@@ -42,8 +42,10 @@ param(
   # type and the histogram with the chip inactive (#301); the Short form only the treemap.
   [switch]$CaptureTypeNarrowing,
   [switch]$CaptureTypeNarrowingShort,
-  # Capture the bar chart that cannot narrow because it needs an Other group (#301).
+  # Capture the bar chart of many items: 20 bars and a broken Other, then narrowed (#320).
   [switch]$CaptureTypeNarrowingMany,
+  # Capture a bar chart whose Other is no larger than its largest bar: not broken (#320).
+  [switch]$CaptureBarOtherSmall,
   # Capture the operation list of the operation history after one analysis (#170).
   [switch]$CaptureHistory,
   # Capture the Scan status column of the browse table with a child folder that cannot be listed (#133).
@@ -1930,8 +1932,9 @@ function Test-CaptureTypeNarrowing([switch]$Short) {
   Save-SmokeCapture '04-folder-without-type'
   "Type narrowing capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
-# F06 #301 (README 46.12): a bar chart with more children than the shape limit has an Other
-# group, and a narrowed one would need one too, so the chosen type stays inactive with its reason.
+# F06 #320 (README 47): a bar chart of 2,100 children draws the largest 20 and one Other, which
+# is larger than any single bar and so drawn to the end with a break. Narrowed to videos, the
+# Other of the remaining videos takes their colour with a dashed border.
 function Test-CaptureTypeNarrowingMany {
   $scope = Join-Path $root 'type-narrowing-many-scope'
   [IO.Directory]::CreateDirectory($scope) | Out-Null
@@ -1958,12 +1961,50 @@ function Test-CaptureTypeNarrowingMany {
   } 60
   $videosName = Get-UiName 'Videos'
   $videos = Wait-UI 'Videos in the legend' { @($legend.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$videosName*" }) | Select-Object -First 1 }
+  $otherPrefix = (Get-UiName 'Other (7)') -replace '7.*$', ''
+  $otherBar = { @($window.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$otherPrefix*" }) | Select-Object -First 1 }
+  $other = Wait-UI 'the Other bar' $otherBar 60
+  "Unfiltered Other bar: '$($other.Current.Name)'"
+  Save-SmokeCapture '01-bar-many'
+  # The 20 bars run past the window: the Other bar and its break are at the bottom (README 47).
+  Save-SmokeCapture '01b-bar-many-bottom' -Prepare { $null = Show-InWindow $other }
   Select-SmokeRadio $videos
   $clear = Wait-UI 'the type chip' { Find-UI 'Clear type filter' $null }
-  $null = Wait-UI 'the too-many note' { Find-UI 'Too many items for the bar chart. Use the treemap to see this filter.' $null } 30
-  Save-SmokeCapture '01-bar-too-many' -Prepare { $null = Show-InWindow $clear }
-  "Type narrowing too-many capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+  $narrowed = Wait-UI 'the narrowed Other bar' {
+    $bar = & $otherBar
+    if ($bar -and $bar.Current.Name -ne $other.Current.Name) { $bar }
+  } 60
+  Save-SmokeCapture '02-bar-many-narrowed' -Prepare { $null = Show-InWindow $clear }
+  Save-SmokeCapture '02b-bar-many-narrowed-bottom' -Prepare { $null = Show-InWindow $narrowed }
+  "Bar many capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
 }
+# F06 #320 (README 47): an Other no larger than the largest single bar is drawn to scale, unbroken.
+function Test-CaptureBarOtherSmall {
+  $scope = Join-Path $root 'bar-other-small-scope'
+  [IO.Directory]::CreateDirectory($scope) | Out-Null
+  [IO.File]::WriteAllBytes((Join-Path $scope 'big.iso'), [byte[]]::new(48MB))
+  for ($index = 0; $index -lt 21; $index++) {
+    [IO.File]::WriteAllBytes((Join-Path $scope ('small-{0:D2}.txt' -f $index)), [byte[]]::new(64KB + 4096 * $index))
+  }
+  Set-Scope $scope
+  Invoke-UI (Wait-Enabled 'Review scope' $true)
+  Invoke-UI (Wait-Enabled 'Start analysis' $true)
+  $null = Wait-UI 'Scan finished' { Find-UI 'Scan finished' $textType } 60
+  Invoke-UI (Wait-Enabled 'Browse folders' $true)
+  $null = Wait-UI 'big.iso' { Find-UI 'big.iso' $null } 60
+  Invoke-UI (Wait-Enabled 'Show space distribution' $true)
+  $radioCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
+  $barName = Get-UiName 'Bar chart'
+  Select-SmokeRadio (Wait-UI 'Bar chart format' { @($window.FindAll($scopeTree, $radioCondition) | Where-Object { $_.Current.Name -like "$barName*" }) | Select-Object -First 1 } 60)
+  $listItem = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, [Windows.Automation.ControlType]::ListItem)
+  $otherPrefix = (Get-UiName 'Other (7)') -replace '7.*$', ''
+  $other = Wait-UI 'the Other bar' { @($window.FindAll($scopeTree, $listItem) | Where-Object { $_.Current.Name -like "$otherPrefix*" }) | Select-Object -First 1 } 60
+  "Other bar: '$($other.Current.Name)'"
+  Save-SmokeCapture '01-bar-other-small'
+  Save-SmokeCapture '02-bar-other-small-bottom' -Prepare { $null = Show-InWindow $other }
+  "Bar Other small capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+
 function Test-CaptureTypeLegend([switch]$More) {
   $scope = Join-Path $root 'type-legend-scope'
   [IO.Directory]::CreateDirectory((Join-Path $scope 'tiny')) | Out-Null
@@ -2483,7 +2524,7 @@ function Test-VirtualGroups {
     if (Find-UI '언어 및 표시' $button) { 'ko' }
     elseif (Find-UI 'Language and display' $button) { 'en' }
   } 60
-  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort -or $CaptureTypeNarrowingMany
+  $captureOnly = $CaptureTour -or $CaptureTreemap -or $CaptureFallbackTable -or $CaptureTreemapLink -or $CaptureProgress -or $CaptureUniquePhysical -or $CaptureHistory -or $CaptureScanStatus -or $CaptureHistogramGaps -or $CaptureTypeLegend -or $CaptureTypeLegendMore -or $CaptureTypeNarrowing -or $CaptureTypeNarrowingShort -or $CaptureTypeNarrowingMany -or $CaptureBarOtherSmall
   if ($startupLanguage -eq 'ko' -and -not $captureOnly) {
     Select-SmokeLanguage '언어 및 표시' '표시 언어' 'English' 'Display language' 'Close'
   }
@@ -2500,6 +2541,7 @@ function Test-VirtualGroups {
   if ($CaptureTypeNarrowing) { Test-CaptureTypeNarrowing }
   if ($CaptureTypeNarrowingShort) { Test-CaptureTypeNarrowing -Short }
   if ($CaptureTypeNarrowingMany) { Test-CaptureTypeNarrowingMany }
+  if ($CaptureBarOtherSmall) { Test-CaptureBarOtherSmall }
   if ($CaptureHistory) { Test-CaptureHistory }
   if ($CaptureScanStatus) { Test-CaptureScanStatus }
   if (-not $captureOnly) {

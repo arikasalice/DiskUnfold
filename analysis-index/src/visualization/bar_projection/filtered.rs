@@ -72,5 +72,6 @@ pub(super) fn prepare<'a>(
         input,
         sources,
         filtered_bytes: partial.filtered_bytes,
+        filter: Some(filter),
     })
 }

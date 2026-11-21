@@ -10,6 +10,7 @@ pub(super) struct GroupRequest<'a> {
     pub(super) by_item: &'a mut HashMap<u32, VizRow>,
     pub(super) seen: &'a mut HashSet<u32>,
     pub(super) other: &'a OtherPresentation,
+    pub(super) filter: Option<du_analysis_index::visualization::filter::ItemFilter>,
     pub(super) cancelled: &'a mut dyn FnMut() -> bool,
 }
 
@@ -23,6 +24,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         by_item,
         seen,
         other,
+        filter,
         cancelled,
     } = request;
     if members.is_empty() {
@@ -50,6 +52,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
         basis,
         &members,
         Weight::Exact(bytes),
+        filter,
         &mut *cancelled,
     )
     .map_err(|error| match error {

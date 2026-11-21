@@ -238,25 +238,20 @@ test("F06 README 46.12: an inactive chip says why the bar chart does not narrow"
     label: say("legend.type.video"),
     inactive: true,
   };
-  presenter(typed(), narrowing({ ...chosen, reason: "too_many" }));
-  expect(screen.getByText(say("filterTooManyForBar"))).toBeTruthy();
-  cleanup();
   presenter(typed(), narrowing({ ...chosen, reason: "scanning" }));
   expect(screen.getByText(say("filterAfterScan"))).toBeTruthy();
 });
 
-test("F06 README 46.12: a shown frame reports a running scan and an Other group", () => {
+test("F06 README 46.12: a shown frame reports whether the scan still runs", () => {
   const chosen = narrowing();
   const input = typed();
   presenter(input, chosen);
   expect(chosen.report).toHaveBeenCalledWith({
-    format: input.frame.model.representation.format,
     scanning: input.frame.completeness === "partial",
-    grouped: input.frame.model.shapes.some((shape) => shape.groupRef != null),
   });
 });
 
-test("F06 README 46.12: the bar chart narrows only a finished result without an Other group", () => {
+test("F06 README 46.12, 47.4: the bar chart narrows a finished result, its Other group included", () => {
   const hook = renderHook(() => useLegendChoice("bar", catalog, owner, text));
   act(() =>
     hook.result.current.narrowing?.choose({
@@ -266,39 +261,10 @@ test("F06 README 46.12: the bar chart narrows only a finished result without an 
     }),
   );
   expect(hook.result.current.request).toHaveProperty("condition");
-  act(() =>
-    hook.result.current.narrowing?.report({
-      format: "bar",
-      scanning: true,
-      grouped: false,
-    }),
-  );
+  act(() => hook.result.current.narrowing?.report({ scanning: true }));
   expect(hook.result.current.request).not.toHaveProperty("condition");
   expect(hook.result.current.narrowing?.reason).toBe("scanning");
-  act(() =>
-    hook.result.current.narrowing?.report({
-      format: "bar",
-      scanning: false,
-      grouped: true,
-    }),
-  );
-  expect(hook.result.current.narrowing?.reason).toBe("too_many");
-  // A treemap frame says nothing about the bar chart's Other group.
-  act(() =>
-    hook.result.current.narrowing?.report({
-      format: "treemap",
-      scanning: false,
-      grouped: false,
-    }),
-  );
-  expect(hook.result.current.narrowing?.reason).toBe("too_many");
-  act(() =>
-    hook.result.current.narrowing?.report({
-      format: "bar",
-      scanning: false,
-      grouped: false,
-    }),
-  );
+  act(() => hook.result.current.narrowing?.report({ scanning: false }));
   expect(hook.result.current.request).toHaveProperty("condition");
   expect(hook.result.current.narrowing?.reason).toBeNull();
 });

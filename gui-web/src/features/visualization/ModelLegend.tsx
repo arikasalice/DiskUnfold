@@ -149,19 +149,15 @@ export type TypeNarrowing = {
   label: string | null;
   /** Chosen, but the format shown does not narrow (README 46.5). */
   inactive: boolean;
-  /** Why it is inactive (README 46.12): the format, too many bars, a running scan. */
-  reason: "format" | "too_many" | "scanning" | null;
+  /** Why it is inactive (README 46.12, 47.4): the format, or a running scan. */
+  reason: "format" | "scanning" | null;
   /** What the last change said once to a screen reader (README 46.6). */
   announced: { type: string } | "all" | null;
   choose: (
     choice: { key: string; label: string; condition: QueryCondition } | null,
   ) => void;
-  /** What a shown frame says about narrowing it: a running scan, an Other group. */
-  report: (facts: {
-    format: string;
-    scanning: boolean;
-    grouped: boolean;
-  }) => void;
+  /** What a shown frame says about narrowing it: whether the scan still runs. */
+  report: (facts: { scanning: boolean }) => void;
 };
 
 /** Whether this frame is drawn narrowed to the chosen type. */
@@ -307,6 +303,5 @@ export function TypeAbsent({
 /** The note of an inactive chip by its reason (README 46.12). */
 const REASON_NOTES = {
   format: "filterNotApplicable",
-  too_many: "filterTooManyForBar",
   scanning: "filterAfterScan",
 } as const;

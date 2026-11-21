@@ -44,8 +44,9 @@ fn prepare(
     let mut presentations = Vec::new();
     let folder = du_analysis_index::browse::open(source, Some(&request.aggregate_scope_ref))
         .map_err(|_| internal())?;
-    // Reserve one shape for Other only when this scope exceeds the limit.
-    let top = top_with_other_slot(folder.children.len(), admitted.max_shapes);
+    // Reserve one shape for Other only when this scope exceeds the limit, and draw
+    // at most the largest BAR_INDIVIDUALS children on their own (README 47).
+    let top = top_with_other_slot(folder.children.len(), admitted.max_shapes).min(BAR_INDIVIDUALS);
     for item in folder.children {
         if cancelled() {
             return Err(internal());
@@ -100,11 +101,6 @@ fn prepare(
                 .iter()
                 .any(|bar| matches!(bar.identity, BarIdentity::Other { .. })) =>
         {
-            // An Other group is verified on unfiltered children only; a narrowed bar
-            // chart that would need one does not narrow (README 46.5).
-            if admitted.filter.is_some() {
-                return Err(super::condition::not_allowed());
-            }
             return super::ranked_group_model::prepare(
                 work,
                 pinned,
@@ -162,6 +158,11 @@ fn top_with_other_slot(children: usize, limit: usize) -> usize {
         limit
     }
 }
+
+/// The bar chart draws its largest children on their own up to this count and the
+/// rest as one Other bar: a chart answers "what is largest", the table lists all
+/// (F06 design README 47).
+const BAR_INDIVIDUALS: usize = 20;
 
 #[cfg(test)]
 mod tests {

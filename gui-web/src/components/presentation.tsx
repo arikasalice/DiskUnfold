@@ -65,9 +65,9 @@ const statusShapes = {
 } satisfies Record<StatusShape, typeof Circle>;
 
 /** Decorative icon. An action's accessible name always comes from its label. */
-export function Icon({ name }: { name: IconName }) {
+export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const Glyph = icons[name];
-  return <Glyph aria-hidden focusable="false" size={18} strokeWidth={1.75} />;
+  return <Glyph aria-hidden focusable="false" size={size} strokeWidth={1.75} />;
 }
 
 /** An icon placed inside a chart's SVG, at its top-left corner and size in CSS px. */

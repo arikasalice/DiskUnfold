@@ -60,17 +60,8 @@ struct Entry {
 /// every child is attributed; lower bounds are compared with lower bounds. Attributed
 /// children follow the same sibling order as the all-or-nothing admission. Cancellation
 /// is checked as in that admission.
-pub(crate) fn admit_partial_cancellable(
-    version: &ResultVersion,
-    parent: &ItemRef,
-    basis: &SizeBasis,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Partial, AdmissionError> {
-    admit_filtered_cancellable(version, parent, basis, None, cancelled)
-}
-
-/// Admits each immediate child as [admit_partial_cancellable] does, then keeps only
-/// what the filter keeps.
+///
+/// With a filter, it then keeps only what the filter keeps.
 ///
 /// Attribution is decided on the whole subtree, so a filter never makes a child
 /// provable or unprovable. An attributed child takes the kept bytes as its value, a

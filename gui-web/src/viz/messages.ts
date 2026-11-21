@@ -249,9 +249,9 @@ export const visualizationMessages = {
     legendFolderNote: "Files in uncolored folders are counted in the legend",
     filterClearType: "Clear type filter",
     filterNotApplicable: "Doesn't apply to this format",
-    filterTooManyForBar:
-      "Too many items for the bar chart. Use the treemap to see this filter.",
     filterAfterScan: "Applies when the scan finishes",
+    barDrawnShorter: "Drawn shorter than scale",
+    barNotToScale: "not to scale",
     filterTotalLine: "{type} {size} · Scope total {scope} · {basis}",
     filterFilteredOut: "Filtered out {size}",
     filterFilteredOutAtLeast: "Filtered out at least {size}",
@@ -507,9 +507,9 @@ export const visualizationMessages = {
     legendFolderNote: "색이 없는 폴더 안의 파일도 범례에 셉니다",
     filterClearType: "유형 조건 지우기",
     filterNotApplicable: "이 형식에는 적용되지 않습니다",
-    filterTooManyForBar:
-      "항목이 많아 막대에는 적용되지 않습니다. 트리맵에서 볼 수 있습니다.",
     filterAfterScan: "스캔이 끝나면 적용됩니다",
+    barDrawnShorter: "축보다 커서 줄여 그렸습니다",
+    barNotToScale: "실제 비율 아님",
     filterTotalLine: "{type} {size} · 범위 합계 {scope} · {basis}",
     filterFilteredOut: "필터 제외 {size}",
     filterFilteredOutAtLeast: "필터 제외 최소 {size}",
