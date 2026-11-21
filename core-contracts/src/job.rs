@@ -4,6 +4,8 @@ use std::{fmt, sync::Arc};
 
 mod lane_status;
 pub use lane_status::{LaneReport, LaneStatusReport, LaneWait};
+mod history_retention;
+pub use history_retention::{HistoryExpiryCandidates, HistoryExpiryRead, HistoryExpiryReadError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

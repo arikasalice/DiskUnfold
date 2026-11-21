@@ -4,6 +4,7 @@ mod control;
 mod delivery;
 mod flows;
 mod history_recovery;
+mod history_retention;
 mod listing;
 mod model;
 mod progress;
@@ -23,6 +24,7 @@ use du_core_contracts::{
     },
 };
 pub use history_recovery::recover_history;
+pub use history_retention::{HistoryExpiryCandidates, HistoryExpiryReadError};
 pub use listing::{ActiveJobCounts, AdmissionClose, JobListEntry, JobWaitReason};
 use model::*;
 pub use model::{

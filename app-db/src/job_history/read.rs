@@ -260,6 +260,7 @@ fn read_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Summary> {
 }
 
 pub mod detail;
+pub mod expiry_candidates;
 pub mod items;
 #[cfg(test)]
 mod tests;
