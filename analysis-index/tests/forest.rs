@@ -180,7 +180,9 @@ fn gaps_are_pinned_per_root_and_never_become_zero_or_complete() -> Result<(), St
     );
     assert_eq!(
         result.space(1).ok_or("root")?.logical.amount,
-        SizeAmount::Unknown
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(0)
+        }
     );
     assert_eq!(
         result.space(0).ok_or("root")?.logical.amount,
@@ -372,7 +374,12 @@ fn unknown_observation_and_cancelled_root_gap_remain_incomplete() -> Result<(), 
         .seal(id(2)?, ResultCompleteness::Cancelled)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(result.items()[2].kind, ResultItemKind::Unknown);
-    assert_eq!(result.scope_total().logical.amount, SizeAmount::Unknown);
+    assert_eq!(
+        result.scope_total().logical.amount,
+        SizeAmount::LowerBound {
+            bytes: ByteSize::from(0)
+        }
+    );
     assert_eq!(
         result.scope_total().completeness,
         ResultCompleteness::Cancelled

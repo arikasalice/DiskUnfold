@@ -389,17 +389,22 @@ fn check_unreadable_scope(
     let answer = render(assembled, revision, 0, basis)?;
     assert_eq!(answer["kind"], "model", "{basis}: {answer}");
     let model = &answer["model"];
-    // The two readable siblings are drawn, the unreadable one has no value and no area.
+    // The two readable siblings are drawn; the unreadable one is at least zero bytes
+    // (#341), so it has no area and is not counted as an unknown item.
     let shapes = model["shapes"].as_array().map(Vec::len);
     assert_eq!(shapes, Some(2), "{basis}: {model}");
-    assert_eq!(count(model, "unknownItems")?, 1, "{basis}");
+    assert_eq!(count(model, "unknownItems")?, 0, "{basis}");
     assert_eq!(
         model["summary"]["reasonKeys"],
         json!(["scan.path_denied"]),
         "{basis}"
     );
     let rows = rows_of(assembled, &answer)?;
-    assert_eq!(row(&rows, "locked")?["size"]["state"], "unknown", "{basis}");
+    assert_eq!(
+        row(&rows, "locked")?["size"]["state"],
+        "lower_bound",
+        "{basis}"
+    );
     // The unreadable folder is directly under the scope, so the scope is a lower bound.
     assert_eq!(
         model["totals"]["scope"]["quantity"]["state"], "lower_bound",

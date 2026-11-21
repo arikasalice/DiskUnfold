@@ -152,7 +152,13 @@ fn one_unreadable_folder_does_not_prove_its_siblings_complete() -> Test {
     assert_eq!(space(&result, "af")?.logical.amount, lower(10));
     let bad = space(&result, "bad")?;
     assert_lowered(bad, 1);
-    assert_eq!(bad.logical.amount, SizeAmount::Unknown);
+    // The unreadable folder is at least zero bytes, not unknown (#341); its unique
+    // physical size stays unknown without bytes.
+    assert_eq!(bad.logical.amount, lower(0));
+    assert_eq!(bad.unique_physical.amount, SizeAmount::Unknown);
+    // Allocation was collected in this scan, so the unread folder is at least zero
+    // allocated bytes too.
+    assert_eq!(bad.allocated.amount, lower(0));
     let a = space(&result, "a")?;
     assert_lowered(a, 1);
     assert_eq!(a.logical.amount, lower(10));
@@ -162,6 +168,28 @@ fn one_unreadable_folder_does_not_prove_its_siblings_complete() -> Test {
     assert_lowered(top, 1);
     assert_eq!(top.logical.amount, lower(30));
     assert_eq!(result.scope_total(), top);
+    Ok(())
+}
+
+/// #341: without allocation collected in the scan, an unread folder's allocated size
+/// stays unknown ("not collected"); only its logical size is at least zero.
+#[test]
+fn an_unread_folder_keeps_an_uncollected_allocation_unknown() -> Test {
+    let mut b = builder(&[root(b"/r", 1)])?;
+    dir(&mut b, 0, &["bad"])?;
+    b.add_at(
+        0,
+        Observation {
+            path: path(&["f"]),
+            size: Some(size(SizeBasis::Logical, SizeEvidence::Measured, 5)),
+        },
+    )
+    .map_err(e)?;
+    gap(&mut b, 0, &["bad"])?;
+    let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
+    let bad = space(&result, "bad")?;
+    assert_eq!(bad.logical.amount, lower(0));
+    assert_eq!(bad.allocated.amount, SizeAmount::Unknown);
     Ok(())
 }
 

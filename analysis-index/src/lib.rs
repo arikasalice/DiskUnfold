@@ -339,6 +339,7 @@ impl BuildHandle {
             .size_rule
             .aggregate(&built, completeness, proven.as_ref(), limit);
         let gaps = forest::mark_gaps(&built, &self.observations, &self.gaps, &mut aggregates);
+        forest::mark_unread_folders(&built, self.unread_folders.keys(), &mut aggregates);
         let exact_gaps = match gaps {
             Ok(exact) => exact,
             Err(error) => {
@@ -359,7 +360,11 @@ impl BuildHandle {
                 self.size_rule
                     .scope_total(&built, result_completeness, self.shared_table_limit);
             if !self.gaps.is_empty() {
-                space::mark_inaccessible(&mut total, self.gaps.len() as u64);
+                space::mark_inaccessible(
+                    &mut total,
+                    self.gaps.len() as u64,
+                    built.physical.is_some(),
+                );
             }
             Some(total)
         };
