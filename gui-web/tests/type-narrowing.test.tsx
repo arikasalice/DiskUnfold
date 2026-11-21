@@ -75,11 +75,17 @@ function narrowing(over: Partial<TypeNarrowing> = {}): TypeNarrowing {
   return {
     key: null,
     label: null,
+    condition: null,
     inactive: false,
     reason: null,
     announced: null,
     choose: vi.fn(),
     report: vi.fn(),
+    listing: null,
+    openList: vi.fn(),
+    closeList: vi.fn(),
+    focusShowInList: false,
+    settleFocus: vi.fn(),
     ...over,
   };
 }
@@ -267,4 +273,38 @@ test("F06 README 46.12, 47.4: the bar chart narrows a finished result, its Other
   act(() => hook.result.current.narrowing?.report({ scanning: false }));
   expect(hook.result.current.request).toHaveProperty("condition");
   expect(hook.result.current.narrowing?.reason).toBeNull();
+});
+
+test("F06 README 46.3, 46.13: Show in list sits right of the chip and opens with the legend row's values", () => {
+  const chosen = narrowing({
+    key: "type.video",
+    label: say("legend.type.video"),
+    condition: video,
+  });
+  presenter(typed(), chosen);
+  fireEvent.click(
+    screen.getByRole("button", { name: say("filterShowInList") }),
+  );
+  expect(chosen.openList).toHaveBeenCalledWith(
+    expect.objectContaining({
+      count: { unit: "items", state: "exact", value: "2" },
+      size: { unit: "bytes", state: "exact", value: "100" },
+    }),
+  );
+});
+
+test("F06 README 46.10: an inactive chip offers no list", () => {
+  presenter(
+    typed(),
+    narrowing({
+      key: "type.video",
+      label: say("legend.type.video"),
+      condition: video,
+      inactive: true,
+      reason: "format",
+    }),
+  );
+  expect(
+    screen.queryByRole("button", { name: say("filterShowInList") }),
+  ).toBeNull();
 });

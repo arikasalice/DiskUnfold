@@ -946,6 +946,24 @@ ui.visualization.filterFilteredOutUnavailable
 ui.visualization.filterTypeAbsent type:name
 ui.visualization.filterAnnounceType type:name
 ui.visualization.filterAnnounceAll
+ui.visualization.filterShowInList
+ui.visualization.listTitle
+ui.visualization.listBack
+ui.visualization.listTotal type:name count:name size:name basis:name
+ui.visualization.listCount count:count
+ui.visualization.listCountAtLeast count:count
+ui.visualization.listColumnName
+ui.visualization.listColumnLocation
+ui.visualization.listColumnSize
+ui.visualization.listColumnModified
+ui.visualization.listBuilding
+ui.visualization.listCancel
+ui.visualization.listFailed
+ui.visualization.listRetry
+ui.visualization.listEmpty type:name
+ui.visualization.listAnnounce type:name count:name
+ui.visualization.listLoadMore
+ui.visualization.listLoadingMore
 ui.visualization.legendMore count:count
 ui.visualization.legend.unclassified
 ui.visualization.loadNewer

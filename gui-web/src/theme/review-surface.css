@@ -143,3 +143,46 @@
   justify-items: start;
   padding-block: 24px;
 }
+/* The file list in the chart's place (README 46.13). */
+.du-type-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-block-size: 0;
+  block-size: 100%;
+}
+.du-type-list__head {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.du-type-list__condition {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+.du-type-list__building {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-block: 24px;
+}
+.du-type-list__name {
+  display: grid;
+  gap: 2px;
+}
+.du-type-list__name .du-middle-path {
+  color: var(--du-muted);
+  font-size: 0.875em;
+}
+.du-type-list__more {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+.du-middle-path {
+  white-space: nowrap;
+}

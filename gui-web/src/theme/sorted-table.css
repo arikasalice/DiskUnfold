@@ -1,0 +1,69 @@
+/* SortedTable: sortable headers that stay on top while the region scrolls. */
+.du-sorted-table {
+  overflow: auto;
+  max-block-size: 100%;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+}
+
+.du-sorted-table:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-sorted-table table {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.du-sorted-table thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding: 10px 8px;
+  border-block-end: 1px solid var(--du-border);
+  background: var(--du-surface);
+  font-weight: 600;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.du-sorted-table tbody th,
+.du-sorted-table tbody td {
+  padding: 8px;
+  border-block-end: 1px solid var(--du-border);
+  font-weight: normal;
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.du-sorted-table__sort {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.du-sorted-table__sort:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
+.du-sorted-table__mark {
+  min-inline-size: 1em;
+  font-size: 0.75em;
+}
+
+@media (forced-colors: active) {
+  .du-sorted-table thead th {
+    background: Canvas;
+  }
+}

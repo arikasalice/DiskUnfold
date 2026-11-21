@@ -3,7 +3,10 @@ import { SegmentedChoice, Text } from "../components";
 import type { QueryCondition, VizCatalog, VizRenderRequest } from "../ipc";
 import { TYPE_CRITERION } from "../viz";
 import type { VisualizationViewRequest, VizText } from "../viz";
-import type { TypeNarrowing } from "../features/visualization/ModelLegend";
+import type {
+  TypeListSummary,
+  TypeNarrowing,
+} from "../features/visualization/ModelLegend";
 
 const NONE = "none";
 /** The legend column and the gap before it, in CSS px (README 2). */
@@ -25,6 +28,9 @@ function useTypeNarrowing(format: string, criterion: string) {
   const [choice, setChoice] = useState<Choice | null>(null);
   const [announced, setAnnounced] = useState<TypeNarrowing["announced"]>(null);
   const [scanning, setScanning] = useState(false);
+  // The file list in the chart's place (README 46.13), and the focus it returns.
+  const [listing, setListing] = useState<TypeListSummary | null>(null);
+  const [focusShowInList, setFocusShowInList] = useState(false);
   const shown = criterion === TYPE_CRITERION ? choice : null;
   const reason = shown === null ? null : refusal(format, scanning);
   const applied = shown !== null && reason === null;
@@ -34,14 +40,27 @@ function useTypeNarrowing(format: string, criterion: string) {
   const narrowing: TypeNarrowing = {
     key: shown?.key ?? null,
     label: shown?.label ?? null,
+    condition: shown?.condition ?? null,
     inactive: reason !== null,
     reason,
     announced,
     choose: (next) => {
       setChoice(next);
       setAnnounced(next ? { type: next.label } : "all");
+      setListing(null);
     },
     report: (facts) => setScanning(facts.scanning),
+    listing: shown && !reason ? listing : null,
+    openList: (summary) => {
+      setListing(summary);
+      setFocusShowInList(false);
+    },
+    closeList: () => {
+      setListing(null);
+      setFocusShowInList(true);
+    },
+    focusShowInList,
+    settleFocus: () => setFocusShowInList(false),
   };
   return { condition, narrowing };
 }
