@@ -383,6 +383,13 @@ const defaultGalleryShots =
                           legend: "동영상",
                         },
                         {
+                          name: "07-bars-preview-video-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          hover: "동영상",
+                        },
+                        {
                           name: "03-treemap-light-1280",
                           theme: "light",
                           width: 1280,
@@ -1248,7 +1255,28 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "type-slices" && (shot.legend || shot.list)) {
+      else if (surface === "type-slices" && shot.hover) {
+        // The pointer rests on a legend row (README 46.1, #383): a real mouse move.
+        const box = await session.run(function legendRowBox(name) {
+          const row = Array.from(
+            document.querySelectorAll(".du-chart-legend [role='option']"),
+          ).find((option) => option.textContent?.startsWith(name));
+          if (!(row instanceof HTMLElement)) return null;
+          const rect = row.getBoundingClientRect();
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }, shot.hover);
+        if (!box) throw new Error("The legend row was not found");
+        await session.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: box.x,
+          y: box.y,
+        });
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "type-slices" && (shot.legend || shot.list)) {
         const pressed = await session.run(
           function pressTypeControl(legend, list) {
             const target = legend
