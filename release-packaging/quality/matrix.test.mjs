@@ -100,7 +100,7 @@ test('queryOnlineRunners and queryFaultyRunners handle API responses and errors 
     currentRunId: '100',
     run: (_cmd, args) => {
       if (args[1].includes('/workflows/quality.yml/runs')) {
-        return JSON.stringify({ workflow_runs: [{ id: 99 }] });
+        return JSON.stringify({ workflow_runs: [{ id: 99, status: 'completed' }] });
       }
       return JSON.stringify({
         jobs: [

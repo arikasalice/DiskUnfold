@@ -2,13 +2,12 @@
 
 use std::{ffi::OsString, process::ExitCode};
 
-use du_platform_os::{
-    startup::SystemStartupCapabilities, support_environment::SystemSupportEnvironment,
-};
+use du_platform_os::support_environment::SystemSupportEnvironment;
 use du_user_env::i18n::{Registry, embedded};
 
 use crate::{
-    OsPorts, Parsed, args, default_product_info, diagnostics, product_output, run_with_registry,
+    OsPorts, Parsed, TestAllowedAccess, args, default_product_info, diagnostics, product_output,
+    run_with_registry,
 };
 
 const FALLBACK_PREFIX: &str = "DiskUnfold: locale.translation_fallback: ";
@@ -59,7 +58,7 @@ fn execute_with_stored(
         default_product_info(),
         &OsPorts {
             environment: &SystemSupportEnvironment,
-            access: &SystemStartupCapabilities,
+            access: &TestAllowedAccess,
         },
         read_stored,
         || None,

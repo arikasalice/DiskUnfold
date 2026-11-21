@@ -2989,18 +2989,22 @@ function Remove-SmokeFixture {
     } catch {
       $cleanupFailure = $_
       $sharingException = $null
+      $accessDenied = $false
       $exception = $cleanupFailure.Exception
       while ($exception) {
-        if ($exception -is [IO.IOException]) {
+        if ($exception -is [UnauthorizedAccessException]) {
+          $accessDenied = $true
+        }
+        if (-not $sharingException -and $exception -is [IO.IOException]) {
           $sharingException = $exception
-          break
         }
         $exception = $exception.InnerException
       }
-      if (-not $sharingException) { throw }
-      $windowsError = [int]($sharingException.HResult -band 0xffff)
-      # 145 is ERROR_DIR_NOT_EMPTY and can occur while WebView2 finishes profile cleanup.
-      if ($windowsError -notin @(32, 33, 145)) { throw }
+      if (-not $sharingException -and -not $accessDenied) { throw }
+      $windowsError = if ($sharingException) { [int]($sharingException.HResult -band 0xffff) } else { 5 }
+      # 5 is ERROR_ACCESS_DENIED, 32 is ERROR_SHARING_VIOLATION, 33 is ERROR_LOCK_VIOLATION, and
+      # 145 is ERROR_DIR_NOT_EMPTY; all can occur while WebView2 subprocesses finish profile cleanup.
+      if (-not $accessDenied -and $windowsError -notin @(5, 32, 33, 145)) { throw }
     }
     if (Test-Path -LiteralPath $verifiedProfile) {
       if ([DateTime]::UtcNow -ge $cleanupDeadline) {

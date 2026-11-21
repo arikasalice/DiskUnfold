@@ -128,12 +128,13 @@ jobs:
           packages: libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config xvfb openbox xdotool dbus-x11 curl ca-certificates
       - name: Install pinned Rust (Windows)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command "& '{0}'"
         env:
           EXPECTED_RUST_TARGET: ${{ matrix.rustTarget }}
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
           $ErrorActionPreference = 'Stop'
+          try { Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue } catch {}
           if (Test-Path 'C:\Program Files\Git\bin') {
             'C:\Program Files\Git\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
             $env:PATH = "C:\Program Files\Git\bin;$env:PATH"
@@ -157,7 +158,7 @@ jobs:
             }
           }
           $toolchain = "1.99.1-$env:EXPECTED_RUST_TARGET"
-          & rustup toolchain install $toolchain --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          & rustup toolchain install $toolchain --force-non-host --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
           if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
           "RUSTUP_TOOLCHAIN=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $env:RUSTUP_TOOLCHAIN = $toolchain
@@ -190,7 +191,7 @@ jobs:
             CARGO_HOME="$HOME/.cargo" curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --no-modify-path
           fi
           toolchain="1.99.1-$EXPECTED_RUST_TARGET"
-          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
+          rustup toolchain install "$toolchain" --force-non-host --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
           export RUSTUP_TOOLCHAIN="$toolchain"
           rustc -vV | grep -Fx "host: $EXPECTED_RUST_TARGET"
@@ -199,12 +200,16 @@ jobs:
           key: ${{ matrix.os }}-${{ matrix.cpu }}-${{ matrix.rustTarget }}
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/0.0.1' || github.event_name == 'workflow_dispatch' }}
           cache-on-failure: true
-      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - shell: bash
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       # The CLI-only launcher (README, AGENTS.md) builds app-host without its gui feature.
-      - run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
-      - run: cargo test --locked --workspace --all-features
+      - shell: bash
+        run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
+      - shell: bash
+        run: cargo test --locked --workspace --all-features
       - name: Windows NTFS volume mount-point observation
         if: runner.os == 'Windows' && matrix.cpu == 'x64'
+        shell: bash
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
       # A separate install keeps the cache key of the GTK and WebKit packages unchanged.
       - name: Linux btrfs tools

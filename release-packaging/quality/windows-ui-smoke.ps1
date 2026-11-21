@@ -136,6 +136,7 @@ try {
     $arguments = @{
       Binary = $exe
       CaptureDirectory = $captures
+      KeepFixture = $true
       Locale = $locale
       Theme = $theme
     }
@@ -164,6 +165,9 @@ try {
 } finally {
   Remove-Item Env:\DISKUNFOLD_SMOKE_CACHE_DIR -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $sharedCache -Recurse -Force -ErrorAction SilentlyContinue
+  Get-Process -Name diskunfold, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'diskunfold-smoke-*' -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'summary.json') -Encoding utf8
 $lines = @('| Scenario | Folder | Result | Seconds | Captures |', '| --- | --- | --- | --- | --- |')

@@ -66,30 +66,42 @@ fn expected(path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
 #[test]
 fn only_a_read_write_ext_mount_confirms_that_nothing_is_shared() -> TestResult {
     let temporary = tempfile::tempdir()?;
+    let workspace_temp = tempfile::tempdir_in(".");
     let mut candidates = vec![temporary.path().to_path_buf()];
+    if let Ok(ref dir) = workspace_temp {
+        candidates.push(dir.path().to_path_buf());
+    }
     candidates.extend(
-        ["/dev/shm", "/run"]
+        ["/dev/shm", "/run", "/var/tmp"]
             .into_iter()
             .map(Path::new)
             .filter(|path| path.is_dir())
             .map(Path::to_path_buf),
     );
     let mut confirmed = 0;
+    let mut has_ext_candidate = false;
     for path in &candidates {
         let root = LinuxScopeRoots
             .open_root(path.as_os_str().as_bytes())
             .map_err(|error| format!("{}: {error:?}", path.display()))?;
         let answer = root.directory.creates_no_shared_extents();
+        let is_expected_ext = expected(path)?;
+        has_ext_candidate |= is_expected_ext;
         eprintln!(
-            "F03_LINUX_SHARING path={} unshared={answer}",
+            "F03_LINUX_SHARING path={} unshared={answer} expected_ext={is_expected_ext}",
             path.display()
         );
-        assert_eq!(answer, expected(path)?, "{}", path.display());
+        assert_eq!(answer, is_expected_ext, "{}", path.display());
         confirmed += usize::from(answer);
     }
-    // GitHub's Linux runners keep the temporary folder on the ext4 root volume, so the
-    // confirming answer is exercised there and not only the unknown one.
-    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+    // GitHub-hosted Linux runners keep the temporary folder on the ext4 root volume, whereas
+    // self-hosted Docker container runners use overlayfs for `/` and tmpfs for `/tmp`. Assert
+    // a positive confirmation whenever any candidate resides on a read-write ext mount or on
+    // GitHub-hosted runners.
+    if has_ext_candidate
+        || (std::env::var_os("GITHUB_ACTIONS").is_some()
+            && std::env::var("RUNNER_ENVIRONMENT").as_deref() == Ok("github-hosted"))
+    {
         assert!(confirmed > 0, "no candidate was on a read-write ext mount");
     }
     Ok(())

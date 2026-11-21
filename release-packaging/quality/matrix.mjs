@@ -85,32 +85,31 @@ export function queryFaultyRunners({
     const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
     const runsRaw = run(
       'gh',
-      ['api', `/repos/${repository}/actions/workflows/quality.yml/runs?per_page=5`],
+      ['api', `/repos/${repository}/actions/workflows/quality.yml/runs?per_page=3`],
       { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     const workflowRuns = JSON.parse(runsRaw)?.workflow_runs ?? [];
-    const seenRunner = new Set();
-    const faulty = new Set();
     for (const wfRun of workflowRuns) {
       if (!wfRun?.id || String(wfRun.id) === String(currentRunId)) continue;
+      if (wfRun.status !== 'completed') continue;
       const jobsRaw = run(
         'gh',
         ['api', `/repos/${repository}/actions/runs/${wfRun.id}/jobs?per_page=30`],
         { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] },
       );
       const jobs = JSON.parse(jobsRaw)?.jobs ?? [];
+      const faulty = new Set();
       for (const job of jobs) {
         const runnerName = job?.runner_name;
-        if (!runnerName || seenRunner.has(runnerName) || job.status !== 'completed') continue;
+        if (!runnerName || job.status !== 'completed') continue;
         const setupStep = (job.steps ?? []).find((step) => step.name === 'Set up job');
-        if (!setupStep) continue;
-        seenRunner.add(runnerName);
-        if (setupStep.conclusion === 'failure') {
+        if (setupStep?.conclusion === 'failure') {
           faulty.add(runnerName);
         }
       }
+      return [...faulty];
     }
-    return [...faulty];
+    return [];
   } catch {
     return [];
   }
