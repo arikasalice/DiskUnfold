@@ -137,7 +137,7 @@ export function Gallery() {
     return <HistoryRetentionPreview scene={scene} />;
   }
   if (surface === "space-undrawn") {
-    return <SpaceUndrawnPreview />;
+    return <SpaceUndrawnPreview scene={scene} />;
   }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;

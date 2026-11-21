@@ -20,7 +20,7 @@ use std::{
 };
 
 mod physical;
-use physical::{link_bytes, physical_file};
+use physical::{FileBytes, link_bytes, physical_file};
 mod partial;
 pub(crate) use partial::{Partial, Unattributed, admit_filtered_cancellable};
 
@@ -330,8 +330,8 @@ pub fn layout_nested_parent(
     }
 }
 
-// Identity -> sibling owner, allocation, link count, observed paths.
-type Owners = BTreeMap<FileIdentity, (u32, u64, u64, u64)>;
+// Identity -> sibling owner, allocation, link count when observed, observed paths.
+type Owners = BTreeMap<FileIdentity, (u32, u64, Option<u64>, u64)>;
 
 // Identity ownership, plus every sibling that an identity conflict made unprovable.
 #[derive(Default)]
@@ -397,14 +397,20 @@ fn inspect_subtree(
             }
             ResultItemKind::File if version.is_boundary_item(no) => {}
             ResultItemKind::File => {
-                let bytes = if *basis == SizeBasis::Logical {
-                    item.size
-                        .as_ref()
-                        .and_then(|v| exact(v, basis))
-                        .ok_or(AdmissionError::NoAttribution)?
+                let file = if *basis == SizeBasis::Logical {
+                    FileBytes {
+                        bytes: item
+                            .size
+                            .as_ref()
+                            .and_then(|v| exact(v, basis))
+                            .ok_or(AdmissionError::NoAttribution)?,
+                        unmeasured: false,
+                    }
                 } else {
                     physical_file(version, no, sibling, basis, identities)?
                 };
+                unmeasured |= unread(file, allow_unmeasured)?;
+                let bytes = file.bytes;
                 sum = sum
                     .checked_add(bytes)
                     .ok_or(AdmissionError::NoAttribution)?;
@@ -416,7 +422,9 @@ fn inspect_subtree(
             }
             ResultItemKind::UntraversedLink => {
                 match link_bytes(version, no, sibling, basis, identities)? {
-                    Some(bytes) => {
+                    Some(file) => {
+                        unmeasured |= unread(file, allow_unmeasured)?;
+                        let bytes = file.bytes;
                         sum = sum
                             .checked_add(bytes)
                             .ok_or(AdmissionError::NoAttribution)?;
@@ -441,6 +449,14 @@ fn inspect_subtree(
         unmeasured,
         kept,
     })
+}
+
+// Whether a file leaves its subtree a lower bound; refused where none may take part.
+fn unread(file: FileBytes, allow_unmeasured: bool) -> Result<bool, AdmissionError> {
+    if file.unmeasured && !allow_unmeasured {
+        return Err(AdmissionError::NoAttribution);
+    }
+    Ok(file.unmeasured)
 }
 
 fn exact(value: &SizeValue, basis: &SizeBasis) -> Option<u64> {

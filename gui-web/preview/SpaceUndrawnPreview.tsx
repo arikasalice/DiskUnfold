@@ -126,8 +126,58 @@ function fixture() {
   return { frame, page };
 }
 
-export function SpaceUndrawnPreview() {
-  const [{ frame, page }] = useState(fixture);
+/**
+ * The same scope once #364 draws a partly measured folder (README 51.1): 「사진 보관함」
+ * is drawn by its measured bytes as a lower bound, and only 「공유 자료」 is not drawn.
+ */
+function partialFixture() {
+  const { frame, page } = fixture();
+  const { model } = frame;
+  const rows = [2, 0, 1, 3].map((index) => page.response.rows[index]!);
+  const keys = ["type.image", "type.document", "type.audio"];
+  const rects = [
+    [0, 0, 796000, 1000000],
+    [800000, 0, 1000000, 746000],
+    [800000, 750000, 1000000, 1000000],
+  ];
+  const base = model.shapes[0]!;
+  model.shapes = rects.map(([left, top, right, bottom], index) => ({
+    ...base,
+    itemRef: rows[index]!.itemRef,
+    rootBranchRef: rows[index]!.itemRef,
+    shapeRef: "fixture-partial-" + index,
+    size: rows[index]!.size,
+    legendClassKey: keys[index]!,
+    geometry: {
+      primitive: "rect",
+      points: [
+        { x: left!, y: top! },
+        { x: right!, y: bottom! },
+      ],
+    },
+  }));
+  page.response.rows = rows.map((row, index) => ({
+    ...row,
+    legendClassKey: keys[index] ?? "unclassified",
+    displayFlags: index < 3 ? [] : ["viz.flag.unknown"],
+  }));
+  model.totals.drawn = {
+    quantity: lowerQuantity(bytes(800)),
+    sourceSize: lower(bytes(800)),
+  };
+  model.summary = {
+    ...model.summary,
+    unknownItems: items("1"),
+    unknownSize: lowerQuantity(bytes(300)),
+    firstUnknownRow: 3,
+  };
+  return { frame, page };
+}
+
+export function SpaceUndrawnPreview({ scene }: { scene: string }) {
+  const [{ frame, page }] = useState(() =>
+    scene === "partial" ? partialFixture() : fixture(),
+  );
   const [shown, setShown] = useState(page);
   const [criterion, setCriterion] = useState("type");
   const width = Math.max(320, window.innerWidth - 48);
