@@ -1,7 +1,8 @@
 //! Deterministic forest numbering and hierarchy construction.
 use crate::item_kind::is_directory;
 use crate::observation_store::ObservationStore;
-use crate::{BuildError, SpaceObservation, StoredObservation, observation::AttributeReasons};
+use crate::physical::{PhysicalObservations, PhysicalObservationsBuilder};
+use crate::{BuildError, StoredObservation, observation::AttributeReasons};
 use du_core_contracts::Timestamp;
 use du_core_contracts::result::ResultItem;
 use du_core_contracts::scan_observation::{NativeModifiedTime, PlaceholderObservation};
@@ -9,7 +10,7 @@ use std::sync::Arc;
 
 pub(crate) struct BuiltItems {
     pub(crate) items: Vec<ResultItem>,
-    pub(crate) physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
+    pub(crate) physical: Option<PhysicalObservations>,
     pub(crate) modified_times: Option<Vec<Option<Timestamp>>>,
     pub(crate) native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
     pub(crate) enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
@@ -20,6 +21,15 @@ pub(crate) struct BuiltItems {
     /// Item number of every store node in this publication.
     pub(crate) item_of_node: Vec<u32>,
     pub(crate) sparse: SparseItems,
+}
+
+impl BuiltItems {
+    pub(crate) fn file_evidence(&self) -> crate::physical::FileEvidence<'_> {
+        crate::physical::FileEvidence {
+            observations: self.physical.as_ref(),
+            placeholders: self.placeholder_observations.as_deref(),
+        }
+    }
 }
 
 /// Facts that only a few items carry, bound to the item numbers of one publication.
@@ -77,7 +87,7 @@ pub(crate) fn build_items(
             size: observation.size.clone(),
             kind: observation.kind,
         });
-        columns.push(observation);
+        columns.push(item_no, observation)?;
     }
     let mut boundary: Vec<u32> = store
         .boundary_nodes()
@@ -86,9 +96,10 @@ pub(crate) fn build_items(
         .collect();
     boundary.sort_unstable();
     let attribute_reasons = AttributeReasons::bind(&item_of_node, store.attribute_reasons());
+    let physical = columns.physical.map(PhysicalObservationsBuilder::finish);
     Ok(BuiltItems {
         items,
-        physical: columns.physical,
+        physical,
         modified_times: columns.modified_times,
         native_modified_times: columns.native_modified_times,
         enumerated_inodes: columns.enumerated_inodes,
@@ -167,7 +178,7 @@ fn group_children(store: &ObservationStore) -> (Vec<u32>, Vec<u32>) {
 
 /// Per-item evidence columns; a column exists only when some item has a value.
 struct Columns {
-    physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
+    physical: Option<PhysicalObservationsBuilder>,
     modified_times: Option<Vec<Option<Timestamp>>>,
     native_modified_times: Option<Vec<Option<NativeModifiedTime>>>,
     enumerated_inodes: Option<Vec<Option<std::num::NonZeroU64>>>,
@@ -178,9 +189,11 @@ struct Columns {
 impl Columns {
     fn for_store(store: &ObservationStore, items: usize) -> Self {
         let mut present = [false; 6];
+        let mut physical_count = 0;
         for node in 0..store.nodes() {
             if let Some(value) = store.observation(node) {
                 present[0] |= value.physical.is_some();
+                physical_count += usize::from(value.physical.is_some());
                 present[1] |= value.modified_at.is_some();
                 present[2] |= value.native_modified_at.is_some();
                 present[3] |= value.enumerated_inode.is_some();
@@ -189,7 +202,7 @@ impl Columns {
             }
         }
         Self {
-            physical: present[0].then(|| Vec::with_capacity(items)),
+            physical: present[0].then(|| PhysicalObservations::builder(items, physical_count)),
             modified_times: present[1].then(|| Vec::with_capacity(items)),
             native_modified_times: present[2].then(|| Vec::with_capacity(items)),
             enumerated_inodes: present[3].then(|| Vec::with_capacity(items)),
@@ -198,9 +211,9 @@ impl Columns {
         }
     }
 
-    fn push(&mut self, observation: &StoredObservation) {
+    fn push(&mut self, item_no: u32, observation: &StoredObservation) -> Result<(), BuildError> {
         if let Some(values) = &mut self.physical {
-            values.push(observation.physical.clone());
+            values.push(item_no, observation.physical.as_deref())?;
         }
         if let Some(values) = &mut self.modified_times {
             values.push(observation.modified_at.clone());
@@ -217,6 +230,7 @@ impl Columns {
         if let Some(values) = &mut self.item_observed_times {
             values.push(observation.observed_at.clone());
         }
+        Ok(())
     }
 }
 

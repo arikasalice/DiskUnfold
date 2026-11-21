@@ -67,9 +67,10 @@ impl ResultVersion {
             .item_size(item.item_no, SizeBasis::UniquePhysical)
             .cloned();
         let (links, exclusive, shared) = if item.kind == ResultItemKind::File {
-            let links = self.hardlinks(reference, detail.physical);
-            let decision = decide(allocated.as_ref(), detail.physical, &links);
-            let shared = shared_space(detail.physical);
+            let physical = detail.physical.as_ref();
+            let links = self.hardlinks(reference, physical);
+            let decision = decide(allocated.as_ref(), physical, &links);
+            let shared = shared_space(physical);
             (Some(links), decision, shared)
         } else {
             (
@@ -89,14 +90,14 @@ impl ResultVersion {
         })
     }
 
-    fn valid_identity(&self, index: usize, identity: &FileIdentity) -> bool {
-        !identity.volume.is_empty()
-            && !identity.file.is_empty()
+    fn valid_identity(&self, index: usize, volume: &[u8], file: &[u8]) -> bool {
+        !volume.is_empty()
+            && !file.is_empty()
             && self
                 .root_indices
                 .get(index)
                 .and_then(|root| self.roots.get(*root as usize))
-                .is_some_and(|root| !root.volume_id.is_empty() && root.volume_id == identity.volume)
+                .is_some_and(|root| !root.volume_id.is_empty() && root.volume_id == volume)
     }
 
     fn hardlinks(
@@ -115,7 +116,7 @@ impl ResultVersion {
         };
         let Some(identity) = observation
             .and_then(|value| value.identity.as_ref())
-            .filter(|id| self.valid_identity(reference.item_no as usize, id))
+            .filter(|id| self.valid_identity(reference.item_no as usize, &id.volume, &id.file))
         else {
             return summary;
         };
@@ -140,21 +141,22 @@ impl ResultVersion {
         let mut facts_consistent = true;
         let mut facts_missing = false;
         for &index in members {
-            let Some(value) = observations[index].as_ref() else {
+            let Some(value) = observations.get(index as u32) else {
                 continue;
             };
             paths.push(ItemRef {
                 result_version: self.version_id.clone(),
                 item_no: self.items[index].item_no,
             });
-            counts.push(value.link_count);
+            counts.push(value.link_count());
             if let Some(original) = observation {
-                match (&original.allocated, &value.allocated) {
+                let allocation = value.allocated();
+                match (&original.allocated, allocation) {
                     (Some(first), Some(other)) => facts_consistent &= first == other,
                     _ => facts_missing = true,
                 }
                 facts_missing |= original.sharing == SharingEvidence::Unknown
-                    || value.sharing == SharingEvidence::Unknown;
+                    || value.sharing() == SharingEvidence::Unknown;
             } else {
                 facts_missing = true;
             }
@@ -243,15 +245,13 @@ fn build_groups(result: &ResultVersion, limit: usize) -> Result<IdentityGroups, 
     let mut groups = BTreeMap::<FileIdentity, Vec<usize>>::new();
     let mut entries = 0usize;
     if let Some(values) = &result.physical {
-        for (index, observation) in values.iter().enumerate() {
-            let Some(identity) = observation
-                .as_ref()
-                .and_then(|value| value.identity.as_ref())
-            else {
+        for item in &result.items {
+            let index = item.item_no as usize;
+            let Some(identity) = values.get(item.item_no).and_then(|value| value.identity()) else {
                 continue;
             };
-            if result.items[index].kind != ResultItemKind::File
-                || !result.valid_identity(index, identity)
+            if item.kind != ResultItemKind::File
+                || !result.valid_identity(index, identity.volume, identity.file)
             {
                 continue;
             }
@@ -259,7 +259,7 @@ fn build_groups(result: &ResultVersion, limit: usize) -> Result<IdentityGroups, 
                 return Err(());
             }
             entries += 1;
-            groups.entry(identity.clone()).or_default().push(index);
+            groups.entry(identity.to_owned()).or_default().push(index);
         }
     }
     Ok(IdentityGroups(groups))

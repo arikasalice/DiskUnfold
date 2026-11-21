@@ -443,7 +443,8 @@ fn exact_size(value: Option<&du_core_contracts::SizeValue>) -> Option<u64> {
 
 fn observe(version: &ResultVersion, item: ItemRef, size: u64) -> Option<Selected> {
     let detail = version.detail(&item).ok()?;
-    let identity = detail.physical?.identity.as_ref()?;
+    let physical = detail.physical?;
+    let identity = physical.identity.as_ref()?;
     let (_, root) = version.observed_root_for(&item).ok()?;
     if identity.volume.is_empty()
         || identity.file.is_empty()

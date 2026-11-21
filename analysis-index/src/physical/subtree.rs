@@ -20,7 +20,7 @@ use std::hash::{Hash, Hasher};
 
 /// An identity compared by its bytes. `FileIdentity` is a public type and does
 /// not implement `Hash`; this key does so only for the counting pass.
-struct IdentityKey<'a>(&'a FileIdentity);
+struct IdentityKey<'a>(FileIdentityRef<'a>);
 
 impl Hash for IdentityKey<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -31,7 +31,7 @@ impl Hash for IdentityKey<'_> {
 
 impl PartialEq for IdentityKey<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.0.volume == other.0.volume && self.0.file == other.0.file
     }
 }
 
@@ -42,17 +42,17 @@ impl Eq for IdentityKey<'_> {}
 /// Only files that `Physical::record` would put in an identity table count.
 pub(super) fn repeated_identities(
     items: &[ResultItem],
-    observations: &[Option<Arc<SpaceObservation>>],
+    observations: &PhysicalObservations,
 ) -> Vec<bool> {
     let mut repeated = vec![false; items.len()];
-    let files = observations.iter().flatten().count();
-    let mut first: HashMap<IdentityKey<'_>, usize> = HashMap::with_capacity(files);
+    let mut first: HashMap<IdentityKey<'_>, usize> =
+        HashMap::with_capacity(observations.present_count());
     for item in items {
         let index = item.item_no as usize;
         if is_structure(item.kind) {
             continue;
         }
-        let Observed::Known(identity, _) = Observed::read(observations[index].as_deref()) else {
+        let Observed::Known(identity, _) = Observed::read(observations.get(item.item_no)) else {
             continue;
         };
         match first.entry(IdentityKey(identity)) {
@@ -86,7 +86,7 @@ pub(crate) fn apply(
     for item in items.iter().rev() {
         let index = item.item_no as usize;
         let observed =
-            (!is_structure(item.kind)).then(|| Observed::read(observations[index].as_deref()));
+            (!is_structure(item.kind)).then(|| Observed::read(observations.get(item.item_no)));
         let placeholder = local_unknown(evidence.placeholders, index);
         let tabled = repeated[index];
         if let Some(mut sum) = sums[index].take() {

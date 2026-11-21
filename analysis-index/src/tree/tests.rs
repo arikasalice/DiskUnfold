@@ -90,19 +90,22 @@ fn two_partial_versions_of_one_build_share_each_files_evidence() -> Result<(), S
         path: vec![b"file".to_vec()],
         size: None,
     };
-    build.add_with_space(file, space).map_err(failed)?;
+    build.add_with_space(file, space.clone()).map_err(failed)?;
     let first = build.publish_partial(id(2)?).map_err(failed)?;
     let second = build.publish_partial(id(3)?).map_err(failed)?;
     let find = |version: &crate::ResultVersion| {
         version
             .physical
             .as_ref()
-            .and_then(|values| values.iter().flatten().next().cloned())
+            .and_then(|values| values.get(2))
+            .map(|value| value.to_owned())
     };
     let (Some(a), Some(b)) = (find(&first), find(&second)) else {
         return Err("both versions must keep the file evidence".into());
     };
-    assert!(Arc::ptr_eq(&a, &b));
+    assert_eq!(a, space);
+    assert_eq!(b, space);
+    assert_eq!(a, b);
     Ok(())
 }
 
@@ -242,9 +245,7 @@ fn physical_identity(version: &ResultVersion, item: usize) -> Option<&[u8]> {
     version
         .physical
         .as_ref()?
-        .get(item)?
-        .as_ref()?
-        .identity
-        .as_ref()
-        .map(|identity| identity.file.as_slice())
+        .get(u32::try_from(item).ok()?)?
+        .identity()
+        .map(|identity| identity.file)
 }

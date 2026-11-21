@@ -21,7 +21,7 @@ fn file_value(bytes: u64) -> Known {
 /// #270: a file whose identity occurs once is no sharing candidate, so any number
 /// of them stays exact under a small capacity.
 #[test]
-fn files_seen_once_do_not_reach_the_capacity() {
+fn files_seen_once_do_not_reach_the_capacity() -> Result<(), String> {
     let mut sum = Physical::with_limit(1);
     for bytes in [10, 20, 30] {
         sum.add_known(&file_value(bytes));
@@ -29,7 +29,9 @@ fn files_seen_once_do_not_reach_the_capacity() {
     }
     let mut aggregates =
         crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
-    let root = aggregates.get_mut(0).expect("root aggregate");
+    let root = aggregates
+        .get_mut(0)
+        .ok_or_else(|| "missing root aggregate".to_owned())?;
     sum.finish(ResultCompleteness::Complete, root);
     let exact = SizeAmount::Exact {
         bytes: ByteSize::from(60),
@@ -37,12 +39,13 @@ fn files_seen_once_do_not_reach_the_capacity() {
     assert_eq!(root.allocated.amount, exact);
     assert_eq!(root.unique_physical.amount, exact);
     assert!(!root.limitations.contains(&"space.dedup_capacity"));
+    Ok(())
 }
 
 /// #270: over the capacity both totals are the lower bound of the files seen once;
 /// the candidates the table kept are left out, as they depend on the order.
 #[test]
-fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() {
+fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() -> Result<(), String> {
     let mut sum = Physical::with_limit(1);
     sum.add_known(&file_value(7));
     sum.untabled.add(&file_value(7));
@@ -57,7 +60,9 @@ fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() {
     }
     let mut aggregates =
         crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
-    let root = aggregates.get_mut(0).expect("root aggregate");
+    let root = aggregates
+        .get_mut(0)
+        .ok_or_else(|| "missing root aggregate".to_owned())?;
     sum.finish(ResultCompleteness::Complete, root);
     let lower = SizeAmount::LowerBound {
         bytes: ByteSize::from(7),
@@ -66,6 +71,7 @@ fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() {
     assert_eq!(root.unique_physical.amount, lower);
     assert_eq!(root.allocated.evidence, SizeEvidence::OsReported);
     assert!(root.limitations.contains(&"space.dedup_capacity"));
+    Ok(())
 }
 
 #[test]
@@ -93,7 +99,7 @@ fn configured_capacity_deduplicates_and_rejects_new_identities() {
 }
 
 #[test]
-fn capacity_alone_makes_both_physical_totals_unknown() {
+fn capacity_alone_makes_both_physical_totals_unknown() -> Result<(), String> {
     let mut sum = Physical::with_limit(1);
     for file in 1..=2 {
         sum.insert(
@@ -116,15 +122,18 @@ fn capacity_alone_makes_both_physical_totals_unknown() {
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
     let mut aggregates = crate::space::aggregate(&[item], &[], ResultCompleteness::Complete, None);
-    let root = aggregates.get_mut(0).expect("root aggregate");
+    let root = aggregates
+        .get_mut(0)
+        .ok_or_else(|| "missing root aggregate".to_owned())?;
     sum.finish(ResultCompleteness::Complete, root);
     assert_eq!(root.allocated.amount, SizeAmount::Unknown);
     assert_eq!(root.unique_physical.amount, SizeAmount::Unknown);
     assert!(root.limitations.contains(&"space.dedup_capacity"));
+    Ok(())
 }
 
 #[test]
-fn identity_capacity_boundary_and_conflict_update_summary() {
+fn identity_capacity_boundary_and_conflict_update_summary() -> Result<(), String> {
     let mut sum = Physical::default();
     let identity = |n| FileIdentity {
         volume: vec![1],
@@ -151,7 +160,9 @@ fn identity_capacity_boundary_and_conflict_update_summary() {
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
     let mut aggregates = crate::space::aggregate(&[item], &[], ResultCompleteness::Complete, None);
-    let root = aggregates.get_mut(0).expect("root aggregate");
+    let root = aggregates
+        .get_mut(0)
+        .ok_or_else(|| "missing root aggregate".to_owned())?;
     sum.finish(ResultCompleteness::Complete, root);
     assert_eq!(
         root.allocated.amount,
@@ -167,6 +178,7 @@ fn identity_capacity_boundary_and_conflict_update_summary() {
     sum.finish(ResultCompleteness::Complete, root);
     assert_eq!(root.allocated.amount, SizeAmount::Unknown);
     assert!(root.limitations.contains(&"space.dedup_capacity"));
+    Ok(())
 }
 
 #[test]

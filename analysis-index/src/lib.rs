@@ -110,7 +110,7 @@ pub struct ResultVersion {
     aggregates: space::SpaceAggregates,
     observation_ranges: Vec<observation_range::RangeIndices>,
     scope_observation_range: observation_range::RangeIndices,
-    physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
+    physical: Option<physical::PhysicalObservations>,
     identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
     shared_table_limit: usize,
     roots: Vec<ResultScopeRoot>,
@@ -119,7 +119,7 @@ pub struct ResultVersion {
     exact_gaps: BTreeMap<u32, Vec<usize>>,
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     folder_marks: folder_marks::FolderMarks,
-    scope_total: Option<SpaceAggregate>,
+    scope_total: SpaceAggregate,
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
@@ -362,6 +362,16 @@ impl BuildHandle {
                 space::mark_inaccessible(&mut total, self.gaps.len() as u64);
             }
             Some(total)
+        };
+        let scope_total = match scope_total {
+            Some(total) => total,
+            None => match aggregates.get(0) {
+                Some(root) => root.clone(),
+                None => {
+                    self.abort();
+                    return Err(BuildError::InvalidTree);
+                }
+            },
         };
         let (observation_ranges, scope_observation_range) =
             observation_range::build(&built, &aggregates, completeness);

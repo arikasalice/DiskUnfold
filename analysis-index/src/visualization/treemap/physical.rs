@@ -26,9 +26,8 @@ pub(super) fn link_bytes(
     let allocated = version
         .physical
         .as_ref()
-        .and_then(|v| v.get(no as usize))
-        .and_then(Option::as_ref)
-        .and_then(|observation| observation.allocated.as_ref())
+        .and_then(|v| v.get(no))
+        .and_then(|observation| observation.allocated())
         .is_some_and(|v| v.evidence == SizeEvidence::OsReported);
     if !allocated {
         return Ok(None);
@@ -60,28 +59,26 @@ pub(super) fn physical_file(
     let observation = version
         .physical
         .as_ref()
-        .and_then(|v| v.get(no as usize))
-        .and_then(Option::as_ref)
+        .and_then(|v| v.get(no))
         .ok_or(AdmissionError::NoAttribution)?;
     let identity = observation
-        .identity
-        .as_ref()
+        .identity()
         .filter(|id| !id.volume.is_empty() && !id.file.is_empty())
         .ok_or(AdmissionError::NoAttribution)?;
     let count = observation
-        .link_count
+        .link_count()
         .filter(|n| *n > 0)
         .ok_or(AdmissionError::NoAttribution)?;
-    if *basis == SizeBasis::UniquePhysical && observation.sharing != SharingEvidence::None {
+    if *basis == SizeBasis::UniquePhysical && observation.sharing() != SharingEvidence::None {
         return Err(AdmissionError::NoAttribution);
     }
     let size = observation
-        .allocated
-        .as_ref()
+        .allocated()
         .filter(|v| v.evidence == SizeEvidence::OsReported)
         .and_then(|v| exact(v, &SizeBasis::Allocated))
         .ok_or(AdmissionError::NoAttribution)?;
-    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(identity) {
+    let identity = identity.to_owned();
+    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(&identity) {
         if *owner != sibling || *previous != size || *links != count || *seen >= count {
             // Neither sibling can claim the shared file, whichever was read first.
             identities.conflicted.extend([*owner, sibling]);
@@ -92,7 +89,7 @@ pub(super) fn physical_file(
     } else {
         identities
             .owners
-            .insert(identity.clone(), (sibling, size, count, 1));
+            .insert(identity, (sibling, size, count, 1));
         Ok(size)
     }
 }

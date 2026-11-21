@@ -23,7 +23,7 @@ pub enum QueryError {
 /// Original observations for one item in a pinned result, without inferring missing values.
 pub struct ItemDetail<'a> {
     pub item: &'a ResultItem,
-    pub physical: Option<&'a SpaceObservation>,
+    pub physical: Option<SpaceObservation>,
 }
 
 impl ResultVersion {
@@ -172,9 +172,7 @@ impl ResultVersion {
 
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
-        self.scope_total
-            .as_ref()
-            .unwrap_or_else(|| self.aggregates.get(0).expect("sealed result has a root"))
+        &self.scope_total
     }
 
     /// Actual scope-root items, in the producer's root order.
@@ -229,13 +227,9 @@ impl ResultVersion {
         } else {
             match &basis {
                 SizeBasis::Logical => item.size.as_ref(),
-                SizeBasis::Allocated => self
-                    .physical
-                    .as_ref()?
-                    .get(item.item_no as usize)?
-                    .as_ref()?
-                    .allocated
-                    .as_ref(),
+                SizeBasis::Allocated => {
+                    Some(self.physical.as_ref()?.get(item.item_no)?.allocated()?)
+                }
                 SizeBasis::UniquePhysical => None,
             }?
         };
@@ -262,8 +256,8 @@ impl ResultVersion {
         let physical = self
             .physical
             .as_ref()
-            .and_then(|values| values.get(index))
-            .and_then(|value| value.as_deref());
+            .and_then(|values| values.get(item.item_no))
+            .map(|value| value.to_owned());
         Ok(ItemDetail { item, physical })
     }
 

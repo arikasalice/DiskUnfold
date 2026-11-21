@@ -7,7 +7,7 @@ fn memory_layout_measure() {
 
     println!(
         "F03_MEMORY_LAYOUT pointer={} node={} stored_observation={} result_item={} \
-         optional_size={} optional_physical_arc={} space_observation={} timestamp={} \
+         optional_size={} physical_record={} space_observation={} timestamp={} \
          optional_timestamp={} root_index={} range_indices={} space_aggregate={} \
          accumulator={} result_version={} folder_marks={}",
         size_of::<usize>(),
@@ -15,7 +15,7 @@ fn memory_layout_measure() {
         size_of::<crate::StoredObservation>(),
         size_of::<du_core_contracts::result::ResultItem>(),
         size_of::<Option<du_core_contracts::SizeValue>>(),
-        size_of::<Option<std::sync::Arc<crate::SpaceObservation>>>(),
+        crate::physical::physical_record_size_bytes(),
         size_of::<crate::SpaceObservation>(),
         size_of::<du_core_contracts::Timestamp>(),
         size_of::<Option<du_core_contracts::Timestamp>>(),
