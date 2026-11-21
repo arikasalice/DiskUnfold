@@ -168,3 +168,9 @@ export function useTimestampText() {
   return (value: number, fallback: () => string) =>
     timestampString(parts(value, fallback));
 }
+
+/** A timestamp in the app's pattern down to the minute, without seconds or zone. */
+export function displayMinute(value: number, format: RegionalFormat) {
+  const datePattern = format.datePattern.replace(/[^HHmm]*ss.*$/, "");
+  return displayTimestamp(value, { ...format, datePattern })?.date;
+}
