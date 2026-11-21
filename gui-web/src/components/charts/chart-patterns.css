@@ -1,0 +1,26 @@
+/* Pattern marks: 1 px lines in the fill text colour at 35% opacity. */
+.du-chart-pattern {
+  stroke: var(--du-chart-on-fill);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.du-chart-pattern .du-pattern-mark--fill {
+  fill: var(--du-chart-on-fill);
+  stroke: none;
+}
+
+.du-chart-pattern--sparse-dots .du-pattern-mark--fill {
+  fill: var(--du-chart-on-neutral-2);
+}
+
+@media (forced-colors: active) {
+  .du-chart-pattern {
+    stroke: CanvasText;
+    opacity: 1;
+  }
+
+  .du-chart-pattern .du-pattern-mark--fill {
+    fill: CanvasText;
+  }
+}

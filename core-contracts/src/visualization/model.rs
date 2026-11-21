@@ -8,6 +8,7 @@ use super::{
     render::{VizColorMode, VizLabelMode},
     required_nullable,
     rows::{VizDenominator, VizDenominatorBasis},
+    type_slices::VizTypeSlice,
 };
 use crate::{
     Id, ItemRef, SizeBasis, SizeValue,
@@ -285,6 +286,15 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub item_kind: Option<VizItemKind>,
+    /// The files by legend class of a folder whose children are not drawn, or of the
+    /// Other group by its members; the same list as its row's. See [`VizTypeSlice`].
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub type_slices: Option<Vec<VizTypeSlice>>,
 }
 
 /// A legend class with its original item and quantity evidence.
@@ -298,37 +308,6 @@ pub struct VizLegendEntry {
     pub total: VizTotal,
     #[serde(deserialize_with = "required_nullable")]
     pub condition: Option<QueryCondition>,
-}
-
-/// Explicit counts for grouped, omitted and unknown items.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct VizSummary {
-    pub grouped_items: VizQuantity,
-    pub omitted_items: VizQuantity,
-    pub unknown_items: VizQuantity,
-    pub reason_keys: Vec<String>,
-    /// Bytes of the scope measured under navigation-root items without a provable area
-    /// and outside every drawn item (F06 README 51.3). Treemap only; omitted when no
-    /// such item holds a measured byte, and never an exact zero.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_present"
-    )]
-    #[cfg_attr(feature = "typescript", ts(optional))]
-    pub unknown_size: Option<VizQuantity>,
-    /// Position in the navigation root's table (viz.rows without parentShapeRef) of the
-    /// first row without a provable area, or else of the first expanded folder whose
-    /// level has one. Treemap only; omitted when no table row is such a row.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "optional_present"
-    )]
-    #[cfg_attr(feature = "typescript", ts(optional))]
-    pub first_unknown_row: Option<u32>,
 }
 
 fn optional_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
@@ -437,6 +416,10 @@ impl VizModel {
         let mut refs = HashMap::new();
         for shape in &self.shapes {
             shape.validate(revision, self.representation.format == "treemap")?;
+            // A histogram interval is a group too, but only the Other group has slices.
+            if self.representation.format == "histogram" && shape.type_slices.is_some() {
+                return Err("type slices on a histogram shape");
+            }
             if let Some(key) = &shape.shape_ref
                 && (key.is_empty() || refs.insert(key.as_str(), shape).is_some())
             {
@@ -487,6 +470,7 @@ impl VizModel {
 
 mod shape;
 mod summary;
+pub use summary::VizSummary;
 #[cfg(test)]
 mod tests;
 mod totals;

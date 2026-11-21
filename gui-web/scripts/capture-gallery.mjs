@@ -62,6 +62,9 @@ const surfaces = {
     count: 1,
     pointer: false,
   },
+  // F06 README 54 (#298): folders divided by type, as bars and as a treemap.
+  // Every scene draws the three folders' slices.
+  "type-slices": { ready: ".du-slice-stack", count: 3, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -263,6 +266,26 @@ const galleryShots =
                       width: 1280,
                       step: "table",
                     },
+                    {
+                      name: "05-unread-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
+                    },
+                    {
+                      name: "06-unread-view-in-list-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
+                      viewInList: true,
+                      focusRow: "2",
+                    },
+                    {
+                      name: "05-unread-dark-1280",
+                      theme: "dark",
+                      width: 1280,
+                      scene: "unread",
+                    },
                   ]
                 : surface === "space-undrawn"
                   ? [
@@ -286,75 +309,139 @@ const galleryShots =
                         scene: "partial",
                       },
                     ]
-                  : surface === "job-center"
+                  : surface === "type-slices"
                     ? [
                         {
-                          name: "01-light-1280",
+                          name: "01-bars-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "main",
+                          scene: "bar",
                         },
                         {
-                          name: "01-dark-1280",
-                          theme: "dark",
-                          width: 1280,
-                          scene: "main",
-                        },
-                        {
-                          name: "01-light-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "main",
-                        },
-                        {
-                          name: "02-request-pending-no-effect",
+                          name: "02-bars-video-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "request-pending",
+                          scene: "bar",
+                          legend: "동영상",
                         },
                         {
-                          name: "03-resync",
+                          name: "07-bars-preview-video-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "resync",
+                          scene: "bar",
+                          hover: "동영상",
                         },
                         {
-                          name: "04-empty",
+                          name: "08-bars-preview-video-forced-colors-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "empty",
-                        },
-                        {
-                          name: "05-cancel-confirm",
-                          theme: "light",
-                          width: 1280,
-                          scene: "cancel-confirm",
-                        },
-                        {
-                          name: "06-forced-colors",
-                          theme: "light",
-                          width: 1280,
-                          scene: "forced-colors",
+                          scene: "bar",
+                          hover: "동영상",
                           forcedColors: "active",
                         },
                         {
-                          name: "07-toast-open-panel-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "toast-open-panel",
-                        },
-                        {
-                          name: "07-toast-open-panel-1280",
+                          name: "03-treemap-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "toast-open-panel",
+                          scene: "treemap",
+                        },
+                        {
+                          name: "04-table-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          list: true,
+                        },
+                        {
+                          name: "05-bars-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "06-treemap-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "03-treemap-dark-1280",
+                          theme: "dark",
+                          width: 1280,
+                          scene: "treemap",
                         },
                       ]
-                    : [
-                        { name: "light-1280", theme: "light", width: 1280 },
-                        { name: "dark-1280", theme: "dark", width: 1280 },
-                        { name: "light-700", theme: "light", width: 700 },
-                      ];
+                    : surface === "job-center"
+                      ? [
+                          {
+                            name: "01-light-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-dark-1280",
+                            theme: "dark",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-light-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "main",
+                          },
+                          {
+                            name: "02-request-pending-no-effect",
+                            theme: "light",
+                            width: 1280,
+                            scene: "request-pending",
+                          },
+                          {
+                            name: "03-resync",
+                            theme: "light",
+                            width: 1280,
+                            scene: "resync",
+                          },
+                          {
+                            name: "04-empty",
+                            theme: "light",
+                            width: 1280,
+                            scene: "empty",
+                          },
+                          {
+                            name: "05-cancel-confirm",
+                            theme: "light",
+                            width: 1280,
+                            scene: "cancel-confirm",
+                          },
+                          {
+                            name: "06-forced-colors",
+                            theme: "light",
+                            width: 1280,
+                            scene: "forced-colors",
+                            forcedColors: "active",
+                          },
+                          {
+                            name: "07-toast-open-panel-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "toast-open-panel",
+                          },
+                          {
+                            name: "07-toast-open-panel-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "toast-open-panel",
+                          },
+                        ]
+                      : [
+                          { name: "light-1280", theme: "light", width: 1280 },
+                          { name: "dark-1280", theme: "dark", width: 1280 },
+                          { name: "light-700", theme: "light", width: 700 },
+                        ];
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -658,7 +745,12 @@ async function open(
     }
   } else {
     const expected =
-      surface === "browse" && scene === "scan-status" ? 6 : count;
+      surface === "browse" && scene === "scan-status"
+        ? 6
+        : // The bars add the Other group's slices to the three folders'.
+          surface === "type-slices" && scene === "bar"
+          ? 4
+          : count;
     if ((await session.run(drawn, ready, expected)) !== expected)
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
@@ -949,7 +1041,48 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "histogram-list" && shot.step) {
+      else if (surface === "type-slices" && shot.hover) {
+        // The pointer rests on a legend row (README 46.1, #383): a real mouse move.
+        const box = await session.run(function legendRowBox(name) {
+          const row = Array.from(
+            document.querySelectorAll(".du-chart-legend [role='option']"),
+          ).find((option) => option.textContent?.startsWith(name));
+          if (!(row instanceof HTMLElement)) return null;
+          const rect = row.getBoundingClientRect();
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }, shot.hover);
+        if (!box) throw new Error("The legend row was not found");
+        await session.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: box.x,
+          y: box.y,
+        });
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "type-slices" && (shot.legend || shot.list)) {
+        const pressed = await session.run(
+          function pressTypeControl(legend, list) {
+            const target = legend
+              ? Array.from(
+                  document.querySelectorAll(".du-chart-legend [role='option']"),
+                ).find((option) => option.textContent?.startsWith(legend))
+              : Array.from(document.querySelectorAll("button")).find((button) =>
+                  button.textContent?.includes(list),
+                );
+            if (!(target instanceof HTMLElement)) return false;
+            target.click();
+            return true;
+          },
+          shot.legend ?? null,
+          shot.list ? "이 폴더의 항목" : null,
+        );
+        if (!pressed) throw new Error("The legend class or list was not found");
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "histogram-list" && shot.step) {
         await histogramListStep(session, shot.step);
         await save(session, shot.name, true);
       } else if (surface === "space-undrawn" && shot.viewInList) {
@@ -970,7 +1103,7 @@ try {
         const focused = await session.run(
           () => document.activeElement?.getAttribute("aria-rowindex") ?? "",
         );
-        if (focused !== "4")
+        if (focused !== (shot.focusRow ?? "4"))
           throw new Error(
             "The first item not drawn was not focused: " + focused,
           );

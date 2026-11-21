@@ -2,12 +2,17 @@
 use super::item_kind::{VizItemKind, optional_known};
 use super::quantity::VizQuantity;
 pub use super::ratio::VizRatio;
+pub use super::row_unread::VizUnread;
+use super::type_slices::VizTypeSlice;
 use crate::{
     Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, browse_open_ipc::QueryCondition,
     result::ResultCompleteness,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
+
+mod slices;
+mod wire;
 
 /// Maximum rows in one positional visualization page.
 pub const MAX_PAGE_COUNT: u32 = 1000;
@@ -109,31 +114,19 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub condition: Option<QueryCondition>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RowWire {
-    #[serde(deserialize_with = "required_nullable")]
-    item_ref: Option<ItemRef>,
-    #[serde(deserialize_with = "required_nullable")]
-    group_ref: Option<String>,
-    display_name: String,
-    size: SizeValue,
-    #[serde(default, deserialize_with = "optional_present")]
-    quantity: Option<VizQuantity>,
-    #[serde(deserialize_with = "required_nullable")]
-    ratio: Option<VizRatio>,
-    denominator: VizDenominator,
-    legend_class_key: String,
-    display_flags: Vec<String>,
-    #[serde(default, deserialize_with = "optional_present")]
-    label_key: Option<String>,
-    #[serde(default, deserialize_with = "optional_present")]
-    member_count: Option<VizQuantity>,
-    #[serde(default, deserialize_with = "optional_known")]
-    item_kind: Option<VizItemKind>,
-    #[serde(default, deserialize_with = "optional_present")]
-    condition: Option<QueryCondition>,
+    /// Whether this folder could not be read (F06 README 53): item rows of folders
+    /// only. See [`VizUnread`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unread: Option<VizUnread>,
+    /// The files by legend class (F06 README 54) of a folder row, or of the Other
+    /// group row by its members together, under the type color criterion, unfiltered,
+    /// in a real scan. Omitted where it does not apply, including a folder whose own
+    /// listing failed; empty when every file was counted and there is none. See
+    /// [`VizTypeSlice`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub type_slices: Option<Vec<VizTypeSlice>>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -173,7 +166,10 @@ impl VizRow {
         if self.condition.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
             return Err("condition on an item row");
         }
-        Ok(())
+        if self.unread.is_some() && self.item_ref.is_none() {
+            return Err("unread state on a group row");
+        }
+        self.validate_type_slices()
     }
     /// Checks the item revision only; group membership requires the pinned model.
     pub fn validate_revision(&self, revision: &Id) -> Result<(), &'static str> {
@@ -186,28 +182,6 @@ impl VizRow {
             return Err("row revision mismatch");
         }
         Ok(())
-    }
-}
-impl<'de> Deserialize<'de> for VizRow {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let w = RowWire::deserialize(d)?;
-        let row = Self {
-            item_ref: w.item_ref,
-            group_ref: w.group_ref,
-            display_name: w.display_name,
-            size: w.size,
-            quantity: w.quantity,
-            ratio: w.ratio,
-            denominator: w.denominator,
-            legend_class_key: w.legend_class_key,
-            display_flags: w.display_flags,
-            label_key: w.label_key,
-            member_count: w.member_count,
-            item_kind: w.item_kind,
-            condition: w.condition,
-        };
-        row.validate().map_err(D::Error::custom)?;
-        Ok(row)
     }
 }
 /// Position-based request; the engine resolves and checks the model and result revision.

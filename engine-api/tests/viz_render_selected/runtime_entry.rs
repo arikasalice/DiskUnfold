@@ -132,6 +132,7 @@ impl EvidenceProducer for Producer {
                 label_key: None,
                 legend_class_key: "fixture.class".into(),
                 display_flags: vec![],
+                type_slices: false,
             },
         ))
     }

@@ -1139,6 +1139,9 @@ ui.visualization.stalenessUnwatched
 ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
+ui.visualization.typeSlicesMore count:count name:name
+ui.visualization.typeSlicesRest count:count size:name
+ui.visualization.typeSlicesUnsplit size:name
 ui.visualization.unavailable
 ui.visualization.unavailableBodyBasisNotCounted basis:name
 ui.visualization.unavailableBodyNegativeFlow
@@ -1163,6 +1166,12 @@ ui.visualization.undrawnShowInList
 ui.visualization.undrawnShowInListName summary:name
 ui.visualization.undrawnTooltip
 ui.visualization.unknownFormat
+ui.visualization.unreadFolders count:count
+ui.visualization.unreadFoldersAtLeast count:count
+ui.visualization.unreadInside count:count
+ui.visualization.unreadInsideSome
+ui.visualization.unreadItself
+ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
 ui.visualization.viewAsTreemap

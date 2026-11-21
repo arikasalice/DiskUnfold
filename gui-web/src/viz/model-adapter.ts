@@ -9,6 +9,7 @@ import type {
 } from "../ipc";
 import type { GeometryRendererProps } from "../components";
 import type { ChartPattern } from "../components";
+import type { StackedBarSlice } from "../components";
 import type { ShapePlace } from "./model-text";
 
 export type ModelResponse = Extract<VizRenderResponse, { kind: "model" }>;
@@ -93,6 +94,8 @@ export function adaptVizModel(
     pattern?: ChartPattern | null;
     patternAlways?: boolean;
     legendClass?: string;
+    slices?: readonly StackedBarSlice[];
+    slicesTotal?: number;
     card?: { title: string; lines: readonly string[] };
   },
   folderRows: readonly VizRow[] = [],

@@ -14,6 +14,7 @@ pub mod production;
 pub mod ranked_group;
 pub mod render;
 pub mod session;
+pub(crate) mod type_slices;
 use du_analysis_index::{
     IngestSink, ResultVersion,
     visualization::{group_page, live_models, projection},

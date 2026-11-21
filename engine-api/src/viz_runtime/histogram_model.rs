@@ -75,6 +75,7 @@ pub(super) fn build(
                 root_branch_ref: None,
                 member_count: row.member_count.clone(),
                 item_kind: None,
+                type_slices: None,
             });
         }
     }
@@ -183,6 +184,8 @@ pub(super) fn build(
             reason_keys: vec![],
             unknown_size: None,
             first_unknown_row: None,
+            unread_folders: None,
+            first_unread_row: None,
         },
         strategy: QueryStrategy {
             id: admitted.descriptor.strategy.id.clone(),

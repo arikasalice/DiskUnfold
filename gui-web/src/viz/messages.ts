@@ -299,6 +299,16 @@ export const visualizationMessages = {
     intervalShowInList: "View in list",
     intervalCardOpens: "Opens the list",
     intervalCardNoList: "A list isn't available for this size basis",
+    unreadFolders: "Unreadable folders: {count}",
+    unreadFoldersAtLeast: "Unreadable folders: {count}+",
+    unreadTooltip:
+      "These folders couldn't be read completely because access was denied or the scan stopped. Sizes include only what was read.",
+    unreadItself: "Couldn't read inside",
+    unreadInside: "{count} subfolders unreadable",
+    unreadInsideSome: "Some subfolders unreadable",
+    typeSlicesMore: "{name} + {count} more",
+    typeSlicesRest: "{count} more types · {size}",
+    typeSlicesUnsplit: "Not split by type · at least {size}",
   },
   ko: {
     loading: "그래프 불러오는 중",
@@ -595,6 +605,16 @@ export const visualizationMessages = {
     intervalShowInList: "목록에서 보기",
     intervalCardOpens: "누르면 목록을 엽니다",
     intervalCardNoList: "이 크기 기준에서는 목록을 열 수 없습니다",
+    unreadFolders: "읽지 못한 폴더 {count}개",
+    unreadFoldersAtLeast: "읽지 못한 폴더 {count}개 이상",
+    unreadTooltip:
+      "접근이 거부되었거나 스캔이 중간에 멈춰 끝까지 읽지 못한 폴더입니다. 크기는 읽은 만큼만 셉니다.",
+    unreadItself: "안을 읽지 못함",
+    unreadInside: "하위 {count}곳을 읽지 못함",
+    unreadInsideSome: "하위 일부를 읽지 못함",
+    typeSlicesMore: "{name} 외 {count}개",
+    typeSlicesRest: "나머지 유형 {count}개 · {size}",
+    typeSlicesUnsplit: "유형별로 나누지 못함 · 최소 {size}",
   },
 } as const;
 export type VisualizationMessageKey = keyof typeof visualizationMessages.en;

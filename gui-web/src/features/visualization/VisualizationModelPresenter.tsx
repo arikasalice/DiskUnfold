@@ -27,7 +27,7 @@ import type { VizText } from "../../viz";
 import { EmptyResult } from "./EmptyResult";
 import { ModelStatus } from "./ModelStatus";
 import { ModelRows } from "./ModelRows";
-import { UndrawnLine, useRowReveal } from "./UndrawnLine";
+import { UndrawnLine, UnreadLine, useRowReveal } from "./UndrawnLine";
 import { useChartOffset } from "./chart-area";
 import {
   ClassChip,
@@ -187,6 +187,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             scopeLine={narrowedScopeLine(props.narrowing, frame, text)}
           />
           <UndrawnLine frame={frame} text={text} onOpen={rowReveal.open} />
+          <UnreadLine frame={frame} text={text} onOpen={rowReveal.open} />
           <StatusChoice
             narrowing={props.narrowing}
             frame={frame}
@@ -291,6 +292,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
           entries={entries}
           selected={legendChoice.selected}
           onSelect={legendChoice.onSelect}
+          onPreview={classes.preview}
           forced={autoPatterns}
         />
       </div>
