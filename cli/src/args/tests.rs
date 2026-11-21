@@ -68,7 +68,22 @@ fn fr6_unregistered_and_forbidden_command_names_are_not_provided() -> Result<(),
     assert!(matches!(&command, Command::NotProvided));
 
     for name in [
-        "approve", "execute", "trash", "delete", "move", "restore", "undo", "protect", "mcp", "key",
+        "approve",
+        "approval",
+        "approval.review",
+        "approval.grant",
+        "approval.revoke",
+        "approval.prepare",
+        "execute",
+        "change.execute",
+        "trash",
+        "delete",
+        "move",
+        "restore",
+        "undo",
+        "protect",
+        "mcp",
+        "key",
     ] {
         let Some(Arguments { command, .. }) = parse([OsString::from(name)].into_iter()) else {
             return Err(format!("forbidden command {name} did not parse"));

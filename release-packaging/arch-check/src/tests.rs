@@ -122,7 +122,7 @@ fn detects_constructor_and_complexity() {
 #[test]
 fn dependency_kinds_and_aliases_cannot_bypass_boundaries() {
     let meta = Metadata {
-        workspace_members: vec!["a".into(), "b".into()],
+        workspace_members: vec!["a".into(), "b".into(), "c".into()],
         packages: vec![
             Package {
                 id: "a".into(),
@@ -147,10 +147,24 @@ fn dependency_kinds_and_aliases_cannot_bypass_boundaries() {
                 manifest_path: "change-executor/Cargo.toml".into(),
                 dependencies: vec![],
             },
+            Package {
+                id: "c".into(),
+                name: "du-mcp-gateway".into(),
+                manifest_path: "mcp-gateway/Cargo.toml".into(),
+                dependencies: vec![Dependency {
+                    name: "du-change-executor".into(),
+                    kind: None,
+                    rename: Some("approval_tool_backend".into()),
+                }],
+            },
         ],
     };
     let policy = Policy {
-        crates: BTreeMap::from([("cli".into(), vec![]), ("change-executor".into(), vec![])]),
+        crates: BTreeMap::from([
+            ("cli".into(), vec![]),
+            ("mcp-gateway".into(), vec![]),
+            ("change-executor".into(), vec![]),
+        ]),
     };
     let mut report = Report::default();
     dependencies(&meta, &policy, &mut report);
@@ -160,7 +174,7 @@ fn dependency_kinds_and_aliases_cannot_bypass_boundaries() {
             .iter()
             .filter(|d| d.rule == "executor-boundary")
             .count(),
-        2
+        3
     );
     assert_eq!(
         report
@@ -168,7 +182,7 @@ fn dependency_kinds_and_aliases_cannot_bypass_boundaries() {
             .iter()
             .filter(|d| d.rule == "crate-dependency")
             .count(),
-        2
+        3
     );
     assert_eq!(report.metrics.crate_direct_dependencies["cli"], 1);
 }
