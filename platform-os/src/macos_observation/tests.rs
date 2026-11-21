@@ -182,11 +182,11 @@ fn mount_points_are_reported_and_other_ways_out_are_links() {
     assert_eq!(directory(Some(2), None).kind(), ObservedKind::Link);
     assert_eq!(
         directory(Some(0), Some(0x0080_0000)).kind(),
-        ObservedKind::Link
+        ObservedKind::Firmlink
     );
     assert_eq!(
         directory(Some(1), Some(0x0080_0000)).kind(),
-        ObservedKind::Link
+        ObservedKind::Firmlink
     );
     let typed = |object_type| bulk::Record {
         object_type: Some(object_type),

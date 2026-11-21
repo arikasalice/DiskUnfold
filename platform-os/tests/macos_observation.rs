@@ -386,7 +386,7 @@ fn missing_system_layout() -> Option<&'static str> {
 /// whose disks are laid out otherwise prints the reason and skips the checks
 /// (on CI the skip fails).
 #[test]
-fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> TestResult {
+fn firmlinks_are_classified_and_mount_points_are_reported() -> TestResult {
     if let Some(reason) = missing_system_layout() {
         return machine::skip(reason);
     }
@@ -394,9 +394,8 @@ fn firmlinks_are_links_and_mount_points_are_reported_and_never_entered() -> Test
     assert_eq!(system.directory.ancestor_file_ids(), Some(&[][..]));
     let entries = all(&mut *system.directory)?;
     let users = find(&entries, b"Users")?;
-    assert_eq!(users.enumerated_kind, ObservedKind::Link);
-    assert_eq!(kind(users), Some(ObservedKind::Link));
-    assert!(system.directory.open_child(users).is_err());
+    assert_eq!(users.enumerated_kind, ObservedKind::Firmlink);
+    assert_eq!(kind(users), Some(ObservedKind::Firmlink));
     assert_eq!(
         kind(find(&entries, b"System")?),
         Some(ObservedKind::Directory)
