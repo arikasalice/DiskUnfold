@@ -8,6 +8,8 @@ import type {
 import { visualizationReason } from "../../viz";
 
 const UNWATCHED = "viz.staleness.unwatched";
+/** F03's key: a sum of allocations may count shared extents more than once (#351). */
+const MAY_INCLUDE_SHARED = "space.allocated_may_include_shared";
 const CURRENT_ORIGINS: ReadonlySet<string> = new Set([
   "scan",
   "current_analysis",
@@ -109,7 +111,11 @@ export function ModelStatus({
         ))}
       </LiveStatus>
       <Text>{text.observedAt(frame.observedAt)}</Text>
-      <Text>{scopeLine ?? scopeTotal(model, text)}</Text>
+      <ScopeTotalLine
+        line={scopeLine ?? scopeTotal(model, text)}
+        model={model}
+        text={text}
+      />
       {unwatched && !scanRunning && (
         <Text kind="muted">{visualizationReason(UNWATCHED, text.message)}</Text>
       )}
@@ -132,4 +138,30 @@ function scopeTotal(model: ModelResponse["model"], text: VizText) {
         basis: text.key(model.representation.sizeBasis),
       })
     : text.message("scopeTotalLine", { value });
+}
+
+/**
+ * The scope total line. Where F03 says the allocated total may count shared space
+ * more than once, it ends "· may exceed actual usage", with the full sentence as
+ * its tooltip and its description (F02 design README #351). "At least" comes from
+ * the value alone. Other limit keys are not worded here.
+ */
+function ScopeTotalLine({
+  line,
+  model,
+  text,
+}: {
+  line: string;
+  model: ModelResponse["model"];
+  text: VizText;
+}) {
+  if (!model.totals.scopeMeasurementLimits?.includes(MAY_INCLUDE_SHARED))
+    return <Text>{line}</Text>;
+  const sentence = text.message("scopeMayExceedUsageTooltip");
+  return (
+    <div className="du-scope-total-line" title={sentence}>
+      <Text>{`${line} · ${text.message("scopeMayExceedUsage")}`}</Text>
+      <div className="du-visually-hidden">{sentence}</div>
+    </div>
+  );
 }

@@ -1879,12 +1879,25 @@ function Show-FallbackTable($scope) {
   Save-SmokeCapture '02-fallback-table-collapsed'
   Send-SmokeClick $x $y
   $toggle = Wait-SmokeExpanded $title $true 'mouse'
-  $toggle.SetFocus()
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x0D # VK_RETURN
   $toggle = Wait-SmokeExpanded $title $false 'Enter'
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x20 # VK_SPACE
   $null = Wait-SmokeExpanded $title $true 'Space'
   "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# A key goes to whatever holds the focus, so the toggle must hold it first. The panel
+# re-renders after each toggle, so the button is found again rather than reused, and
+# focused again until UI Automation reports keyboard focus on it.
+function Wait-SmokeFocus($name) {
+  Wait-UI "$name focused" {
+    $item = Find-UI $name $button
+    if ($item) {
+      if (-not $item.Current.HasKeyboardFocus) { $item.SetFocus() }
+      if ($item.Current.HasKeyboardFocus) { $item }
+    }
+  }
 }
 # #149: NTFS without block cloning shares no extents between files, so the unique physical size
 # basis counts every file and the chart draws both folders instead of an unavailable notice.

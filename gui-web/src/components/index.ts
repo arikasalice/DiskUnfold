@@ -8,7 +8,9 @@ export {
   PathField,
   SelectField,
   SwitchField,
+  TextLink,
 } from "./controls";
+export { LineChoice } from "./line-choice";
 export {
   BrandMark,
   CountPill,

@@ -44,6 +44,7 @@ import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
 import { useDialogResult } from "./use-dialog-result";
 import { DialogUpdateStatus } from "./DialogUpdateStatus";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
+import type { ScanIssueLaneRequest } from "./scan-issue-filter";
 
 function Coverage({ total }: { total: SpaceTotal }) {
   const regional = useRegionalFormat();
@@ -226,6 +227,8 @@ export function PinnedResult({
   onDisplayChoice,
   onSizeBasisChange,
   onReopenLatest,
+  running = false,
+  laneRequest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
@@ -241,6 +244,8 @@ export function PinnedResult({
   onSizeBasisChange?:
     ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
   onReopenLatest: () => void;
+  running?: boolean | undefined;
+  laneRequest?: ScanIssueLaneRequest | undefined;
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const regional = useRegionalFormat();
@@ -350,6 +355,8 @@ export function PinnedResult({
         client={client}
         resultVersion={total.resultVersion}
         onReopenLatest={onReopenLatest}
+        running={running}
+        laneRequest={laneRequest}
       />
       <ScopeDetails
         client={client}

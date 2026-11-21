@@ -334,6 +334,7 @@ export function AnalysisPanel({
       setCheckingDrop(false);
       setSelected(update);
       setReviewing(false);
+      setReviewedTargets(undefined);
       setReviewProblem(undefined);
       setRejectedRevision(undefined);
       setError(undefined);
@@ -743,6 +744,11 @@ export function AnalysisPanel({
               primaryPathRef={firstPath}
               review={{
                 reviewing,
+                awaiting:
+                  reviewProblem === undefined &&
+                  !recentOpen &&
+                  !restoredIsCurrent &&
+                  selected.every(Boolean),
                 targets: reviewedTargets,
                 openPrivacySettings: () =>
                   void client

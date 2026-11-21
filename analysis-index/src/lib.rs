@@ -130,6 +130,7 @@ pub struct ResultVersion {
         Option<Vec<Option<du_core_contracts::scan_observation::PlaceholderObservation>>>,
     item_observed_times: Option<Vec<Option<Timestamp>>>,
     issues: Vec<du_core_contracts::scan_failures::ScanIssue>,
+    scan_issue_page_index: std::sync::OnceLock<issues::PageIndex>,
     /// Per-root outcomes for the freshness ledger, computed at seal time outside the store
     /// lock. `None` when the version was not sealed by a store that tracks freshness.
     freshness_outcomes: Option<Box<[freshness_outcomes::RootOutcome]>>,
@@ -414,6 +415,7 @@ impl BuildHandle {
             placeholder_observations: built.placeholder_observations,
             item_observed_times: built.item_observed_times,
             issues: issues::ordered(&self.issues),
+            scan_issue_page_index: std::sync::OnceLock::new(),
             aggregates,
             observation_ranges,
             scope_observation_range,

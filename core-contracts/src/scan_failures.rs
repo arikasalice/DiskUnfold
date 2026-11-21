@@ -1,6 +1,6 @@
 //! Classified collection observations and the local, pinned failure-list contract.
 use crate::{Id, PathBytes, Timestamp};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Failure-list categories in their deterministic publication order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -11,6 +11,29 @@ pub enum ScanFailureKind {
     UnreadRange,
     Uncertain,
     UntraversedLink,
+}
+
+impl ScanFailureKind {
+    /// Whether this issue kind and context are included in the scan lane's failure count.
+    ///
+    /// Failure events at the open and enumerate stages are unread ranges. The
+    /// traverse-stage worker failure uses `scan.unclassified`; admission failures
+    /// use `scan.boundary_unverifiable`. Other traverse unread ranges describe a
+    /// known scope boundary or a revisit and are not failures.
+    pub fn counts_as_lane_failure(self, stage: ScanFailureStage, reason_key: &str) -> bool {
+        match self {
+            Self::CollectionFailed => true,
+            Self::UnreadRange => match stage {
+                ScanFailureStage::OpenDirectory | ScanFailureStage::Enumerate => true,
+                ScanFailureStage::Traverse => matches!(
+                    reason_key,
+                    unentered_reason::BOUNDARY_UNVERIFIABLE | "scan.unclassified"
+                ),
+                ScanFailureStage::Metadata => false,
+            },
+            Self::Uncertain | Self::UntraversedLink => false,
+        }
+    }
 }
 
 /// The collector operation at which an issue was observed.
@@ -88,12 +111,49 @@ pub struct ScanFailuresRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub kind: Option<ScanFailureKind>,
+    /// Restricts rows to these zero-based root indexes. Omission selects all roots.
+    /// The list must contain 1 to 64 strictly ascending indexes, all below the
+    /// pinned result's root count; `null`, empty, duplicate, descending, and
+    /// oversized lists are invalid.
+    #[serde(default, deserialize_with = "deserialize_root_indexes")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub root_indexes: Option<Vec<u32>>,
+    /// Selects exactly issues counted as lane failures: every `collection_failed` row;
+    /// `unread_range` rows at `open_directory` or `enumerate`; and traverse-stage unread
+    /// rows with reason `scan.boundary_unverifiable` or the worker failure reason
+    /// `scan.unclassified`. Omission is false. Known other-volume and revisit ranges,
+    /// `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
+    /// both filters apply.
+    #[serde(default, deserialize_with = "deserialize_failures_only")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub failures_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub cursor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub count: Option<u32>,
+}
+
+fn deserialize_root_indexes<'de, D>(deserializer: D) -> Result<Option<Vec<u32>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let indexes = Vec::<u32>::deserialize(deserializer)?;
+    if indexes.is_empty() || indexes.len() > 64 || indexes.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(serde::de::Error::custom("invalid rootIndexes"));
+    }
+    Ok(Some(indexes))
+}
+
+fn deserialize_failures_only<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    bool::deserialize(deserializer).map(Some)
 }
 
 /// A filtered page and its opaque continuation, if more rows remain.

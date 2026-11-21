@@ -927,7 +927,17 @@ remainder?: VizTotal,
  * says why). Valid only with `remainder`; keys are not empty, sorted and without
  * duplicates, and an unregistered key is preserved. Omitted rather than null.
  */
-remainderReasonKeys?: Array<string>, };
+remainderReasonKeys?: Array<string>,
+/**
+ * The F03 measurement limits of `scope` (#351): the `measurementLimits` that
+ * `space.total` gives the same item in the model's size basis, from the same
+ * function, so the two always agree. A model that does not measure size has none.
+ *
+ * Only the scope total has them: the other totals are sums F06 makes, which do
+ * not inherit F03's limits. Omitted when there is none, never empty or null; keys
+ * are not empty or repeated, keep F03's order, and an unknown key is preserved.
+ */
+scopeMeasurementLimits?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy,
 /**
  * Revision of the type classification table, present when the model's
@@ -1268,7 +1278,23 @@ export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, p
  * Human-readable display text; never reopen or compare a path from it.
  */
 displayPath?: string, };
-export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
+export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind,
+/**
+ * Restricts rows to these zero-based root indexes. Omission selects all roots.
+ * The list must contain 1 to 64 strictly ascending indexes, all below the
+ * pinned result's root count; `null`, empty, duplicate, descending, and
+ * oversized lists are invalid.
+ */
+rootIndexes?: Array<number>,
+/**
+ * Selects exactly issues counted as lane failures: every `collection_failed` row;
+ * `unread_range` rows at `open_directory` or `enumerate`; and traverse-stage unread
+ * rows with reason `scan.boundary_unverifiable` or the worker failure reason
+ * `scan.unclassified`. Omission is false. Known other-volume and revisit ranges,
+ * `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
+ * both filters apply.
+ */
+failuresOnly?: boolean, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
 /**

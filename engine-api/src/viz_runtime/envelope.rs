@@ -277,6 +277,11 @@ pub(super) fn build_model(
             filtered_out,
             remainder: Some(remainder.total),
             remainder_reason_keys: remainder.reason_keys,
+            scope_measurement_limits: crate::space::item_limits(
+                admitted.source.version(),
+                request.aggregate_scope_ref.item_no,
+                &request.size_basis,
+            ),
         },
         shapes,
         relationships: projection.relationships.clone(),

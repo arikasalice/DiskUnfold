@@ -168,6 +168,16 @@ pub(super) fn build(
             filtered_out: filtered_total,
             remainder: Some(remainder.total),
             remainder_reason_keys: remainder.reason_keys,
+            // An item count has no size limits (F06 HLD 2.2.3).
+            scope_measurement_limits: (!counting)
+                .then(|| {
+                    crate::space::item_limits(
+                        admitted.source.version(),
+                        request.aggregate_scope_ref.item_no,
+                        &request.size_basis,
+                    )
+                })
+                .flatten(),
         },
         shapes,
         relationships: vec![],

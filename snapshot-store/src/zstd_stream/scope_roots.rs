@@ -100,12 +100,18 @@ impl PathRuleDescriptor {
 /// Native scope roots and independently ordered metadata from one sealed snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopeRoots {
+    metadata: Value,
     encoding: NameEncoding,
     roots: Vec<Vec<u8>>,
     path_rules: Option<Vec<PathRuleDescriptor>>,
     volume_record: Option<super::ValidatedVolumeRecord>,
 }
 impl ScopeRoots {
+    /// The complete metadata object parsed from the validated sealed snapshot.
+    pub(crate) fn metadata(&self) -> &Value {
+        &self.metadata
+    }
+
     /// The original path encoding.
     pub fn encoding(&self) -> NameEncoding {
         self.encoding
@@ -168,6 +174,7 @@ pub(super) fn parse(metadata: &str, require_volume: bool) -> Result<ScopeRoots, 
         roots.push(bytes);
     }
     Ok(ScopeRoots {
+        metadata: json,
         encoding,
         roots,
         path_rules,
