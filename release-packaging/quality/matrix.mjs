@@ -52,5 +52,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const effective = { ...manifest, targets: selectTargets(manifest, tier) };
   mkdirSync('quality-output', { recursive: true });
   writeFileSync('quality-output/targets.json', JSON.stringify(effective, null, 2) + '\n');
-  console.log(JSON.stringify({ include: effective.targets }));
+  // prCheck only selects targets; leaving it out keeps the native job names unchanged.
+  console.log(JSON.stringify({ include: effective.targets.map(({ prCheck, ...target }) => target) }));
 }

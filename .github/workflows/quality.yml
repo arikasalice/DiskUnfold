@@ -175,6 +175,9 @@ jobs:
           git diff --no-index --no-ext-diff -- gui-web/src/ipc/generated "$generated_dir"
       - if: success() || failure()
         run: cargo deny --locked --all-features check advisories licenses sources bans
+      - name: Debian copyright file matches its generator
+        if: success() || failure()
+        run: cargo test --locked -p du-release-tools --test debian_copyright_repo
       - if: success() || failure()
         run: node --test release-packaging/quality/npm-licenses.test.mjs
       - if: success() || failure()
@@ -244,7 +247,9 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       # The CLI-only launcher (README, AGENTS.md) builds app-host without its gui feature.
       - run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
-      - run: cargo test --locked --workspace --all-features
+      # committed_debian_copyright_matches_the_generator reads the npm license files in
+      # gui-web/node_modules and gives the same result on every OS; the static job runs it once.
+      - run: cargo test --locked --workspace --all-features -- --skip committed_debian_copyright_matches_the_generator
       - name: Windows NTFS volume mount-point observation
         if: runner.os == 'Windows' && matrix.cpu == 'x64'
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
