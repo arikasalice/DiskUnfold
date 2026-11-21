@@ -178,6 +178,36 @@ fn non_editable_days_reviews_leave_the_snapshot_unchanged() -> Result<(), String
 }
 
 #[test]
+fn owner_save_changes_hidden_policy_and_validates_days() -> Result<(), String> {
+    let mut service = service(BTreeMap::new())?;
+    service
+        .save_history_retention_policy(true, Some(u32::MAX), 123)
+        .map_err(|error| format!("{error:?}"))?;
+    let policy = service.history_retention_policy();
+    assert!(policy.enabled);
+    assert_eq!(policy.specified_days, Some(u32::MAX));
+
+    let before = service.snapshot().clone();
+    assert_eq!(
+        service.save_history_retention_policy(true, None, 124),
+        Err(crate::settings::SettingsError::InvalidValue)
+    );
+    assert_eq!(
+        service.save_history_retention_policy(false, Some(0), 124),
+        Err(crate::settings::SettingsError::InvalidValue)
+    );
+    assert_eq!(service.snapshot(), &before);
+
+    service
+        .save_history_retention_policy(false, None, 125)
+        .map_err(|error| format!("{error:?}"))?;
+    let policy = service.history_retention_policy();
+    assert!(!policy.enabled);
+    assert_eq!(policy.specified_days, None);
+    Ok(())
+}
+
+#[test]
 fn invalid_restored_values_and_read_failures_fail_closed() -> Result<(), String> {
     let registry = crate::Registry::new(descriptors()).map_err(|error| format!("{error:?}"))?;
     let corrupt = crate::settings::SettingsService::restore(

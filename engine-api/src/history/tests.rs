@@ -59,6 +59,14 @@ fn make_session(key: u8) -> HistoryList<Fake> {
 }
 
 #[test]
+fn expiry_storage_failure_maps_to_internal_history_unavailable() {
+    let error = map_expiry_read_error(HistoryExpiryReadError::Unavailable);
+    let envelope = error.into_envelope(du_core_contracts::Id::from_v7_bytes([1; 16]));
+    assert_eq!(envelope.code, du_core_contracts::ErrorCode::Internal);
+    assert_eq!(envelope.reason_key, "history.storage_unavailable");
+}
+
+#[test]
 fn authenticated_page_pins_filter_revision_and_preserves_missing_rows() -> Result<(), ListError> {
     let session = make_session(7);
     let filter = Filter {

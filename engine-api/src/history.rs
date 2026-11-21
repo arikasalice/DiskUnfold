@@ -8,8 +8,10 @@ pub use du_core_contracts::history_ipc::HistoryListFilter as Filter;
 use du_core_contracts::{
     PathBytes,
     history_ipc::{HistoryListRequest, HistoryListResponse, HistoryListRevision, HistoryListRow},
+    job::{HistoryExpiryCandidates, HistoryExpiryRead, HistoryExpiryReadError},
     ports::{PortError, Random},
 };
+use du_job_runtime::JobRuntime;
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
@@ -55,6 +57,22 @@ pub struct ReadPage<T> {
 pub enum ReadError {
     VersionChanged,
     Unavailable,
+}
+
+/// Reads expiry candidates using the runtime clock and maps unavailable history
+/// storage to the IF-07 internal error reason.
+pub fn expiry_candidates(
+    runtime: &JobRuntime,
+    reader: &mut dyn HistoryExpiryRead,
+    days: u32,
+) -> Result<HistoryExpiryCandidates, EngineError> {
+    runtime
+        .history_expiry_candidates(reader, days)
+        .map_err(map_expiry_read_error)
+}
+
+fn map_expiry_read_error(_: HistoryExpiryReadError) -> EngineError {
+    EngineError::reason("history.storage_unavailable")
 }
 
 /// A synchronous read port. An implementation must apply the complete filter,
