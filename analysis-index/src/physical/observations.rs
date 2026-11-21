@@ -1,42 +1,24 @@
 //! Compact, immutable per-item physical observations.
 
+#[cfg(test)]
+use super::record::encode;
+use super::record::{
+    CHUNK_BITS, CHUNK_MASK, HAS_ALLOCATION, HAS_IDENTITY, HAS_LINK_COUNT, HAS_OBSERVATION,
+    INLINE_FILE_IDENTITY, INLINE_IDENTITY, PhysicalChunk, SHARING_UNKNOWN,
+};
 use super::{FileIdentity, SharingEvidence, SpaceObservation};
 use crate::BuildError;
-use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+use du_core_contracts::SizeValue;
+#[cfg(test)]
+use du_core_contracts::{SizeAmount, SizeBasis, SizeEvidence};
+#[cfg(test)]
 use std::collections::HashMap;
 use std::sync::Arc;
 
-const HAS_OBSERVATION: u32 = 1 << 0;
-const HAS_ALLOCATION: u32 = 1 << 1;
-const HAS_IDENTITY: u32 = 1 << 2;
-const INLINE_IDENTITY: u32 = 1 << 3;
-const HAS_LINK_COUNT: u32 = 1 << 4;
-const SHARING_UNKNOWN: u32 = 1 << 5;
-const INLINE_FILE_IDENTITY: u32 = 1 << 6;
-const MAX_INTERNED_VOLUMES: usize = 256;
+#[cfg(test)]
+mod tests;
 
-#[derive(Clone, Debug)]
-pub(crate) struct PhysicalRecord {
-    flags: u32,
-    allocated: SizeValue,
-    link_count: u64,
-    identity: [u8; 16],
-}
-
-impl Default for PhysicalRecord {
-    fn default() -> Self {
-        Self {
-            flags: 0,
-            allocated: SizeValue {
-                basis: SizeBasis::Allocated,
-                evidence: SizeEvidence::Unknown,
-                amount: SizeAmount::Unknown,
-            },
-            link_count: 0,
-            identity: [0; 16],
-        }
-    }
-}
+pub(crate) use super::record::PhysicalRecord;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FileIdentityRef<'a> {
@@ -59,7 +41,6 @@ pub(crate) enum PhysicalObservationRef<'a> {
         record: &'a PhysicalRecord,
         arena: &'a [u8],
     },
-    Shared(&'a SpaceObservation),
 }
 
 impl<'a> PhysicalObservationRef<'a> {
@@ -68,21 +49,11 @@ impl<'a> PhysicalObservationRef<'a> {
             Self::Compact { record, .. } => {
                 (record.flags & HAS_ALLOCATION != 0).then_some(&record.allocated)
             }
-            Self::Shared(observation) => observation.allocated.as_ref(),
         }
     }
 
     pub(crate) fn identity(self) -> Option<FileIdentityRef<'a>> {
         match self {
-            Self::Shared(observation) => {
-                observation
-                    .identity
-                    .as_ref()
-                    .map(|identity| FileIdentityRef {
-                        volume: &identity.volume,
-                        file: &identity.file,
-                    })
-            }
             Self::Compact { record, arena } => {
                 if record.flags & HAS_IDENTITY == 0 {
                     return None;
@@ -127,7 +98,6 @@ impl<'a> PhysicalObservationRef<'a> {
             Self::Compact { record, .. } => {
                 (record.flags & HAS_LINK_COUNT != 0).then_some(record.link_count)
             }
-            Self::Shared(observation) => observation.link_count,
         }
     }
 
@@ -140,63 +110,92 @@ impl<'a> PhysicalObservationRef<'a> {
                     SharingEvidence::None
                 }
             }
-            Self::Shared(observation) => observation.sharing,
         }
     }
 
     pub(crate) fn to_owned(self) -> SpaceObservation {
-        match self {
-            Self::Shared(observation) => observation.clone(),
-            Self::Compact { .. } => SpaceObservation {
-                allocated: self.allocated().cloned(),
-                identity: self.identity().map(FileIdentityRef::to_owned),
-                link_count: self.link_count(),
-                sharing: self.sharing(),
-            },
+        SpaceObservation {
+            allocated: self.allocated().cloned(),
+            identity: self.identity().map(FileIdentityRef::to_owned),
+            link_count: self.link_count(),
+            sharing: self.sharing(),
         }
     }
 }
 
 #[derive(Debug)]
 enum Records {
+    NodeChunks {
+        chunks: Vec<Option<Arc<PhysicalChunk>>>,
+        order: Arc<Vec<u32>>,
+    },
+    #[cfg(test)]
     Dense(Vec<PhysicalRecord>),
+    #[cfg(test)]
     Sparse {
         item_numbers: Vec<u32>,
         records: Vec<PhysicalRecord>,
     },
-    Shared(Vec<Option<Arc<SpaceObservation>>>),
 }
 
 #[derive(Debug)]
 pub(crate) struct PhysicalObservations {
     records: Records,
+    #[cfg(test)]
     arena: Vec<u8>,
     present_count: usize,
 }
 
 impl PhysicalObservations {
+    pub(super) fn from_node_chunks(
+        chunks: Vec<Option<Arc<PhysicalChunk>>>,
+        order: Arc<Vec<u32>>,
+        present_count: usize,
+    ) -> Self {
+        Self {
+            records: Records::NodeChunks { chunks, order },
+            #[cfg(test)]
+            arena: Vec::new(),
+            present_count,
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn builder(item_count: usize, present_count: usize) -> PhysicalObservationsBuilder {
         PhysicalObservationsBuilder::new(item_count, present_count)
     }
 
     pub(crate) fn get(&self, item_no: u32) -> Option<PhysicalObservationRef<'_>> {
-        let record = match &self.records {
-            Records::Shared(records) => {
-                return records
-                    .get(item_no as usize)?
-                    .as_deref()
-                    .map(PhysicalObservationRef::Shared);
+        match &self.records {
+            Records::NodeChunks { chunks, order } => {
+                let node = *order.get(item_no as usize)?;
+                let chunk = chunks.get((node >> CHUNK_BITS) as usize)?.as_ref()?;
+                let record = chunk.record((node & CHUNK_MASK) as u16)?;
+                (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef::Compact {
+                    record,
+                    arena: chunk.arena(),
+                })
             }
-            Records::Dense(records) => records.get(item_no as usize)?,
+            #[cfg(test)]
+            Records::Dense(records) => {
+                let record = records.get(item_no as usize)?;
+                (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef::Compact {
+                    record,
+                    arena: &self.arena,
+                })
+            }
+            #[cfg(test)]
             Records::Sparse {
                 item_numbers,
                 records,
-            } => records.get(item_numbers.binary_search(&item_no).ok()?)?,
-        };
-        (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef::Compact {
-            record,
-            arena: &self.arena,
-        })
+            } => {
+                let record = records.get(item_numbers.binary_search(&item_no).ok()?)?;
+                (record.flags & HAS_OBSERVATION != 0).then_some(PhysicalObservationRef::Compact {
+                    record,
+                    arena: &self.arena,
+                })
+            }
+        }
     }
 
     pub(crate) fn present_count(&self) -> usize {
@@ -205,15 +204,20 @@ impl PhysicalObservations {
 
     #[cfg(test)]
     pub(crate) fn is_compact(&self) -> bool {
-        !matches!(&self.records, Records::Shared(_))
+        matches!(&self.records, Records::NodeChunks { .. })
     }
 
-    pub(crate) fn shared(records: Vec<Option<Arc<SpaceObservation>>>) -> Self {
-        let present_count = records.iter().flatten().count();
-        Self {
-            records: Records::Shared(records),
-            arena: Vec::new(),
-            present_count,
+    #[cfg(test)]
+    pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
+        match (&self.records, &other.records) {
+            (
+                Records::NodeChunks { chunks: left, .. },
+                Records::NodeChunks { chunks: right, .. },
+            ) => left.iter().zip(right).any(|(a, b)| match (a, b) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }),
+            _ => false,
         }
     }
 }
@@ -233,6 +237,66 @@ pub(crate) fn compact_test_observations(
     Some(builder.finish())
 }
 
+/// Stores compressed file evidence in node order while a result is being built.
+#[derive(Debug, Default)]
+pub(crate) struct PhysicalObservationStore {
+    chunks: Vec<Option<Arc<PhysicalChunk>>>,
+    present_count: usize,
+}
+
+impl PhysicalObservationStore {
+    pub(crate) fn record(
+        &mut self,
+        node: u32,
+        observation: &SpaceObservation,
+    ) -> Result<(), BuildError> {
+        let chunk_index = (node >> CHUNK_BITS) as usize;
+        self.chunks.resize_with(chunk_index + 1, || None);
+        let chunk =
+            self.chunks[chunk_index].get_or_insert_with(|| Arc::new(PhysicalChunk::default()));
+        Arc::make_mut(chunk).push((node & CHUNK_MASK) as u16, observation)?;
+        self.present_count = self
+            .present_count
+            .checked_add(1)
+            .ok_or(BuildError::CapacityExceeded)?;
+        Ok(())
+    }
+
+    pub(crate) fn get(&self, node: u32) -> Option<PhysicalObservationRef<'_>> {
+        let chunk = self.chunks.get((node >> CHUNK_BITS) as usize)?.as_ref()?;
+        let record = chunk.record((node & CHUNK_MASK) as u16)?;
+        Some(PhysicalObservationRef::Compact {
+            record,
+            arena: chunk.arena(),
+        })
+    }
+
+    pub(crate) fn snapshot(&self, order: Arc<Vec<u32>>) -> Option<PhysicalObservations> {
+        (self.present_count > 0).then(|| {
+            PhysicalObservations::from_node_chunks(self.chunks.clone(), order, self.present_count)
+        })
+    }
+
+    pub(crate) fn finish(&mut self, order: Arc<Vec<u32>>) -> Option<PhysicalObservations> {
+        if self.present_count == 0 {
+            return None;
+        }
+        let mut chunks = std::mem::take(&mut self.chunks);
+        let present_count = std::mem::take(&mut self.present_count);
+        for chunk in chunks.iter_mut().flatten() {
+            if let Some(chunk) = Arc::get_mut(chunk) {
+                chunk.clear_builder_index();
+            }
+        }
+        Some(PhysicalObservations::from_node_chunks(
+            chunks,
+            order,
+            present_count,
+        ))
+    }
+}
+
+#[cfg(test)]
 pub(crate) struct PhysicalObservationsBuilder {
     records: Records,
     arena: Vec<u8>,
@@ -240,6 +304,7 @@ pub(crate) struct PhysicalObservationsBuilder {
     present_count: usize,
 }
 
+#[cfg(test)]
 impl PhysicalObservationsBuilder {
     fn new(item_count: usize, present_count: usize) -> Self {
         let dense_threshold = item_count.saturating_mul(10).div_ceil(11);
@@ -279,7 +344,7 @@ impl PhysicalObservationsBuilder {
                     records.push(record);
                 }
             }
-            Records::Shared(_) => return Err(BuildError::InvalidTree),
+            Records::NodeChunks { .. } => return Err(BuildError::InvalidTree),
         }
         Ok(())
     }
@@ -290,193 +355,5 @@ impl PhysicalObservationsBuilder {
             arena: self.arena,
             present_count: self.present_count,
         }
-    }
-}
-
-fn encode(
-    observation: &SpaceObservation,
-    arena: &mut Vec<u8>,
-    volumes: &mut HashMap<Vec<u8>, (u32, u32)>,
-) -> Result<PhysicalRecord, BuildError> {
-    let mut record = PhysicalRecord {
-        flags: HAS_OBSERVATION,
-        ..PhysicalRecord::default()
-    };
-    if let Some(value) = &observation.allocated {
-        record.flags |= HAS_ALLOCATION;
-        record.allocated = value.clone();
-    }
-    if let Some(identity) = &observation.identity {
-        record.flags |= HAS_IDENTITY;
-        if identity.volume.len() == 8 && identity.file.len() == 8 {
-            record.flags |= INLINE_IDENTITY;
-            record.identity[..8].copy_from_slice(&identity.volume);
-            record.identity[8..].copy_from_slice(&identity.file);
-        } else if identity.file.len() == 8 {
-            if let Some((offset, length)) = intern_volume(&identity.volume, arena, volumes) {
-                record.flags |= INLINE_FILE_IDENTITY;
-                record.identity[..8].copy_from_slice(&identity.file);
-                record.identity[8..12].copy_from_slice(&offset.to_le_bytes());
-                record.identity[12..].copy_from_slice(&length.to_le_bytes());
-            } else {
-                encode_arena_identity(&mut record, identity, arena)?;
-            }
-        } else {
-            encode_arena_identity(&mut record, identity, arena)?;
-        }
-    }
-    if let Some(link_count) = observation.link_count {
-        record.flags |= HAS_LINK_COUNT;
-        record.link_count = link_count;
-    }
-    if observation.sharing == SharingEvidence::Unknown {
-        record.flags |= SHARING_UNKNOWN;
-    }
-    Ok(record)
-}
-
-fn intern_volume(
-    volume: &[u8],
-    arena: &mut Vec<u8>,
-    volumes: &mut HashMap<Vec<u8>, (u32, u32)>,
-) -> Option<(u32, u32)> {
-    if let Some(location) = volumes.get(volume) {
-        return Some(*location);
-    }
-    if volumes.len() >= MAX_INTERNED_VOLUMES {
-        return None;
-    }
-    let offset = u32::try_from(arena.len()).ok()?;
-    let length = u32::try_from(volume.len()).ok()?;
-    let end = usize::try_from(offset).ok()?.checked_add(volume.len())?;
-    if end > u32::MAX as usize {
-        return None;
-    }
-    arena.extend_from_slice(volume);
-    volumes.insert(volume.to_vec(), (offset, length));
-    Some((offset, length))
-}
-
-fn encode_arena_identity(
-    record: &mut PhysicalRecord,
-    identity: &FileIdentity,
-    arena: &mut Vec<u8>,
-) -> Result<(), BuildError> {
-    let offset = u64::try_from(arena.len()).map_err(|_| BuildError::CapacityExceeded)?;
-    let volume_len =
-        u64::try_from(identity.volume.len()).map_err(|_| BuildError::CapacityExceeded)?;
-    let file_len = u64::try_from(identity.file.len()).map_err(|_| BuildError::CapacityExceeded)?;
-    record.identity[..8].copy_from_slice(&offset.to_le_bytes());
-    arena.extend_from_slice(&volume_len.to_le_bytes());
-    arena.extend_from_slice(&file_len.to_le_bytes());
-    arena.extend_from_slice(&identity.volume);
-    arena.extend_from_slice(&identity.file);
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn observation(identity: FileIdentity, sharing: SharingEvidence) -> SpaceObservation {
-        SpaceObservation {
-            allocated: Some(SizeValue {
-                basis: SizeBasis::Allocated,
-                evidence: SizeEvidence::OsReported,
-                amount: SizeAmount::Exact {
-                    bytes: 17_u64.into(),
-                },
-            }),
-            identity: Some(identity),
-            link_count: Some(2),
-            sharing,
-        }
-    }
-
-    #[test]
-    fn compact_column_round_trips_inline_and_arena_identities() -> Result<(), String> {
-        let inline = observation(
-            FileIdentity {
-                volume: (0..8).collect(),
-                file: (8..16).collect(),
-            },
-            SharingEvidence::Unknown,
-        );
-        let arena = observation(
-            FileIdentity {
-                volume: vec![1, 2, 3],
-                file: vec![4; 12],
-            },
-            SharingEvidence::None,
-        );
-        let empty_identity = observation(
-            FileIdentity {
-                volume: Vec::new(),
-                file: Vec::new(),
-            },
-            SharingEvidence::Unknown,
-        );
-        let values = vec![
-            None,
-            Some(Arc::new(inline.clone())),
-            None,
-            Some(Arc::new(arena.clone())),
-            Some(Arc::new(empty_identity.clone())),
-        ];
-        let compact = compact_test_observations(Some(&values))
-            .ok_or_else(|| "failed to compact sparse observations".to_owned())?;
-        assert!(matches!(&compact.records, Records::Sparse { .. }));
-        for (item_no, expected) in values.iter().enumerate() {
-            assert_eq!(
-                compact
-                    .get(u32::try_from(item_no).map_err(|error| format!("{error}"))?)
-                    .map(PhysicalObservationRef::to_owned),
-                expected.as_deref().cloned()
-            );
-        }
-
-        let mut builder = PhysicalObservations::builder(2, 2);
-        for item_no in 0..2 {
-            builder
-                .push(item_no, Some(&inline))
-                .map_err(|error| format!("{error:?}"))?;
-        }
-        let dense = builder.finish();
-        assert!(matches!(&dense.records, Records::Dense(_)));
-        assert_eq!(
-            dense.get(1).map(PhysicalObservationRef::to_owned),
-            Some(inline)
-        );
-
-        let volume = b"volume-identifier";
-        let mut builder = PhysicalObservations::builder(2, 2);
-        for file_number in 0..2_u64 {
-            let shared_volume = observation(
-                FileIdentity {
-                    volume: volume.to_vec(),
-                    file: file_number.to_le_bytes().to_vec(),
-                },
-                SharingEvidence::None,
-            );
-            builder
-                .push(file_number as u32, Some(&shared_volume))
-                .map_err(|error| format!("{error:?}"))?;
-        }
-        let interned = builder.finish();
-        assert_eq!(interned.arena, volume);
-        assert_eq!(
-            interned
-                .get(0)
-                .map(PhysicalObservationRef::to_owned)
-                .and_then(|value| value.identity),
-            Some(FileIdentity {
-                volume: volume.to_vec(),
-                file: 0_u64.to_le_bytes().to_vec(),
-            })
-        );
-        assert!(
-            matches!(&interned.records, Records::Dense(records) if records.iter().all(|r| r.flags & INLINE_FILE_IDENTITY != 0))
-        );
-        Ok(())
     }
 }

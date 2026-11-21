@@ -316,7 +316,7 @@ impl BuildHandle {
             return Err(BuildError::Unavailable);
         }
         let built = match tree::build_items(
-            &self.observations,
+            &mut self.observations,
             self.roots.len().max(1),
             self.roots.len() > 1,
             finish,

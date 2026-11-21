@@ -82,9 +82,13 @@ impl BuildHandle {
         if self.finished {
             return Err(BuildError::InvalidTree);
         }
+        let node = self
+            .observations
+            .find(root, path)
+            .ok_or(BuildError::InvalidTree)?;
         let observation = self
             .observations
-            .get_mut(root, path)
+            .observation(node)
             .ok_or(BuildError::InvalidTree)?;
         if observation.kind != ResultItemKind::File {
             return Err(BuildError::InvalidTree);
@@ -93,16 +97,20 @@ impl BuildHandle {
             .roots
             .get(root as usize)
             .map(|root| root.volume_id.as_slice());
-        let identity = observation
-            .physical
-            .as_deref()
-            .and_then(|physical| physical.identity.as_ref());
-        if let (Some(volume), Some(identity)) = (root_volume, identity)
-            && !volume.is_empty()
-            && !identity.file.is_empty()
-            && identity.volume == volume
-        {
-            observation.enumerated_inode = Some(inode);
+        let matching_volume = self
+            .observations
+            .physical_observation(node)
+            .and_then(|physical| physical.identity())
+            .is_some_and(|identity| {
+                !identity.volume.is_empty()
+                    && !identity.file.is_empty()
+                    && root_volume.is_some_and(|volume| identity.volume == volume)
+            });
+        if matching_volume {
+            self.observations
+                .get_mut(root, path)
+                .ok_or(BuildError::InvalidTree)?
+                .enumerated_inode = Some(inode);
         }
         Ok(())
     }
@@ -138,7 +146,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::UnknownStructure,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -198,7 +205,6 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -220,7 +226,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::Directory,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -242,7 +247,6 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -259,19 +263,19 @@ impl BuildHandle {
         observation: Observation,
         space: SpaceObservation,
     ) -> Result<(), BuildError> {
-        self.insert_at(
+        self.insert_at_with_physical(
             root_index,
             observation.path,
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: Some(std::sync::Arc::new(space)),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
                 placeholder_observation: None,
                 observed_at: None,
             },
+            Some(space),
         )
     }
 
@@ -290,7 +294,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::UntraversedLink,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -311,19 +314,19 @@ impl BuildHandle {
         observation: Observation,
         space: Option<SpaceObservation>,
     ) -> Result<(), BuildError> {
-        self.insert_at(
+        self.insert_at_with_physical(
             root_index,
             observation.path,
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::UntraversedLink,
-                physical: space.map(std::sync::Arc::new),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
                 placeholder_observation: None,
                 observed_at: None,
             },
+            space,
         )
     }
 
@@ -342,7 +345,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::File,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,

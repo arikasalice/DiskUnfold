@@ -3,7 +3,6 @@ use crate::{
     BuildError, BuildHandle, Observation, SpaceObservation, observation::StoredObservation,
 };
 use du_core_contracts::result::ResultItemKind;
-use std::sync::Arc;
 
 impl BuildHandle {
     /// Adds a confirmed directory with no independent logical-size contribution.
@@ -13,7 +12,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::Directory,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -29,7 +27,6 @@ impl BuildHandle {
             StoredObservation {
                 size: None,
                 kind: ResultItemKind::UntraversedLink,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -47,18 +44,19 @@ impl BuildHandle {
         observation: Observation,
         space: SpaceObservation,
     ) -> Result<(), BuildError> {
-        self.insert(
+        self.insert_at_with_physical(
+            0,
             observation.path,
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: Some(Arc::new(space)),
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
                 placeholder_observation: None,
                 observed_at: None,
             },
+            Some(space),
         )
     }
     /// Adds a confirmed file even if its logical size could not be read.
@@ -68,7 +66,6 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind: ResultItemKind::File,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -88,7 +85,6 @@ impl BuildHandle {
             StoredObservation {
                 size: observation.size,
                 kind,
-                physical: None,
                 modified_at: None,
                 native_modified_at: None,
                 enumerated_inode: None,
@@ -124,5 +120,27 @@ impl BuildHandle {
             self.abort();
         }
         inserted.map_err(Into::into)
+    }
+
+    pub(crate) fn insert_at_with_physical(
+        &mut self,
+        root_index: u32,
+        path: Vec<Vec<u8>>,
+        observation: StoredObservation,
+        physical: Option<SpaceObservation>,
+    ) -> Result<(), BuildError> {
+        self.insert_at(root_index, path, observation)?;
+        let Some(physical) = physical else {
+            return Ok(());
+        };
+        let Some(node) = self.observations.last_node() else {
+            self.abort();
+            return Err(BuildError::InvalidTree);
+        };
+        if let Err(error) = self.observations.record_physical(node, physical) {
+            self.abort();
+            return Err(error);
+        }
+        Ok(())
     }
 }

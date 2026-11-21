@@ -4,11 +4,12 @@ use std::collections::BTreeMap;
 mod finish;
 mod observations;
 mod observed;
+mod record;
 mod subtree;
 
 use finish::amount;
 pub(crate) use observations::{
-    FileIdentityRef, PhysicalObservationRef, PhysicalObservations, PhysicalObservationsBuilder,
+    FileIdentityRef, PhysicalObservationRef, PhysicalObservationStore, PhysicalObservations,
 };
 use observed::Observed;
 pub(crate) use subtree::apply;

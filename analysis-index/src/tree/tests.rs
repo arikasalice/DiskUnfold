@@ -105,15 +105,49 @@ fn partial_versions_share_file_evidence_and_seal_compactly() -> Result<(), Strin
         .ok_or("second version lost the file evidence")?;
     assert_eq!(a.to_owned(), space);
     assert_eq!(b.to_owned(), space);
-    assert!(matches!(
-        (a, b),
-        (
-            crate::physical::PhysicalObservationRef::Shared(a),
-            crate::physical::PhysicalObservationRef::Shared(b)
-        ) if std::ptr::eq(a, b)
-    ));
+    assert!(
+        first
+            .physical
+            .as_ref()
+            .zip(second.physical.as_ref())
+            .is_some_and(|(a, b)| a.shares_storage_with(b))
+    );
+    let next_space = SpaceObservation {
+        allocated: None,
+        identity: Some(FileIdentity {
+            volume: vec![2],
+            file: vec![8],
+        }),
+        link_count: Some(1),
+        sharing: SharingEvidence::Unknown,
+    };
+    build
+        .add_with_space(
+            Observation {
+                path: vec![b"file-next".to_vec()],
+                size: None,
+            },
+            next_space.clone(),
+        )
+        .map_err(failed)?;
+    let third = build.publish_partial(id(5)?).map_err(failed)?;
+    assert!(
+        first
+            .physical
+            .as_ref()
+            .and_then(|values| values.get(2))
+            .is_none()
+    );
+    assert_eq!(
+        third
+            .physical
+            .as_ref()
+            .and_then(|values| values.get(2))
+            .map(crate::physical::PhysicalObservationRef::to_owned),
+        Some(next_space)
+    );
     let sealed = build
-        .seal(id(4)?, ResultCompleteness::Complete)
+        .seal(id(6)?, ResultCompleteness::Complete)
         .map_err(failed)?;
     assert!(
         sealed
