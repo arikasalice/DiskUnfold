@@ -168,3 +168,11 @@ export function useTimestampText() {
   return (value: number, fallback: () => string) =>
     timestampString(parts(value, fallback));
 }
+
+/** The day of a timestamp in the app's pattern, without the time of day. */
+export function displayDay(value: number, format: RegionalFormat) {
+  const clock = format.datePattern.search(/'T'|HH/);
+  const datePattern =
+    clock > 0 ? format.datePattern.slice(0, clock).trim() : format.datePattern;
+  return displayTimestamp(value, { ...format, datePattern })?.date;
+}

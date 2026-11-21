@@ -8,6 +8,11 @@ import {
   Text,
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
+import {
+  displayDay,
+  useRegionalFormat,
+  useTimestampText,
+} from "../../i18n/regional-format";
 import type { BrowseOpenResponse, ItemRef } from "../../ipc";
 import { folderPath, rowKey } from "./browse-display";
 import type { InspectedItem } from "./use-item-inspection";
@@ -132,14 +137,25 @@ export function ObservationSummary({
   rootLabel: string | undefined;
 }) {
   const text = useLocaleText();
+  const regional = useRegionalFormat();
+  const timestamp = useTimestampText();
   const page = opened.page;
+  // The observation time reads in the app's date and time format; a value that
+  // cannot be parsed stays as the engine wrote it.
+  const observed = page.observedAt;
+  const observedMillis = observed === null ? Number.NaN : Date.parse(observed);
+  const observedDay =
+    observed === null
+      ? undefined
+      : ((regional && displayDay(observedMillis, regional)) ??
+        observed.slice(0, 10));
+  const observedFull =
+    observed === null ? undefined : timestamp(observedMillis, () => observed);
   return (
     <div className="du-browse-observation">
       <Text kind="muted">
         {originText(opened.origin, text)} ·{" "}
-        {page.observedAt?.slice(0, 10) ??
-          text("ui.browse.unavailable", "Unavailable")}{" "}
-        ·{" "}
+        {observedDay ?? text("ui.browse.unavailable", "Unavailable")} ·{" "}
         {page.total.state === "lower_bound"
           ? text("ui.browse.item_count_at_least", "At least {count} items", {
               count: String(page.total.count),
@@ -191,8 +207,7 @@ export function ObservationSummary({
               {
                 label: text("ui.browse.observed", "Observed"),
                 value:
-                  page.observedAt ??
-                  text("ui.browse.unavailable", "Unavailable"),
+                  observedFull ?? text("ui.browse.unavailable", "Unavailable"),
               },
               {
                 label: text("ui.browse.result", "Result"),

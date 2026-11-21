@@ -1,12 +1,20 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { displayMeasurement } from "../src/features/analysis/space-format";
 import { BrowsePanel } from "../src/features/browse/BrowsePanel";
 import type { BrowsePort } from "../src/features/browse/BrowsePanel";
 import { LocaleTextContext, interpolate } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
+import { RegionalFormatContext } from "../src/i18n/regional-format";
+import type { RegionalFormat } from "../src/i18n/regional-format";
 import type { BrowseOpenResponse, FolderQueryRow } from "../src/ipc";
 
 /*
@@ -68,7 +76,11 @@ function opened(origin: string, row: FolderQueryRow): BrowseOpenResponse {
   };
 }
 
-async function browse(origin: string, row: FolderQueryRow = folder) {
+async function browse(
+  origin: string,
+  row: FolderQueryRow = folder,
+  regional?: RegionalFormat,
+) {
   const port: BrowsePort = {
     open: vi.fn((request) =>
       Promise.resolve({
@@ -80,7 +92,9 @@ async function browse(origin: string, row: FolderQueryRow = folder) {
   };
   render(
     <LocaleTextContext.Provider value={korean}>
-      <BrowsePanel port={port} resultVersion={version} />
+      <RegionalFormatContext.Provider value={regional}>
+        <BrowsePanel port={port} resultVersion={version} />
+      </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>,
   );
   await screen.findByText("Photos");
@@ -91,6 +105,25 @@ test("the browse header names the scan origin and a lower-bound count in Korean"
   expect(
     screen.getByText("현재 분석 · 2026-11-14 · 항목 최소 1개"),
   ).toBeDefined();
+});
+
+test("F02 #353: the observation time follows the app date and time format", async () => {
+  await browse("scan", folder, {
+    language: "ko",
+    decimalSeparator: ".",
+    groupingSeparator: ",",
+    groupingSize: 3,
+    datePattern: "yyyy.MM.dd HH:mm:ss",
+    dateFormat: "lang_default",
+    groupNumbers: true,
+    timeZonePolicy: "utc",
+    localTimeZoneStatus: "identified",
+  });
+  expect(screen.getByText(/^현재 분석 · 2026\.11\.14 · /)).toBeDefined();
+  fireEvent.click(screen.getByText("관측 상세 정보"));
+  const details = screen.getByText("관측 시각").nextElementSibling;
+  expect(details?.textContent).toBe("2026.11.14 10:00:00 UTC");
+  expect(document.body.textContent).not.toContain("2026-11-14T10:00:00Z");
 });
 
 test("an origin without copy reads as unknown and is not shown", async () => {
