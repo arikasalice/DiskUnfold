@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[test]]
+name = "serializer"
+path = "tests/serializer/main.rs"
+
 [dependencies]
 blake3 = "=1.8.3"
 du-analysis-index = { version = "0.0.1", path = "../analysis-index" }
