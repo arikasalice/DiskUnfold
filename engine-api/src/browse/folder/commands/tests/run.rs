@@ -138,12 +138,10 @@ fn refusals_use_the_published_reason_keys() -> Result<(), Box<dyn std::error::Er
         "ref.unavailable"
     );
     let missing = json!({"condition": {"kind":"predicate","predicate":{"kind":"registered",
-        "id":"pred.missing","revision":1,"operand":{"encoding":"bytes","value":""}}}});
-    let missing_reason = run(1, missing, Channel::Gui);
-    assert!(
-        missing_reason == "predicate.unknown" || missing_reason == "command.body_invalid",
-        "{missing_reason}"
-    );
+        "id":"pred.missing","revision":1,"operand":"YQ"}}});
+    assert_eq!(run(1, missing, Channel::Gui), "predicate.unknown");
+    let unknown_sort = json!({"sortKeys": [{"id":"sort.missing","revision":1,"descending":false}]});
+    assert_eq!(run(1, unknown_sort, Channel::Gui), "sort.key_unknown");
     assert_eq!(
         run(1, json!({"resultVersion": Ids.next_id()}), Channel::Gui),
         "result.requery_required"
