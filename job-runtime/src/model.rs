@@ -1,8 +1,8 @@
 use du_core_contracts::{
     Id,
     job::{
-        DeviceSeat, DiskSeat, HistoryChanged, JobBody, JobDescriptor, JobFlowError, JobProgress,
-        JobState, JobSummary, LaneStatusReport,
+        DeviceSeat, DiskSeat, HistoryChanged, JobBody, JobDescriptor, JobFlowError, JobHistory,
+        JobProgress, JobState, JobSummary, LaneStatusReport,
     },
     result_events::ResultVersionNotice,
     result_freshness::ResultFreshnessNotice,
@@ -225,6 +225,7 @@ pub(crate) struct Entry {
     pub(crate) paused_flows: usize,
     pub(crate) flows_aborted: bool,
     pub(crate) started_at_ms: Option<i64>,
+    pub(crate) history_started: bool,
     pub(crate) summary: Option<JobSummary>,
     pub(crate) terminal: Option<TerminalOutcome>,
     pub(crate) order: u64,
@@ -328,6 +329,7 @@ pub struct JobRuntime {
     pub(crate) identity: Arc<dyn JobIdentity>,
     pub(crate) clock: Arc<dyn JobClock>,
     pub(crate) events: Arc<dyn JobEvents>,
+    pub(crate) history: Arc<dyn JobHistory>,
     pub(crate) queue_limit: usize,
     pub(crate) consumer: Mutex<Option<JoinHandle<()>>>,
     pub(crate) outstanding: Arc<AtomicUsize>,

@@ -15,6 +15,10 @@ pub use history_prune::{
 };
 mod session_undo_info;
 pub use session_undo_info::{SessionUndoInfo, UndoInfoUnavailable};
+mod item_history;
+pub use item_history::{
+    DisplacedItem, ItemHistoryError, ItemHistoryRecord, ItemHistoryStart, ObservedSize,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -224,6 +228,25 @@ pub trait HistoryRecovery {
 pub trait JobHistory: Send + Sync {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String>;
 
+    /// Records a per-item job's start before its body runs.
+    ///
+    /// A successful return confirms that the start record was committed.
+    fn append_item_start(&self, _start: &ItemHistoryStart) -> Result<(), ItemHistoryError> {
+        Err(ItemHistoryError::Unavailable)
+    }
+
+    /// Appends one confirmed item result in its own transaction.
+    ///
+    /// A successful return confirms that the item row was committed. A storage
+    /// error makes the job unable to continue its item sequence.
+    fn append_item_result(
+        &self,
+        _job_id: &Id,
+        _item: &ItemHistoryRecord,
+    ) -> Result<(), ItemHistoryError> {
+        Err(ItemHistoryError::Unavailable)
+    }
+
     /// Append and return a transaction receipt when supported by the adapter.
     /// Legacy adapters report their result without inventing a revision.
     fn append_with_receipt(&self, summary: &JobSummary) -> Result<HistoryAppendOutcome, String> {
@@ -318,6 +341,15 @@ pub trait JobFlow: Send {
 }
 pub trait JobContext: Send + Sync {
     fn checkpoint(&self) -> Checkpoint;
+    /// Appends one confirmed item result for a per-item job.
+    ///
+    /// Call only after the item's result is confirmed. Item sequences start at
+    /// zero and increase by one. A successful return means the row is committed;
+    /// a storage error makes further item processing impossible. Summary and
+    /// history-free jobs do not expose item recording and return `Unavailable`.
+    fn record_item(&self, _item: ItemHistoryRecord) -> Result<(), ItemHistoryError> {
+        Err(ItemHistoryError::Unavailable)
+    }
     /// Wakes parked metadata flows after a body failure and closes admission to new flows.
     /// The body still reports its failure outcome. This does not request user cancellation
     /// or interrupt metadata calls already in progress.
