@@ -34,6 +34,7 @@ export function DriveChoice({
   deferred,
   checkingCapacity,
   showSummary,
+  startupDiskLabel,
   text,
   regional,
 }: {
@@ -43,6 +44,7 @@ export function DriveChoice({
   deferred: boolean;
   checkingCapacity: boolean;
   showSummary: boolean;
+  startupDiskLabel: string;
   text: ReturnType<typeof useLocaleText>;
   regional: ReturnType<typeof useRegionalFormat>;
 }) {
@@ -52,11 +54,24 @@ export function DriveChoice({
     text,
     regional,
   );
+  const isStartupDisk = target.isStartupVolume === true;
+  const label = isStartupDisk
+    ? (target.volumeName ?? startupDiskLabel)
+    : (target.volumeName ?? target.path.display);
   const common = {
     value: target.path.raw,
-    label: target.path.display,
+    label,
+    ...(isStartupDisk
+      ? {
+          accessibleName: `${label}, ${target.path.display}`,
+          title: `${label} · ${target.path.display}${
+            label === startupDiskLabel ? "" : ` · ${startupDiskLabel}`
+          }`,
+        }
+      : {}),
     icon: "drive" as const,
     description: [
+      ...(isStartupDisk ? [startupDiskLabel] : []),
       kindLabel(target.kind, text),
       capacity.evidence,
       ...(deferred

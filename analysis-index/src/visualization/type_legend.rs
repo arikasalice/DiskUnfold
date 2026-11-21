@@ -182,7 +182,10 @@ pub fn result_totals(
 }
 
 /// Counts the files at and below `start`, walking folders without counting them.
-fn walk(
+///
+/// The items are counted together, so on the allocated basis a file reached twice adds
+/// its allocation once. A file in `start` counts as itself.
+pub(crate) fn walk(
     version: &ResultVersion,
     mut work: Vec<u32>,
     basis: &SizeBasis,

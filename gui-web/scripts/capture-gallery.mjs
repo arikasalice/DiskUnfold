@@ -13,6 +13,7 @@
 // - scan-lanes scenes: the F02 #317 collection-condition states and the
 //   accepted resource change while the current folder is still being read,
 //   plus the F02 #257 lane failure link and issue filters.
+// - summary scene: F03 #386 allocated shared-space measurement limitation.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
@@ -21,6 +22,8 @@
 //   npm run capture:date-picker-gallery -- [output folder]
 //   node scripts/capture-gallery.mjs target-picker <output folder> [scene]
 //     scene: default | checking | hidden-all   (F02 #350)
+//   node scripts/capture-gallery.mjs summary <output folder> [scene]
+//     scene: shared-limit   (F03 #386)
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error |
@@ -69,12 +72,17 @@ const surfaces = {
   },
   // F02 #350: the location picker with a network volume and 9 hidden volumes.
   "target-picker": { ready: ".du-drive-picker", count: 1, pointer: false },
+  summary: { ready: ".du-metric__detail", count: 1, pointer: false },
+  // F06 README 54 (#298): folders divided by type, as bars and as a treemap.
+  // Every scene draws the three folders' slices.
+  "type-slices": { ready: ".du-slice-stack", count: 3, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
 const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const summaryScenes = ["shared-limit"];
 const scanLaneScenes = [
   "scope-collapsed",
   "scope-expanded",
@@ -90,6 +98,8 @@ const scanLaneScenes = [
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
 const targetPickerScenes = ["default", "checking", "hidden-all"];
+const requestedSummaryScene =
+  surface === "summary" ? process.argv[4] : undefined;
 const requestedScanLaneScene =
   surface === "scan-lanes" ? process.argv[4] : undefined;
 const selectedBrowseScene =
@@ -100,18 +110,22 @@ if (selectedBrowseScene && !browseScenes.includes(selectedBrowseScene))
   throw new Error("Unknown browse scene: " + selectedBrowseScene);
 if (requestedScanLaneScene && !scanLaneScenes.includes(requestedScanLaneScene))
   throw new Error("Unknown scan-lanes scene: " + requestedScanLaneScene);
+if (requestedSummaryScene && !summaryScenes.includes(requestedSummaryScene))
+  throw new Error("Unknown summary scene: " + requestedSummaryScene);
 const captureScenes =
-  surface === "browse"
-    ? selectedBrowseScene
-      ? [selectedBrowseScene]
-      : browseScenes
-    : surface === "scan-lanes" && requestedScanLaneScene
-      ? [requestedScanLaneScene]
-      : surface === "target-picker"
-        ? process.argv[4]
-          ? [process.argv[4]]
-          : targetPickerScenes
-        : [undefined];
+  surface === "summary"
+    ? [requestedSummaryScene ?? "shared-limit"]
+    : surface === "browse"
+      ? selectedBrowseScene
+        ? [selectedBrowseScene]
+        : browseScenes
+      : surface === "scan-lanes" && requestedScanLaneScene
+        ? [requestedScanLaneScene]
+        : surface === "target-picker"
+          ? process.argv[4]
+            ? [process.argv[4]]
+            : targetPickerScenes
+          : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -364,75 +378,139 @@ const defaultGalleryShots =
                         scene: "partial",
                       },
                     ]
-                  : surface === "job-center"
+                  : surface === "type-slices"
                     ? [
                         {
-                          name: "01-light-1280",
+                          name: "01-bars-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "main",
+                          scene: "bar",
                         },
                         {
-                          name: "01-dark-1280",
-                          theme: "dark",
-                          width: 1280,
-                          scene: "main",
-                        },
-                        {
-                          name: "01-light-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "main",
-                        },
-                        {
-                          name: "02-request-pending-no-effect",
+                          name: "02-bars-video-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "request-pending",
+                          scene: "bar",
+                          legend: "동영상",
                         },
                         {
-                          name: "03-resync",
+                          name: "07-bars-preview-video-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "resync",
+                          scene: "bar",
+                          hover: "동영상",
                         },
                         {
-                          name: "04-empty",
+                          name: "08-bars-preview-video-forced-colors-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "empty",
-                        },
-                        {
-                          name: "05-cancel-confirm",
-                          theme: "light",
-                          width: 1280,
-                          scene: "cancel-confirm",
-                        },
-                        {
-                          name: "06-forced-colors",
-                          theme: "light",
-                          width: 1280,
-                          scene: "forced-colors",
+                          scene: "bar",
+                          hover: "동영상",
                           forcedColors: "active",
                         },
                         {
-                          name: "07-toast-open-panel-700",
-                          theme: "light",
-                          width: 700,
-                          scene: "toast-open-panel",
-                        },
-                        {
-                          name: "07-toast-open-panel-1280",
+                          name: "03-treemap-light-1280",
                           theme: "light",
                           width: 1280,
-                          scene: "toast-open-panel",
+                          scene: "treemap",
+                        },
+                        {
+                          name: "04-table-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          list: true,
+                        },
+                        {
+                          name: "05-bars-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "06-treemap-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "03-treemap-dark-1280",
+                          theme: "dark",
+                          width: 1280,
+                          scene: "treemap",
                         },
                       ]
-                    : [
-                        { name: "light-1280", theme: "light", width: 1280 },
-                        { name: "dark-1280", theme: "dark", width: 1280 },
-                        { name: "light-700", theme: "light", width: 700 },
-                      ];
+                    : surface === "job-center"
+                      ? [
+                          {
+                            name: "01-light-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-dark-1280",
+                            theme: "dark",
+                            width: 1280,
+                            scene: "main",
+                          },
+                          {
+                            name: "01-light-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "main",
+                          },
+                          {
+                            name: "02-request-pending-no-effect",
+                            theme: "light",
+                            width: 1280,
+                            scene: "request-pending",
+                          },
+                          {
+                            name: "03-resync",
+                            theme: "light",
+                            width: 1280,
+                            scene: "resync",
+                          },
+                          {
+                            name: "04-empty",
+                            theme: "light",
+                            width: 1280,
+                            scene: "empty",
+                          },
+                          {
+                            name: "05-cancel-confirm",
+                            theme: "light",
+                            width: 1280,
+                            scene: "cancel-confirm",
+                          },
+                          {
+                            name: "06-forced-colors",
+                            theme: "light",
+                            width: 1280,
+                            scene: "forced-colors",
+                            forcedColors: "active",
+                          },
+                          {
+                            name: "07-toast-open-panel-700",
+                            theme: "light",
+                            width: 700,
+                            scene: "toast-open-panel",
+                          },
+                          {
+                            name: "07-toast-open-panel-1280",
+                            theme: "light",
+                            width: 1280,
+                            scene: "toast-open-panel",
+                          },
+                        ]
+                      : [
+                          { name: "light-1280", theme: "light", width: 1280 },
+                          { name: "dark-1280", theme: "dark", width: 1280 },
+                          { name: "light-700", theme: "light", width: 700 },
+                        ];
 const galleryShots =
   scanFailureShots[requestedScanLaneScene] ?? defaultGalleryShots;
 const shots =
@@ -453,9 +531,11 @@ const shots =
           locale: "en",
         },
       ]
-    : surface === "target-picker"
-      ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
-      : galleryShots;
+    : surface === "summary"
+      ? [{ name: "light-1280", theme: "light", width: 1280 }]
+      : surface === "target-picker"
+        ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
+        : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -751,11 +831,33 @@ async function open(
     }
   } else {
     const expected =
-      surface === "browse" && scene === "scan-status" ? 6 : count;
+      surface === "browse" && scene === "scan-status"
+        ? 6
+        : // The bars add the Other group's slices to the three folders'.
+          surface === "type-slices" && scene === "bar"
+          ? 4
+          : count;
     if ((await session.run(drawn, ready, expected)) !== expected)
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
       );
+    if (surface === "summary" && scene === "shared-limit") {
+      const placed = await session.run(() => {
+        const metric = document.querySelector(
+          '[role="group"][aria-label="할당 크기"]',
+        );
+        const detail = metric?.querySelector(".du-metric__detail");
+        const notice = metric?.parentElement?.nextElementSibling;
+        return (
+          detail?.textContent === "불완전 측정 · 파일 시스템이 알려 준 값" &&
+          notice?.classList.contains("du-notice--info") === true
+        );
+      });
+      if (!placed)
+        throw new Error(
+          "The shared-space info notice is not immediately below the allocated measurement detail",
+        );
+    }
   }
 }
 
@@ -1191,7 +1293,48 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "histogram-list" && shot.step) {
+      else if (surface === "type-slices" && shot.hover) {
+        // The pointer rests on a legend row (README 46.1, #383): a real mouse move.
+        const box = await session.run(function legendRowBox(name) {
+          const row = Array.from(
+            document.querySelectorAll(".du-chart-legend [role='option']"),
+          ).find((option) => option.textContent?.startsWith(name));
+          if (!(row instanceof HTMLElement)) return null;
+          const rect = row.getBoundingClientRect();
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          };
+        }, shot.hover);
+        if (!box) throw new Error("The legend row was not found");
+        await session.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: box.x,
+          y: box.y,
+        });
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "type-slices" && (shot.legend || shot.list)) {
+        const pressed = await session.run(
+          function pressTypeControl(legend, list) {
+            const target = legend
+              ? Array.from(
+                  document.querySelectorAll(".du-chart-legend [role='option']"),
+                ).find((option) => option.textContent?.startsWith(legend))
+              : Array.from(document.querySelectorAll("button")).find((button) =>
+                  button.textContent?.includes(list),
+                );
+            if (!(target instanceof HTMLElement)) return false;
+            target.click();
+            return true;
+          },
+          shot.legend ?? null,
+          shot.list ? "이 폴더의 항목" : null,
+        );
+        if (!pressed) throw new Error("The legend class or list was not found");
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "histogram-list" && shot.step) {
         await histogramListStep(session, shot.step);
         await save(session, shot.name, true);
       } else if (surface === "space-undrawn" && shot.viewInList) {

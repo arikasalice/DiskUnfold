@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Action,
   DataTable,
@@ -22,7 +22,7 @@ import type {
 import { useLocaleText } from "../../i18n/presentation";
 import { useHistoryItems } from "../../state/history-items";
 import { missingLabel, useHistoryTime } from "./history-labels";
-import { HistorySizeDisplay, observedSizeText } from "./history-size";
+import { observedSizeText, useHistorySizeDisplay } from "./history-size";
 import type { SizeDisplay } from "../../i18n/bytes";
 type Filter = HistoryItemOutcome | "all";
 export function HistoryItemSection({
@@ -107,7 +107,7 @@ function ItemPages({
   onRecorded: (recorded: string) => void;
 }) {
   const text = useLocaleText();
-  const display = useContext(HistorySizeDisplay);
+  const display = useHistorySizeDisplay();
   const { page, pending, error, refreshed, more, retry } = useHistoryItems(
     client,
     jobRef,
@@ -330,7 +330,7 @@ function RecordedItemDetails({
   const text = useLocaleText();
   const displaced = result.displaced;
   const notes = itemFlags(result, text);
-  const display = useContext(HistorySizeDisplay);
+  const display = useHistorySizeDisplay();
   const displayTime = useHistoryTime();
   const title = displaced
     ? text("ui.history.displaced_item_details", "Displaced item details")

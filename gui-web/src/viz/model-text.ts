@@ -2,6 +2,7 @@ import type { VisualizationMessageKey } from "./messages";
 import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import { FOLDER_CLASS, coloredByClass, legendLook } from "./legend-style";
+import { folderTypes } from "./type-slices";
 import type {
   SizeValue,
   VizModel,
@@ -187,13 +188,15 @@ export function shapeLabels(
     model.representation.format === "histogram" ? shape.memberCount : undefined;
   const look = classLook(model, shape, place, text);
   const interval = intervalWords(binCount, row, text);
+  const types = closedFolderTypes(model, shape, place, text);
+  const said = [...look.said, ...types.said];
   const accessibleLabel = [
     binCount
       ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
       : row
         ? placed
         : `${name}, ${value}`,
-    ...look.said,
+    ...said,
     ...shape.displayFlags.map(text.key),
     ...interval.said,
   ].join(", ");
@@ -207,13 +210,14 @@ export function shapeLabels(
             denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
           })
         : null,
-    said: [...look.said, ...interval.card],
+    said: [...said, ...interval.card],
     binCount,
   });
   return {
     accessibleLabel,
     card,
     ...look.drawn,
+    ...types.drawn,
     ...(place.childCount ? { container: true } : {}),
     ...shapeMarks(shape),
     // A lower bound is drawn with a dashed right and bottom edge: it may be larger (4.6).
@@ -235,6 +239,38 @@ export function shapeLabels(
             : { displayValue: value }),
         }
       : {}),
+  };
+}
+
+/**
+ * What a folder drawn closed says and draws of its files by type (README 54); one
+ * drawn open shows them as its children.
+ */
+function closedFolderTypes(
+  model: VizModel,
+  shape: VizShape,
+  place: ShapePlace,
+  text: VizText,
+) {
+  const types = place.childCount
+    ? null
+    : folderTypes(
+        shape.typeSlices,
+        shape.size,
+        model.legend.map((entry) => entry.key),
+        {
+          message: text.message,
+          quantity: text.quantity,
+          className: (key) => legendClassName(model, key, text),
+        },
+      );
+  if (!types) return { said: [] as string[], drawn: {} };
+  return {
+    said: types.said,
+    drawn: {
+      slices: types.bar,
+      ...(types.total === undefined ? {} : { slicesTotal: types.total }),
+    },
   };
 }
 

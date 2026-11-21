@@ -15,12 +15,16 @@ import "../theme/line-choice.css";
 export function LineChoice({
   value,
   label,
+  accessibleName,
+  title,
   description,
   status,
   icon,
 }: {
   value: string;
   label: string;
+  accessibleName?: string;
+  title?: string;
   description: string;
   status: {
     text: string;
@@ -34,13 +38,13 @@ export function LineChoice({
   return (
     <Radio
       value={value}
-      aria-label={label}
+      aria-label={accessibleName ?? label}
       aria-describedby={`${descriptionId} ${statusId}`}
       className="du-choice du-line-choice"
     >
       <span className="du-choice__indicator" aria-hidden />
       <Icon name={icon} />
-      <span className="du-line-choice__label du-text--muted">
+      <span className="du-line-choice__label du-text--muted" title={title}>
         <MiddleEllipsisText text={label} cell />
       </span>
       <span className="du-line-choice__description" id={descriptionId}>

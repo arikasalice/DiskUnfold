@@ -190,6 +190,7 @@ fn assemble(
                 item_kind: VizItemKind::from_result(item.kind),
                 condition: None,
                 unread: None,
+                type_slices: None,
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -243,6 +244,7 @@ fn assemble(
                 .get(index)
                 .and_then(|bounds| interval_condition(bounds, &request.size_basis)),
             unread: None,
+            type_slices: None,
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;

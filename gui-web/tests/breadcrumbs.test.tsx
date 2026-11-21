@@ -22,6 +22,29 @@ test("keeps every ancestor accessible with its full name and current location te
   expect(screen.queryByRole("button", { name: entries[12]!.label })).toBeNull();
 });
 
+test("startup disk crumb exposes the real root path and marker in its tooltip and accessible name", () => {
+  render(
+    <Breadcrumbs
+      label="Folder path"
+      entries={[
+        {
+          id: "startup",
+          label: "Macintosh HD",
+          tooltip: "Macintosh HD · / · Startup disk",
+          accessibleLabel: "Macintosh HD, /, Startup disk",
+          onPress: () => undefined,
+        },
+      ]}
+    />,
+  );
+  const button = screen.getByRole("button", {
+    name: "Macintosh HD, /, Startup disk",
+  });
+  expect(button.closest("li")?.getAttribute("title")).toBe(
+    "Macintosh HD · / · Startup disk",
+  );
+});
+
 // #145, F02 README: the value uses the remaining width and a path breaks
 // after a separator first; the end of a label is never cut.
 // jsdom joins the parts around a <wbr> with a space when it computes an

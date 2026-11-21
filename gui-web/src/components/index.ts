@@ -1,5 +1,6 @@
 export {
   Action,
+  ActionWithTooltip,
   Choice,
   ChoiceGroup,
   DateField,
@@ -82,6 +83,8 @@ export {
 export type { ChartPattern } from "./charts/chart-patterns";
 export { ChartLegend } from "./charts/chart-legend";
 export type { LegendEntry } from "./charts/chart-legend";
+export { StackedBar } from "./charts/stacked-bar";
+export type { StackedBarSlice } from "./charts/stacked-bar";
 export type {
   DisplayGeometry,
   DisplayPoint,

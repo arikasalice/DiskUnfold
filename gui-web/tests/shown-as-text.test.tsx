@@ -416,12 +416,10 @@ test("the volume explanation shows reasons and no factor or category keys", asyn
   const differences = within(
     screen.getByLabelText(ko("ui.analysis.volume_difference")),
   );
-  // The factor without a name reads as unknown, with why it has no value.
-  expect(
-    within(differences.getByText("알 수 없음").closest("div")!).getByText(
-      unavailable,
-    ),
-  ).toBeDefined();
+  // The factor without a name reads as unknown, and the reason that several rows of
+  // the table share is written once below it, not on every row.
+  expect(differences.getByText("알 수 없음")).toBeDefined();
+  expect(screen.getAllByText(unavailable).length).toBeGreaterThan(0);
   expect(
     within(
       differences

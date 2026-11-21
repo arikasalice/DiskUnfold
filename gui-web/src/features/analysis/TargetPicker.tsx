@@ -57,7 +57,7 @@ export function TargetPicker({
   dropError: string | undefined;
   pathDescription: string;
   reviewDescriptionId: string | undefined;
-  feedback: ReactNode;
+  feedback: (onChooseFolder: (suggestedInclude?: OsPath) => void) => ReactNode;
   isInitial: boolean;
   onPathCompositionChange: (composing: boolean) => void;
   primaryPathRef?: RefObject<HTMLInputElement | null>;
@@ -175,7 +175,14 @@ export function TargetPicker({
           ))}
         </section>
       )}
-      {feedback}
+      {feedback((suggestedInclude) => {
+        if (suggestedInclude) {
+          choose(suggestedInclude);
+          for (let index = selected.length - 1; index > 0; index -= 1)
+            removePath(index);
+        }
+        fields.current.get(0)?.focus();
+      })}
     </section>
   );
   return (
@@ -255,6 +262,7 @@ function DrivePicker({
         {...shown}
         checkingCapacity={checkingCapacity}
         showSummary={!showDriveDetails}
+        startupDiskLabel={text("ui.analysis.startup_disk", "Startup disk")}
         text={text}
         regional={regional}
       />

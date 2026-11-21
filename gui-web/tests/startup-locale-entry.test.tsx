@@ -7,6 +7,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { ApplicationEntry } from "../src/app/ApplicationEntry";
+import { DesktopLocale } from "../src/app/DesktopLocale";
+import { defaultSizeDisplay } from "../src/state/size-display";
+import { useLocaleOsFamily } from "../src/state/use-locale";
 import { createAnalysisClient } from "../src/ipc";
 import type {
   LocaleBundleBody,
@@ -72,8 +75,12 @@ function bundle(language: string): LocaleBundleBody {
   };
 }
 
-function fixture(access: StartupStatus["access"]) {
+function fixture(
+  access: StartupStatus["access"],
+  osFamily?: LocaleProfile["osFamily"],
+) {
   let profile: LocaleProfile = {
+    ...(osFamily && { osFamily }),
     displayLanguage: "en",
     languageSource: "stored",
     dateFormat: "lang_default",
@@ -129,12 +136,27 @@ function fixture(access: StartupStatus["access"]) {
   return { client, requests };
 }
 
+function AutomaticSizeSystem() {
+  return <span>{defaultSizeDisplay(useLocaleOsFamily()).system}</span>;
+}
+
 const capabilities = [
   // Linux reports Full Disk Access as not applicable; macOS reports it as unknown until the
   // host has read it. Neither enables analysis.
   { platform: "Linux", access: "not_applicable" },
   { platform: "macOS", access: "unknown" },
 ] as const;
+
+test("DesktopLocale shares the host family with automatic size defaults", async () => {
+  const { client } = fixture("not_applicable", "macos");
+  render(
+    <DesktopLocale client={client}>
+      <AutomaticSizeSystem />
+    </DesktopLocale>,
+  );
+
+  expect(await screen.findByText("si")).toBeTruthy();
+});
 
 for (const { platform, access } of capabilities) {
   test(`${platform} startup screen offers language and display, and a language change redraws it`, async () => {
