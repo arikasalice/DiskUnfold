@@ -7,7 +7,7 @@ use crate::{
 };
 use du_core_contracts::{
     Id,
-    job::{HistoryMode, ItemHistoryStart, JobOutcome, JobState, ResourceClass},
+    job::{HistoryMode, ItemHistoryError, ItemHistoryStart, JobOutcome, JobState, ResourceClass},
 };
 use std::sync::Arc;
 
@@ -86,7 +86,12 @@ impl JobRuntime {
         drop(table);
 
         let history_recorder = match history_start {
-            Some(start) => match HistoryRecorder::start(self.history.clone(), &start) {
+            Some(start) => match self
+                .history
+                .upgrade()
+                .ok_or(ItemHistoryError::Unavailable)
+                .and_then(|history| HistoryRecorder::start(history, &start))
+            {
                 Ok(recorder) => {
                     self.table
                         .lock()

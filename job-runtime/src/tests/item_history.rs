@@ -13,6 +13,23 @@ struct ItemHistoryStore {
     fail_sequence: Option<u64>,
 }
 
+/// The host closes the database only when it is the unique owner, so the runtime must not keep
+/// its own strong history handle beside the delivery thread's.
+#[test]
+fn runtime_keeps_no_strong_history_handle_of_its_own() -> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(ItemHistoryStore::default());
+    let runtime = JobRuntime::new(
+        Arc::new(Identity(Id::parse("00000000-0000-7000-8000-000000000001")?)),
+        Arc::new(Clock),
+        store.clone(),
+        Arc::new(Events::default()),
+    )?;
+    // This handle and the delivery thread's.
+    assert_eq!(Arc::strong_count(&store), 2);
+    drop(runtime);
+    Ok(())
+}
+
 impl JobHistory for ItemHistoryStore {
     fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String> {
         self.summaries

@@ -329,7 +329,7 @@ pub struct JobRuntime {
     pub(crate) identity: Arc<dyn JobIdentity>,
     pub(crate) clock: Arc<dyn JobClock>,
     pub(crate) events: Arc<dyn JobEvents>,
-    pub(crate) history: Arc<dyn JobHistory>,
+    pub(crate) history: std::sync::Weak<dyn JobHistory>,
     pub(crate) queue_limit: usize,
     pub(crate) consumer: Mutex<Option<JoinHandle<()>>>,
     pub(crate) outstanding: Arc<AtomicUsize>,

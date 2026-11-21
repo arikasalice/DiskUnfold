@@ -102,7 +102,9 @@ impl JobRuntime {
             identity,
             clock,
             events: event_sink,
-            history,
+            // Weak: the consumer thread owns the strong handle, so joining it at shutdown still
+            // releases the history store for the unique-owner database close.
+            history: Arc::downgrade(&history),
             queue_limit: 64,
             consumer: Mutex::new(Some(consumer)),
             outstanding,
