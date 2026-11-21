@@ -57,15 +57,25 @@
 
 .du-scope-preview__actions {
   display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+  margin: 0 -24px -24px;
+  padding: 10px 24px;
+  border-block-start: 1px solid var(--du-border);
+  border-end-start-radius: inherit;
+  border-end-end-radius: inherit;
+  background: var(--du-subtle);
 }
 
-.du-scope-preview__actions > .du-action:first-child {
-  flex: 1 1 auto;
+.du-scope-preview__sample {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
 }
 
 .du-scope-preview__summary .du-collection-conditions {
-  margin-block-start: 2px;
+  margin-block: 0;
 }
 
 @media (max-width: 760px) {
@@ -81,6 +91,11 @@
 
   .du-scope-preview__card {
     padding: 18px 14px;
+  }
+
+  .du-scope-preview__actions {
+    margin-inline: -14px;
+    padding-inline: 14px;
   }
 
   .du-scope-preview__scope-row {

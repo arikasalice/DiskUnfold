@@ -446,7 +446,7 @@ async function open(
           : ".du-scope-preview";
         document
           .querySelector(selector)
-          ?.scrollIntoView({ block: "start", behavior: "auto" });
+          ?.scrollIntoView({ block: "center", behavior: "auto" });
       }, width <= 760);
     }
   } else {

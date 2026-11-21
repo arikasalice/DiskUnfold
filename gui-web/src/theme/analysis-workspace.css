@@ -324,6 +324,28 @@
   overflow-y: visible;
 }
 
+/* An expanded scope condition grows the page instead of nesting a second scroll area. */
+.du-app[data-analysis-open]:has(
+    .du-collection-conditions__header [aria-expanded="true"]
+  ) {
+  block-size: auto;
+  min-block-size: var(--du-viewport-height, 100dvh);
+}
+.du-app[data-analysis-open]:has(
+    .du-collection-conditions__header [aria-expanded="true"]
+  )
+  .du-target-editor {
+  grid-template-rows: auto auto auto;
+  max-block-size: none;
+}
+.du-app[data-analysis-open]:has(
+    .du-collection-conditions__header [aria-expanded="true"]
+  )
+  .du-target-editor__body {
+  min-block-size: auto;
+  overflow-y: visible;
+}
+
 @media (min-width: 780px) and (min-height: 360px) {
   .du-analysis__grid {
     gap: 16px;

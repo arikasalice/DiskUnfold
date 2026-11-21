@@ -115,9 +115,8 @@ export function CollectionConditionsPreview({
           <aside className="du-scope-preview__card du-scope-preview__summary">
             <h2>분석 요약</h2>
             <p>포함 위치 1개 · 제외 규칙 2개 · 메타데이터 분석</p>
-            <div className="du-scope-preview__actions">
-              <Action variant="primary">분석 시작</Action>
-              <Action>취소</Action>
+            <div className="du-scope-preview__sample">
+              <Action variant="quiet">샘플로 먼저 체험</Action>
             </div>
             <ScopeCollectionConditions
               mode={mode}
@@ -156,6 +155,11 @@ export function CollectionConditionsPreview({
                 setPrevious(undefined);
               }}
             />
+            <div className="du-scope-preview__actions">
+              <Action>선택 취소</Action>
+              <Action>분석 범위 검토</Action>
+              <Action variant="primary">분석 시작</Action>
+            </div>
           </aside>
         </div>
       </main>

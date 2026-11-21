@@ -147,6 +147,26 @@ test("scope conditions are collapsed and identify the default", () => {
   ).toBeDefined();
 });
 
+test("scope conditions follow the sample entry and sit above the action bar", () => {
+  const { client } = scopeClient();
+  render(
+    <AnalysisPanel
+      client={client}
+      preferences={preferences}
+      startAlternative={<div data-testid="sample-entry">Sample experience</div>}
+    />,
+  );
+
+  const sample = screen.getByTestId("sample-entry");
+  const body = sample.closest(".du-target-editor__body");
+  const conditions = body?.querySelector(".du-collection-conditions");
+  expect(conditions).not.toBeNull();
+  expect(body?.lastElementChild).toBe(conditions);
+  expect(
+    body?.nextElementSibling?.classList.contains("du-target-editor__footer"),
+  ).toBe(true);
+});
+
 test("quiet mode and a limit are sent with scan.start", async () => {
   const { client, starts } = scopeClient();
   render(<AnalysisPanel client={client} preferences={preferences} />);
@@ -373,7 +393,7 @@ test("progress changes use full replacement, show acceptance, and announce lane 
         resolveChange = resolve;
       }),
   );
-  const { rerender } = renderProgress(client, {
+  const { rerender, container } = renderProgress(client, {
     resourceMode: "quiet",
     userLimit: 2,
   });
@@ -413,10 +433,25 @@ test("progress changes use full replacement, show acceptance, and announce lane 
       />
     </ScanResourceContext.Provider>,
   );
-  await screen.findByText("Resource use changed to Fast");
+  const announcement = await screen.findByText("Resource use changed to Fast");
+  expect(announcement.closest(".du-announcer")).not.toBeNull();
+  expect(
+    container.querySelector(".du-scan-resource-control__feedback"),
+  ).toBeNull();
   expect(
     screen.queryByText("Takes effect after the current folder"),
   ).toBeNull();
+});
+
+test("the progress limit disclosure starts collapsed", async () => {
+  const { client } = resourceClient(async () =>
+    setResourceResponse("accepted", 2),
+  );
+  renderProgress(client);
+
+  const disclosure = await screen.findByRole("button", { name: /Advanced/ });
+  expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByLabelText("Concurrent collection limit")).toBeNull();
 });
 
 test("clearing the progress limit omits userLimit and no_effect keeps the choice", async () => {

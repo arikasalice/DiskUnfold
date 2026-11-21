@@ -754,6 +754,34 @@ export function AnalysisPanel({
             />
           </div>
           {!resultActive && !recentOpen && startAlternative}
+          {!recentOpen && (
+            <ScopeCollectionConditions
+              mode={resourceMode}
+              userLimit={userLimit}
+              draft={limitDraft}
+              error={limitError}
+              previousValue={limitError ? limitErrorPrevious : userLimit}
+              disabled={working || running}
+              onModeChange={setResourceMode}
+              onLimitChange={(value) =>
+                changeScopeLimitDraft(
+                  value,
+                  userLimit,
+                  setLimitDraft,
+                  setUserLimit,
+                  setLimitError,
+                  setLimitErrorPrevious,
+                )
+              }
+              onReset={() => {
+                setResourceMode("auto");
+                setUserLimit(undefined);
+                setLimitDraft("");
+                setLimitError(undefined);
+                setLimitErrorPrevious(undefined);
+              }}
+            />
+          )}
         </section>
         {!recentOpen && (
           <ScopeActions
@@ -768,34 +796,6 @@ export function AnalysisPanel({
             onReview={() => void reviewScope()}
             onStart={() => void start()}
             onCancel={cancelSelection}
-          />
-        )}
-        {!recentOpen && (
-          <ScopeCollectionConditions
-            mode={resourceMode}
-            userLimit={userLimit}
-            draft={limitDraft}
-            error={limitError}
-            previousValue={limitError ? limitErrorPrevious : userLimit}
-            disabled={working || running}
-            onModeChange={setResourceMode}
-            onLimitChange={(value) =>
-              changeScopeLimitDraft(
-                value,
-                userLimit,
-                setLimitDraft,
-                setUserLimit,
-                setLimitError,
-                setLimitErrorPrevious,
-              )
-            }
-            onReset={() => {
-              setResourceMode("auto");
-              setUserLimit(undefined);
-              setLimitDraft("");
-              setLimitError(undefined);
-              setLimitErrorPrevious(undefined);
-            }}
           />
         )}
       </>

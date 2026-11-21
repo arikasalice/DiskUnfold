@@ -209,19 +209,16 @@ function ownsActiveScan(
 
 function resourceFeedbackText(
   feedback: "applying" | "accepted" | "failed" | undefined,
-  pending: boolean,
-  announcement: string,
   text: LocaleText,
 ) {
   if (feedback === "applying")
     return text("ui.analysis.resource_applying", "Applying");
-  if (feedback === "accepted" && pending) return "";
   if (feedback === "failed")
     return text(
       "ui.analysis.resource_change_failed",
       "Resource use could not be changed.",
     );
-  return announcement;
+  return "";
 }
 
 function ResourceControlPanel({
@@ -232,7 +229,6 @@ function ResourceControlPanel({
   limitError,
   limitErrorPrevious,
   feedback,
-  pending,
   announcement,
   onModeChange,
   onLimitChange,
@@ -244,12 +240,12 @@ function ResourceControlPanel({
   limitError: ResourceLimitError | undefined;
   limitErrorPrevious: number | undefined;
   feedback: "applying" | "accepted" | "failed" | undefined;
-  pending: boolean;
   announcement: string;
   onModeChange: (mode: ScanResourceMode) => void;
   onLimitChange: (value: string) => void;
 }) {
   const text = useLocaleText();
+  const feedbackText = resourceFeedbackText(feedback, text);
   return (
     <div hidden={!visible} className="du-scan-resource-control">
       <ResourceModeSelector
@@ -265,11 +261,18 @@ function ResourceControlPanel({
         previousValue={limitError ? limitErrorPrevious : resource.userLimit}
         onChange={onLimitChange}
       />
-      <LiveStatus>
-        <Text>
-          {resourceFeedbackText(feedback, pending, announcement, text)}
-        </Text>
-      </LiveStatus>
+      {feedbackText && (
+        <LiveStatus>
+          <Text className="du-scan-resource-control__feedback">
+            {feedbackText}
+          </Text>
+        </LiveStatus>
+      )}
+      <div className="du-announcer">
+        <LiveStatus>
+          <Text>{announcement}</Text>
+        </LiveStatus>
+      </div>
     </div>
   );
 }
@@ -688,7 +691,6 @@ export function ScanLaneProgress({
           limitError={limitError}
           limitErrorPrevious={limitErrorPrevious}
           feedback={feedback}
-          pending={pendingResources.size > 0}
           announcement={announcement}
           onModeChange={changeMode}
           onLimitChange={changeLimit}
