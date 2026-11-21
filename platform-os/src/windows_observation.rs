@@ -1,6 +1,7 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
 mod anchored_directory;
 pub mod case_sensitivity;
+mod change;
 #[cfg(test)]
 mod correlated_batches;
 #[cfg(test)]
@@ -22,6 +23,7 @@ mod space;
 mod timestamps;
 mod volume_space;
 pub(crate) mod watch_identity;
+pub(crate) use change::lookup_change_item;
 pub(crate) use scope::volume_name;
 pub(crate) use space::file_id;
 pub use volume_space::WindowsVolumeSpace;
