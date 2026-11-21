@@ -19,10 +19,8 @@ use du_app_db::recent_scope::{
 };
 use du_app_db::{AppDb, AppDbCloseError};
 use du_app_db::{WalCheckpoint, WalCheckpointError};
-use du_core_contracts::job::{
-    HistoryAppend, HistoryAppendOutcome, HistoryInterruptionReceipt, HistoryRecovery, JobHistory,
-    JobSummary,
-};
+use du_core_contracts::job::{HistoryInterruptionReceipt, HistoryRecovery};
+mod history_adapter;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use du_core_contracts::settings::{
     SettingsChanges, SettingsCommit, SettingsSnapshot, SettingsStore, SettingsStoreError,
@@ -33,6 +31,7 @@ use du_platform_os::linux_instance_lock::LinuxInstanceLock;
 use du_platform_os::macos_instance_lock::MacOsInstanceLock;
 #[cfg(windows)]
 use du_platform_os::windows_instance_lock::WindowsInstanceLock;
+use history_adapter::SharedHistory;
 
 #[allow(dead_code)]
 enum InstanceGuard {
@@ -461,33 +460,6 @@ impl SettingsStore for SharedSettings {
             .lock()
             .map_err(|_| SettingsStoreError::Storage)?
             .commit(revision, changes, context)
-    }
-}
-
-/// F24 history adapter; F21 linkage is written by `AppDb` in one transaction.
-pub(super) struct SharedHistory {
-    database: SharedDatabase,
-    now_ms: fn() -> i64,
-}
-
-impl JobHistory for SharedHistory {
-    fn append(&self, summary: &JobSummary) -> Result<HistoryAppend, String> {
-        self.append_with_receipt(summary)
-            .map(HistoryAppendOutcome::status)
-    }
-
-    fn append_with_receipt(&self, summary: &JobSummary) -> Result<HistoryAppendOutcome, String> {
-        let now_ms = (self.now_ms)();
-        self.database
-            .0
-            .connection
-            .lock()
-            .map_err(|_| "history.record_failed".to_owned())?
-            .append_scan_history_with_receipt(summary, now_ms)
-            .map_err(|reason| {
-                eprintln!("history.record_failed: {reason}");
-                "history.record_failed".to_owned()
-            })
     }
 }
 

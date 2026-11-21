@@ -44,6 +44,7 @@ import { useDialogResult } from "./use-dialog-result";
 import { DialogUpdateStatus } from "./DialogUpdateStatus";
 import { ResultGroupNotice } from "./AnalysisActions";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
+import type { ScanIssueLaneRequest } from "./scan-issue-filter";
 
 function Coverage({ total }: { total: SpaceTotal }) {
   const regional = useRegionalFormat();
@@ -121,6 +122,19 @@ function scopeRows(
   return rows;
 }
 
+function commonMeasurementLimits(sizes: SpaceTotal["sizes"]) {
+  if (sizes.length < 2) return [];
+  const first = sizes[0]!.measurementLimits;
+  if (first.length === 0) return [];
+  return sizes.every(
+    ({ measurementLimits }) =>
+      measurementLimits.length === first.length &&
+      measurementLimits.every((key) => first.includes(key)),
+  )
+    ? first
+    : [];
+}
+
 /**
  * Displays the given totals in place. A newer `total` changes the values
  * without remounting the parts around them, so expanded sections, focus and
@@ -148,6 +162,8 @@ export function PinnedResult({
   onDisplayChoice,
   onSizeBasisChange,
   onReopenLatest,
+  running = false,
+  laneRequest,
 }: {
   client: AnalysisClient;
   total: SpaceTotal;
@@ -164,6 +180,8 @@ export function PinnedResult({
   onSizeBasisChange?:
     ((resultVersion: string, basis: SizeBasisFilter) => void) | undefined;
   onReopenLatest: () => void;
+  running?: boolean | undefined;
+  laneRequest?: ScanIssueLaneRequest | undefined;
 }) {
   const [basisChoice, setBasis] = useState<SizeBasisFilter>();
   const regional = useRegionalFormat();
@@ -200,17 +218,7 @@ export function PinnedResult({
     ({ size, measurementLimits }) =>
       !awaitedSize(size, measurementLimits, sizeWait),
   );
-  const first = shown[0]?.measurementLimits ?? [];
-  const sharedLimits =
-    shown.length > 1 &&
-    first.length > 0 &&
-    shown.every(
-      ({ measurementLimits }) =>
-        measurementLimits.length === first.length &&
-        measurementLimits.every((key) => first.includes(key)),
-    )
-      ? first
-      : [];
+  const sharedLimits = commonMeasurementLimits(shown);
   return (
     <div className="du-results">
       <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
@@ -296,6 +304,8 @@ export function PinnedResult({
         client={client}
         resultVersion={total.resultVersion}
         onReopenLatest={onReopenLatest}
+        running={running}
+        laneRequest={laneRequest}
       />
       <ScopeDetails
         client={client}

@@ -332,6 +332,28 @@ test("a zero size of a folder the scan did not enter reads as not counted", () =
   expect(sized({ boundary: unproven }, "0")).toBe("0 bytes");
 });
 
+test("a lower bound of 0 bytes is unavailable only when something inside was not read", () => {
+  const display = { system: "iec", unit: "auto" } as const;
+  const sized = (flags: Partial<Flags>, bytes: string) => {
+    const value = {
+      state: "present",
+      value: {
+        basis: "logical",
+        evidence: "measured",
+        state: "lower_bound",
+        bytes,
+      },
+    } as const;
+    return size({ ...row(1, flags), logicalSize: value }, value, display, text);
+  };
+  const inside = { state: "present", value: { count: "1" } } as const;
+  expect(sized({ unenumerated: unread }, "0")).toBe("Unavailable");
+  expect(sized({ unreadInside: inside }, "0")).toBe("Unavailable");
+  // Everything counted is empty: the lower bound is shown as it is.
+  expect(sized({}, "0")).toBe("At least 0 bytes");
+  expect(sized({ unenumerated: unread }, "2048")).toBe("At least 2.0 KiB");
+});
+
 test("a list keeps the scan status column once a row carried the boundary", () => {
   const files = Array.from({ length: 200 }, (_, n) => row(n, {}, "file"));
   const first = page(files, 201);

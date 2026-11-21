@@ -1,8 +1,10 @@
 //! Shared wire values, envelopes, and narrow operating system ports.
 pub mod analysis_ipc;
+pub mod approval_ipc;
 pub mod browse_ipc;
 pub mod browse_open_ipc;
 pub mod browse_page_ipc;
+pub mod change_ipc;
 pub mod change_notify;
 pub mod data_source;
 mod envelopes;
@@ -12,6 +14,8 @@ pub mod job;
 pub mod locale_bundle;
 pub mod locale_ipc;
 pub mod locale_message;
+pub mod plan_ipc;
+pub mod platform_os_change;
 pub mod ports;
 pub mod product_ipc;
 pub mod product_ports;
@@ -35,6 +39,7 @@ pub mod share;
 pub mod shutdown_ipc;
 pub mod size_rule;
 pub mod size_units;
+pub mod snapshot_file;
 pub mod snapshot_format;
 pub mod snapshot_spool;
 pub mod space_detail_ipc;

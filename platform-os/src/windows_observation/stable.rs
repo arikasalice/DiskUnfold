@@ -1,7 +1,11 @@
 //! Open a verified directory while retaining its ancestor handles.
 use super::*;
 
-pub(super) fn open_verified_impl(path: &Path, stable: bool) -> Result<WindowsDirectory, PortError> {
+pub(super) fn open_verified_impl(
+    path: &Path,
+    stable: bool,
+    snapshot_storage: bool,
+) -> Result<WindowsDirectory, PortError> {
     let mut components = path.components();
     let Some(Component::Prefix(prefix)) = components.next() else {
         return Err(invalid());
@@ -74,7 +78,9 @@ pub(super) fn open_verified_impl(path: &Path, stable: bool) -> Result<WindowsDir
         ids: Vec::new(),
     };
     let mut parent_id = identity(&root_info);
-    for component in components {
+    let remaining: Vec<_> = components.collect();
+    let remaining_count = remaining.len();
+    for (index, component) in remaining.into_iter().enumerate() {
         let Component::Normal(name) = component else {
             return Err(invalid());
         };
@@ -82,7 +88,17 @@ pub(super) fn open_verified_impl(path: &Path, stable: bool) -> Result<WindowsDir
         wide(&bytes(&name))?;
         let observed = recall::lookup(&file, &name)?;
         let next = recall::observe_if_safe(observed.attributes, || {
-            verified_directory(&file, &name, volume, Some(observed.inode), stable)
+            if snapshot_storage && index + 1 == remaining_count {
+                verified_snapshot_storage_directory(
+                    &file,
+                    &name,
+                    volume,
+                    Some(observed.inode),
+                    stable,
+                )
+            } else {
+                verified_directory(&file, &name, volume, Some(observed.inode), stable)
+            }
         })?;
         ancestors.ids.push(parent_id.to_le_bytes().to_vec());
         parent_id = observed.inode;

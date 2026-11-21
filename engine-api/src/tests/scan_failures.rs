@@ -7,6 +7,7 @@ use du_core_contracts::{
     scan_failures::{ScanFailureKind, ScanFailureStage, ScanIssue},
 };
 mod admission;
+mod filters;
 
 struct TestRandom(bool);
 

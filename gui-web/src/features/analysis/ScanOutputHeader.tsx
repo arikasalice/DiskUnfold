@@ -18,6 +18,7 @@ import type {
 } from "../../ipc";
 import type { ScanControl, useScanResult } from "../../state/analysis-scan";
 import type { ScanPriorityArea } from "../../state/scan-priority";
+import type { ScanIssueLaneSelection } from "./scan-issue-filter";
 import { ScanLaneProgress } from "./ScanLaneProgress";
 
 /** How the shown values relate to a scan that is still in progress. */
@@ -109,10 +110,13 @@ function LaneProgressLine({
   scan,
   roots,
   priorityArea,
+  onViewUnreadableLocations,
 }: {
   scan: ReturnType<typeof useScanResult>;
   roots: readonly OsPath[];
   priorityArea?: ScanPriorityArea | undefined;
+  onViewUnreadableLocations?:
+    ((selection: ScanIssueLaneSelection) => void) | undefined;
 }) {
   if (!scan.status?.jobRef || !scan.laneStatus) return null;
   return (
@@ -121,6 +125,7 @@ function LaneProgressLine({
       status={scan.laneStatus}
       roots={roots}
       priorityArea={priorityArea}
+      onViewUnreadableLocations={onViewUnreadableLocations}
     />
   );
 }
@@ -137,6 +142,7 @@ export function ScanOutputHeader({
   actions,
   roots,
   priorityArea,
+  onViewUnreadableLocations,
 }: {
   scan: ReturnType<typeof useScanResult>;
   roots: readonly OsPath[];
@@ -151,6 +157,8 @@ export function ScanOutputHeader({
   actions: ReactNode;
   /** The folder name retained by this GUI for its priority request. */
   priorityArea?: ScanPriorityArea | undefined;
+  onViewUnreadableLocations?:
+    ((selection: ScanIssueLaneSelection) => void) | undefined;
 }) {
   const text = useLocaleText();
   const cancelling =
@@ -203,6 +211,7 @@ export function ScanOutputHeader({
             scan={scan}
             roots={roots}
             priorityArea={priorityArea}
+            onViewUnreadableLocations={onViewUnreadableLocations}
           />
         </div>
       )}

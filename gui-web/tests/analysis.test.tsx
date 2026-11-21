@@ -3614,7 +3614,7 @@ test("F02 IF-05: pages within the displayed result and discards a late page afte
   await screen.findByText("second");
   expect(screen.getByText("Showing 2 of 3 issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Issue type" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Problem type" }), {
     target: { value: "untraversed_link" },
   });
   await screen.findByText("C:\\junction");

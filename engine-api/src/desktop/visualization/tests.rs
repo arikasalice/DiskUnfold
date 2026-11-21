@@ -1,14 +1,17 @@
 //! The default registration, served through the desktop assembly and a real result store.
 mod folders;
 mod groups;
+mod histogram_list;
 mod lower_bound;
 mod measure;
 mod remainder;
 mod revisions;
+mod scope_limits;
 mod support;
 mod totals;
 mod type_filter;
 mod type_legend;
+mod unread_folders;
 
 use std::sync::{Arc, atomic::Ordering};
 

@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
+import type { RefObject } from "react";
+import { BrandMark, Heading, Toast } from "../src/components";
 import { AnalysisError } from "../src/ipc";
 import type {
   AnalysisClient,
@@ -8,11 +10,15 @@ import type {
   HistoryRetentionReviewRequest,
 } from "../src/ipc";
 import { HistoryPanel } from "../src/features/history/HistoryPanel";
+import { JobCenterPresenter } from "../src/features/jobs/JobCenterPresenter";
+import { JobCenterEntry } from "../src/features/jobs/JobCenterEntry";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { RegionalFormatContext } from "../src/i18n/regional-format";
 import { regional } from "./BrowseScanStatusPreview";
 import { historyListClient } from "./history-list-fixture";
 import { koreanText } from "./result-summary-fixture";
+import { jobCenterSnapshot } from "./surface-fixtures";
+import diskUnfoldIcon from "../src/app/assets/diskunfold-icon.svg";
 
 const dateFrom = Date.UTC(2026, 0, 1, 9);
 const dateTo = Date.UTC(2026, 1, 1, 17);
@@ -129,11 +135,66 @@ function previewClient(scene: string): AnalysisClient {
 /** Product history screen with synthetic retention responses for gallery captures. */
 export function HistoryRetentionPreview({ scene }: { scene: string }) {
   const client = useMemo(() => previewClient(scene), [scene]);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const jobCenterOpen = scene === "job-center-over-history";
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
-        <HistoryPanel client={client} onClose={() => undefined} />
+        <main className="du-app">
+          {(scene === "tasks-panel" || jobCenterOpen) && (
+            <HistoryRetentionHeaderPreview
+              expanded={jobCenterOpen}
+              trigger={trigger}
+            />
+          )}
+          <HistoryPanel
+            client={client}
+            tasksOpen={jobCenterOpen}
+            onClose={() => undefined}
+          />
+          {jobCenterOpen && (
+            <div className="du-job-center-overlay" data-panel-open>
+              <JobCenterPresenter
+                isOpen
+                trigger={trigger}
+                snapshot={jobCenterSnapshot("main")}
+                onClose={() => undefined}
+                onOpenHistory={() => undefined}
+                onOpenJob={() => undefined}
+                onRetry={() => undefined}
+                onControl={() => undefined}
+              />
+              <Toast message="" icon="success" version={0} />
+            </div>
+          )}
+        </main>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
+  );
+}
+
+function HistoryRetentionHeaderPreview({
+  expanded,
+  trigger,
+}: {
+  expanded: boolean;
+  trigger: RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <header className="du-app-header">
+      <div className="du-brand">
+        <BrandMark src={diskUnfoldIcon} />
+        <Heading level={1}>DiskUnfold</Heading>
+      </div>
+      <div className="du-app-header__actions">
+        <JobCenterEntry
+          clientAvailable
+          count={0}
+          expanded={expanded}
+          trigger={trigger}
+          onPress={() => undefined}
+        />
+      </div>
+    </header>
   );
 }

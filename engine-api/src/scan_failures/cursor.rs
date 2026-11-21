@@ -6,18 +6,48 @@ use du_core_contracts::{
 
 use crate::error::EngineError;
 
-const PAYLOAD_LEN: usize = 25;
-const DOMAIN: &[u8] = b"diskunfold.scan.failures.sf1\0";
+const PAYLOAD_LEN: usize = 58;
+const DOMAIN: &[u8] = b"diskunfold.scan.failures.sf2\0";
 
 pub(super) fn start(key: &[u8; 32], request: &ScanFailuresRequest) -> Result<usize, EngineError> {
-    let Some(token) = &request.cursor else {
+    let Some(payload) = authenticated_payload(key, request)? else {
         return Ok(0);
+    };
+    ensure_version(&payload, request)?;
+    if payload[16] != filter(request.kind) {
+        return Err(invalid());
+    }
+    if payload[17] != u8::from(request.failures_only.unwrap_or(false))
+        || payload[18..50] != roots_filter(request)
+    {
+        return Err(invalid());
+    }
+    let position = u64::from_le_bytes(payload[50..].try_into().map_err(|_| invalid())?);
+    usize::try_from(position).map_err(|_| invalid())
+}
+
+pub(super) fn check_version(
+    key: &[u8; 32],
+    request: &ScanFailuresRequest,
+) -> Result<(), EngineError> {
+    if let Some(payload) = authenticated_payload(key, request)? {
+        ensure_version(&payload, request)?;
+    }
+    Ok(())
+}
+
+fn authenticated_payload(
+    key: &[u8; 32],
+    request: &ScanFailuresRequest,
+) -> Result<Option<[u8; PAYLOAD_LEN]>, EngineError> {
+    let Some(token) = &request.cursor else {
+        return Ok(None);
     };
     if token.len() > 2_048 {
         return Err(invalid());
     }
     let mut parts = token.split('.');
-    if parts.next() != Some("sf1") {
+    if parts.next() != Some("sf2") {
         return Err(invalid());
     }
     let payload: [u8; PAYLOAD_LEN] = decode(parts.next())?;
@@ -26,14 +56,17 @@ pub(super) fn start(key: &[u8; 32], request: &ScanFailuresRequest) -> Result<usi
     if parts.next().is_some() || mac(key, &payload) != signature {
         return Err(invalid());
     }
+    Ok(Some(payload))
+}
+
+fn ensure_version(
+    payload: &[u8; PAYLOAD_LEN],
+    request: &ScanFailuresRequest,
+) -> Result<(), EngineError> {
     if payload[..16] != version(request)? {
         return Err(EngineError::reason("cursor.stale"));
     }
-    if payload[16] != filter(request.kind) {
-        return Err(invalid());
-    }
-    let position = u64::from_le_bytes(payload[17..].try_into().map_err(|_| invalid())?);
-    usize::try_from(position).map_err(|_| invalid())
+    Ok(())
 }
 
 pub(super) fn encode(
@@ -44,9 +77,11 @@ pub(super) fn encode(
     let mut payload = [0; PAYLOAD_LEN];
     payload[..16].copy_from_slice(&version(request)?);
     payload[16] = filter(request.kind);
-    payload[17..].copy_from_slice(&position.to_le_bytes());
+    payload[17] = u8::from(request.failures_only.unwrap_or(false));
+    payload[18..50].copy_from_slice(&roots_filter(request));
+    payload[50..].copy_from_slice(&position.to_le_bytes());
     Ok(format!(
-        "sf1.{}.{}",
+        "sf2.{}.{}",
         PathBytes::from_bytes(&payload).as_str(),
         PathBytes::from_bytes(mac(key, &payload).as_bytes()).as_str(),
     ))
@@ -66,6 +101,23 @@ fn filter(kind: Option<ScanFailureKind>) -> u8 {
         Some(ScanFailureKind::Uncertain) => 3,
         Some(ScanFailureKind::UntraversedLink) => 4,
     }
+}
+
+fn roots_filter(request: &ScanFailuresRequest) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key("diskunfold.scan.failures.roots.sf2");
+    match &request.root_indexes {
+        None => {
+            hasher.update(&[0]);
+        }
+        Some(indexes) => {
+            hasher.update(&[1]);
+            hasher.update(&(indexes.len() as u32).to_le_bytes());
+            for index in indexes {
+                hasher.update(&index.to_le_bytes());
+            }
+        }
+    };
+    *hasher.finalize().as_bytes()
 }
 
 fn decode<const N: usize>(part: Option<&str>) -> Result<[u8; N], EngineError> {
@@ -96,16 +148,24 @@ mod tests {
         let mut request = ScanFailuresRequest {
             result_version: Id::parse("018f0000-0000-7000-8000-000000000001")?,
             kind: Some(ScanFailureKind::UnreadRange),
+            root_indexes: Some(vec![0, 3]),
+            failures_only: Some(true),
             cursor: None,
             count: None,
         };
         let token = encode(&key, &request, 8).map_err(|error| format!("{error:?}"))?;
-        assert!(token.starts_with("sf1."));
+        assert!(token.starts_with("sf2."));
         request.cursor = Some(token);
         assert_eq!(start(&key, &request), Ok(8));
         request.kind = None;
         assert_eq!(start(&key, &request), Err(invalid()));
         request.kind = Some(ScanFailureKind::UnreadRange);
+        request.root_indexes = Some(vec![0]);
+        assert_eq!(start(&key, &request), Err(invalid()));
+        request.root_indexes = Some(vec![0, 3]);
+        request.failures_only = Some(false);
+        assert_eq!(start(&key, &request), Err(invalid()));
+        request.failures_only = Some(true);
         request.result_version = Id::parse("018f0000-0000-7000-8000-000000000002")?;
         assert_eq!(start(&[7; 32], &request), Err(invalid()));
         assert_eq!(

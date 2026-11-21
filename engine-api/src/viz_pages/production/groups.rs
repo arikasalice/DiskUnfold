@@ -160,6 +160,8 @@ pub(super) fn group_row(
         label_key: other.label_key.clone(),
         member_count: Some(member_count(group.members.len())?),
         item_kind: None,
+        condition: None,
+        unread: None,
     };
     row.validate_revision(version.version_id())
         .map_err(|_| Error::InvalidGroup)?;

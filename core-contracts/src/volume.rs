@@ -4,16 +4,26 @@ use crate::{
     ports::{PortError, PortErrorKind},
 };
 
+/// Result of one optional OS capability lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapabilityState {
+    /// The requested operation is available.
     Supported,
+    /// The requested operation is available with limitations.
     Partial,
+    /// The requested operation is not available.
     Unsupported,
+    /// The capability does not apply to this volume or platform (F11 FR2.HD1.app-host.DD2).
+    NotApplicable,
+    /// The platform could not establish whether the capability is available (F11 FR2.HD1.app-host.DD2).
+    Unknown,
 }
 
+/// A capability value with an optional stable explanation key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capability {
     pub state: CapabilityState,
+    /// None means there is no additional explanation key.
     pub reason_key: Option<&'static str>,
 }
 

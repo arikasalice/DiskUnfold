@@ -1,7 +1,15 @@
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Action,
   DataTable,
+  Heading,
+  MiddleEllipsisText,
   NameText,
   Notice,
   Progress,
@@ -27,29 +35,138 @@ import type {
   ScanIssueFilter,
 } from "../../ipc";
 import { useScanFailures } from "../../state/scan-failures";
+import type { ScanIssueLaneRequest } from "./scan-issue-filter";
+import "../../theme/scan-issues.css";
 
 type IssueSource = {
   client: AnalysisClient;
   resultVersion: string;
   /**
-   * Asks the result view to pin its latest result; never called automatically.
-   * The list reads the first page of the new result version when it arrives.
+   * Asks the result view to pin its latest result; never called automatically
+   * unless a running scan has already replaced the page being read.
    */
   onReopenLatest: () => void;
+  running?: boolean | undefined;
+  laneRequest?: ScanIssueLaneRequest | undefined;
 };
+
+type StorageFilter = {
+  rootIndexes: number[];
+  storagePath?: string | undefined;
+  storageTail?: string | undefined;
+  storageLabel: string;
+  storagePaths: string[];
+};
+
+function selectedIssueKind(
+  filter: ScanIssueFilter,
+): ScanFailureKind | undefined {
+  if (filter === "all" || filter === "unreadable_locations") return undefined;
+  return filter;
+}
 
 /** Exposes issues for the displayed result without changing the analysis scope. */
 export function ScanIssues({
   client,
   resultVersion,
   onReopenLatest,
+  running = false,
+  laneRequest,
 }: IssueSource) {
   const text = useLocaleText();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<ScanIssueFilter>("all");
+  const [storageFilter, setStorageFilter] = useState<StorageFilter>();
+  const [allStorageNotice, setAllStorageNotice] = useState(false);
+  const [focusTitleToken, setFocusTitleToken] = useState(0);
+  const [listReady, setListReady] = useState(false);
+  const [countText, setCountText] = useState("");
+  const section = useRef<HTMLElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const storageChip = useRef<HTMLButtonElement>(null);
+  const seenLaneRequest = useRef(0);
+  const focusedTitleToken = useRef(0);
+
+  useEffect(() => {
+    if (!laneRequest || laneRequest.requestId === seenLaneRequest.current)
+      return;
+    seenLaneRequest.current = laneRequest.requestId;
+    setOpen(true);
+    setFilter("unreadable_locations");
+    setStorageFilter(
+      laneRequest.rootIndexes
+        ? {
+            rootIndexes: laneRequest.rootIndexes,
+            storagePath: laneRequest.storagePath,
+            storageTail: laneRequest.storageTail,
+            storageLabel: laneRequest.storageLabel,
+            storagePaths: laneRequest.storagePaths,
+          }
+        : undefined,
+    );
+    setAllStorageNotice(laneRequest.allStorages);
+    setListReady(false);
+    setCountText("");
+    setFocusTitleToken((value) => value + 1);
+  }, [laneRequest]);
+
+  useLayoutEffect(() => {
+    if (
+      !open ||
+      !listReady ||
+      focusTitleToken === 0 ||
+      focusedTitleToken.current === focusTitleToken
+    )
+      return;
+    focusedTitleToken.current = focusTitleToken;
+    section.current?.scrollIntoView?.({ block: "start" });
+    title.current?.focus({ preventScroll: true });
+  }, [focusTitleToken, listReady, open]);
+
+  const reportListState = useCallback((ready: boolean, count: string) => {
+    setListReady(ready);
+    setCountText((current) => (current === count ? current : count));
+  }, []);
+
+  const clearStorage = () => {
+    setFocusTitleToken((value) => value + 1);
+    setListReady(false);
+    setCountText("");
+    setStorageFilter(undefined);
+  };
+
+  const changeProblemType = (value: ScanIssueFilter) => {
+    setFilter(value);
+    setListReady(false);
+    setCountText("");
+  };
+
+  const rootIndexes = storageFilter?.rootIndexes;
+  const kind = selectedIssueKind(filter);
+  const failuresOnly = filter === "unreadable_locations";
+  const storageTooltip = storageFilter
+    ? [
+        ...storageFilter.storagePaths.slice(0, 5),
+        ...(storageFilter.storagePaths.length > 5
+          ? [
+              text("ui.analysis.issues_filter_paths_more", "and {count} more", {
+                count: BigInt(storageFilter.storagePaths.length - 5),
+              }),
+            ]
+          : []),
+      ].join("\n")
+    : "";
+  const storageChipLabel = storageFilter
+    ? text(
+        "ui.analysis.issues_filter_storage_name",
+        "Storage: {value}, clear storage filter",
+        { value: storageFilter.storageLabel },
+      )
+    : "";
   return (
     <section
-      className="du-results"
+      ref={section}
+      className="du-results du-scan-issues"
       aria-label={text("ui.analysis.issues_region", "Scan issues")}
     >
       <Action onPress={() => setOpen((value) => !value)}>
@@ -59,6 +176,60 @@ export function ScanIssues({
       </Action>
       {open && (
         <>
+          <Heading
+            level={3}
+            ref={title}
+            programmaticFocus
+            aria-label={
+              countText
+                ? `${text("ui.analysis.issues_title", "Scan issues")}. ${countText}`
+                : undefined
+            }
+          >
+            {text("ui.analysis.issues_title", "Scan issues")}
+          </Heading>
+          {(storageFilter || (allStorageNotice && failuresOnly)) && (
+            <div className="du-scan-issues__conditions">
+              {storageFilter && (
+                <div className="du-scan-issues__chip">
+                  <Action
+                    ref={storageChip}
+                    aria-label={storageChipLabel}
+                    title={storageTooltip}
+                    onPress={clearStorage}
+                  >
+                    <Text inline>
+                      {text("ui.analysis.issues_filter_storage", "Storage:")}
+                    </Text>
+                    {storageFilter.storagePath ? (
+                      <Text inline className="du-scan-issues__storage-path">
+                        <MiddleEllipsisText
+                          text={storageFilter.storagePath}
+                          cell
+                        />
+                      </Text>
+                    ) : (
+                      storageFilter.storageLabel
+                    )}
+                    {storageFilter.storageTail && (
+                      <Text inline className="du-scan-issues__storage-tail">
+                        {storageFilter.storageTail}
+                      </Text>
+                    )}
+                    <Text inline>×</Text>
+                  </Action>
+                </div>
+              )}
+              {allStorageNotice && failuresOnly && (
+                <Text kind="muted" className="du-scan-issues__notice">
+                  {text(
+                    "ui.analysis.issues_filter_all_storages",
+                    "Showing unreadable locations from all storage because this one can't be filtered on its own",
+                  )}
+                </Text>
+              )}
+            </div>
+          )}
           <Text kind="muted">
             {text(
               "ui.analysis.issues_explanation",
@@ -66,19 +237,24 @@ export function ScanIssues({
             )}
           </Text>
           <SelectField
-            label={text("ui.analysis.issue_type", "Issue type")}
+            label={text("ui.analysis.issue_type", "Problem type")}
             value={filter}
             options={SCAN_ISSUE_FILTERS.map(({ value, key, fallback }) => ({
               value,
               label: text(key, fallback),
             }))}
-            onChange={setFilter}
+            onChange={changeProblemType}
           />
           <IssuePages
             client={client}
             resultVersion={resultVersion}
-            kind={filter === "all" ? undefined : filter}
+            kind={kind}
+            rootIndexes={rootIndexes}
+            failuresOnly={failuresOnly}
+            refreshKey={laneRequest?.requestId ?? 0}
+            running={running}
             onReopenLatest={onReopenLatest}
+            onReadState={reportListState}
           />
         </>
       )}
@@ -90,11 +266,68 @@ function IssuePages({
   client,
   resultVersion,
   kind,
+  rootIndexes,
+  failuresOnly,
+  refreshKey,
+  running,
   onReopenLatest,
-}: IssueSource & { kind: ScanFailureKind | undefined }) {
+  onReadState,
+}: IssueSource & {
+  kind: ScanFailureKind | undefined;
+  rootIndexes: number[] | undefined;
+  failuresOnly: boolean;
+  refreshKey: number;
+  onReadState: (ready: boolean, count: string) => void;
+}) {
   const text = useLocaleText();
-  const list = useScanFailures(client, resultVersion, kind);
+  const list = useScanFailures(
+    client,
+    resultVersion,
+    kind,
+    rootIndexes,
+    failuresOnly,
+    refreshKey,
+  );
   const { rows, totalCount, problem } = list;
+  const autoFollowKey = `${resultVersion}:${refreshKey}:${kind ?? ""}:${rootIndexes?.join(",") ?? ""}:${failuresOnly}`;
+  const autoFollowed = useRef("");
+
+  useEffect(() => {
+    const ready =
+      !list.pending &&
+      list.version === resultVersion &&
+      (totalCount !== undefined || problem !== undefined);
+    const count =
+      totalCount === undefined
+        ? ""
+        : text(
+            "ui.analysis.issues_count",
+            "Showing {shown} of {total} issues",
+            { shown: BigInt(rows.length), total: BigInt(totalCount) },
+          );
+    onReadState(ready, count);
+  }, [
+    list.pending,
+    list.version,
+    onReadState,
+    problem,
+    resultVersion,
+    rows.length,
+    text,
+    totalCount,
+  ]);
+
+  useEffect(() => {
+    if (
+      !running ||
+      problem !== "stale_version" ||
+      autoFollowed.current === autoFollowKey
+    )
+      return;
+    autoFollowed.current = autoFollowKey;
+    onReopenLatest();
+  }, [autoFollowKey, onReopenLatest, problem, running]);
+
   return (
     <>
       {list.pending && (
@@ -102,7 +335,7 @@ function IssuePages({
           label={text("ui.analysis.issues_reading", "Reading scan issues")}
         />
       )}
-      {problem && (
+      {problem && !(running && problem === "stale_version") && (
         <IssueProblem
           problem={problem}
           pending={list.pending}

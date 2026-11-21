@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -18,6 +18,10 @@ import { useSelectionHold } from "./use-selection-hold";
 import { useSummaryBatch } from "./summary-batch";
 import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
+import type {
+  ScanIssueLaneRequest,
+  ScanIssueLaneSelection,
+} from "./scan-issue-filter";
 import "../../theme/analysis-results.css";
 
 /**
@@ -72,6 +76,9 @@ export function ScanOutput({
   const text = useLocaleText();
   const body = useRef<HTMLElement>(null);
   const versionSummary = useRef<HTMLDivElement>(null);
+  const issueRequestSequence = useRef(0);
+  const [issueLaneRequest, setIssueLaneRequest] =
+    useState<ScanIssueLaneRequest>();
   const holding = useSelectionHold([body, versionSummary]);
   const state = scan.status?.state;
   const publishing = running && state !== "paused";
@@ -83,6 +90,12 @@ export function ScanOutput({
   const error = problem ?? scanErrorText(scan, text);
   const awaitingTotals =
     !running && Boolean(scan.status?.resultVersion) && !total && !scan.error;
+  const onViewUnreadableLocations = (selection: ScanIssueLaneSelection) => {
+    setIssueLaneRequest({
+      ...selection,
+      requestId: ++issueRequestSequence.current,
+    });
+  };
   return (
     <>
       <ScanOutputHeader
@@ -96,6 +109,7 @@ export function ScanOutput({
         actions={actions}
         roots={roots}
         priorityArea={priorityArea}
+        onViewUnreadableLocations={onViewUnreadableLocations}
       />
       <section
         ref={body}
@@ -131,6 +145,8 @@ export function ScanOutput({
             onDisplayChoice={onDisplayChoice}
             onSizeBasisChange={onSizeBasisChange}
             onReopenLatest={scan.showLatest}
+            running={running}
+            laneRequest={issueLaneRequest}
           />
         ) : running ? (
           <Text kind="muted">

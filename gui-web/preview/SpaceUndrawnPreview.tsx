@@ -69,6 +69,11 @@ function fixture() {
     quantity: lowerQuantity(scope),
     sourceSize: lower(scope),
   };
+  // F03 says an allocated total may count shared space twice (#351).
+  model.totals.scopeMeasurementLimits = [
+    "space.allocated_not_collected",
+    "space.allocated_may_include_shared",
+  ];
   model.totals.drawn = {
     quantity: lowerQuantity(bytes(160)),
     sourceSize: lower(bytes(160)),
@@ -174,9 +179,42 @@ function partialFixture() {
   return { frame, page };
 }
 
+/**
+ * Folders the scan could not read (F06 README 48, #346): 「사진 보관함」 was partly
+ * read and is drawn by what was read, as a lower bound; 「개인 금고」 could not be
+ * read at all, has no area and reads 「확인 불가」 in the table.
+ */
+function unreadFixture() {
+  const { frame, page } = partialFixture();
+  const { model } = frame;
+  const rows = page.response.rows;
+  rows[0] = { ...rows[0]!, unread: { kind: "inside", count: "1" } };
+  rows[3] = {
+    ...rows[3]!,
+    displayName: "개인 금고",
+    size: lower(bytes(0)),
+    displayFlags: [],
+    unread: { kind: "itself" },
+  };
+  const summary = { ...model.summary };
+  delete summary.unknownSize;
+  delete summary.firstUnknownRow;
+  model.summary = {
+    ...summary,
+    unknownItems: items("0"),
+    unreadFolders: items("2"),
+    firstUnreadRow: 0,
+  };
+  return { frame, page };
+}
+
 export function SpaceUndrawnPreview({ scene }: { scene: string }) {
   const [{ frame, page }] = useState(() =>
-    scene === "partial" ? partialFixture() : fixture(),
+    scene === "partial"
+      ? partialFixture()
+      : scene === "unread"
+        ? unreadFixture()
+        : fixture(),
   );
   const [shown, setShown] = useState(page);
   const [criterion, setCriterion] = useState("type");

@@ -42,6 +42,8 @@ import { DatePickerPreview } from "./DatePickerPreview";
 import { JobCenterPreview } from "./JobCenterPreview";
 import { HistoryRetentionPreview } from "./HistoryRetentionPreview";
 import { SpaceUndrawnPreview } from "./SpaceUndrawnPreview";
+import { HistogramListPreview } from "./HistogramListPreview";
+import { TargetPickerPreview } from "./TargetPickerPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -77,7 +79,12 @@ const stateOptions: { value: SurfaceState; label: string }[] = [
   { value: "unavailable", label: "사용 불가" },
 ];
 
-type GallerySurface = SurfaceId | "history-retention" | "space-undrawn";
+type GallerySurface =
+  | SurfaceId
+  | "history-retention"
+  | "space-undrawn"
+  | "histogram-list"
+  | "target-picker";
 
 /** The surface and theme named in the address, for a capture that opens on them. */
 function requested(): {
@@ -90,7 +97,10 @@ function requested(): {
   const theme = query.get("theme");
   return {
     surface:
-      surface === "history-retention" || surface === "space-undrawn"
+      surface === "history-retention" ||
+      surface === "space-undrawn" ||
+      surface === "histogram-list" ||
+      surface === "target-picker"
         ? surface
         : surface !== null && Object.hasOwn(fixtures, surface)
           ? (surface as SurfaceId)
@@ -138,6 +148,12 @@ export function Gallery() {
   }
   if (surface === "space-undrawn") {
     return <SpaceUndrawnPreview scene={scene} />;
+  }
+  if (surface === "histogram-list") {
+    return <HistogramListPreview />;
+  }
+  if (surface === "target-picker") {
+    return <TargetPickerPreview />;
   }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;

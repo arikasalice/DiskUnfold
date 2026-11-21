@@ -102,6 +102,7 @@ function ScopeFeedback({
         onPathCompositionChange={() => {}}
         review={{
           reviewing: false,
+          awaiting: false,
           targets: review.targets,
           openPrivacySettings: () => {},
         }}
