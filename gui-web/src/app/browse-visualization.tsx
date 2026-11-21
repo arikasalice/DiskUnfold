@@ -37,6 +37,7 @@ import { useLocaleText } from "../i18n/presentation";
 import { shownHeight } from "./page-scroll";
 import { useHistogramAxis } from "./histogram-axis";
 import { useLegendChoice } from "./legend-choice";
+import { TypeListPlace, useTypeListView } from "./type-list-place";
 
 export type BrowseVisualizationSelection = {
   resultVersion: string;
@@ -339,6 +340,8 @@ export function BrowseVisualizationView({
   );
   const axis = useHistogramAxis(formats.format, catalog, assembly, vizText);
   const legend = useLegendChoice(formats.format, catalog, assembly, vizText);
+  // "Show in list" puts the file list in the chart's place (README 46.13).
+  const list = useTypeListView(open, client, legend.narrowing);
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });
@@ -454,7 +457,7 @@ export function BrowseVisualizationView({
           <Text kind="path">{selection.locationTrail.join(" › ")}</Text>
         )}
         {formats.options.length > 1 && (
-          <div ref={formats.strip}>
+          <div ref={formats.strip} hidden={list.listing}>
             <SegmentedChoice
               label={vizText.message("formatChoice")}
               value={formats.format}
@@ -470,7 +473,19 @@ export function BrowseVisualizationView({
           </div>
         )}
       </header>
-      <div ref={viewportElement} className="du-visualization-viewport">
+      <TypeListPlace
+        port={list.port}
+        resultVersion={selection.resultVersion}
+        scope={selection.location}
+        narrowing={legend.narrowing}
+        text={vizText}
+        title={title}
+      />
+      <div
+        ref={viewportElement}
+        className="du-visualization-viewport"
+        hidden={list.listing}
+      >
         {viewport ? (
           <ChartAreaContext.Provider value={area}>
             <VisualizationSession

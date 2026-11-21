@@ -4,7 +4,7 @@ import { Action, ChartLegend, Text } from "../../components";
 import type { GeometryRendererProps, LegendEntry } from "../../components";
 import { hasClosedFolders, TYPE_CRITERION, vizMessage } from "../../viz";
 import type { ModelResponse, VizText } from "../../viz";
-import type { QueryCondition } from "../../ipc";
+import type { QueryCondition, SizeBasis, VizQuantity } from "../../ipc";
 
 /** The colour criterion choice and the pattern switch, kept by the screen. */
 export type LegendControls = {
@@ -147,6 +147,8 @@ export function ModelLegend({
 export type TypeNarrowing = {
   key: string | null;
   label: string | null;
+  /** The chosen type's condition, for the file list (README 46.13). */
+  condition: QueryCondition | null;
   /** Chosen, but the format shown does not narrow (README 46.5). */
   inactive: boolean;
   /** Why it is inactive (README 46.12, 47.4): the format, or a running scan. */
@@ -158,6 +160,20 @@ export type TypeNarrowing = {
   ) => void;
   /** What a shown frame says about narrowing it: whether the scan still runs. */
   report: (facts: { scanning: boolean }) => void;
+  /** The file list shown in the chart's place, with the legend values it opened with. */
+  listing: TypeListSummary | null;
+  openList: (summary: TypeListSummary) => void;
+  /** Back to the chart; "Show in list" then takes the focus once. */
+  closeList: () => void;
+  focusShowInList: boolean;
+  settleFocus: () => void;
+};
+
+/** The legend row of the chosen type when the list opened (README 46.13). */
+export type TypeListSummary = {
+  count: VizQuantity;
+  size: VizQuantity;
+  sizeBasis: SizeBasis;
 };
 
 /** Whether this frame is drawn narrowed to the chosen type. */
@@ -208,6 +224,7 @@ export function NarrowingStatus({
   const removed = narrowedFrame(narrowing, frame)
     ? filteredOutText(frame, text)
     : null;
+  const summary = listSummary(narrowing, frame);
   return (
     <>
       {live}
@@ -218,11 +235,23 @@ export function NarrowingStatus({
         {/* Inactive, the chip still clears the condition (README 46.11). */}
         <Action
           onPress={() => narrowing.choose(null)}
-          aria-label={text.message("filterClearType")}
+          // The name starts with the visible words (README 46.2, WCAG 2.5.3).
+          aria-label={vizMessage(text, "filterChipName", { chip: label })}
           {...(narrowing.inactive ? { "aria-describedby": noteId } : {})}
         >
           {`${label} ×`}
         </Action>
+        {summary && (
+          // Right of the chip; the chip already names the type (README 46.3).
+          <Action
+            variant="quiet"
+            autoFocus={narrowing.focusShowInList}
+            onFocus={narrowing.settleFocus}
+            onPress={() => narrowing.openList(summary)}
+          >
+            {text.message("filterShowInList")}
+          </Action>
+        )}
         {narrowing.inactive && (
           <div id={noteId}>
             <Text kind="muted">
@@ -234,6 +263,24 @@ export function NarrowingStatus({
       </div>
     </>
   );
+}
+
+/** The legend values the file list opens with, when the chart is narrowed. */
+function listSummary(
+  narrowing: TypeNarrowing,
+  frame: ModelResponse,
+): TypeListSummary | null {
+  if (!narrowing.condition || !narrowedFrame(narrowing, frame)) return null;
+  const entry = frame.model.legend.find(
+    (candidate) => candidate.key === narrowing.key,
+  );
+  return entry
+    ? {
+        count: entry.itemCount,
+        size: entry.total.quantity,
+        sizeBasis: frame.model.representation.sizeBasis,
+      }
+    : null;
 }
 
 /**

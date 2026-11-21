@@ -112,11 +112,13 @@ pub(crate) fn dispatch_lane(message: &str) -> du_platform_os::webview::DispatchL
             | "group.cancel",
         ) => DispatchLane::QueryControl,
         // Quit joins the job controls so a request blocked behind ordered work
-        // cannot hold up leaving the app. Scan priority only records an in-memory
-        // scheduling signal and must not wait behind ordered OS-bound requests.
-        Some("job.cancel" | "job.pause" | "job.resume" | "scan.prioritize" | "app.quit") => {
-            DispatchLane::JobControl
-        }
+        // cannot hold up leaving the app. Scan priority and scan resource changes
+        // only record in-memory scheduling values and must not wait behind ordered
+        // OS-bound requests.
+        Some(
+            "job.cancel" | "job.pause" | "job.resume" | "scan.prioritize" | "scan.set_resource"
+            | "app.quit",
+        ) => DispatchLane::JobControl,
         _ => DispatchLane::Ordered,
     }
 }

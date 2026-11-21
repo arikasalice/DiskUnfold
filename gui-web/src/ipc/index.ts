@@ -82,6 +82,8 @@ import type {
   ScanFailuresRequest,
   ScanPriorityRequest,
   ScanPriorityResponse,
+  ScanSetResourceRequest,
+  ScanSetResourceResponse,
   ScanStart,
   ScanStartRequest,
   SettingsRestoreRequest,
@@ -250,8 +252,14 @@ export type {
   ScanFailureStage,
   ScanFailures,
   ScanFailuresRequest,
+  ScanCollection,
+  ScanCollectionCondition,
   ScanPriorityRequest,
   ScanPriorityResponse,
+  ScanResourceMode,
+  ScanSetResourceOutcome,
+  ScanSetResourceRequest,
+  ScanSetResourceResponse,
   ScanStart,
   SettingsRestoreStatus,
   ScopeDraft,
@@ -353,6 +361,7 @@ type Commands = {
   "scan.start": [ScanStartRequest, ScanStart];
   "scan.failures": [ScanFailuresRequest, ScanFailures];
   "scan.prioritize": [ScanPriorityRequest, ScanPriorityResponse];
+  "scan.set_resource": [ScanSetResourceRequest, ScanSetResourceResponse];
   "job.get": [AnalysisJobRequest, AnalysisJobStatus];
   "job.list": [AnalysisJobListRequest, AnalysisJobListRow[]];
   "job.pause": [AnalysisJobRequest, AnalysisJobControl];
@@ -456,6 +465,7 @@ export {
   scanPriorityText,
   scanPriorityTone,
   scanProblemText,
+  isScanResourceLimitInvalid,
   scopeErrorText,
   scopeNoticeText,
   scopeReviewErrorText,
