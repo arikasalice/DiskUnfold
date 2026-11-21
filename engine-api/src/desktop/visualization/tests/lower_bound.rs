@@ -265,8 +265,8 @@ fn a_scope_with_an_unread_entry_is_a_model_with_the_gap_reason_and_the_state_of_
     assert_eq!(total(model, "scope")?, ("lower_bound".into(), 150));
     assert_within_scope(model)?;
     assert_remainder_follows_the_scope(model, true)?;
-    // The unread entry has no area, so it is the one cause the remainder is known to hold.
-    assert_eq!(keys(model), &json!([REMAINDER_UNATTRIBUTED]));
+    // The unread entry is a known zero lower bound, so no remainder is left unattributed.
+    assert!(keys(model).is_null());
     // Whether a folder that was read completely is a lower bound depends on how F03
     // treats a result with unread ranges: the whole result today, only the folders above
     // an unread range once FR5.HD1 is applied per folder. This holds for both: the mark of
