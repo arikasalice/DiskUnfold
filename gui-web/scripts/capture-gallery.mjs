@@ -11,7 +11,8 @@
 //   forced-colors states (#272).
 //   The default browse run captures the #133 scene and both #226 lower-bound scenes.
 // - scan-lanes scenes: the F02 #317 collection-condition states and the
-//   accepted resource change while the current folder is still being read.
+//   accepted resource change while the current folder is still being read,
+//   plus the F02 #257 lane failure link and issue filters.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
@@ -20,7 +21,9 @@
 //   npm run capture:date-picker-gallery -- [output folder]
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
-//            scope-error-unknown | progress | progress-limit-error
+//            scope-error-unknown | progress | progress-limit-error |
+//            failure-lanes | failure-list | failure-narrow |
+//            failure-storage-only | failure-dark
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -75,6 +78,11 @@ const scanLaneScenes = [
   "scope-error-unknown",
   "progress",
   "progress-limit-error",
+  "failure-lanes",
+  "failure-list",
+  "failure-narrow",
+  "failure-storage-only",
+  "failure-dark",
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
 const requestedScanLaneScene =
@@ -99,7 +107,24 @@ const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
 const height = 900;
-const galleryShots =
+const scanFailureShots = {
+  "failure-lanes": [
+    { name: "failure-lanes-light-1280", theme: "light", width: 1280 },
+  ],
+  "failure-list": [
+    { name: "failure-list-light-1280", theme: "light", width: 1280 },
+  ],
+  "failure-narrow": [
+    { name: "failure-list-light-700", theme: "light", width: 700 },
+  ],
+  "failure-storage-only": [
+    { name: "failure-storage-only-light-1280", theme: "light", width: 1280 },
+  ],
+  "failure-dark": [
+    { name: "failure-list-dark-1280", theme: "dark", width: 1280 },
+  ],
+};
+const defaultGalleryShots =
   surface === "history-retention"
     ? [
         {
@@ -355,6 +380,8 @@ const galleryShots =
                         { name: "dark-1280", theme: "dark", width: 1280 },
                         { name: "light-700", theme: "light", width: 700 },
                       ];
+const galleryShots =
+  scanFailureShots[requestedScanLaneScene] ?? defaultGalleryShots;
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -818,6 +845,10 @@ async function saveLanes(session, name, locale = "ko") {
   console.log(file);
 }
 
+async function saveFailureScene(session, name) {
+  await save(session, name, true);
+}
+
 await mkdir(output, { recursive: true });
 const server = await createServer({
   configFile: join(gui, "preview", "vite.config.ts"),
@@ -845,7 +876,67 @@ try {
       );
       if (surface === "scan-lanes" && scene?.startsWith("scope-"))
         await save(session, shot.name, true, scene);
-      else if (surface === "scan-lanes" && scene === "progress") {
+      else if (surface === "scan-lanes" && scene?.startsWith("failure-")) {
+        if (scene !== "failure-lanes") {
+          const activated = await session.run(() => {
+            const link = document.querySelector(
+              '.du-scan-lanes .du-text-link[aria-label="읽지 못한 위치 2곳 보기"]',
+            );
+            if (!(link instanceof HTMLElement)) return false;
+            link.click();
+            return true;
+          });
+          if (!activated)
+            throw new Error("The lane failure link was not found");
+          if ((await session.run(drawn, ".du-scan-issues__chip", 2)) !== 2)
+            throw new Error("The two lane filters were not drawn");
+          let focusedTitle = false;
+          for (let attempt = 0; attempt < 40 && !focusedTitle; attempt += 1) {
+            await sleep(50);
+            focusedTitle = await session.run(() => {
+              const heading = document.querySelector(
+                ".du-scan-issues .du-heading",
+              );
+              return (
+                heading instanceof HTMLElement &&
+                document.activeElement === heading &&
+                heading.getAttribute("aria-label")?.includes("2")
+              );
+            });
+          }
+          if (!focusedTitle)
+            throw new Error("The filtered scan issues title was not focused");
+          if (scene === "failure-storage-only") {
+            const removed = await session.run(() => {
+              const button = Array.from(
+                document.querySelectorAll(".du-scan-issues__chip button"),
+              ).find(
+                (candidate) =>
+                  candidate.getAttribute("aria-label") ===
+                  "종류: 읽지 못한 위치, 종류 조건 지우기",
+              );
+              if (!(button instanceof HTMLElement)) return false;
+              button.click();
+              return true;
+            });
+            if (!removed) throw new Error("The Kind filter chip was not found");
+            if ((await session.run(drawn, ".du-scan-issues__chip", 1)) !== 1)
+              throw new Error("The Storage filter chip did not remain");
+          }
+          if (scene === "failure-narrow") {
+            const wrapped = await session.run(() => {
+              const chips = document.querySelectorAll(".du-scan-issues__chip");
+              return (
+                chips.length === 2 &&
+                chips[1].getBoundingClientRect().top >
+                  chips[0].getBoundingClientRect().top
+              );
+            });
+            if (!wrapped) throw new Error("The filters did not wrap at 700 px");
+          }
+        }
+        await saveFailureScene(session, shot.name);
+      } else if (surface === "scan-lanes" && scene === "progress") {
         const changed = await session.run(() => {
           const fast = document.querySelector(
             'input[type="radio"][value="fast"]',
