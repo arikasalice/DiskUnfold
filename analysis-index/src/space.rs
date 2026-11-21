@@ -179,9 +179,19 @@ impl SpaceAggregates {
         completeness: ResultCompleteness,
         proven: Option<&crate::folder_completion::ProvenFolders>,
     ) -> Self {
+        let mut has_children = vec![false; items.len()];
+        for item in items {
+            if let Some(parent) = item.parent {
+                has_children[parent as usize] = true;
+            }
+        }
         let item_numbers: Vec<_> = items
             .iter()
-            .filter(|item| is_structure(item.kind))
+            .filter(|item| {
+                is_structure(item.kind)
+                    || item.parent.is_none()
+                    || has_children[item.item_no as usize]
+            })
             .map(|item| item.item_no)
             .collect();
         let placeholder = Accumulator::default().finish(completeness);
@@ -286,12 +296,11 @@ pub(crate) fn aggregate(
         }
         // A file outside the boundary keeps its own unknown value but is an unread range
         // for its folder, so it adds neither bytes nor a missing item above it.
-        if is_structure(item.kind) {
-            let slot = output
-                .slot(item.item_no)
-                .expect("every structural item has an aggregate slot");
+        if let Some(slot) = output.slot(item.item_no) {
+            sums[slot].merge(&own);
             output.values[slot] = sums[slot].finish(output.source(item.item_no));
             if let Some(parent) = item.parent
+                && boundary.binary_search(&item.item_no).is_err()
                 && let Some(parent_slot) = output.slot(parent)
             {
                 let child = sums[slot].clone();
