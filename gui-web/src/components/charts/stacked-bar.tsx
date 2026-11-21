@@ -22,6 +22,8 @@ export type StackedBarProps = {
   readonly total?: number;
   /** 8 in a table row, 12 in a summary card, 20 with a name inside (README 13). */
   readonly height?: 8 | 12 | 20;
+  /** Its length in CSS px, as in a table cell; by default the width it is given. */
+  readonly width?: number;
   /** Patterns on every slice: the pattern switch, or forced colours. */
   readonly patterns?: boolean;
 };
@@ -35,6 +37,7 @@ export function StackedBar({
   slices,
   total,
   height = 8,
+  width,
   patterns = false,
 }: StackedBarProps) {
   const prefix = useId();
@@ -48,7 +51,12 @@ export function StackedBar({
       ? slice.pattern
       : null;
   return (
-    <div className="du-stacked-bar" data-height={height} aria-hidden="true">
+    <div
+      className="du-stacked-bar"
+      data-height={height}
+      aria-hidden="true"
+      {...(width === undefined ? {} : { style: { width } })}
+    >
       {shown.some((slice) => patterned(slice) !== null) && (
         <svg className="du-stacked-bar__defs" width={0} height={0}>
           <defs>
