@@ -126,58 +126,6 @@ pub struct VizTotal {
     pub source_size: Option<SizeValue>,
 }
 
-/// The totals of one model. They have one definition for every format.
-///
-/// - `scope` is the original aggregate of the pinned scope, never derived from geometry.
-/// - `drawn` is the sum of the item shapes, the shapes that each stand for one item. A
-///   group shape is not in it, and a shape nested inside a drawn folder lies within that
-///   folder's value and is never added again. A format whose shapes are all groups, such
-///   as the histogram, has no item shape: its `drawn` total is zero.
-/// - `grouped` is the sum of every group, whether the group has a shape or only a table
-///   row. For the histogram it is the sum of the items in its intervals.
-/// - `filtered_out` is the sum of what the request's condition removed.
-///
-/// The three sums never overlap. What none of them holds is the `remainder`.
-///
-/// [`VizModel::validate_revision`] adds the five values only when they are all exact and
-/// in one unit, so the totals of a model that counts items are never added to bytes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct VizTotals {
-    pub scope: VizTotal,
-    pub drawn: VizTotal,
-    pub grouped: VizTotal,
-    pub filtered_out: VizTotal,
-    /// What the scope holds beyond `drawn`, `grouped` and `filteredOut`.
-    ///
-    /// Siblings below the minimum area or coordinate precision, and space no single item
-    /// can carry, such as a file shared between siblings that the scope counts once. The
-    /// engine computes it; a consumer only displays it. Exact only when the scope and the
-    /// other three totals are exact, and then never negative; otherwise unknown with a
-    /// reason. Omitted rather than null; a model without it says nothing about it.
-    #[serde(
-        default,
-        deserialize_with = "optional_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[cfg_attr(feature = "typescript", ts(optional))]
-    pub remainder: Option<VizTotal>,
-    /// What the remainder holds: `viz.remainder.too_small` or `viz.remainder.unattributed`.
-    ///
-    /// Omitted when the remainder is absent or exactly zero, at least one key when it is
-    /// exact and not zero, and the known causes or nothing when it is unknown (its reason
-    /// says why). Valid only with `remainder`; keys are not empty, sorted and without
-    /// duplicates, and an unregistered key is preserved. Omitted rather than null.
-    #[serde(
-        default,
-        deserialize_with = "optional_present",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[cfg_attr(feature = "typescript", ts(optional))]
-    pub remainder_reason_keys: Option<Vec<String>>,
-}
-
 /// Revisions of the tables and size rule fixed for the model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -491,4 +439,4 @@ mod summary;
 mod tests;
 mod totals;
 
-pub use totals::{REMAINDER_TOO_SMALL, REMAINDER_UNATTRIBUTED};
+pub use totals::{REMAINDER_TOO_SMALL, REMAINDER_UNATTRIBUTED, VizTotals};

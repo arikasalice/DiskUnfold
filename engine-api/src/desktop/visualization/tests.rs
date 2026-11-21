@@ -6,6 +6,7 @@ mod lower_bound;
 mod measure;
 mod remainder;
 mod revisions;
+mod scope_limits;
 mod support;
 mod totals;
 mod type_filter;

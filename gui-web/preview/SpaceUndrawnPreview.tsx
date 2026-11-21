@@ -69,6 +69,11 @@ function fixture() {
     quantity: lowerQuantity(scope),
     sourceSize: lower(scope),
   };
+  // F03 says an allocated total may count shared space twice (#351).
+  model.totals.scopeMeasurementLimits = [
+    "space.allocated_not_collected",
+    "space.allocated_may_include_shared",
+  ];
   model.totals.drawn = {
     quantity: lowerQuantity(bytes(160)),
     sourceSize: lower(bytes(160)),

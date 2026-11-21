@@ -1138,6 +1138,8 @@
     ["ui.visualization.sankey","Sankey",[]],
     ["ui.visualization.scopeTotal","Scope total",[]],
     ["ui.visualization.scopeTotalBasisLine","Scope total {value} · {basis}",[["value","name"],["basis","name"]]],
+    ["ui.visualization.scopeMayExceedUsage","may exceed actual usage",[]],
+    ["ui.visualization.scopeMayExceedUsageTooltip","Cloned files share the same space, so this can look larger than the actual disk usage.",[]],
     ["ui.visualization.scopeTotalLine","Scope total {value}",[["value","name"]]],
     ["ui.visualization.selected","selected",[]],
     ["ui.visualization.selectionLost","The previous selection could not be matched to this result.",[]],

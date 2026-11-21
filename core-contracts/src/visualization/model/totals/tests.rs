@@ -42,6 +42,7 @@ fn totals(
         filtered_out: bytes(parts[2])?,
         remainder: remainder.map(bytes).transpose()?,
         remainder_reason_keys: None,
+        scope_measurement_limits: None,
     })
 }
 
@@ -146,6 +147,7 @@ fn quantities_of_different_units_are_not_added() -> TestResult {
                 filtered_out: items(parts[2])?,
                 remainder: remainder.map(items).transpose()?,
                 remainder_reason_keys: None,
+                scope_measurement_limits: None,
             })
         };
     assert_eq!(counts(10, [0, 8, 0], Some(2))?.validate_breakdown(), Ok(()));
@@ -224,5 +226,27 @@ fn the_reason_keys_need_a_remainder_and_must_be_sorted_and_unique() -> TestResul
         with_keys(unknown_remainder, &[REMAINDER_TOO_SMALL]).validate_breakdown(),
         Ok(())
     );
+    Ok(())
+}
+
+#[test]
+fn scope_measurement_limits_are_present_only_with_distinct_keys() -> TestResult {
+    let limits = |keys: &[&str]| -> Result<VizTotals, &'static str> {
+        Ok(VizTotals {
+            scope_measurement_limits: Some(keys.iter().map(|key| (*key).to_owned()).collect()),
+            ..totals(10, [10, 0, 0], None)?
+        })
+    };
+    // F03's order and an unknown key are kept.
+    limits(&["space.later_key", "space.allocated_may_include_shared"])?.validate_breakdown()?;
+    let bad = Err("invalid scope measurement limits");
+    assert_eq!(limits(&[])?.validate_breakdown(), bad);
+    assert_eq!(limits(&["space.a", "space.a"])?.validate_breakdown(), bad);
+    assert_eq!(limits(&[""])?.validate_breakdown(), bad);
+    // Omitted rather than null.
+    let mut wire = serde_json::to_value(totals(10, [10, 0, 0], None)?).map_err(|_| "json")?;
+    assert!(wire.get("scopeMeasurementLimits").is_none());
+    wire["scopeMeasurementLimits"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<VizTotals>(wire).is_err());
     Ok(())
 }

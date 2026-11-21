@@ -1114,6 +1114,8 @@ ui.visualization.rowsNotRetrieved
 ui.visualization.rowsOnePage count:count
 ui.visualization.sameRevision
 ui.visualization.sankey
+ui.visualization.scopeMayExceedUsage
+ui.visualization.scopeMayExceedUsageTooltip
 ui.visualization.scopeTotal
 ui.visualization.scopeTotalBasisLine value:name basis:name
 ui.visualization.scopeTotalLine value:name
