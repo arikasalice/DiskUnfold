@@ -10,6 +10,7 @@
 //! its first read is assigned again, in the current priority order.
 use super::admission::Boundary;
 use super::correlated_budget::Permit;
+use crate::scan_diagnostics::{DirectoryFrameMetrics, FrameAccounting};
 pub(super) mod correlated;
 use du_core_contracts::{
     ports::PortError,
@@ -269,6 +270,7 @@ pub(super) struct Frame {
     /// far, over all of its batches. It is reported once, when the listing
     /// ends or stops; a name the rule could not decide is not counted.
     pub(super) excluded: u64,
+    accounting: Option<Box<FrameAccounting>>,
 }
 
 impl Frame {
@@ -332,6 +334,7 @@ impl Frame {
             case_observed: false,
             boundary: Boundary::Unknown,
             excluded: 0,
+            accounting: None,
         }
     }
 
@@ -339,4 +342,22 @@ impl Frame {
     pub(super) fn depth(&self) -> usize {
         self.path.len()
     }
+
+    /// Starts accounting this frame until it is dropped, including while a worker owns it.
+    pub(super) fn track(&mut self, metrics: Option<&Arc<DirectoryFrameMetrics>>) {
+        if let Some(metrics) = metrics {
+            self.accounting = Some(Box::new(FrameAccounting::new(
+                Arc::clone(metrics),
+                path_heap_bytes(&self.path),
+            )));
+        }
+    }
+}
+
+fn path_heap_bytes(path: &Vec<Vec<u8>>) -> usize {
+    path.capacity()
+        .saturating_mul(std::mem::size_of::<Vec<u8>>())
+        .saturating_add(path.iter().fold(0_usize, |bytes, component| {
+            bytes.saturating_add(component.capacity())
+        }))
 }

@@ -34,7 +34,7 @@ fn stop(shared: &Shared, context: &dyn JobContext) -> Option<Failure> {
 
 /// Waits without holding a directory lease or scheduler lock.
 fn send(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     mut event: Event,
     shared: &Shared,
     context: &dyn JobContext,
@@ -74,7 +74,7 @@ fn receive<T>(
 
 /// Clones and registers a path only after its folder observation was queued to the publisher.
 pub(super) fn begin(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     context: &dyn JobContext,
     root_index: u32,
@@ -116,7 +116,7 @@ pub(super) fn begin(
 
 /// Acknowledgement means the publisher accepted this exact sequence and payload.
 pub(super) fn record(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     context: &dyn JobContext,
     token: FolderAttemptToken,
@@ -147,7 +147,7 @@ pub(super) fn record(
 
 /// End is an acknowledged barrier after all numbered events have been accepted.
 pub(super) fn end(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     context: &dyn JobContext,
     token: FolderAttemptToken,
@@ -179,7 +179,7 @@ pub(super) fn end(
 
 /// Records a terminal transport failure without waiting for a reply.
 pub(super) fn fail_best_effort(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     attempt: &mut frame::correlated::Attempt,
 ) {
@@ -207,7 +207,7 @@ pub(super) fn fail_best_effort(
 
 /// Cancellation is best-effort; an unaccepted notice leaves the attempt pending at seal time.
 pub(super) fn cancel(
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     attempt: &mut frame::correlated::Attempt,
 ) {

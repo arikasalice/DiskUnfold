@@ -3,6 +3,7 @@ pub mod sample_bundle;
 pub mod sample_job;
 pub mod sample_source;
 pub mod scan;
+mod scan_diagnostics;
 pub mod scan_job;
 pub mod scope;
 pub mod target;

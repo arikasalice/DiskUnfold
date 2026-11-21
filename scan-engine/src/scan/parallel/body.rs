@@ -44,14 +44,20 @@ pub(super) fn run(
     if context.checkpoint() == Checkpoint::Cancel {
         return seal_unstarted(build, ids, root_count, None);
     }
-    let prepared =
-        match preparation::prepare(&mut reports, roots, context, &disconnects, volume_group) {
-            Ok(prepared) => prepared,
-            Err(JobFlowError::Cancelled) => {
-                return seal_unstarted(build, ids, root_count, None);
-            }
-            Err(_) => return Err(BuildError::Unavailable),
-        };
+    let prepared = match preparation::prepare(
+        &mut reports,
+        roots,
+        context,
+        &disconnects,
+        volume_group,
+        diagnostics.map(|scan| scan.visited_metrics()),
+    ) {
+        Ok(prepared) => prepared,
+        Err(JobFlowError::Cancelled) => {
+            return seal_unstarted(build, ids, root_count, None);
+        }
+        Err(_) => return Err(BuildError::Unavailable),
+    };
     build.set_volume_reports(reports.snapshot())?;
     let counted_roots =
         preparation::record_starts(&mut build, &prepared.starts, &disconnects, counts, context)?;
@@ -63,8 +69,12 @@ pub(super) fn run(
         Err(_) => return Err(BuildError::Unavailable),
     };
     let channel_bytes = size_of::<Event>().saturating_mul(BUFFERED_OBSERVATIONS);
-    let correlated_budget = correlated_budget
-        .unwrap_or_else(|| correlated_budget::CorrelatedBudget::with_channel(channel_bytes));
+    let correlated_budget = correlated_budget.unwrap_or_else(|| {
+        correlated_budget::CorrelatedBudget::with_channel(
+            channel_bytes,
+            diagnostics.map(|scan| scan.correlated_budget_metrics()),
+        )
+    });
     let shared = scheduler::create_with_budget(
         prepared,
         devices,
@@ -78,6 +88,7 @@ pub(super) fn run(
     // cannot budget its single inline ring. Correlated selection then falls back before read.
     let _channel_permit = shared.correlated_budget.reserve_channel(channel_bytes);
     let (sender, receiver) = mpsc::sync_channel(BUFFERED_OBSERVATIONS);
+    let observation_metrics = diagnostics.map(|scan| scan.observation_metrics());
     let mut progress = Progress {
         failed_roots: vec![false; root_count],
         root_published: vec![false; root_count],
@@ -104,6 +115,7 @@ pub(super) fn run(
             ids,
             clock,
             abort: &shared.abort,
+            observation_metrics: observation_metrics.as_deref(),
         };
         if let Err(error) = consume(receiver, &mut progress, &mut build, counts, services) {
             failure = Some(error);
@@ -113,6 +125,7 @@ pub(super) fn run(
     });
     // Preserve the peak after workers stop, including failure and cancellation.
     queue::record_ready_peak(&shared, diagnostics);
+    shared.visited.record_final();
     if let Some(diagnostics) = diagnostics {
         diagnostics.record_ended_folder_attempts(shared.correlated_budget.ended_attempts());
     }

@@ -33,7 +33,7 @@ pub(super) fn unstarted_on_closed(frame: &Frame, shared: &Shared, started: bool)
 pub(super) fn close_frame(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> bool {
@@ -49,7 +49,7 @@ pub(super) fn close_frame(
 pub(super) fn unread(
     root_index: u32,
     path: Vec<Vec<u8>>,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
 ) -> bool {
     sender
@@ -67,7 +67,7 @@ pub(super) fn unread(
 fn drain(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
 ) -> bool {

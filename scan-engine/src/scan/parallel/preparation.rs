@@ -5,7 +5,9 @@ use super::{
     volume_reports::Reports,
     *,
 };
+use crate::scan_diagnostics::VisitedMetrics;
 use du_core_contracts::scan_observation::HandleIdentity;
+use std::sync::Arc;
 
 /// Root handles with their start decisions and the identities reserved for them.
 pub(super) struct Prepared {
@@ -26,14 +28,15 @@ pub(super) fn prepare(
     context: &dyn JobContext,
     disconnects: &Disconnects,
     group: Option<du_core_contracts::volume::RootVolumeGroup>,
+    metrics: Option<Arc<VisitedMetrics>>,
 ) -> Result<Prepared, JobFlowError> {
     let mut flows = acquire_flows(context, 1)?;
     let flow = flows.pop().ok_or(JobFlowError::Closed)?;
     reports.start(&roots, context, &*flow, disconnects);
     let identities = identities(&roots, context, &*flow, disconnects);
     flow.finish(JobCounts::default());
-    let (visited, starts) =
-        Visited::reserve_roots_with_group(identities.ok_or(JobFlowError::Cancelled)?, group);
+    let identities = identities.ok_or(JobFlowError::Cancelled)?;
+    let (visited, starts) = Visited::reserve_roots_with(identities, group, metrics);
     Ok(Prepared {
         roots,
         starts,
