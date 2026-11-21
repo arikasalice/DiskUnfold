@@ -58,7 +58,7 @@ impl StartupCapabilitiesPort for Capabilities {
 /// The engine the production assembly function builds, with its event queue.
 pub(super) struct Assembled {
     engine: Engine,
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     events: Arc<DesktopEvents>,
     _profile: tempfile::TempDir,
 }
@@ -110,7 +110,7 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
     verify_registered(&engine, desktop.analysis_registered)?;
     Ok(Assembled {
         engine,
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         events: desktop.events,
         _profile: profile,
     })
