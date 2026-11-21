@@ -1,4 +1,5 @@
 import type { SizeDisplay } from "../../i18n/bytes";
+import { defaultSizeDisplay } from "../../state/size-display";
 import { useLocaleText } from "../../i18n/presentation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -24,6 +25,7 @@ import type {
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
+import { useLocaleOsFamily } from "../../state/use-locale";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
@@ -75,7 +77,7 @@ export function BrowsePanel({
   inspectItem,
   onOpening,
   onOpened,
-  display = { system: "iec", unit: "auto" },
+  display,
   priority,
   rootLabel,
   actionsDisabledReason,
@@ -107,6 +109,8 @@ export function BrowsePanel({
    */
   focusTitle?: boolean;
 }) {
+  const osFamily = useLocaleOsFamily();
+  const effectiveDisplay = display ?? defaultSizeDisplay(osFamily);
   const text = useLocaleText();
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
@@ -410,7 +414,7 @@ export function BrowsePanel({
             pages={view.pages}
             incomplete={page.completeness !== "complete"}
             dedupCapacityLowerBound={dedupCapacityLowerBound}
-            display={display}
+            display={effectiveDisplay}
             initialCursor={page.nextCursor}
             readPage={(request) => port.page(request)}
             busy={busy || previousResult}
