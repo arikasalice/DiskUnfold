@@ -1144,6 +1144,11 @@ export type RecentScopeListRequest = Record<string, never>;
 export type RecentScopeListRow = { recentScopeRef: Id, includeCount: number, lastUsedAt: Timestamp, };
 export type RecentScopeList = { rows: Array<RecentScopeListRow>, };
 export type ScopeCorrespondence = { path: OsPath, access: TargetAccess, reasonKey: string | null, };
+export type ScopeVolumeGroup = {
+/**
+ * Mount path of the data volume, counted together with `/`.
+ */
+dataMount: OsPath, };
 export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: Array<ScopeCorrespondence>, reviewFingerprint: string, observedAt: Timestamp, requestSeq: number,
 /**
  * The macOS root volume group the reviewed scope analyses as one volume (#263).
@@ -1461,6 +1466,16 @@ export type VolumeGapObservation = { "state": "not_attempted" } | { "state": "un
 export type VolumeGapSize = { size: SizeValue, completeness: ResultCompleteness, };
 export type VolumeGapAmount = { "state": "exact", bytes: ByteSize, evidence: SizeEvidence, } | { "state": "unknown", reasonKey: string, };
 export type VolumeGapRow = { key: string, value: VolumeGapAmount, };
+export type VolumeGapVolumeRow = {
+/**
+ * Human-readable volume name as the OS reports it.
+ */
+volumeName: string,
+/**
+ * Display role, an open set of keys; see [`VolumeGapVolumeRow::ROLE_VM`]. A
+ * receiver shows an unknown or omitted role like `volume_role.other`.
+ */
+role?: string, amount: VolumeGapAmount, };
 export type VolumeGapCategories = { "state": "unavailable", reasonKey: string, } | { "state": "available", rows: Array<VolumeGapRow>, };
 export type VolumeGapResponse = { resultVersion: Id, requestSeq: number, volumeId: PathBytes | null, start: VolumeGapObservation, end: VolumeGapObservation, allocated: VolumeGapSize, uniquePhysical: VolumeGapSize, factors: Array<VolumeGapRow>, remainder: VolumeGapAmount, osCategories: VolumeGapCategories,
 /**
