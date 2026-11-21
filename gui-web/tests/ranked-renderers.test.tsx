@@ -195,6 +195,10 @@ test("F06 README 47: the axis ends at the largest single bar and a larger Other 
   expect(widths[0]).toBe(widths[2]);
   expect(Math.abs(widths[1]! * 2 - widths[0]!)).toBeLessThanOrEqual(2);
   expect(container.querySelectorAll(".du-geometry-bar-break")).toHaveLength(2);
+  // Forced colours draw each gap as a line instead (README 47.2).
+  expect(
+    container.querySelectorAll(".du-geometry-bar-break-line"),
+  ).toHaveLength(2);
   const other = container.querySelector('[aria-label="Other 80, 100 MiB"]');
   expect(other?.getAttribute("title")).toBe("Drawn shorter than scale");
   // Its value says it is not to scale; the single bars' values do not.

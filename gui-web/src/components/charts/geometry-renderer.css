@@ -273,13 +273,22 @@
   color: var(--du-text);
 }
 /* A group bar drawn shorter than the axis: two slanted gaps in the surface
-   colour near its end (F06 README 47). */
+   colour near its end (F06 README 47). In forced colours the bar is Canvas, so
+   the gaps give way to two 1 px CanvasText slanted lines (README 47.2). */
 .du-geometry-bar-break {
   fill: var(--du-surface);
 }
+.du-geometry-bar-break-line {
+  display: none;
+}
 @media (forced-colors: active) {
   .du-geometry-bar-break {
-    fill: Canvas;
+    display: none;
+  }
+  .du-geometry-bar-break-line {
+    display: inline;
+    stroke: CanvasText;
+    stroke-width: 1;
   }
 }
 /* A group narrowed to one type: its border is dashed (README 47.4, 4.6). */
