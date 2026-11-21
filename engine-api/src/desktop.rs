@@ -175,6 +175,7 @@ fn history_envelope(change: HistoryChanged) -> Option<EventEnvelope> {
     let reason = match change.reason {
         HistoryChangeReason::Appended => "appended",
         HistoryChangeReason::Interrupted => "interrupted",
+        HistoryChangeReason::RetentionPrune => "retention_prune",
     };
     Some(EventEnvelope {
         topic: HISTORY_CHANGED.into(),

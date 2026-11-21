@@ -23,6 +23,12 @@ struct ScanPorts {
     volumes: Arc<dyn VolumePort>,
 }
 
+type HistoryRetentionRegistration = (
+    crate::history_retention::HistoryExpiryReader,
+    Arc<dyn du_core_contracts::job::SessionUndoInfo>,
+    Arc<dyn Fn(bool) + Send + Sync>,
+);
+
 /// Use cases that must exist once the analysis flow is registered.
 ///
 /// FR1.HD2.app-host.DD1: engine-api registers the `scan.metadata` job kind in
@@ -77,6 +83,9 @@ pub(super) struct Desktop {
     pub(super) events: Arc<DesktopEvents>,
     /// Whether the analysis flow and its job history writer were registered.
     pub(super) analysis_registered: bool,
+    /// Submitter for the startup and periodic retention triggers.
+    pub(super) history_prune_trigger:
+        Option<du_engine_api::history::retention::HistoryPruneTrigger>,
     /// Recent-scope storage worker, present only when the caller opted in.
     #[cfg(windows)]
     pub(super) recent_worker: Option<RecentScopeWorker>,
@@ -90,16 +99,14 @@ pub(super) fn register_desktop(
     capabilities: &dyn StartupCapabilitiesPort,
     settings: &Arc<StartupSettings>,
     database: &SharedDatabase,
-    retention: Option<(
-        crate::history_retention::HistoryExpiryReader,
-        Arc<dyn du_core_contracts::job::SessionUndoInfo>,
-    )>,
+    retention: Option<HistoryRetentionRegistration>,
     #[cfg(windows)] recent: Option<super::RecentScopeOptions>,
 ) -> Result<Desktop, Box<dyn std::error::Error>> {
     let Some(ports) = scan_ports() else {
         return Ok(Desktop {
             events: Arc::new(DesktopEvents::default()),
             analysis_registered: false,
+            history_prune_trigger: None,
             #[cfg(windows)]
             recent_worker: None,
         });
@@ -129,15 +136,26 @@ pub(super) fn register_desktop(
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
-    if let Some((expiry_reader, undo_info)) = retention {
-        services.register_history_retention(
-            builder,
-            settings.clone().history_retention_policy_source(),
-            settings.clone().history_retention_policy_saver(),
-            expiry_reader,
-            undo_info,
-        );
-    }
+    let history_prune_trigger = if let Some((expiry_reader, undo_info, policy_changed)) = retention
+    {
+        Some(
+            services.register_history_retention(
+                builder,
+                settings.clone().history_retention_policy_source(),
+                settings
+                    .clone()
+                    .history_retention_policy_saver(policy_changed.clone()),
+                expiry_reader,
+                undo_info,
+                Arc::new(crate::history_retention::HistoryPruneWriter::new(
+                    settings.clone(),
+                    database.clone(),
+                )),
+            )?,
+        )
+    } else {
+        None
+    };
     services
         .bind_scope_observation_log(Arc::new(database.scope_observations()))
         .map_err(std::io::Error::other)
@@ -178,6 +196,7 @@ pub(super) fn register_desktop(
     Ok(Desktop {
         events: services.events,
         analysis_registered: true,
+        history_prune_trigger,
         #[cfg(windows)]
         recent_worker,
     })

@@ -125,6 +125,11 @@ fn run_app(
         first_run,
         ..
     } = state;
+    let retention_policy = settings.history_retention_policy();
+    let mut history_prune_timer = crate::history_prune_timer::HistoryPruneTimer::new(
+        retention_policy.enabled && retention_policy.unavailable_reason.is_none(),
+    );
+    let retention_policy_changed = history_prune_timer.policy_changed();
     #[allow(unused_mut)]
     let mut builder = EngineBuilder::default();
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -153,6 +158,7 @@ fn run_app(
     let analysis::Desktop {
         events,
         analysis_registered,
+        history_prune_trigger,
         #[cfg(windows)]
         recent_worker,
     } = analysis::register_desktop(
@@ -160,7 +166,7 @@ fn run_app(
         capabilities.as_ref(),
         &settings,
         &database,
-        Some((expiry_reader, undo_info)),
+        Some((expiry_reader, undo_info, retention_policy_changed)),
         #[cfg(windows)]
         recent,
     )?;
@@ -210,6 +216,13 @@ fn run_app(
         &database,
         capabilities.as_ref(),
     )?;
+    let mut history_prune_trigger = history_prune_trigger;
+    if let Some(trigger) = history_prune_trigger.take() {
+        let _ = trigger();
+        history_prune_timer.start(trigger).map_err(|error| {
+            crate::startup_checks::report_pre_window_error(capabilities.as_ref(), error)
+        })?;
+    }
     #[cfg(windows)]
     analysis::register_history_reads(&mut builder, capabilities.as_ref(), history_reader)?;
     let engine = Arc::new(builder.build().map_err(|error| {
@@ -226,19 +239,31 @@ fn run_app(
     let database_owner = database;
     let engine_owner = Arc::new(Mutex::new(Some(engine)));
     let database_owner = Arc::new(Mutex::new(Some(database_owner)));
+    let retention_timer_owner = Arc::new(Mutex::new(Some(history_prune_timer)));
     #[cfg(windows)]
     let recent_worker_owner = Arc::new(Mutex::new(recent_worker));
     #[cfg(windows)]
     let release_extra_owners = {
         let owner = recent_worker_owner.clone();
+        let timer_owner = retention_timer_owner.clone();
         move || {
             if let Ok(mut worker) = owner.lock() {
                 worker.take();
             }
+            if let Ok(mut timer) = timer_owner.lock() {
+                timer.take();
+            }
         }
     };
     #[cfg(not(windows))]
-    let release_extra_owners = || {};
+    let release_extra_owners = {
+        let timer_owner = retention_timer_owner.clone();
+        move || {
+            if let Ok(mut timer) = timer_owner.lock() {
+                timer.take();
+            }
+        }
+    };
     // Settings keeps a database reference during startup and service registration.
     // The shutdown database owner must be the final app-host reference.
     drop(settings);

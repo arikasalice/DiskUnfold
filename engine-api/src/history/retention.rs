@@ -12,9 +12,9 @@ use du_core_contracts::{
         HistoryRetentionCancelRequest, HistoryRetentionCancelResponse, HistoryRetentionChangeKind,
         HistoryRetentionPolicy, HistoryRetentionReview, HistoryRetentionReviewRequest,
     },
-    job::{HistoryExpiryRead, SessionUndoInfo},
+    job::{HistoryExpiryRead, HistoryPruneDelete, HistoryPruneRead, SessionUndoInfo},
 };
-use du_job_runtime::JobRuntime;
+use du_job_runtime::{JobRuntime, RuntimeError};
 
 use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
@@ -22,6 +22,8 @@ use crate::{
 };
 mod sessions;
 use sessions::{ReviewLookup, ReviewSessions, lock_sessions};
+mod prune;
+pub use prune::HistoryPruneTrigger;
 
 /// Reads the authoritative stored policy when a use case starts.
 pub type HistoryRetentionPolicySource = Arc<dyn Fn() -> HistoryRetentionPolicy + Send + Sync>;
@@ -41,6 +43,7 @@ pub type HistoryRetentionPolicySaver = Arc<
 >;
 
 /// Registers the retention commands with a runtime clock and host-owned ports.
+#[allow(clippy::too_many_arguments)]
 pub fn register<R>(
     builder: &mut EngineBuilder,
     runtime: Arc<JobRuntime>,
@@ -48,8 +51,11 @@ pub fn register<R>(
     policy_saver: HistoryRetentionPolicySaver,
     expiry_reader: R,
     undo_info: Arc<dyn SessionUndoInfo>,
-) where
-    R: HistoryExpiryRead + 'static,
+    prune_delete: Arc<dyn HistoryPruneDelete>,
+    wake_workers: Arc<dyn Fn() + Send + Sync>,
+) -> Result<HistoryPruneTrigger, RuntimeError>
+where
+    R: HistoryExpiryRead + HistoryPruneRead + 'static,
 {
     let sessions = Arc::new(Mutex::new(ReviewSessions::new()));
     let ports = Arc::new(RetentionPorts {
@@ -59,11 +65,19 @@ pub fn register<R>(
         expiry_reader: Mutex::new(expiry_reader),
         undo_info,
         sessions: sessions.clone(),
+        prune_delete,
+        wake_workers,
+    });
+    ports.runtime.register(prune::descriptor())?;
+    let trigger: HistoryPruneTrigger = Arc::new({
+        let ports = ports.clone();
+        move || prune::submit(&ports)
     });
     builder.register(GetRetention(policy_source));
     builder.register(ReviewRetention(ports.clone()));
-    builder.register(ApplyRetention(ports));
+    builder.register(ApplyRetention(ports, trigger.clone()));
     builder.register(CancelRetention(sessions));
+    Ok(trigger)
 }
 
 struct GetRetention(HistoryRetentionPolicySource);
@@ -90,11 +104,13 @@ struct RetentionPorts<R> {
     expiry_reader: Mutex<R>,
     undo_info: Arc<dyn SessionUndoInfo>,
     sessions: Arc<Mutex<ReviewSessions>>,
+    prune_delete: Arc<dyn HistoryPruneDelete>,
+    wake_workers: Arc<dyn Fn() + Send + Sync>,
 }
 
 struct ReviewRetention<R>(Arc<RetentionPorts<R>>);
 
-impl<R: HistoryExpiryRead + 'static> UseCase for ReviewRetention<R> {
+impl<R: HistoryExpiryRead + HistoryPruneRead + 'static> UseCase for ReviewRetention<R> {
     const NAME: &'static str = "history.retention_review";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
     type Request = HistoryRetentionReviewRequest;
@@ -118,9 +134,9 @@ impl<R: HistoryExpiryRead + 'static> UseCase for ReviewRetention<R> {
     }
 }
 
-struct ApplyRetention<R>(Arc<RetentionPorts<R>>);
+struct ApplyRetention<R>(Arc<RetentionPorts<R>>, HistoryPruneTrigger);
 
-impl<R: HistoryExpiryRead + 'static> UseCase for ApplyRetention<R> {
+impl<R: HistoryExpiryRead + HistoryPruneRead + 'static> UseCase for ApplyRetention<R> {
     const NAME: &'static str = "history.retention_apply";
     const CHANNELS: &'static [Channel] = &[Channel::Gui];
     type Request = HistoryRetentionApplyRequest;
@@ -135,7 +151,7 @@ impl<R: HistoryExpiryRead + 'static> UseCase for ApplyRetention<R> {
         request: Self::Request,
         _: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
-        apply(&self.0, request)
+        apply(&self.0, &self.1, request)
     }
 }
 
@@ -388,8 +404,9 @@ fn lower_hex(bytes: &[u8]) -> String {
     output
 }
 
-fn apply<R: HistoryExpiryRead>(
+fn apply<R: HistoryExpiryRead + HistoryPruneRead>(
     ports: &RetentionPorts<R>,
+    trigger: &HistoryPruneTrigger,
     request: HistoryRetentionApplyRequest,
 ) -> Result<HistoryRetentionApplyResponse, EngineError> {
     let mut sessions = lock_sessions(&ports.sessions)?;
@@ -407,20 +424,31 @@ fn apply<R: HistoryExpiryRead>(
     if evaluation.review.fingerprint != request.fingerprint {
         return Err(review_stale());
     }
-    let (outcome, policy) = if evaluation.review.change_kind == HistoryRetentionChangeKind::None {
-        (
-            HistoryRetentionApplyOutcome::NoEffect,
-            evaluation.current_policy,
-        )
-    } else {
-        let policy = (ports.policy_saver)(evaluation.target_enabled, evaluation.target_days)
-            .map_err(|_| EngineError::reason("history.policy_store_failed"))?;
-        (HistoryRetentionApplyOutcome::Applied, policy)
-    };
+    let (outcome, policy, cleanup_job_ref) =
+        if evaluation.review.change_kind == HistoryRetentionChangeKind::None {
+            (
+                HistoryRetentionApplyOutcome::NoEffect,
+                evaluation.current_policy,
+                None,
+            )
+        } else {
+            let policy = (ports.policy_saver)(evaluation.target_enabled, evaluation.target_days)
+                .map_err(|_| EngineError::reason("history.policy_store_failed"))?;
+            let cleanup_job_ref = evaluation
+                .review
+                .cleanup_after_apply
+                .then(|| trigger())
+                .flatten();
+            (
+                HistoryRetentionApplyOutcome::Applied,
+                policy,
+                cleanup_job_ref,
+            )
+        };
     let response = HistoryRetentionApplyResponse {
         outcome,
         policy,
-        cleanup_job_ref: None,
+        cleanup_job_ref,
     };
     sessions.mark_applied(&request.review_ref, response.clone())?;
     Ok(response)

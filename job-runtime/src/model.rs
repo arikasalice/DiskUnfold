@@ -327,6 +327,7 @@ pub struct JobRuntime {
     pub(crate) table: Arc<Mutex<Table>>,
     pub(crate) identity: Arc<dyn JobIdentity>,
     pub(crate) clock: Arc<dyn JobClock>,
+    pub(crate) events: Arc<dyn JobEvents>,
     pub(crate) queue_limit: usize,
     pub(crate) consumer: Mutex<Option<JoinHandle<()>>>,
     pub(crate) outstanding: Arc<AtomicUsize>,

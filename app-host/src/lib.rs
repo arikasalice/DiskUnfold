@@ -11,6 +11,7 @@ mod clipboard;
 mod group_rules_store;
 #[cfg(all(feature = "gui", windows))]
 mod history;
+mod history_prune_timer;
 #[cfg(all(
     feature = "gui",
     any(windows, target_os = "linux", target_os = "macos")

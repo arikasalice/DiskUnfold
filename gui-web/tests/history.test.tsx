@@ -235,13 +235,13 @@ function historyEvents(call: ReturnType<typeof vi.fn>) {
   } as unknown as AnalysisClient;
   return {
     client,
-    send(topic: string, revision?: HistoryListRevision) {
+    send(topic: string, revision?: HistoryListRevision, reason?: string) {
       listen?.({
         topic,
         contractVersion: 1,
         seq: ++seq,
         occurredAt: "1970-01-01T00:00:00.000Z",
-        body: { revision },
+        body: { revision, reason, count: "1" },
       });
     },
   };
@@ -283,6 +283,21 @@ test("refreshes a new committed revision once and discards an obsolete page", as
   expect(screen.queryByRole("table", { name: "Operation history" })).toBeNull();
   act(() => events.send("history.changed", newer));
   expect(call).toHaveBeenCalledTimes(3);
+});
+
+test("treats an unknown history change reason as a generic refresh", async () => {
+  const revision = { deleteGeneration: "1", maxRecordSeq: "2" };
+  const call = vi
+    .fn()
+    .mockResolvedValueOnce(response([row], "old"))
+    .mockResolvedValueOnce({ ...response(), revision });
+  const events = historyEvents(call);
+  render(<HistoryPanel client={events.client} onClose={() => {}} />);
+  await screen.findByRole("button", { name: /^View details:/ });
+  act(() => events.send("history.changed", revision, "retention_prune_future"));
+  await screen.findByText("No operations recorded yet.");
+  expect(call).toHaveBeenCalledTimes(2);
+  expect(call.mock.calls[1]?.[1]).toMatchObject({ cursor: null });
 });
 
 test("resynchronizes history after subscriber overflow", async () => {
