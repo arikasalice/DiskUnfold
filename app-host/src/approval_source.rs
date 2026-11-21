@@ -15,7 +15,9 @@ use du_core_contracts::{data_source::DataSource, sample_ipc::APPROVAL_SAMPLE_SOU
 pub fn check_request_plan_source(found: Option<DataSource>) -> Result<(), &'static str> {
     match found {
         Some(DataSource::Real) => Ok(()),
-        Some(DataSource::Sample) | None => Err(APPROVAL_SAMPLE_SOURCE_DENIED),
+        Some(DataSource::Sample | DataSource::Snapshot) | None => {
+            Err(APPROVAL_SAMPLE_SOURCE_DENIED)
+        }
     }
 }
 
@@ -29,6 +31,10 @@ mod tests {
             (Some(DataSource::Real), Ok(())),
             (
                 Some(DataSource::Sample),
+                Err("approval.sample_source_denied"),
+            ),
+            (
+                Some(DataSource::Snapshot),
                 Err("approval.sample_source_denied"),
             ),
             (None, Err("approval.sample_source_denied")),

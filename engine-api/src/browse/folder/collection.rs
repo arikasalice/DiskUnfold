@@ -1,8 +1,7 @@
 //! Per-folder scan state of the pinned version on the published folder rows.
 //!
-//! Only a scan-lineage version (a real data source) supplies these facts; it is the same
-//! test that makes `folder_collection` answer `NotProvided`. A source that is not scan
-//! lineage keeps the values it sent before folder scan state was wired.
+//! Real scans supply their collection facts. Snapshots supply only recorded markers, and
+//! samples keep the values they sent before folder scan state was wired.
 use du_analysis_index::{
     ResultVersion,
     folder_collection::{
@@ -13,6 +12,7 @@ use du_core_contracts::{
     ItemRef, OsPath, PathBytes, PathEncoding,
     browse_ipc::BrowseValue,
     browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal, UnreadInside},
+    data_source::DataSource,
     result::ResultVersionRead,
 };
 
@@ -27,7 +27,7 @@ pub(super) fn page_flags(
     version: &ResultVersion,
     items: &[ItemRef],
 ) -> Result<Vec<FolderFlags>, Error> {
-    if !version.data_source().is_real() {
+    if version.data_source() == DataSource::Sample {
         return Ok(items.iter().map(|_| not_provided()).collect());
     }
     version
@@ -58,7 +58,7 @@ pub(super) fn excluded_children(
     let Some(location) = location else {
         return Ok(None);
     };
-    if !version.data_source().is_real() {
+    if version.data_source() == DataSource::Sample {
         return Ok(None);
     }
     Ok(version

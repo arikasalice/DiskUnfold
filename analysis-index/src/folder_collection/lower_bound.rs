@@ -5,7 +5,7 @@
 //! its cause once ([`ResultVersion::lower_bound_cause`]).
 use super::REASON_IN_PROGRESS;
 use crate::{QueryError, ResultVersion, folder_marks::EvidenceState, origin::ResultOrigin};
-use du_core_contracts::{ItemRef, result::ResultItemKind};
+use du_core_contracts::{ItemRef, data_source::DataSource, result::ResultItemKind};
 
 /// The result recorded no folder attempt evidence: a replacement build or an older
 /// result. Analyzing again records it.
@@ -38,7 +38,7 @@ impl ResultVersion {
     /// number is not in this version.
     pub fn unread_inside(&self, item: &ItemRef) -> Result<Option<UnreadInside>, QueryError> {
         let item = self.detail(item)?.item;
-        if !self.data_source.is_real()
+        if self.data_source == DataSource::Sample
             || item.kind != ResultItemKind::Directory
             || self.recorded_unread(item.item_no).is_some()
         {
@@ -54,6 +54,9 @@ impl ResultVersion {
             .and_then(|aggregate| aggregate.inaccessible_ranges)
             .unwrap_or(0);
         let marked = self.folder_marks.unread_below(item.item_no);
+        if self.data_source == DataSource::Snapshot && count == 0 && !marked {
+            return Ok(None);
+        }
         Ok(Some(if count == 0 && !marked {
             UnreadInside::NoneRecorded
         } else {

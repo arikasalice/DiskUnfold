@@ -10,6 +10,8 @@ use du_core_contracts::data_source::DataSource;
 pub enum PlanReadiness {
     /// The plan was built from sample data and can only be reviewed, never approved.
     SamplePlan,
+    /// Snapshot results are historical and cannot be used as current plan input.
+    SourceNotCurrent,
     /// At least one item still needs a user's confirmation.
     NeedsConfirmation,
     /// No item is included for execution.
@@ -20,12 +22,14 @@ pub enum PlanReadiness {
 
 /// Evaluates the first row of the F10 readiness decision table.
 ///
-/// An absent or sample source ends the evaluation with [`PlanReadiness::SamplePlan`].
-/// A real source returns `None`, and the caller continues with the next row.
+/// An absent or sample source yields [`PlanReadiness::SamplePlan`]. A snapshot
+/// source yields [`PlanReadiness::SourceNotCurrent`], and a real source returns
+/// `None` so the caller can continue with the next row.
 pub fn readiness_first_row(source: Option<DataSource>) -> Option<PlanReadiness> {
     match DataSource::or_sample(source) {
         DataSource::Real => None,
         DataSource::Sample => Some(PlanReadiness::SamplePlan),
+        DataSource::Snapshot => Some(PlanReadiness::SourceNotCurrent),
     }
 }
 
@@ -56,6 +60,10 @@ mod tests {
             (None, Some(PlanReadiness::SamplePlan)),
             (Some(DataSource::Sample), Some(PlanReadiness::SamplePlan)),
             (Some(DataSource::Real), None),
+            (
+                Some(DataSource::Snapshot),
+                Some(PlanReadiness::SourceNotCurrent),
+            ),
         ];
         for (source, expected) in rows {
             assert_eq!(readiness_first_row(source), expected, "{source:?}");

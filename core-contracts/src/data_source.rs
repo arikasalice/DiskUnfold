@@ -7,13 +7,17 @@ pub const SAMPLE_MIXED_SOURCE: &str = "sample.mixed_source";
 /// Where the observations behind a result came from.
 ///
 /// An absent or unrecognized value is treated as [`DataSource::Sample`] so that
-/// persistence, external exposure and approval paths fail closed.
+/// persistence, external exposure and approval paths fail closed. Consumers built
+/// before `Snapshot` was added deserialize `"snapshot"` as `Sample` through
+/// `#[serde(other)]`; those consumers therefore cannot display the snapshot kind.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum DataSource {
     /// Observed from the user's storage.
     Real,
+    /// Loaded from a verified, immutable snapshot.
+    Snapshot,
     /// Loaded from the embedded sample bundle.
     #[default]
     #[serde(other)]
@@ -82,7 +86,27 @@ mod tests {
             serde_json::from_str::<DataSource>("\"real\"")?,
             DataSource::Real
         );
+        assert_eq!(
+            serde_json::from_str::<DataSource>("\"snapshot\"")?,
+            DataSource::Snapshot
+        );
+        assert_eq!(
+            serde_json::to_string(&DataSource::Snapshot)?,
+            "\"snapshot\""
+        );
         assert_eq!(serde_json::to_string(&DataSource::Sample)?, "\"sample\"");
         Ok(())
+    }
+
+    #[test]
+    fn derived_snapshot_source_is_explicit() {
+        assert_eq!(
+            DataSource::derive([DataSource::Snapshot]),
+            Ok(DataSource::Snapshot)
+        );
+        assert_eq!(
+            DataSource::derive([DataSource::Snapshot, DataSource::Real]),
+            Err(MixedSource)
+        );
     }
 }

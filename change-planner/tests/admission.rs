@@ -3,7 +3,7 @@ mod fixtures;
 use du_change_planner::{
     api::{MAX_PLAN_ITEMS, PlanError},
     ports::{PlanSourceKind, RequestChannel},
-    readiness::PlanReadiness,
+    readiness::{PlanReadiness, readiness_first_row},
 };
 use du_core_contracts::data_source::DataSource;
 use fixtures::{FakePorts, request, selection};
@@ -56,6 +56,23 @@ fn fr1_hd1_app_host_dd1_fixes_the_exact_item_limit_and_sample_readiness() {
     if let Ok(plan) = sample_plan {
         assert_eq!(plan.readiness, PlanReadiness::SamplePlan);
     }
+
+    let mut snapshot = FakePorts::standard();
+    snapshot.source = DataSource::Snapshot;
+    assert_eq!(
+        readiness_first_row(Some(DataSource::Sample)),
+        Some(PlanReadiness::SamplePlan)
+    );
+    assert_eq!(
+        readiness_first_row(Some(DataSource::Snapshot)),
+        Some(PlanReadiness::SourceNotCurrent)
+    );
+    assert!(matches!(
+        snapshot
+            .planner()
+            .build(request(&snapshot, vec![selection(&snapshot, 1)])),
+        Err(PlanError::SourceNotCurrent)
+    ));
 }
 
 #[test]

@@ -63,13 +63,14 @@ pub fn updates_catalog_last_result(source: DataSource) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use DataSource::{Real, Sample};
+    use DataSource::{Real, Sample, Snapshot};
 
     #[test]
     fn snapshot_input_admits_only_real_results() {
         let rows = [
             (Real, Ok(())),
             (Sample, Err(SnapshotSourceRejected)),
+            (Snapshot, Err(SnapshotSourceRejected)),
             (DataSource::default(), Err(SnapshotSourceRejected)),
         ];
         for (source, expected) in rows {
@@ -83,8 +84,10 @@ mod tests {
         let rows = [
             (Real, Real, Ok(Real)),
             (Sample, Sample, Ok(Sample)),
+            (Snapshot, Snapshot, Ok(Snapshot)),
             (Real, Sample, Err(MixedSource)),
             (Sample, Real, Err(MixedSource)),
+            (Snapshot, Real, Err(MixedSource)),
         ];
         for (left, right, expected) in rows {
             assert_eq!(
@@ -98,7 +101,7 @@ mod tests {
 
     #[test]
     fn catalog_last_result_follows_only_real_results() {
-        let rows = [(Real, true), (Sample, false)];
+        let rows = [(Real, true), (Sample, false), (Snapshot, false)];
         for (source, expected) in rows {
             assert_eq!(updates_catalog_last_result(source), expected, "{source:?}");
         }
