@@ -263,6 +263,26 @@ const galleryShots =
                       width: 1280,
                       step: "table",
                     },
+                    {
+                      name: "05-unread-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
+                    },
+                    {
+                      name: "06-unread-view-in-list-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "unread",
+                      viewInList: true,
+                      focusRow: "2",
+                    },
+                    {
+                      name: "05-unread-dark-1280",
+                      theme: "dark",
+                      width: 1280,
+                      scene: "unread",
+                    },
                   ]
                 : surface === "space-undrawn"
                   ? [
@@ -970,7 +990,7 @@ try {
         const focused = await session.run(
           () => document.activeElement?.getAttribute("aria-rowindex") ?? "",
         );
-        if (focused !== "4")
+        if (focused !== (shot.focusRow ?? "4"))
           throw new Error(
             "The first item not drawn was not focused: " + focused,
           );

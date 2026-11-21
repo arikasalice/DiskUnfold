@@ -299,6 +299,8 @@ export const visualizationMessages = {
     intervalShowInList: "View in list",
     intervalCardOpens: "Opens the list",
     intervalCardNoList: "A list isn't available for this size basis",
+    unreadFolders: "Unreadable folders: {count}",
+    unreadFoldersAtLeast: "Unreadable folders: {count}+",
   },
   ko: {
     loading: "그래프 불러오는 중",
@@ -595,6 +597,8 @@ export const visualizationMessages = {
     intervalShowInList: "목록에서 보기",
     intervalCardOpens: "누르면 목록을 엽니다",
     intervalCardNoList: "이 크기 기준에서는 목록을 열 수 없습니다",
+    unreadFolders: "읽지 못한 폴더 {count}개",
+    unreadFoldersAtLeast: "읽지 못한 폴더 {count}개 이상",
   },
 } as const;
 export type VisualizationMessageKey = keyof typeof visualizationMessages.en;

@@ -1065,6 +1065,8 @@
     ["ui.visualization.intervalShowInList","목록에서 보기",[]],
     ["ui.visualization.intervalCardOpens","누르면 목록을 엽니다",[]],
     ["ui.visualization.intervalCardNoList","이 크기 기준에서는 목록을 열 수 없습니다",[]],
+    ["ui.visualization.unreadFolders",{"kind":"plural","parameter":"count","variants":{"other":"읽지 못한 폴더 {count}개"}},[["count","count"]]],
+    ["ui.visualization.unreadFoldersAtLeast",{"kind":"plural","parameter":"count","variants":{"other":"읽지 못한 폴더 {count}개 이상"}},[["count","count"]]],
     ["ui.visualization.legend.unclassified","분류 없음",[]],
     ["ui.visualization.loadNewer","최신 결과의 항목 불러오기",[]],
     ["ui.visualization.loadRangeFailed","이 구간을 불러오지 못했습니다.",[]],

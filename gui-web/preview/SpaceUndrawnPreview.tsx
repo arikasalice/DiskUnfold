@@ -174,9 +174,42 @@ function partialFixture() {
   return { frame, page };
 }
 
+/**
+ * Folders the scan could not read (F06 README 48, #346): 「사진 보관함」 was partly
+ * read and is drawn by what was read, as a lower bound; 「개인 금고」 could not be
+ * read at all, has no area and reads 「확인 불가」 in the table.
+ */
+function unreadFixture() {
+  const { frame, page } = partialFixture();
+  const { model } = frame;
+  const rows = page.response.rows;
+  rows[3] = {
+    ...rows[3]!,
+    displayName: "개인 금고",
+    size: lower(bytes(0)),
+    displayFlags: [],
+  };
+  const {
+    unknownSize: _size,
+    firstUnknownRow: _row,
+    ...summary
+  } = model.summary;
+  model.summary = {
+    ...summary,
+    unknownItems: items("0"),
+    unreadFolders: items("2"),
+    firstUnreadRow: 0,
+  };
+  return { frame, page };
+}
+
 export function SpaceUndrawnPreview({ scene }: { scene: string }) {
   const [{ frame, page }] = useState(() =>
-    scene === "partial" ? partialFixture() : fixture(),
+    scene === "partial"
+      ? partialFixture()
+      : scene === "unread"
+        ? unreadFixture()
+        : fixture(),
   );
   const [shown, setShown] = useState(page);
   const [criterion, setCriterion] = useState("type");

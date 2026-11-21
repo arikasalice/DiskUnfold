@@ -149,8 +149,7 @@ export function ModelRows({
       : []),
     {
       header: text.message("value"),
-      cell: (row) =>
-        row.quantity ? text.quantity(row.quantity) : text.size(row.size),
+      cell: (row) => rowValue(row, text),
     },
     {
       header: text.message("ratio"),
@@ -279,6 +278,17 @@ function classification(
       <div className="du-visually-hidden">{text.message("noCategory")}</div>
     </>
   );
+}
+
+/**
+ * A row's value. A lower bound of nothing, such as a folder that could not be read
+ * at all, is unavailable rather than "at least 0 bytes" (F06 README 48.2, 44.2).
+ */
+function rowValue(row: VizRow, text: VizText) {
+  if (row.quantity) return text.quantity(row.quantity);
+  return row.size.state === "lower_bound" && row.size.bytes === "0"
+    ? text.message("unavailableValue")
+    : text.size(row.size);
 }
 
 /**

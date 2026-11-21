@@ -89,3 +89,43 @@ export function UndrawnLine({
     </div>
   );
 }
+
+/**
+ * "Unreadable folders: 2 · View in list" (F06 README 48): the folders below the
+ * scope whose listing failed, apart from the items not drawn. "View in list"
+ * focuses the first row that is or holds one; without such a row only the count
+ * stands. A lower bound reads "2+". It updates without being announced (48.7).
+ */
+export function UnreadLine({
+  frame,
+  text,
+  onOpen,
+}: {
+  frame: ModelResponse;
+  text: VizText;
+  onOpen: (row: number) => void;
+}) {
+  const { unreadFolders, firstUnreadRow } = frame.model.summary;
+  if (!unreadFolders || unreadFolders.state === "unknown") return null;
+  const summary = vizMessage(
+    text,
+    unreadFolders.state === "lower_bound"
+      ? "unreadFoldersAtLeast"
+      : "unreadFolders",
+    { count: unreadFolders.value },
+  );
+  return (
+    <div className="du-undrawn-line">
+      <Text>{summary}</Text>
+      {firstUnreadRow !== undefined && (
+        <Action
+          variant="quiet"
+          aria-label={vizMessage(text, "undrawnShowInListName", { summary })}
+          onPress={() => onOpen(firstUnreadRow)}
+        >
+          {text.message("undrawnShowInList")}
+        </Action>
+      )}
+    </div>
+  );
+}
