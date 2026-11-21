@@ -105,6 +105,12 @@ const galleryShots =
         { name: "panel-dark-1280", theme: "dark", width: 1280, scene: "panel" },
         { name: "panel-light-700", theme: "light", width: 700, scene: "panel" },
         {
+          name: "history-with-tasks-light-1280",
+          theme: "light",
+          width: 1280,
+          scene: "tasks-panel",
+        },
+        {
           name: "header-auto-cleanup-on",
           theme: "light",
           width: 1280,
@@ -469,7 +475,7 @@ async function prepareRetentionScene(session, scene) {
     ".du-history-retention[data-open]",
     "the panel",
   );
-  if (scene === "panel") return;
+  if (scene === "panel" || scene === "tasks-panel") return;
   if (scene === "unreadable") {
     await waitForRetention(
       session,

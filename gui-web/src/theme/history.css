@@ -23,6 +23,16 @@
   display: none;
 }
 
+.du-history-content {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
 .du-history-header,
 .du-history-filter-row,
 .du-history-summary-title,

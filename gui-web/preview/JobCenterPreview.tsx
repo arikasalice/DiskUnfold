@@ -34,7 +34,6 @@ export function JobCenterPreview({ scene }: { scene: string }) {
             <div className="du-app-header__actions">
               <JobCenterEntry
                 clientAvailable
-                historyOpen={false}
                 count={activeCount}
                 expanded={open}
                 trigger={trigger}

@@ -5,7 +5,10 @@ import type { RetentionPanelError } from "./history-retention-model";
 import { useHistoryRetentionReview } from "./useHistoryRetentionReview";
 
 /** Owns the history retention panel and connects its review controller. */
-export function useHistoryRetention(client: AnalysisClient) {
+export function useHistoryRetention(
+  client: AnalysisClient,
+  otherPanelOpen = false,
+) {
   const [policy, setPolicy] = useState<HistoryRetentionPolicy>();
   const [draftDays, setDraftDays] = useState("");
   const [loading, setLoading] = useState(true);
@@ -46,6 +49,12 @@ export function useHistoryRetention(client: AnalysisClient) {
       mounted.current = false;
     };
   }, [client]);
+
+  useEffect(() => {
+    if (!otherPanelOpen || !isOpen) return;
+    review.cancelActiveReview();
+    setIsOpen(false);
+  }, [isOpen, otherPanelOpen, review.cancelActiveReview]);
 
   useLayoutEffect(() => {
     if (isOpen) titleRef.current?.focus({ preventScroll: true });

@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
+import { BrandMark, Heading } from "../src/components";
 import { AnalysisError } from "../src/ipc";
 import type {
   AnalysisClient,
@@ -8,11 +9,13 @@ import type {
   HistoryRetentionReviewRequest,
 } from "../src/ipc";
 import { HistoryPanel } from "../src/features/history/HistoryPanel";
+import { JobCenterEntry } from "../src/features/jobs/JobCenterEntry";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import { RegionalFormatContext } from "../src/i18n/regional-format";
 import { regional } from "./BrowseScanStatusPreview";
 import { historyListClient } from "./history-list-fixture";
 import { koreanText } from "./result-summary-fixture";
+import diskUnfoldIcon from "../src/app/assets/diskunfold-icon.svg";
 
 const dateFrom = Date.UTC(2026, 0, 1, 9);
 const dateTo = Date.UTC(2026, 1, 1, 17);
@@ -132,8 +135,32 @@ export function HistoryRetentionPreview({ scene }: { scene: string }) {
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <RegionalFormatContext.Provider value={regional}>
-        <HistoryPanel client={client} onClose={() => undefined} />
+        <main className="du-app">
+          {scene === "tasks-panel" && <HistoryRetentionHeaderPreview />}
+          <HistoryPanel client={client} onClose={() => undefined} />
+        </main>
       </RegionalFormatContext.Provider>
     </LocaleTextContext.Provider>
+  );
+}
+
+function HistoryRetentionHeaderPreview() {
+  const trigger = useRef<HTMLButtonElement>(null);
+  return (
+    <header className="du-app-header">
+      <div className="du-brand">
+        <BrandMark src={diskUnfoldIcon} />
+        <Heading level={1}>DiskUnfold</Heading>
+      </div>
+      <div className="du-app-header__actions">
+        <JobCenterEntry
+          clientAvailable
+          count={0}
+          expanded={false}
+          trigger={trigger}
+          onPress={() => undefined}
+        />
+      </div>
+    </header>
   );
 }

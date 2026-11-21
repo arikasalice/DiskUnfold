@@ -2308,6 +2308,17 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   Save-SmokeCapture '05-browse-folders'
+  if ($WindowSize -match '^1280x') {
+    $browseTasksEntry = Wait-TasksEntry
+    $browseBackEntry = Wait-VisibleAction 'Back to analysis'
+    $headerTopDelta = [Math]::Abs(
+      $browseTasksEntry.Current.BoundingRectangle.Top - $browseBackEntry.Current.BoundingRectangle.Top
+    )
+    if ($headerTopDelta -gt 4) {
+      throw "Browse app header actions wrapped at 1280 ($headerTopDelta px between Tasks and Back to analysis)"
+    }
+    "F21 #354 browse header row: Tasks and Back to analysis aligned ($headerTopDelta px)"
+  }
   # #145: the location path breaks after its separators on screen; the names UI Automation reads
   # for it should still be the path itself, without spaces at the breaks.
   $leaf = '*\' + (Split-Path -Leaf $scanRoot)
@@ -2381,12 +2392,22 @@ function Test-CaptureHistory {
       Select-Object -First 1
   }
   Save-SmokeCapture '01-operation-history'
+  $historyTasksEntry = Wait-TasksEntry
+  "F21 #342 tasks entry on history: $($historyTasksEntry.Current.Name)"
   $retentionSettingsName = Get-UiName 'Retention'
   $retentionEntry = Wait-VisibleAction $retentionSettingsName
   Expand-UI $retentionEntry
   $retentionTitleName = Get-UiName 'History retention'
   $null = Wait-UI 'history retention panel title' {
     Find-UI $retentionTitleName $null
+  }
+  $backToAnalysisName = Get-UiName 'Back to analysis'
+  $backToAnalysis = Wait-UI 'Back to analysis remains visible and enabled with retention open' {
+    $item = Find-UI $backToAnalysisName $button
+    if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
+  }
+  if (-not $backToAnalysis.Current.IsEnabled -or $backToAnalysis.Current.IsOffscreen) {
+    throw 'Back to analysis was unavailable while retention settings were open'
   }
   Save-SmokeCapture '09-retention-panel'
   $autoCleanupName = Get-UiName 'Clean up automatically'
