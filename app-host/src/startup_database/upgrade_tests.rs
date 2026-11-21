@@ -11,7 +11,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// The object each definition creates; index is the step number minus two. A table with the
 /// same name in an older database makes exactly that step fail.
-const BLOCKERS: [&str; 7] = [
+const BLOCKERS: [&str; (HISTORY_SCHEMA_VERSION - 1) as usize] = [
     "app_db_purge_gate",
     "job_runtime_job_link",
     "user_env_recent_scope",
@@ -19,6 +19,8 @@ const BLOCKERS: [&str; 7] = [
     "analysis_index_group_ruleset",
     "analysis_index_scope_observation",
     "job_runtime_job_scope_root",
+    "change_planner_plan_version",
+    "job_runtime_approval_check",
 ];
 const SETTING: &str = "200000";
 const SCOPE: &str = "metadata: 1 root";
