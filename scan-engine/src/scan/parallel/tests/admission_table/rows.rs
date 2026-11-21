@@ -1,5 +1,11 @@
 //! The first-match rows for a single verified or unverified root.
 use super::*;
+use du_analysis_index::ScopeHeader;
+use du_core_contracts::{
+    SizeAmount,
+    result::{ResultCompleteness, ResultNativePath, ResultScopeRoot},
+    volume::{ConfirmedFirmlink, RootVolumeGroup},
+};
 
 #[test]
 fn table_rows_decide_entry_without_opening_out_of_scope_directories() -> Result<(), String> {
@@ -235,5 +241,97 @@ fn priority_requests_and_header_keep_the_frozen_scope() -> Result<(), String> {
         assert_eq!(tree.enumerated(inode), 0);
     }
     assert_eq!(tree.enumerated(102), 1);
+    Ok(())
+}
+
+#[test]
+fn root_group_counts_a_firmlink_target_once_across_both_paths() -> Result<(), String> {
+    let _guard = worker_test_lock();
+    let mut listings = BTreeMap::new();
+    listings.insert(
+        ROOT,
+        vec![
+            Node {
+                name: "Users",
+                kind: ObservedKind::Firmlink,
+                device: 1,
+                inode: 99,
+                enumerated: Some(55),
+            },
+            node("System", ObservedKind::Directory, 1, 11),
+        ],
+    );
+    listings.insert(11, vec![node("Volumes", ObservedKind::Directory, 1, 12)]);
+    listings.insert(12, vec![node("Data", ObservedKind::MountPoint, 1, 20)]);
+    listings.insert(20, vec![node("Users", ObservedKind::Directory, 1, 99)]);
+    listings.insert(99, vec![node("shared.bin", ObservedKind::File, 1, 77)]);
+    let tree = tree_of(listings, 7);
+    let group = RootVolumeGroup {
+        data_mount: b"/System/Volumes/Data".to_vec(),
+        device: 1,
+        data_inode: 20,
+        firmlinks: vec![ConfirmedFirmlink {
+            source: b"/Users".to_vec(),
+            target: b"/System/Volumes/Data/Users".to_vec(),
+            device: 1,
+            inode: 99,
+        }],
+    };
+    let ids = Ids(AtomicUsize::new(500));
+    let sink = IngestSink::default();
+    let scope_id = ids.next_id();
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/"),
+        },
+        volume_id: b"volume".to_vec(),
+        file_id: b"root".to_vec(),
+    };
+    let build = sink.open_scoped_forest(
+        ScopeHeader {
+            version_id: scope_id.clone(),
+            fingerprint: "group-scope".into(),
+            volume_group: Some(group.clone()),
+        },
+        vec![root],
+        None,
+    );
+    let outcome = crate::scan::parallel::collect_open_forest_diagnostic_with_group(
+        build,
+        vec![Dir::root(&tree, true)],
+        &ids,
+        &context(),
+        4,
+        None,
+        (
+            DevicePlan {
+                groups: vec![0],
+                limit: 4,
+            },
+            None,
+            None,
+            None,
+            Some(group),
+        ),
+    );
+    assert!(outcome.completed_scope);
+    assert_eq!(tree.enumerated(99), 1);
+    let version = sink
+        .pin()
+        .map_err(|error| format!("{error:?}"))?
+        .ok_or("missing")?;
+    assert_eq!(version.completeness(), ResultCompleteness::Complete);
+    let total = match &version.scope_total().logical.amount {
+        SizeAmount::Exact { bytes } => bytes.get(),
+        other => return Err(format!("expected exact total, got {other:?}")),
+    };
+    assert_eq!(total, 1);
+    let files = version
+        .items()
+        .iter()
+        .filter(|item| item.name == b"shared.bin")
+        .count();
+    assert_eq!(files, 1);
     Ok(())
 }

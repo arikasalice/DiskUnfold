@@ -106,8 +106,14 @@ pub fn review_matched_scope(
         expected,
         continue_work,
     };
-    let mut review =
-        super::review_multiple(effective, request_seq, &bound, &ReviewClock(now_ms)).ok()?;
+    let mut review = super::review_multiple(
+        effective,
+        request_seq,
+        &bound,
+        &ReviewClock(now_ms),
+        &du_core_contracts::volume::RootVolumeGroupObservation::NotApplicable,
+    )
+    .ok()?;
     review.scope.source = ScopeSource::Recent;
     continue_work().then_some(review)
 }

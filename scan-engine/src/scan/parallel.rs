@@ -185,6 +185,7 @@ struct ScanOptions<'a> {
     diagnostics: Option<&'a crate::scan_job::ScanDiagnostics>,
     scan_control: Option<&'a ScanControlSession>,
     correlated_budget: Option<Arc<correlated_budget::CorrelatedBudget>>,
+    volume_group: Option<du_core_contracts::volume::RootVolumeGroup>,
 }
 
 #[derive(Clone, Copy)]
@@ -280,6 +281,7 @@ pub(crate) fn collect_open_forest_with_groups(
             diagnostics: None,
             scan_control: None,
             correlated_budget: None,
+            volume_group: None,
         },
     )
 }
@@ -306,6 +308,7 @@ pub(crate) fn collect_open_forest_filtered(
             diagnostics: None,
             scan_control: None,
             correlated_budget: None,
+            volume_group: None,
         },
     )
 }
@@ -334,6 +337,7 @@ fn collect_open_forest_filtered_with_budget(
             diagnostics: None,
             scan_control: None,
             correlated_budget: Some(budget),
+            volume_group: None,
         },
     )
 }
@@ -352,8 +356,36 @@ pub(crate) fn collect_open_forest_diagnostic(
         Option<Vec<queue::LaneDevice>>,
     ),
 ) -> JobOutcome {
+    collect_open_forest_diagnostic_with_group(
+        build,
+        roots,
+        ids,
+        context,
+        limit,
+        filter,
+        (options.0, options.1, options.2, options.3, None),
+    )
+}
+
+type GroupDiagnosticOptions<'a> = (
+    DevicePlan,
+    Option<&'a crate::scan_job::ScanDiagnostics>,
+    Option<&'a ScanControlSession>,
+    Option<Vec<queue::LaneDevice>>,
+    Option<du_core_contracts::volume::RootVolumeGroup>,
+);
+
+pub(crate) fn collect_open_forest_diagnostic_with_group(
+    build: Result<BuildHandle, BuildError>,
+    roots: Vec<Box<dyn AnchoredDirectory>>,
+    ids: &dyn ResultIds,
+    context: &dyn JobContext,
+    limit: usize,
+    filter: Option<&PreMetadataFilter<'_>>,
+    options: GroupDiagnosticOptions<'_>,
+) -> JobOutcome {
     let policy = filter.map_or(Policy::Evidence, Policy::BeforeMetadata);
-    let (devices, diagnostics, scan_control, lane_devices) = options;
+    let (devices, diagnostics, scan_control, lane_devices, volume_group) = options;
     collect_with_policy(
         build,
         roots,
@@ -367,6 +399,7 @@ pub(crate) fn collect_open_forest_diagnostic(
             diagnostics,
             scan_control,
             correlated_budget: None,
+            volume_group,
         },
     )
 }

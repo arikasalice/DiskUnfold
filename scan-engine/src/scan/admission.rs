@@ -81,11 +81,20 @@ impl Unread {
 pub(super) enum Boundary {
     /// The observed volume identity of the directory.
     Volume(u64),
+    /// Entries beneath the confirmed data mount retain the group boundary.
+    Data(u64),
     /// The identity of the root could not be observed or verified.
     Unknown,
 }
 
 impl Boundary {
+    pub(super) fn device(self) -> Option<u64> {
+        match self {
+            Self::Volume(device) | Self::Data(device) => Some(device),
+            Self::Unknown => None,
+        }
+    }
+
     /// The boundary of a child directory admitted with [`Admission::Enter`].
     pub(super) fn child(entry: &ObservedEntry) -> Self {
         entry
@@ -161,18 +170,54 @@ fn decide_with(
     else {
         return Admission::Record;
     };
+    if meta.kind == ObservedKind::Firmlink {
+        let group_boundary = visited.group_firmlink(meta)
+            && parent.boundary.device().is_some_and(|device| {
+                visited
+                    .group
+                    .as_ref()
+                    .is_some_and(|group| group.device == device)
+            });
+        if !group_boundary {
+            return Admission::UntraversedLink;
+        }
+        return if reserve && visited.reserve(parent.root, meta.device, meta.inode)
+            || !reserve && !visited.known(parent.root, meta.device, meta.inode)
+        {
+            Admission::Enter
+        } else {
+            Admission::Revisit
+        };
+    }
+    if meta.kind == ObservedKind::MountPoint {
+        if visited.group_data_mount(entry)
+            && parent.boundary.device().is_some_and(|device| {
+                visited
+                    .group
+                    .as_ref()
+                    .is_some_and(|group| group.device == device)
+            })
+        {
+            return if reserve && visited.reserve(parent.root, meta.device, meta.inode)
+                || !reserve && !visited.known(parent.root, meta.device, meta.inode)
+            {
+                Admission::Enter
+            } else {
+                Admission::Revisit
+            };
+        }
+        return Admission::OutsideBoundary;
+    }
+    if meta.kind == ObservedKind::MountedFile {
+        return Admission::OutsideBoundary;
+    }
     if meta.kind == ObservedKind::Link {
         return Admission::UntraversedLink;
     }
-    // The adapter established another volume even when the parent's is unknown.
-    if matches!(
-        meta.kind,
-        ObservedKind::MountPoint | ObservedKind::MountedFile
-    ) {
-        return Admission::OutsideBoundary;
-    }
-    if let Boundary::Volume(device) = parent.boundary
-        && meta.device != device
+    if parent
+        .boundary
+        .device()
+        .is_some_and(|device| meta.device != device)
     {
         return Admission::OutsideBoundary;
     }
@@ -180,13 +225,16 @@ fn decide_with(
         return Admission::Record;
     }
     let (root, device, inode) = (parent.root, meta.device, meta.inode);
+    if matches!(parent.boundary, Boundary::Data(_)) && visited.data_firmlink_target(meta) {
+        return Admission::Revisit;
+    }
     let first = match parent.boundary {
-        Boundary::Volume(_) if reserve => visited.reserve(root, device, inode),
+        Boundary::Volume(_) | Boundary::Data(_) if reserve => visited.reserve(root, device, inode),
         _ => !visited.known(root, device, inode),
     };
     match (first, parent.boundary) {
         (false, _) => Admission::Revisit,
-        (true, Boundary::Volume(_)) => Admission::Enter,
+        (true, Boundary::Volume(_) | Boundary::Data(_)) => Admission::Enter,
         (true, Boundary::Unknown) => Admission::Unverifiable,
     }
 }
@@ -204,6 +252,10 @@ fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {
             entry.enumerated_kind,
             ObservedKind::Unknown | ObservedKind::File | ObservedKind::MountedFile
         ),
+        // A firmlink's metadata describes its target, not its directory entry.
+        ObservedKind::Firmlink => {
+            entry.enumerated_kind == ObservedKind::Firmlink && meta.inode != 0
+        }
         ObservedKind::Unknown | ObservedKind::Other => false,
         _ => {
             meta.inode != 0
@@ -225,9 +277,7 @@ fn other_volume_directory(
     entry: &ObservedEntry,
     boundary: Boundary,
 ) -> Option<&MetadataObservation> {
-    let Boundary::Volume(device) = boundary else {
-        return None;
-    };
+    let device = boundary.device()?;
     entry.metadata.as_ref().ok().filter(|meta| {
         meta.kind == ObservedKind::Directory
             && meta.device != device
@@ -322,7 +372,7 @@ pub(super) fn record_root_start(
     observed_at: Option<&Timestamp>,
 ) -> Result<(), BuildError> {
     let unread = match start {
-        RootStart::Collect(Boundary::Volume(_)) => {
+        RootStart::Collect(Boundary::Volume(_) | Boundary::Data(_)) => {
             counts.completed += 1;
             return Ok(());
         }

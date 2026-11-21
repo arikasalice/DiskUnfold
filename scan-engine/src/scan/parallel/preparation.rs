@@ -25,13 +25,15 @@ pub(super) fn prepare(
     roots: Vec<Box<dyn AnchoredDirectory>>,
     context: &dyn JobContext,
     disconnects: &Disconnects,
+    group: Option<du_core_contracts::volume::RootVolumeGroup>,
 ) -> Result<Prepared, JobFlowError> {
     let mut flows = acquire_flows(context, 1)?;
     let flow = flows.pop().ok_or(JobFlowError::Closed)?;
     reports.start(&roots, context, &*flow, disconnects);
     let identities = identities(&roots, context, &*flow, disconnects);
     flow.finish(JobCounts::default());
-    let (visited, starts) = Visited::reserve_roots(identities.ok_or(JobFlowError::Cancelled)?);
+    let (visited, starts) =
+        Visited::reserve_roots_with_group(identities.ok_or(JobFlowError::Cancelled)?, group);
     Ok(Prepared {
         roots,
         starts,
@@ -81,7 +83,10 @@ pub(super) fn record_starts(
             counts.completed += 1;
             continue;
         }
-        let verified = matches!(start, RootStart::Collect(Boundary::Volume(_)));
+        let verified = matches!(
+            start,
+            RootStart::Collect(Boundary::Volume(_) | Boundary::Data(_))
+        );
         // A verified start records nothing with a time, so the clock is not read.
         let observed_at = if verified { None } else { context.utc_now() };
         admission::record_root_start(build, root, start, counts, observed_at.as_ref())?;

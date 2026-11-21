@@ -46,7 +46,7 @@ pub(super) fn classify(entry: &ObservedEntry) -> Option<(Kind, Stage, &'static s
     if let Some(reason) = change(entry, meta) {
         return Some((Kind::Uncertain, Stage::Metadata, reason));
     }
-    if meta.kind == ObservedKind::Link {
+    if matches!(meta.kind, ObservedKind::Link | ObservedKind::Firmlink) {
         return Some((
             Kind::UntraversedLink,
             Stage::Traverse,
@@ -73,7 +73,7 @@ pub(super) fn classify(entry: &ObservedEntry) -> Option<(Kind, Stage, &'static s
 ///    kind (`Unknown`) or named one the scan does not handle (`Other`).
 fn change(entry: &ObservedEntry, meta: &MetadataObservation) -> Option<&'static str> {
     let identities = entry.enumerated_inode != 0 && meta.inode != 0;
-    if identities && entry.enumerated_inode != meta.inode {
+    if identities && entry.enumerated_inode != meta.inode && meta.kind != ObservedKind::Firmlink {
         return Some(REPLACED);
     }
     if entry.enumerated_kind != ObservedKind::Unknown

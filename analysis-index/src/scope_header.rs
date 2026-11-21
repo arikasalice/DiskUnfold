@@ -3,7 +3,7 @@
 //! FR1.HD1.app-host.DD1: a result carries the scope version ID and the scope
 //! fingerprint so that readers can confirm the conditions of the request.
 use crate::{BuildError, BuildHandle, IngestSink, ResultVersion};
-use du_core_contracts::{Id, result::ResultScopeRoot};
+use du_core_contracts::{Id, result::ResultScopeRoot, volume::RootVolumeGroup};
 
 /// The scope version and fingerprint fixed when collection started.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,6 +12,8 @@ pub struct ScopeHeader {
     pub version_id: Id,
     /// Canonical fingerprint of the same frozen scope conditions.
     pub fingerprint: String,
+    /// Confirmed root volume group observed for this scan, when applicable.
+    pub volume_group: Option<RootVolumeGroup>,
 }
 
 impl IngestSink {
@@ -35,6 +37,7 @@ impl IngestSink {
             None => self.open_forest(scope.version_id, roots)?,
         };
         build.scope_fingerprint = Some(scope.fingerprint);
+        build.volume_group = scope.volume_group;
         Ok(build)
     }
 }
@@ -46,5 +49,10 @@ impl ResultVersion {
     /// evidence of any particular scope.
     pub fn scope_fingerprint(&self) -> Option<&str> {
         self.scope_fingerprint.as_deref()
+    }
+
+    /// Confirmed root volume group frozen with this result version.
+    pub fn volume_group(&self) -> Option<&RootVolumeGroup> {
+        self.volume_group.as_ref()
     }
 }

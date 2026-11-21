@@ -42,6 +42,7 @@ fn header(fingerprint: &str, version: u32) -> Result<ScopeHeader, String> {
     Ok(ScopeHeader {
         version_id: id(version)?,
         fingerprint: fingerprint.into(),
+        volume_group: None,
     })
 }
 

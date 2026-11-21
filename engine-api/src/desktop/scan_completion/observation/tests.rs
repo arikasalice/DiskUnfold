@@ -119,6 +119,7 @@ fn seal(
             ScopeHeader {
                 version_id: id(first_id)?,
                 fingerprint: fingerprint.into(),
+                volume_group: None,
             },
             vec![root()],
             None,
@@ -194,6 +195,7 @@ fn the_five_cases_that_leave_no_observation() -> TestResult {
             ScopeHeader {
                 version_id: id(20)?,
                 fingerprint: HEX.into(),
+                volume_group: None,
             },
             vec![root()],
             None,
@@ -226,6 +228,7 @@ fn the_five_cases_that_leave_no_observation() -> TestResult {
             ScopeHeader {
                 version_id: id(31)?,
                 fingerprint: HEX.into(),
+                volume_group: None,
             },
             vec![root()],
             Some(lineage),

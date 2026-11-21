@@ -174,6 +174,7 @@ fn scan_harness_with_admissions(
             ids,
             crate::scan::ScanRegistrationOptions {
                 comparison: None,
+                volumes: None,
                 limit: Arc::new(du_core_contracts::settings::SharedTableLimit::default),
                 diagnostics: None,
                 admissions: None,

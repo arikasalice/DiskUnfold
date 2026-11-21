@@ -1,5 +1,8 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
 mod digest;
+mod volume_group;
+pub(super) use volume_group::{group_notice, group_value, group_wire};
+use volume_group::{observe_group, scope_notices};
 pub mod exclusion;
 #[cfg(test)]
 mod path_tests;
@@ -15,6 +18,7 @@ use du_core_contracts::{
         ScopeSource, TargetAccess,
     },
     scan_observation::{OpenedScopeRoot, OptionalRecentScopeObserver, ScopeRootPort},
+    volume::{RootVolumeGroup, RootVolumeGroupObservation, VolumePort},
 };
 use du_job_runtime::JobClock;
 use du_scan_engine::target::{AccessObservation, AccessStatus, access_result};
@@ -35,8 +39,7 @@ pub fn recent_scope_fingerprint_v1(conditions: &ScopeDraft) -> Result<[u8; 32], 
 
 /// Registers read-only review for local directories, each on its current volume.
 ///
-/// Exclusion rules are accepted only for Unix-encoded scopes, whose raw names
-/// are compared byte for byte. Windows scopes with exclusions need
+/// Exclusions use raw Unix names; Windows scopes need
 /// [`register_review_with_comparison`].
 pub fn register_review(
     builder: &mut EngineBuilder,
@@ -45,6 +48,22 @@ pub fn register_review(
 ) {
     builder.register(Review {
         roots,
+        volumes: None,
+        clock,
+        comparison: None,
+    });
+}
+
+/// Registers scope review with the live volume observation port.
+pub fn register_review_with_volumes(
+    builder: &mut EngineBuilder,
+    roots: Arc<dyn ScopeRootPort>,
+    volumes: Arc<dyn VolumePort>,
+    clock: Arc<dyn JobClock>,
+) {
+    builder.register(Review {
+        roots,
+        volumes: Some(volumes),
         clock,
         comparison: None,
     });
@@ -62,6 +81,7 @@ pub fn register_review_with_comparison(
 ) {
     builder.register(Review {
         roots,
+        volumes: None,
         clock,
         comparison: Some(comparison),
     });
@@ -69,6 +89,7 @@ pub fn register_review_with_comparison(
 
 struct Review {
     roots: Arc<dyn ScopeRootPort>,
+    volumes: Option<Arc<dyn VolumePort>>,
     clock: Arc<dyn JobClock>,
     comparison: Option<Arc<dyn exclusion::PathComparison>>,
 }
@@ -102,6 +123,7 @@ impl Review {
     ) -> Result<ScopeReview, EngineError> {
         let mut draft = request.draft;
         validate(&draft, self.comparison.is_some(), channel)?;
+        let group = observe_group(&draft, self.volumes.as_deref());
         if !draft.exclusions.is_empty() {
             return exclusion::review(
                 draft,
@@ -109,10 +131,17 @@ impl Review {
                 &*self.roots,
                 &*self.clock,
                 self.comparison.clone(),
+                &group,
             );
         }
         let [single] = draft.includes.as_slice() else {
-            return review_multiple(draft, request.request_seq, &*self.roots, &*self.clock);
+            return review_multiple(
+                draft,
+                request.request_seq,
+                &*self.roots,
+                &*self.clock,
+                &group,
+            );
         };
         let mut path = native_path(single)?;
         let raw = path
@@ -124,7 +153,7 @@ impl Review {
             path = native_path(&root.canonical_path)?;
         }
         draft.includes = vec![path.clone()];
-        let (_, review_fingerprint) = fingerprints(&draft, &path, opened.as_ref().ok())?;
+        let (_, review_fingerprint) = fingerprints(&draft, &path, opened.as_ref().ok(), &group)?;
         let result = access_result(AccessObservation::Completed(opened.map(|_| ())));
         let access = target_access(result.status);
         let reason_key = result.reason;
@@ -132,7 +161,7 @@ impl Review {
             .ok_or_else(|| EngineError::reason("support.internal_error"))?;
         Ok(ScopeReview {
             scope: draft,
-            notices: reason_key.iter().cloned().collect(),
+            notices: scope_notices(reason_key.iter().cloned(), &group),
             targets: vec![ScopeCorrespondence {
                 path,
                 access,
@@ -141,7 +170,7 @@ impl Review {
             review_fingerprint,
             observed_at,
             request_seq: request.request_seq,
-            volume_group: None,
+            volume_group: group_wire(&group),
         })
     }
 }
@@ -176,11 +205,12 @@ fn review_multiple(
     request_seq: u32,
     roots: &dyn ScopeRootPort,
     clock: &dyn JobClock,
+    group: &RootVolumeGroupObservation,
 ) -> Result<ScopeReview, EngineError> {
     let prepared = preparation::prepare(&draft, roots, &preparation::RawRootEvidence)
         .map_err(preparation_error)?;
     let scope = normalized(&draft, &prepared);
-    let (_, review_fingerprint) = prepared_fingerprints(&scope, &prepared)?;
+    let (_, review_fingerprint) = prepared_fingerprints(&scope, &prepared, group)?;
     let correspondences = prepared
         .selected_roots()
         .map(|root| ScopeCorrespondence {
@@ -196,6 +226,9 @@ fn review_multiple(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .map(str::to_owned)
+        .chain(group_notice(group).map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect();
     let observed_at = Timestamp::from_unix_millis(clock.now_ms())
         .ok_or_else(|| EngineError::reason("support.internal_error"))?;
@@ -206,7 +239,7 @@ fn review_multiple(
         review_fingerprint,
         observed_at,
         request_seq,
-        volume_group: None,
+        volume_group: group_wire(group),
     })
 }
 
@@ -223,8 +256,9 @@ fn normalized(draft: &ScopeDraft, prepared: &preparation::Prepared) -> ScopeDraf
 fn prepared_fingerprints(
     normalized: &ScopeDraft,
     prepared: &preparation::Prepared,
+    group: &RootVolumeGroupObservation,
 ) -> Result<(blake3::Hash, String), EngineError> {
-    let scope = digest::scope(normalized)?;
+    let scope = digest::scope_observed(normalized, group)?;
     let selected: Vec<_> = prepared
         .selected_roots()
         .map(|root| digest::ReviewRoot {
@@ -316,6 +350,7 @@ pub(crate) struct VerifiedScope {
     pub recent_observers: Vec<OptionalRecentScopeObserver>,
     pub normalized_draft: ScopeDraft,
     pub scope_fingerprint: ScopeFingerprint,
+    pub volume_group: Option<RootVolumeGroup>,
     pub filter: Option<Arc<du_scan_engine::scan::PreMetadataFilter<'static>>>,
 }
 
@@ -355,6 +390,7 @@ pub(crate) fn verify(
         draft,
         expected,
         roots,
+        None,
         comparison,
         include_recent,
         Channel::Gui,
@@ -367,13 +403,15 @@ pub(crate) fn verify_from(
     draft: &ScopeDraft,
     expected: &str,
     roots: &dyn ScopeRootPort,
+    volumes: Option<&dyn VolumePort>,
     comparison: Option<Arc<dyn exclusion::PathComparison>>,
     include_recent: bool,
     channel: Channel,
 ) -> Result<VerifiedScope, EngineError> {
     validate(draft, comparison.is_some(), channel)?;
+    let group = observe_group(draft, volumes);
     if !draft.exclusions.is_empty() {
-        return exclusion::verify(draft, expected, roots, comparison, include_recent);
+        return exclusion::verify(draft, expected, roots, comparison, include_recent, &group);
     }
     let [single] = draft.includes.as_slice() else {
         let prepared = preparation::prepare_with_recent(
@@ -386,7 +424,8 @@ pub(crate) fn verify_from(
             preparation::Error::InvalidPath => preparation_error(error),
             _ => EngineError::reason("scope.changed"),
         })?;
-        let (scope, review) = prepared_fingerprints(&normalized(draft, &prepared), &prepared)?;
+        let (scope, review) =
+            prepared_fingerprints(&normalized(draft, &prepared), &prepared, &group)?;
         if review != expected {
             return Err(EngineError::reason("scope.changed"));
         }
@@ -397,6 +436,7 @@ pub(crate) fn verify_from(
             recent_observers,
             normalized_draft,
             scope_fingerprint: ScopeFingerprint::Ready(scope.to_hex().to_string()),
+            volume_group: group_value(&group),
             filter: None,
         });
     };
@@ -414,7 +454,7 @@ pub(crate) fn verify_from(
     let mut normalized = draft.clone();
     let canonical = native_path(&root.canonical_path)?;
     normalized.includes = vec![canonical.clone()];
-    let (scope_fingerprint, review) = fingerprints(&normalized, &canonical, Some(&root))?;
+    let (scope_fingerprint, review) = fingerprints(&normalized, &canonical, Some(&root), &group)?;
     if review != expected {
         return Err(EngineError::reason("scope.changed"));
     }
@@ -423,6 +463,7 @@ pub(crate) fn verify_from(
         recent_observers: vec![recent],
         normalized_draft: normalized,
         scope_fingerprint: ScopeFingerprint::Ready(scope_fingerprint.to_hex().to_string()),
+        volume_group: group_value(&group),
         filter: None,
     })
 }
@@ -431,11 +472,12 @@ fn fingerprints(
     normalized: &ScopeDraft,
     path: &OsPath,
     observed: Option<&OpenedScopeRoot>,
+    group: &RootVolumeGroupObservation,
 ) -> Result<(blake3::Hash, String), EngineError> {
     if observed.is_some_and(|root| root.volume_id.is_empty() || root.file_id.is_empty()) {
         return Err(EngineError::reason("scope.target_unavailable"));
     }
-    let scope = digest::scope(normalized)?;
+    let scope = digest::scope_observed(normalized, group)?;
     let review = digest::review(
         &scope,
         &[digest::ReviewRoot {

@@ -10,7 +10,7 @@ use du_analysis_index::{
     },
 };
 use du_core_contracts::{
-    ItemRef,
+    ItemRef, OsPath, PathBytes, PathEncoding,
     browse_ipc::BrowseValue,
     browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal, UnreadInside},
     result::ResultVersionRead,
@@ -37,7 +37,8 @@ pub(super) fn page_flags(
         .zip(items)
         .map(|(collection, item)| {
             let inside = version.unread_inside(item).map_err(folder_error)?;
-            Ok(flags(collection, inside))
+            let counted_at = counted_at(version, item, &collection);
+            Ok(flags(collection, inside, counted_at))
         })
         .collect()
 }
@@ -73,7 +74,11 @@ pub(super) fn excluded_children(
         }))
 }
 
-fn flags(collection: FolderCollection<'_>, inside: Option<Inside>) -> FolderFlags {
+fn flags(
+    collection: FolderCollection<'_>,
+    inside: Option<Inside>,
+    counted_at: Option<OsPath>,
+) -> FolderFlags {
     // The collector keeps no excluded entry, so no row of a scan-lineage result is one.
     let excluded = BrowseValue::Present { value: false };
     match collection {
@@ -92,9 +97,62 @@ fn flags(collection: FolderCollection<'_>, inside: Option<Inside>) -> FolderFlag
             excluded,
             boundary: boundary_value(boundary),
             unread_inside: inside.map(unread_inside_value),
-            counted_at: None,
+            counted_at,
         },
     }
+}
+
+fn counted_at(
+    version: &ResultVersion,
+    item: &ItemRef,
+    collection: &FolderCollection<'_>,
+) -> Option<OsPath> {
+    if !matches!(
+        collection,
+        FolderCollection::Folder {
+            boundary: Boundary::AlreadyCounted,
+            ..
+        }
+    ) {
+        return None;
+    }
+    let group = version.volume_group()?;
+    let (_, root) = version.observed_root_for(item).ok()?;
+    if root.path.encoding != PathEncoding::Unix || root.path.raw.bytes().ok()? != b"/" {
+        return None;
+    }
+    let items = version.items();
+    let mut index = item.item_no as usize;
+    let mut components = Vec::new();
+    loop {
+        let row = items.get(index)?;
+        let Some(parent) = row.parent else {
+            break;
+        };
+        components.push(row.name.as_slice());
+        index = parent as usize;
+    }
+    let mut absolute = b"/".to_vec();
+    for component in components.into_iter().rev() {
+        if component.is_empty() {
+            return None;
+        }
+        if absolute.last() != Some(&b'/') {
+            absolute.push(b'/');
+        }
+        absolute.extend_from_slice(component);
+    }
+    let source = &group
+        .firmlinks
+        .iter()
+        .find(|firmlink| firmlink.target == absolute)?
+        .source;
+    Some(OsPath {
+        encoding: PathEncoding::Unix,
+        raw: PathBytes::from_bytes(source),
+        lossy: std::str::from_utf8(source).is_err(),
+        display: String::from_utf8_lossy(source).into_owned(),
+    })
 }
 
 fn unread_inside_value(value: Inside) -> BrowseValue<UnreadInside> {
@@ -143,3 +201,6 @@ fn not_provided() -> FolderFlags {
         counted_at: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -289,10 +289,10 @@ fn register_services_inner(
         workers.clone(),
         scan_events.clone(),
     ));
-    scope::register_review(builder, roots.clone(), clock.clone());
+    scope::register_review_with_volumes(builder, roots.clone(), volumes.clone(), clock.clone());
     targets::register_with_probe(
         builder,
-        volumes,
+        volumes.clone(),
         clock,
         workers.clone(),
         targets::Deadlines {
@@ -314,6 +314,7 @@ fn register_services_inner(
         ids.clone(),
         scan::ScanRegistrationOptions {
             comparison: None,
+            volumes: Some(volumes),
             limit: shared_table_limit,
             diagnostics,
             admissions: recent_publisher,

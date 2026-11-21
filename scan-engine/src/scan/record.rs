@@ -160,15 +160,20 @@ pub(super) fn record_item(
         let range = (root_index, path.as_slice());
         return admission::record_unentered(build, range, entry, unread, counts, observed_at);
     }
-    let gap = entry_gap(entry);
+    let entered_group_boundary = row == Admission::Enter
+        && entry.metadata.as_ref().is_ok_and(|meta| {
+            matches!(meta.kind, ObservedKind::Firmlink | ObservedKind::MountPoint)
+        });
+    let gap = (!entered_group_boundary)
+        .then(|| entry_gap(entry))
+        .flatten();
     record_at(
         build,
         root_index,
         entry,
         &path,
         counts,
-        timed.observed_at.as_ref(),
-        sharing,
+        (timed.observed_at.as_ref(), sharing, row),
     )?;
     if gap.is_none()
         && entry
@@ -262,10 +267,14 @@ fn record_at(
     entry: &ObservedEntry,
     path: &[Vec<u8>],
     counts: &mut JobCounts,
-    observed_at: Option<&Timestamp>,
-    sharing: SharingEvidence,
+    context: (Option<&Timestamp>, SharingEvidence, Admission),
 ) -> Result<(), BuildError> {
-    if let Some((kind, stage, reason)) = issues::classify(entry) {
+    let (observed_at, sharing, row) = context;
+    let entered_group_boundary = row == Admission::Enter
+        && entry.metadata.as_ref().is_ok_and(|meta| {
+            matches!(meta.kind, ObservedKind::Firmlink | ObservedKind::MountPoint)
+        });
+    if !entered_group_boundary && let Some((kind, stage, reason)) = issues::classify(entry) {
         build.record_scan_issue(ScanIssue {
             root_index,
             relative: path.to_vec(),
@@ -278,9 +287,14 @@ fn record_at(
     let meta = match &entry.metadata {
         Ok(meta)
             if entry.enumerated_inode != 0
-                && entry.enumerated_inode == meta.inode
+                && (entry.enumerated_inode == meta.inode
+                    || matches!(meta.kind, ObservedKind::Firmlink | ObservedKind::MountPoint)
+                        && row == Admission::Enter)
                 && (entry.enumerated_kind == ObservedKind::Unknown
-                    || entry.enumerated_kind == meta.kind) =>
+                    || entry.enumerated_kind == meta.kind
+                    || row == Admission::Enter
+                        && meta.kind == ObservedKind::MountPoint
+                        && entry.enumerated_kind == ObservedKind::Directory) =>
         {
             meta
         }
@@ -297,6 +311,9 @@ fn record_at(
     };
     match meta.kind {
         ObservedKind::Directory => build.add_directory_at(root_index, path.to_vec())?,
+        ObservedKind::Firmlink | ObservedKind::MountPoint if row == Admission::Enter => {
+            build.add_directory_at(root_index, path.to_vec())?;
+        }
         // A firmlink that the admission table did not enter is an untraversed link.
         ObservedKind::Link | ObservedKind::Firmlink => {
             let (observation, space) = observation_and_space(meta, path.to_vec(), sharing);

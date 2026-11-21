@@ -14,11 +14,12 @@ use du_core_contracts::{
     },
     result::{ResultNativePath, ResultScopeRoot},
     scan_observation::{DeviceKind, DeviceKindSource, OpenedScopeRoot},
+    volume::RootVolumeGroup,
 };
 
 use crate::scan::{
     DevicePlan, LaneDevice, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
-    collect_open_forest_diagnostic, internal_failure,
+    collect_open_forest_diagnostic_with_group, internal_failure,
 };
 
 type DeviceRoots = Vec<(OpenedScopeRoot, RootDevice)>;
@@ -106,6 +107,7 @@ pub struct MetadataScan {
     store: IngestSink,
     scope: Id,
     scope_fingerprint: Option<String>,
+    volume_group: Option<RootVolumeGroup>,
     lineage: Option<Id>,
     ids: Arc<dyn ResultIds>,
     filter: Option<Arc<PreMetadataFilter<'static>>>,
@@ -158,6 +160,7 @@ impl MetadataScan {
             store,
             scope,
             scope_fingerprint: None,
+            volume_group: None,
             lineage: None,
             ids,
             filter: None,
@@ -248,6 +251,12 @@ impl MetadataScan {
         self
     }
 
+    /// Pins confirmed volume-group traversal evidence to this scan.
+    pub fn with_volume_group(mut self, group: Option<RootVolumeGroup>) -> Self {
+        self.volume_group = group;
+        self
+    }
+
     /// Returns a weak control handle bound to this scan's worker scheduler.
     ///
     /// Store the handle with the admitted job reference. A caller must resolve
@@ -300,6 +309,7 @@ impl JobBody for MetadataScan {
                         ScopeHeader {
                             version_id: self.scope.clone(),
                             fingerprint: fingerprint.clone(),
+                            volume_group: self.volume_group.clone(),
                         },
                         observed,
                         lineage.clone(),
@@ -321,7 +331,7 @@ impl JobBody for MetadataScan {
                     Ok(build)
                 });
                 let devices = DevicePlan { groups, limit: 4 };
-                collect_open_forest_diagnostic(
+                collect_open_forest_diagnostic_with_group(
                     build,
                     directories,
                     &*self.ids,
@@ -333,6 +343,7 @@ impl JobBody for MetadataScan {
                         self.diagnostics.as_deref(),
                         self.control.as_deref(),
                         Some(lane_devices),
+                        self.volume_group.clone(),
                     ),
                 )
             }
