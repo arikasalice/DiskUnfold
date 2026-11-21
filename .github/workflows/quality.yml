@@ -302,7 +302,8 @@ jobs:
       - run: cargo clippy --locked -p du-launcher -p du-app-host --no-default-features --all-targets -- -D warnings
       # committed_debian_copyright_matches_the_generator reads the npm license files in
       # gui-web/node_modules and gives the same result on every OS; the static job runs it once.
-      - run: cargo test --locked --workspace --all-features -- --skip committed_debian_copyright_matches_the_generator
+      # --no-fail-fast runs every test binary, so one failing crate no longer hides the others.
+      - run: cargo test --locked --workspace --all-features --no-fail-fast -- --skip committed_debian_copyright_matches_the_generator
       - name: Windows NTFS volume mount-point observation
         if: runner.os == 'Windows' && matrix.cpu == 'x64'
         run: cargo test --locked -p du-platform-os --test windows_mountpoint -- --ignored --nocapture
