@@ -42,7 +42,7 @@ pub(super) fn child(
         presentation: ChildPolicyEvidence {
             path_compare_key: None,
             legend_class_key: legend_class_key.to_owned(),
-            display_flags: size_flags(size),
+            display_flags: size_flags(size.as_ref()),
         },
         match_key: VizMatchKey::Unknown {
             reason_key: policy::MATCH_KEY_REASON.to_owned(),

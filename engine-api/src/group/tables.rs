@@ -93,7 +93,7 @@ fn size_bound(evidence: &Evidence<'_>) -> Option<GroupLimitation> {
     let version = evidence.classification.version();
     let aggregate = match evidence.classification.root() {
         Some(root) => version.space(root.item_no)?,
-        None => version.scope_total(),
+        None => version.scope_total().clone(),
     };
     let bounded = [&aggregate.logical, &aggregate.allocated]
         .iter()

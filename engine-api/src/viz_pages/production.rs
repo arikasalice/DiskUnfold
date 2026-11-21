@@ -173,7 +173,7 @@ pub(super) fn project_fallback(
         return Err(Error::MissingClassification);
     }
     let total = original_size(&version, parent.item_no, basis).ok_or(Error::SourceMismatch)?;
-    let denominator = denominator(total, basis)?;
+    let denominator = denominator(&total, basis)?;
     let mut by_item = presentations_by_item(version.version_id(), presentations, cancelled)?;
     let mut rows = Vec::with_capacity(folder.children.len());
     for item in folder.children {
@@ -184,7 +184,7 @@ pub(super) fn project_fallback(
             .remove(&item.item_no)
             .ok_or(Error::MissingClassification)?;
         let size = original_size(&version, item.item_no, basis).ok_or(Error::SourceMismatch)?;
-        rows.push(make_row(&version, item, size, presentation, &denominator)?);
+        rows.push(make_row(&version, item, &size, presentation, &denominator)?);
     }
     if cancelled() {
         return Err(Error::Cancelled);
@@ -237,7 +237,7 @@ fn validate_model(version: &ResultVersion, model: &projection::Model) -> Result<
     } else {
         model.rows.len() == children
     };
-    if original != &model.totals.scope || !rows_fit {
+    if original != model.totals.scope || !rows_fit {
         return Err(Error::SourceMismatch);
     }
     Ok(())
@@ -256,7 +256,7 @@ fn project_row(
     if row.item.result_version != model.result_revision
         || item.parent != Some(model.parent.item_no)
         || !row_size_holds(
-            original_size(version, item.item_no, &model.basis),
+            original_size(version, item.item_no, &model.basis).as_ref(),
             &row.size,
             model.filter.is_some(),
         )
@@ -340,17 +340,8 @@ fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Er
         size: Some(size.clone()),
     })
 }
-fn original_size<'a>(
-    version: &'a ResultVersion,
-    item_no: u32,
-    basis: &SizeBasis,
-) -> Option<&'a SizeValue> {
-    let scope = version.space(item_no)?;
-    Some(match basis {
-        SizeBasis::Logical => &scope.logical,
-        SizeBasis::Allocated => &scope.allocated,
-        SizeBasis::UniquePhysical => &scope.unique_physical,
-    })
+fn original_size(version: &ResultVersion, item_no: u32, basis: &SizeBasis) -> Option<SizeValue> {
+    version.item_space_size(item_no, basis.clone())
 }
 
 fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {
@@ -377,7 +368,7 @@ pub(super) fn project_sized(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<Vec<VizRow>, Error> {
     let total = original_size(version, parent.item_no, basis).ok_or(Error::SourceMismatch)?;
-    let denominator = denominator(total, basis)?;
+    let denominator = denominator(&total, basis)?;
     let mut by_item = presentations_by_item(version.version_id(), presentations, cancelled)?;
     let mut rows = Vec::with_capacity(sized.len());
     for (item, size) in sized {

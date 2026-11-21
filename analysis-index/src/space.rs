@@ -163,35 +163,159 @@ pub(crate) fn weaker(left: Option<SizeEvidence>, right: SizeEvidence) -> SizeEvi
     }
 }
 
+/// Retains subtree aggregates only for structural items; leaf values are derived on read.
+#[derive(Debug)]
+pub(crate) struct SpaceAggregates {
+    item_numbers: Vec<u32>,
+    values: Vec<SpaceAggregate>,
+    source_completeness: ResultCompleteness,
+    promoted: Option<Vec<u64>>,
+    file_gaps: Vec<(u32, u64)>,
+}
+
+impl SpaceAggregates {
+    fn new(
+        items: &[ResultItem],
+        completeness: ResultCompleteness,
+        proven: Option<&crate::folder_completion::ProvenFolders>,
+    ) -> Self {
+        let item_numbers: Vec<_> = items
+            .iter()
+            .filter(|item| is_structure(item.kind))
+            .map(|item| item.item_no)
+            .collect();
+        let placeholder = Accumulator::default().finish(completeness);
+        let values = vec![placeholder; item_numbers.len()];
+        let mut promoted = (completeness != ResultCompleteness::Complete && proven.is_some())
+            .then(|| vec![0; items.len().div_ceil(u64::BITS as usize)]);
+        if let Some(bits) = &mut promoted {
+            for item in items {
+                let index = item.item_no as usize;
+                if crate::folder_completion::ProvenFolders::source(proven, index, completeness)
+                    == ResultCompleteness::Complete
+                {
+                    bits[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
+                }
+            }
+        }
+        Self {
+            item_numbers,
+            values,
+            source_completeness: completeness,
+            promoted,
+            file_gaps: Vec::new(),
+        }
+    }
+
+    pub(crate) fn slot(&self, item_no: u32) -> Option<usize> {
+        self.item_numbers.binary_search(&item_no).ok()
+    }
+
+    pub(crate) fn get(&self, item_no: u32) -> Option<&SpaceAggregate> {
+        self.values.get(self.slot(item_no)?)
+    }
+
+    pub(crate) fn get_mut(&mut self, item_no: u32) -> Option<&mut SpaceAggregate> {
+        let slot = self.slot(item_no)?;
+        self.values.get_mut(slot)
+    }
+
+    pub(crate) fn source(&self, item_no: u32) -> ResultCompleteness {
+        let index = item_no as usize;
+        if self.promoted.as_ref().is_some_and(|bits| {
+            bits.get(index / u64::BITS as usize)
+                .is_some_and(|word| word & (1 << (index % u64::BITS as usize)) != 0)
+        }) {
+            ResultCompleteness::Complete
+        } else {
+            self.source_completeness
+        }
+    }
+
+    pub(crate) fn mark_inaccessible(&mut self, item_no: u32, count: u64) {
+        if let Some(value) = self.get_mut(item_no) {
+            mark_inaccessible(value, count);
+        } else {
+            self.file_gaps.push((item_no, count));
+        }
+    }
+
+    pub(crate) fn finish_gaps(&mut self) {
+        self.file_gaps.sort_unstable_by_key(|(item_no, _)| *item_no);
+    }
+
+    pub(crate) fn item_inaccessible(&self, item_no: u32) -> bool {
+        self.get(item_no)
+            .is_some_and(|value| value.inaccessible_ranges.is_some_and(|count| count > 0))
+            || self
+                .file_gaps
+                .binary_search_by_key(&item_no, |(number, _)| *number)
+                .is_ok()
+    }
+
+    pub(crate) fn has_inaccessible(&self) -> bool {
+        !self.file_gaps.is_empty()
+            || self
+                .values
+                .iter()
+                .any(|value| value.inaccessible_ranges.is_some_and(|count| count > 0))
+    }
+
+    pub(crate) fn file_gap_count(&self, item_no: u32) -> Option<u64> {
+        self.file_gaps
+            .binary_search_by_key(&item_no, |(number, _)| *number)
+            .ok()
+            .map(|index| self.file_gaps[index].1)
+    }
+}
+
 pub(crate) fn aggregate(
     items: &[ResultItem],
     boundary: &[u32],
     completeness: ResultCompleteness,
     proven: Option<&crate::folder_completion::ProvenFolders>,
-) -> Vec<SpaceAggregate> {
-    let mut sums = vec![Accumulator::default(); items.len()];
+) -> SpaceAggregates {
+    let mut output = SpaceAggregates::new(items, completeness, proven);
+    let mut sums = vec![Accumulator::default(); output.item_numbers.len()];
     for item in items.iter().rev() {
-        let index = item.item_no as usize;
+        let mut own = Accumulator::default();
         if item.kind == ResultItemKind::UntraversedLink {
-            sums[index].observe_link(item.size.as_ref());
+            own.observe_link(item.size.as_ref());
         } else if !is_structure(item.kind) {
-            sums[index].observe(item.size.as_ref());
+            own.observe(item.size.as_ref());
         }
         // A file outside the boundary keeps its own unknown value but is an unread range
         // for its folder, so it adds neither bytes nor a missing item above it.
-        if let Some(parent) = item.parent
-            && boundary.binary_search(&item.item_no).is_err()
+        if is_structure(item.kind) {
+            let slot = output
+                .slot(item.item_no)
+                .expect("every structural item has an aggregate slot");
+            output.values[slot] = sums[slot].finish(output.source(item.item_no));
+            if let Some(parent) = item.parent
+                && let Some(parent_slot) = output.slot(parent)
+            {
+                let child = sums[slot].clone();
+                sums[parent_slot].merge(&child);
+            }
+        } else if boundary.binary_search(&item.item_no).is_err()
+            && let Some(parent) = item.parent
+            && let Some(parent_slot) = output.slot(parent)
         {
-            let child = sums[index].clone();
-            sums[parent as usize].merge(&child);
+            sums[parent_slot].merge(&own);
         }
     }
-    let source =
-        |index| crate::folder_completion::ProvenFolders::source(proven, index, completeness);
-    sums.iter()
-        .enumerate()
-        .map(|(index, sum)| sum.finish(source(index)))
-        .collect()
+    output
+}
+
+/// Builds the aggregate of a non-structural item from its own observation.
+pub(crate) fn aggregate_item(item: &ResultItem, source: ResultCompleteness) -> SpaceAggregate {
+    let mut own = Accumulator::default();
+    if item.kind == ResultItemKind::UntraversedLink {
+        own.observe_link(item.size.as_ref());
+    } else if !is_structure(item.kind) {
+        own.observe(item.size.as_ref());
+    }
+    own.finish(source)
 }
 
 /// Computes a forest-wide total directly from observations, not subtree totals.

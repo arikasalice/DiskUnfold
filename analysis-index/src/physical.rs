@@ -344,6 +344,28 @@ pub(crate) fn scope_total(
     sum.finish(completeness, output);
 }
 
+/// Computes a non-structural item's physical contribution when its aggregate is requested.
+pub(crate) fn apply_item(
+    result: &crate::ResultVersion,
+    index: usize,
+    source: ResultCompleteness,
+    output: &mut SpaceAggregate,
+) {
+    let observed = result
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(index))
+        .and_then(Option::as_deref);
+    let reading = Observed::read(observed);
+    let mut sum = Physical::with_limit(result.shared_table_limit);
+    sum.note_placeholder(
+        &reading,
+        local_unknown(result.placeholder_observations.as_deref(), index),
+    );
+    let _ = sum.record(&reading, false);
+    sum.finish(source, output);
+}
+
 /// Reuses the same identity table for a sorted set of root observations and
 /// returns the exact difference from counting each path separately, if known.
 pub(crate) fn selected_scope(

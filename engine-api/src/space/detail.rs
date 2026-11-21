@@ -76,9 +76,9 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
     };
     SpaceDetail {
         item: facts.item,
-        logical: size(facts.logical, aggregate),
-        allocated: physical(facts.allocated, aggregate),
-        unique_physical: physical(facts.unique_physical, aggregate),
+        logical: size(facts.logical, aggregate.as_ref()),
+        allocated: physical(facts.allocated, aggregate.as_ref()),
+        unique_physical: physical(facts.unique_physical, aggregate.as_ref()),
         exclusive,
         shared,
         link_group: link_group(facts.links),

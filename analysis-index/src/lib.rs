@@ -107,7 +107,7 @@ pub struct ResultVersion {
     completeness: ResultCompleteness,
     size_rule: BoundSizeRule,
     items: Vec<ResultItem>,
-    aggregates: Vec<SpaceAggregate>,
+    aggregates: space::SpaceAggregates,
     observation_ranges: Vec<observation_range::RangeIndices>,
     scope_observation_range: observation_range::RangeIndices,
     physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
@@ -364,7 +364,7 @@ impl BuildHandle {
             Some(total)
         };
         let (observation_ranges, scope_observation_range) =
-            observation_range::build(&built, &aggregates, completeness, proven.as_ref());
+            observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
         let folder_marks = folder_marks::FolderMarks::bind(
             &built,

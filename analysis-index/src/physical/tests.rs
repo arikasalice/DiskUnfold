@@ -29,13 +29,14 @@ fn files_seen_once_do_not_reach_the_capacity() {
     }
     let mut aggregates =
         crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
-    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
+    let root = aggregates.get_mut(0).expect("root aggregate");
+    sum.finish(ResultCompleteness::Complete, root);
     let exact = SizeAmount::Exact {
         bytes: ByteSize::from(60),
     };
-    assert_eq!(aggregates[0].allocated.amount, exact);
-    assert_eq!(aggregates[0].unique_physical.amount, exact);
-    assert!(!aggregates[0].limitations.contains(&"space.dedup_capacity"));
+    assert_eq!(root.allocated.amount, exact);
+    assert_eq!(root.unique_physical.amount, exact);
+    assert!(!root.limitations.contains(&"space.dedup_capacity"));
 }
 
 /// #270: over the capacity both totals are the lower bound of the files seen once;
@@ -56,14 +57,15 @@ fn over_the_capacity_both_totals_are_the_lower_bound_of_files_seen_once() {
     }
     let mut aggregates =
         crate::space::aggregate(&[folder()], &[], ResultCompleteness::Complete, None);
-    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
+    let root = aggregates.get_mut(0).expect("root aggregate");
+    sum.finish(ResultCompleteness::Complete, root);
     let lower = SizeAmount::LowerBound {
         bytes: ByteSize::from(7),
     };
-    assert_eq!(aggregates[0].allocated.amount, lower);
-    assert_eq!(aggregates[0].unique_physical.amount, lower);
-    assert_eq!(aggregates[0].allocated.evidence, SizeEvidence::OsReported);
-    assert!(aggregates[0].limitations.contains(&"space.dedup_capacity"));
+    assert_eq!(root.allocated.amount, lower);
+    assert_eq!(root.unique_physical.amount, lower);
+    assert_eq!(root.allocated.evidence, SizeEvidence::OsReported);
+    assert!(root.limitations.contains(&"space.dedup_capacity"));
 }
 
 #[test]
@@ -114,10 +116,11 @@ fn capacity_alone_makes_both_physical_totals_unknown() {
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
     let mut aggregates = crate::space::aggregate(&[item], &[], ResultCompleteness::Complete, None);
-    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
-    assert_eq!(aggregates[0].allocated.amount, SizeAmount::Unknown);
-    assert_eq!(aggregates[0].unique_physical.amount, SizeAmount::Unknown);
-    assert!(aggregates[0].limitations.contains(&"space.dedup_capacity"));
+    let root = aggregates.get_mut(0).expect("root aggregate");
+    sum.finish(ResultCompleteness::Complete, root);
+    assert_eq!(root.allocated.amount, SizeAmount::Unknown);
+    assert_eq!(root.unique_physical.amount, SizeAmount::Unknown);
+    assert!(root.limitations.contains(&"space.dedup_capacity"));
 }
 
 #[test]
@@ -148,9 +151,10 @@ fn identity_capacity_boundary_and_conflict_update_summary() {
         kind: du_core_contracts::result::ResultItemKind::Directory,
     };
     let mut aggregates = crate::space::aggregate(&[item], &[], ResultCompleteness::Complete, None);
-    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
+    let root = aggregates.get_mut(0).expect("root aggregate");
+    sum.finish(ResultCompleteness::Complete, root);
     assert_eq!(
-        aggregates[0].allocated.amount,
+        root.allocated.amount,
         SizeAmount::Exact {
             bytes: ByteSize::from(30)
         }
@@ -160,9 +164,9 @@ fn identity_capacity_boundary_and_conflict_update_summary() {
     sum.insert_with_limit(identity(3), known(5), 2);
     assert!(sum.capacity_exceeded);
     assert_eq!(sum.identities.len(), 2);
-    sum.finish(ResultCompleteness::Complete, &mut aggregates[0]);
-    assert_eq!(aggregates[0].allocated.amount, SizeAmount::Unknown);
-    assert!(aggregates[0].limitations.contains(&"space.dedup_capacity"));
+    sum.finish(ResultCompleteness::Complete, root);
+    assert_eq!(root.allocated.amount, SizeAmount::Unknown);
+    assert!(root.limitations.contains(&"space.dedup_capacity"));
 }
 
 #[test]

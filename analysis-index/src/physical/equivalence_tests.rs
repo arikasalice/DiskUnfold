@@ -47,6 +47,36 @@ struct Forest {
     observations: Option<Vec<Option<Arc<SpaceObservation>>>>,
 }
 
+fn values_from_index(
+    items: &[ResultItem],
+    indexed: &space::SpaceAggregates,
+    observations: Option<&[Option<Arc<SpaceObservation>>]>,
+    completeness: ResultCompleteness,
+    limit: usize,
+) -> Vec<SpaceAggregate> {
+    items
+        .iter()
+        .map(|item| {
+            if expected_is_structure(item.kind) {
+                return indexed
+                    .get(item.item_no)
+                    .expect("structural item aggregate")
+                    .clone();
+            }
+            let mut aggregate = space::aggregate_item(item, completeness);
+            let observation = observations
+                .and_then(|values| values.get(item.item_no as usize))
+                .and_then(Option::as_deref);
+            let reading = Observed::read(observation);
+            let mut own = Physical::with_limit(limit);
+            own.note_placeholder(&reading, false);
+            let _ = own.record(&reading, false);
+            own.finish(completeness, &mut aggregate);
+            aggregate
+        })
+        .collect()
+}
+
 /// Test oracle for the established result-kind boundary, independent of production code.
 fn expected_is_structure(kind: ResultItemKind) -> bool {
     matches!(
@@ -333,12 +363,17 @@ fn every_result_kind_keeps_its_subtree_propagation() {
             placeholders: None,
         },
         &[],
-        ResultCompleteness::Complete,
-        None,
         3,
         &mut actual,
     );
 
+    let actual = values_from_index(
+        &forest.items,
+        &actual,
+        forest.observations.as_deref(),
+        ResultCompleteness::Complete,
+        3,
+    );
     assert_eq!(actual, expected);
     assert_eq!(expected[0].missing_items, 2);
     assert_eq!(expected[0].untraversed_links, 1);
@@ -411,10 +446,15 @@ fn whole_build_totals_equal_one_table_per_subtree() -> Result<(), String> {
                     placeholders: None,
                 },
                 &[],
-                completeness,
-                None,
                 limit,
                 &mut actual,
+            );
+            let actual = values_from_index(
+                &forest.items,
+                &actual,
+                forest.observations.as_deref(),
+                completeness,
+                limit,
             );
             for (index, (want, got)) in expected.iter().zip(&actual).enumerate() {
                 if want != got {

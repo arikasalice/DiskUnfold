@@ -172,7 +172,9 @@ impl ResultVersion {
 
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
-        self.scope_total.as_ref().unwrap_or(&self.aggregates[0])
+        self.scope_total
+            .as_ref()
+            .unwrap_or_else(|| self.aggregates.get(0).expect("sealed result has a root"))
     }
 
     /// Actual scope-root items, in the producer's root order.
@@ -196,8 +198,19 @@ impl ResultVersion {
     }
 
     /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
-    pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
-        self.aggregates.get(item_no as usize)
+    pub fn space(&self, item_no: u32) -> Option<SpaceAggregate> {
+        let index = item_no as usize;
+        let item = self.items.get(index)?;
+        if crate::item_kind::is_structure(item.kind) {
+            return Some(self.aggregates.get(item.item_no)?.clone());
+        }
+        let source = self.aggregates.source(item.item_no);
+        let mut aggregate = crate::space::aggregate_item(item, source);
+        crate::physical::apply_item(self, index, source, &mut aggregate);
+        if let Some(count) = self.aggregates.file_gap_count(item.item_no) {
+            crate::space::mark_inaccessible(&mut aggregate, count);
+        }
+        Some(aggregate)
     }
 
     /// Reads a file size or folder aggregate only when its recorded basis matches `basis`.
@@ -207,7 +220,7 @@ impl ResultVersion {
     pub fn item_size(&self, item_no: u32, basis: SizeBasis) -> Option<&SizeValue> {
         let item = self.items.get(item_no as usize)?;
         let size = if item.kind == ResultItemKind::Directory {
-            let aggregate = self.space(item.item_no)?;
+            let aggregate = self.aggregates.get(item.item_no)?;
             match &basis {
                 SizeBasis::Logical => &aggregate.logical,
                 SizeBasis::Allocated => &aggregate.allocated,
@@ -227,6 +240,16 @@ impl ResultVersion {
             }?
         };
         (size.basis == basis).then_some(size)
+    }
+
+    /// Reads one basis from the same aggregate returned by [`Self::space`].
+    pub fn item_space_size(&self, item_no: u32, basis: SizeBasis) -> Option<SizeValue> {
+        let aggregate = self.space(item_no)?;
+        Some(match basis {
+            SizeBasis::Logical => aggregate.logical,
+            SizeBasis::Allocated => aggregate.allocated,
+            SizeBasis::UniquePhysical => aggregate.unique_physical,
+        })
     }
 
     /// Resolves an item reference against this snapshot, including an older snapshot held open.
@@ -295,7 +318,9 @@ impl ResultVersion {
             index = children[offset].item_no as usize;
         }
         ensure_directory(self.items[index].kind)?;
-        self.aggregates.get(index).ok_or(QueryError::NotFound)
+        self.aggregates
+            .get(index as u32)
+            .ok_or(QueryError::NotFound)
     }
 }
 

@@ -142,7 +142,7 @@ fn query_error(error: QueryError) -> EngineError {
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
     let (aggregate, cancelled_unread_folders, range) = match request.target {
         SpaceTarget::ScopeRoot {} => (
-            version.scope_total(),
+            version.scope_total().clone(),
             version.cancelled_unread_folders_in_scope(),
             version.scope_observation_range(),
         ),
@@ -169,7 +169,7 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
     Ok(SpaceTotal {
         cancelled_unread_folders,
         observation_range: Some(wire_range(range)?),
-        ..response(version, request.request_seq, aggregate)
+        ..response(version, request.request_seq, &aggregate)
     })
 }
 

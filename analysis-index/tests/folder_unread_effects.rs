@@ -232,7 +232,7 @@ fn cancelled_and_partial_versions_make_marked_folders_and_ancestors_inexact() ->
         // The mark does not touch aggregation at all.
         let all = |version: &ResultVersion| -> Vec<_> {
             (0..version.items().len() as u32)
-                .filter_map(|n| version.space(n).cloned())
+                .filter_map(|n| version.space(n))
                 .chain([version.scope_total().clone()])
                 .collect()
         };

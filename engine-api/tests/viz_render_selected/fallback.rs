@@ -205,7 +205,7 @@ fn assert_partial_page(page: &VizRows, version: &ResultVersion, count: u64, byte
         assert_eq!(row.ratio, None);
         assert_eq!(
             row.denominator.size.as_ref(),
-            version.space(0).map(|aggregate| &aggregate.logical)
+            version.space(0).map(|aggregate| aggregate.logical)
         );
         assert!(
             matches!(row.denominator.value.amount(), VizAmount::LowerBound { value } if value.get() == bytes)

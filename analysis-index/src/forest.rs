@@ -7,7 +7,7 @@ use crate::{
 };
 use du_core_contracts::{
     Timestamp,
-    result::{ResultItemKind, ResultScopeGap, SpaceAggregate},
+    result::{ResultItemKind, ResultScopeGap},
 };
 
 /// Marks ancestors of unread ranges and indexes gaps with an exact observed item.
@@ -15,7 +15,7 @@ pub(crate) fn mark_gaps(
     built: &BuiltItems,
     store: &ObservationStore,
     gaps: &[ResultScopeGap],
-    aggregates: &mut [SpaceAggregate],
+    aggregates: &mut space::SpaceAggregates,
 ) -> Result<BTreeMap<u32, Vec<usize>>, BuildError> {
     let mut exact = BTreeMap::<u32, Vec<usize>>::new();
     let mut counts = HashMap::<usize, u64>::new();
@@ -39,8 +39,9 @@ pub(crate) fn mark_gaps(
         }
     }
     for (index, count) in counts {
-        space::mark_inaccessible(&mut aggregates[index], count);
+        aggregates.mark_inaccessible(built.items[index].item_no, count);
     }
+    aggregates.finish_gaps();
     Ok(exact)
 }
 

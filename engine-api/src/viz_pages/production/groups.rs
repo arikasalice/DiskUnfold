@@ -106,7 +106,7 @@ pub(crate) fn nested_group_rows(
             .filter(|item| item.parent == Some(group.parent.item_no))
             .ok_or(Error::InvalidGroup)?;
         if presentation.item != member.item
-            || original_size(version, item.item_no, &model.basis) != Some(&member.size)
+            || original_size(version, item.item_no, &model.basis) != Some(member.size.clone())
         {
             return Err(Error::SourceMismatch);
         }
