@@ -137,7 +137,6 @@ fn uncertain_physical_observations_and_partial_physical_totals_are_rejected() {
         None,
         Some(no_identity),
         Some(no_bytes),
-        Some(obs(1, 8, None)),
         Some(obs(1, 8, Some(0))),
     ] {
         let v = build(
@@ -151,6 +150,21 @@ fn uncertain_physical_observations_and_partial_physical_totals_are_rejected() {
         );
         assert!(layout(&v, SizeBasis::Logical).is_ok());
     }
+    // An unknown link count does not stop F03 from counting the file, so the
+    // partition takes it too (#364).
+    let v = build(
+        Some(obs(1, 7, Some(1))),
+        Some(obs(1, 8, None)),
+        ResultCompleteness::Complete,
+    );
+    assert_eq!(
+        layout(&v, SizeBasis::Allocated)
+            .unwrap()
+            .layout
+            .shapes
+            .len(),
+        2
+    );
     let v = build(
         Some(obs(1, 7, Some(1))),
         Some(obs(1, 8, Some(1))),
