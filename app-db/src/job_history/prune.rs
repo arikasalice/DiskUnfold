@@ -18,6 +18,7 @@ const JOB_ID_TABLES: &[&str] = &[
     "job_runtime_job_link",
     "job_runtime_job_record",
     "job_runtime_job_scope_root",
+    "job_runtime_approval_check",
 ];
 
 impl AppDb {
@@ -141,7 +142,18 @@ impl AppDb {
             }
         }
 
-        if eligible.is_empty() {
+        let has_expired_unattached_approval_check: bool = tx
+            .query_row(
+                "SELECT EXISTS (
+                    SELECT 1 FROM job_runtime_approval_check
+                    WHERE job_id IS NULL AND created_at_ms <= ?1
+                )",
+                [cutoff_ms],
+                |row| row.get(0),
+            )
+            .map_err(map_delete_error)?;
+
+        if eligible.is_empty() && !has_expired_unattached_approval_check {
             let revision = read_revision(&tx).map_err(map_delete_error)?;
             tx.commit().map_err(map_delete_error)?;
             return Ok(HistoryPruneDeleteReceipt {
@@ -172,23 +184,39 @@ impl AppDb {
             .collect::<Vec<_>>();
         let mut deleted_row_count = 0_u64;
         let mut deleted_job_ids = Vec::new();
-        for table in JOB_ID_TABLES {
-            let sql = format!("DELETE FROM {table} WHERE job_id IN ({placeholders})");
-            let deleted = tx
-                .execute(&sql, rusqlite::params_from_iter(sql_params.iter()))
-                .map_err(map_delete_error)?;
-            deleted_row_count = deleted_row_count
-                .checked_add(
-                    u64::try_from(deleted).map_err(|_| HistoryPruneDeleteError::Unavailable)?,
-                )
-                .ok_or(HistoryPruneDeleteError::Unavailable)?;
-            if *table == "job_runtime_job_link" {
-                if deleted != eligible.len() {
-                    return Err(HistoryPruneDeleteError::Unavailable);
+        if !eligible.is_empty() {
+            for table in JOB_ID_TABLES {
+                let sql = format!("DELETE FROM {table} WHERE job_id IN ({placeholders})");
+                let deleted = tx
+                    .execute(&sql, rusqlite::params_from_iter(sql_params.iter()))
+                    .map_err(map_delete_error)?;
+                deleted_row_count = deleted_row_count
+                    .checked_add(
+                        u64::try_from(deleted).map_err(|_| HistoryPruneDeleteError::Unavailable)?,
+                    )
+                    .ok_or(HistoryPruneDeleteError::Unavailable)?;
+                if *table == "job_runtime_job_link" {
+                    if deleted != eligible.len() {
+                        return Err(HistoryPruneDeleteError::Unavailable);
+                    }
+                    deleted_job_ids = eligible.iter().copied().map(Id::from_v7_bytes).collect();
                 }
-                deleted_job_ids = eligible.iter().copied().map(Id::from_v7_bytes).collect();
             }
         }
+
+        let deleted_unattached = tx
+            .execute(
+                "DELETE FROM job_runtime_approval_check
+                 WHERE job_id IS NULL AND created_at_ms <= ?1",
+                [cutoff_ms],
+            )
+            .map_err(map_delete_error)?;
+        deleted_row_count = deleted_row_count
+            .checked_add(
+                u64::try_from(deleted_unattached)
+                    .map_err(|_| HistoryPruneDeleteError::Unavailable)?,
+            )
+            .ok_or(HistoryPruneDeleteError::Unavailable)?;
 
         if deleted_row_count > 0 {
             let updated = tx

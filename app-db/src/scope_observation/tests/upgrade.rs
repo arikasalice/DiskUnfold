@@ -82,8 +82,20 @@ fn version_six_data_is_unchanged_and_the_new_table_starts_empty() -> TestResult 
             &HISTORY_DEFINITIONS
         )
         .map_err(|e| format!("{e:?}"))?,
-        HISTORY_SCHEMA_VERSION
+        8
     );
+    for step in HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .filter(|step| step.number > 8)
+    {
+        migration::apply_next(
+            &path,
+            &dir.path().join(format!("before-{}.db", step.number)),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    }
     let upgraded = Connection::open(&path)?;
     let mut after = dump(&upgraded)?;
     let (table, rows) = after
@@ -99,8 +111,26 @@ fn version_six_data_is_unchanged_and_the_new_table_starts_empty() -> TestResult 
             .iter()
             .any(|(name, rows)| { name == "job_runtime_job_scope_root" && rows.is_empty() })
     );
+    for added_table in [
+        "analysis_index_scope_observation",
+        "job_runtime_job_scope_root",
+        "change_planner_plan_version",
+        "job_runtime_approval_check",
+    ] {
+        assert!(
+            after
+                .iter()
+                .any(|(name, rows)| name == added_table && rows.is_empty())
+        );
+    }
     after.retain(|(name, _)| {
-        name != "analysis_index_scope_observation" && name != "job_runtime_job_scope_root"
+        ![
+            "analysis_index_scope_observation",
+            "job_runtime_job_scope_root",
+            "change_planner_plan_version",
+            "job_runtime_approval_check",
+        ]
+        .contains(&name.as_str())
     });
     assert_eq!(after, before);
     let version: u32 = upgraded.pragma_query_value(None, "user_version", |row| row.get(0))?;
