@@ -8,6 +8,7 @@
 //! table; the root table still lists every child of the scope.
 use super::{
     Error, OtherPresentation, RowPresentation, denominator, groups, make_row, original_size,
+    row_slices,
 };
 use du_analysis_index::{
     ResultVersion,
@@ -47,16 +48,22 @@ pub(crate) fn rows(
         let presentation = presentations
             .get(&item.item_no)
             .ok_or(Error::MissingClassification)?;
+        let presentation = RowPresentation {
+            item: presentation.item.clone(),
+            legend_class_key: presentation.legend_class_key.clone(),
+            display_flags: presentation.display_flags.clone(),
+        };
+        let filtered = model.filter.is_some();
+        let slices = row_slices(version, &presentation, &model.basis, filtered, &mut || {
+            false
+        })?;
         table.push(make_row(
             version,
             item,
             &shape.size,
-            RowPresentation {
-                item: presentation.item.clone(),
-                legend_class_key: presentation.legend_class_key.clone(),
-                display_flags: presentation.display_flags.clone(),
-            },
+            presentation,
             &denominator,
+            slices,
         )?);
     }
     if let Some(group) = group {
