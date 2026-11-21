@@ -7,7 +7,7 @@ use std::{
     time::SystemTime,
 };
 
-use super::{AppDb, OpenError};
+use super::{AppDb, HISTORY_SCHEMA_VERSION, OpenError};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 type DirectoryState = Vec<(OsString, u64, Vec<u8>, SystemTime)>;
@@ -196,6 +196,40 @@ fn missing_database_is_not_created_and_rollback_journal_database_is_untouched() 
     let before = directory_state(dir.path())?;
     let reader = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
     assert_eq!(rows(&reader)?, 1);
+    drop(reader);
+    assert_eq!(directory_state(dir.path())?, before);
+    Ok(())
+}
+
+#[test]
+fn current_history_tables_are_read_without_migration_or_file_changes() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("current-history.db");
+    drop(AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?);
+    let before = directory_state(dir.path())?;
+
+    let reader = AppDb::open_read_only(&path).map_err(|error| format!("{error:?}"))?;
+    assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
+    let tables: i64 = reader.connection.query_row(
+        "SELECT count(*) FROM sqlite_schema
+         WHERE type = 'table' AND name IN
+             ('change_planner_plan_version','job_runtime_approval_check')",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(tables, 2);
+    assert!(
+        reader
+            .connection
+            .execute("CREATE TABLE read_only_migration_probe(value INTEGER)", [])
+            .is_err()
+    );
+    assert!(
+        reader
+            .connection
+            .execute("INSERT INTO job_runtime_approval_check DEFAULT VALUES", [])
+            .is_err()
+    );
     drop(reader);
     assert_eq!(directory_state(dir.path())?, before);
     Ok(())

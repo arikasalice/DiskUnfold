@@ -126,6 +126,18 @@ fn backfills_links_and_advances_sequence_from_existing_summaries() -> TestResult
         &HISTORY_DEFINITIONS,
     )
     .map_err(|error| format!("{error:?}"))?;
+    for definition in HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .filter(|step| step.number > 8)
+    {
+        migration::apply_next(
+            &path,
+            &dir.path().join(format!("before-{}.db", definition.number)),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    }
     let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     let mut statement = db.connection.prepare(
         "SELECT link.job_id, link.record_seq, link.reckon_at_ms, link.record_origin
@@ -327,5 +339,89 @@ fn writer_open_error_is_preserved_when_read_only_fallback_passes() -> TestResult
         .err()
         .ok_or("writer error was not returned")?;
     assert!(matches!(error, OpenError::WalUnavailable));
+    Ok(())
+}
+
+#[test]
+fn plan_and_approval_migrations_preserve_schema_eight_rows() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("schema-eight.db");
+    drop(AppDb::create_gui(&path).map_err(|error| format!("{error:?}"))?);
+
+    for definition in HISTORY_DEFINITIONS.steps {
+        if definition.number > 8 {
+            break;
+        }
+        let backup = dir.path().join(format!("before-{}.db", definition.number));
+        assert_eq!(
+            migration::apply_next(&path, &backup, &HISTORY_DEFINITIONS)
+                .map_err(|error| format!("{error:?}"))?,
+            definition.number
+        );
+    }
+
+    let legacy = Connection::open(&path)?;
+    legacy.execute(
+        "INSERT INTO change_planner_ruleset
+         (version,ruleset_hash,hash_format,class_table_version,
+          known_location_table_version,rule_format_version,origin,
+          change_summary,body,created_at_ms)
+         VALUES (1,?1,'du.ruleset.hash.v1','class.1','location.1',
+                 1,'gui','{}','{}',100)",
+        [vec![1; 32]],
+    )?;
+    legacy.execute(
+        "INSERT INTO job_runtime_job_record
+         (job_id,kind_id,kind_version,scope_summary,final_state,completed_count,
+          overwritten_count,failed_count,skipped_count,unprocessed_count,
+          finished_at_ms,correlation_id,created_at_ms)
+         VALUES (?1,'scan.metadata',1,'metadata: 1 root','done',1,0,0,0,0,200,?2,210)",
+        params![vec![2u8; 16], vec![3u8; 16]],
+    )?;
+    let old_version: u32 = legacy.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    assert_eq!(old_version, 8);
+    drop(legacy);
+
+    assert_eq!(
+        migration::apply_next(&path, &dir.path().join("before-9.db"), &HISTORY_DEFINITIONS,)
+            .map_err(|error| format!("{error:?}"))?,
+        9
+    );
+    assert_eq!(
+        migration::apply_next(
+            &path,
+            &dir.path().join("before-10.db"),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|error| format!("{error:?}"))?,
+        10
+    );
+
+    let migrated = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    let ruleset: Vec<u8> = migrated.connection.query_row(
+        "SELECT ruleset_hash FROM change_planner_ruleset WHERE version = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(ruleset, vec![1; 32]);
+    let job_count: i64 = migrated.connection.query_row(
+        "SELECT count(*) FROM job_runtime_job_record
+         WHERE final_state = 'done' AND completed_count = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(job_count, 1);
+    assert_eq!(migrated.schema_version()?, HISTORY_SCHEMA_VERSION);
+    let plan_count: i64 = migrated.connection.query_row(
+        "SELECT count(*) FROM change_planner_plan_version",
+        [],
+        |row| row.get(0),
+    )?;
+    let check_count: i64 = migrated.connection.query_row(
+        "SELECT count(*) FROM job_runtime_approval_check",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!((plan_count, check_count), (0, 0));
     Ok(())
 }
