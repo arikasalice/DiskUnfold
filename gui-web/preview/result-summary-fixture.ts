@@ -167,6 +167,43 @@ const volume: VolumeGapResponse = {
 };
 
 /** Answers the reads the summary can make; nothing reaches an engine. */
+const typeSlice = (classKey: string, count: number, mebibytes: number) => ({
+  classKey,
+  itemCount: { unit: "items", state: "exact" as const, value: String(count) },
+  total: {
+    unit: "bytes",
+    state: "exact" as const,
+    value: String(mebibytes * 1024 * 1024),
+  },
+});
+
+/** The classes of the fixed result: seven types, so the card names five and the rest. */
+const typeSummary = {
+  resultVersion: version,
+  slices: [
+    typeSlice("type.video", 12, 20),
+    typeSlice("type.document", 640, 10),
+    typeSlice("type.image", 2100, 7),
+    typeSlice("type.archive", 18, 4),
+    typeSlice("type.audio", 300, 3),
+    typeSlice("type.no_extension", 90, 2),
+    typeSlice("unclassified", 40, 1),
+  ],
+  legendOrder: [
+    "type.document",
+    "type.audio",
+    "type.image",
+    "type.installer_image",
+    "type.video",
+    "type.archive",
+    "type.unclassified",
+    "type.no_extension",
+    "unclassified",
+  ],
+  lowerBound: false,
+};
+
+/** Answers the reads the summary can make; nothing reaches an engine. */
 export const summaryClient: AnalysisClient = {
   call: (async (name: string, body: { requestSeq?: number }) => {
     switch (name) {
@@ -176,6 +213,8 @@ export const summaryClient: AnalysisClient = {
         return { ...volume, requestSeq: body.requestSeq ?? 0 };
       case "browse.detail":
         return folder;
+      case "space.type_summary":
+        return typeSummary;
       default:
         throw new Error("The preview has no answer for " + name);
     }

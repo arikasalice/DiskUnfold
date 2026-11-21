@@ -46,6 +46,7 @@ import { DialogUpdateStatus } from "./DialogUpdateStatus";
 import { ResultGroupNotice } from "./AnalysisActions";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import type { ScanIssueLaneRequest } from "./scan-issue-filter";
+import { TypeSummaryBar } from "./TypeSummaryBar";
 
 function Coverage({ total }: { total: SpaceTotal }) {
   const regional = useRegionalFormat();
@@ -258,6 +259,14 @@ export function PinnedResult({
           {displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)}
         </Notice>
       )}
+      <TypeSummaryBar
+        client={client}
+        resultVersion={total.resultVersion}
+        basis={basis}
+        lead={lead}
+        awaited={leadAwaited !== undefined}
+        display={display}
+      />
       <Coverage total={total} />
       <DetailDisclosure title={measurements}>
         <Readout

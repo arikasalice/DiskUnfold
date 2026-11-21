@@ -90,7 +90,7 @@ const browseScenes = [
   "lower-bounds-notice",
   "unread-menu",
 ];
-const summaryScenes = ["shared-limit"];
+const summaryScenes = ["shared-limit", "type-summary"];
 const scanLaneScenes = [
   "scope-collapsed",
   "scope-expanded",
@@ -122,7 +122,9 @@ if (requestedSummaryScene && !summaryScenes.includes(requestedSummaryScene))
   throw new Error("Unknown summary scene: " + requestedSummaryScene);
 const captureScenes =
   surface === "summary"
-    ? [requestedSummaryScene ?? "shared-limit"]
+    ? requestedSummaryScene
+      ? [requestedSummaryScene]
+      : summaryScenes
     : surface === "browse"
       ? selectedBrowseScene
         ? [selectedBrowseScene]
@@ -566,7 +568,11 @@ const shots =
         },
       ]
     : surface === "summary"
-      ? [{ name: "light-1280", theme: "light", width: 1280 }]
+      ? [
+          { name: "light-1280", theme: "light", width: 1280 },
+          { name: "dark-1280", theme: "dark", width: 1280 },
+          { name: "light-700", theme: "light", width: 700 },
+        ]
       : surface === "target-picker"
         ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
         : galleryShots;
@@ -876,6 +882,21 @@ async function open(
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
       );
+    if (surface === "summary" && scene === "type-summary") {
+      // F02 #300: the type bar is drawn, 12 px high, with its words under it.
+      const bar = await session.run(() => {
+        const card = document.querySelector(".du-type-summary");
+        const slices = card?.querySelectorAll(".du-stacked-bar__slice").length;
+        const height = card
+          ?.querySelector(".du-stacked-bar")
+          ?.getBoundingClientRect().height;
+        return { slices, height, words: card?.textContent ?? "" };
+      });
+      if (bar.slices !== 6 || Math.round(bar.height) !== 12)
+        throw new Error("Unexpected type bar: " + JSON.stringify(bar));
+      if (!bar.words.includes("나머지 유형 2개"))
+        throw new Error("The type bar has no words under it: " + bar.words);
+    }
     if (surface === "summary" && scene === "shared-limit") {
       const placed = await session.run(() => {
         const metric = document.querySelector(

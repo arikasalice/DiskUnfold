@@ -1,5 +1,6 @@
 //! Read space totals from the immutable version pinned at request admission.
 pub(crate) mod detail;
+pub(crate) mod type_summary;
 pub(crate) mod volume_gap;
 use std::sync::Arc;
 

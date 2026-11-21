@@ -1329,6 +1329,13 @@ failuresOnly?: boolean,
  */
 underItem?: ItemRef, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
+export type SpaceTypeSummaryRequest = { resultVersion: Id, basis: SizeBasis, };
+export type SpaceTypeSummary = { resultVersion: Id, slices: Array<VizTypeSlice>, legendOrder: Array<string>,
+/**
+ * A range of the result was not read, or whether one was cannot be told: the
+ * slices, and an empty list, are then only lower bounds.
+ */
+lowerBound: boolean, };
 export type ScanPriorityRequest = {
 /**
  * Job reference returned when the scan was admitted.

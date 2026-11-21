@@ -50,6 +50,7 @@ pub mod snapshot_ipc;
 pub mod snapshot_list_ipc;
 pub mod snapshot_spool;
 pub mod space_detail_ipc;
+pub mod space_type_summary;
 pub mod startup;
 pub mod startup_ipc;
 pub mod time_zone;

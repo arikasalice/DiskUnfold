@@ -35,6 +35,7 @@ use du_core_contracts::size_units::{
 };
 use du_core_contracts::snapshot_ipc::*;
 use du_core_contracts::space_detail_ipc::*;
+use du_core_contracts::space_type_summary::*;
 use du_core_contracts::startup_ipc::*;
 use du_core_contracts::visualization::availability::{
     VizAvailabilityRequest, VizAvailabilityResponse, VizFormatAvailability,
@@ -318,6 +319,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScanFailureRow::decl(&config),
         ScanFailuresRequest::decl(&config),
         ScanFailures::decl(&config),
+        SpaceTypeSummaryRequest::decl(&config),
+        SpaceTypeSummary::decl(&config),
         ScanPriorityRequest::decl(&config),
         ScanPriorityResponse::decl(&config),
         JobState::decl(&config),
