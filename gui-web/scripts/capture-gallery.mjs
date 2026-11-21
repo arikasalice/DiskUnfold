@@ -247,6 +247,12 @@ const galleryShots =
                       width: 1130,
                     },
                     { name: "01-dark-1280", theme: "dark", width: 1280 },
+                    {
+                      name: "04-partial-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "partial",
+                    },
                   ]
                 : surface === "job-center"
                   ? [
