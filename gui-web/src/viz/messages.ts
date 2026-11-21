@@ -164,6 +164,9 @@ export const visualizationMessages = {
     unknownItems: "Items not drawn",
     scopeTotal: "Scope total",
     scopeTotalBasisLine: "Scope total {value} · {basis}",
+    scopeMayExceedUsage: "may exceed actual usage",
+    scopeMayExceedUsageTooltip:
+      "Cloned files share space, so this can be larger than the actual disk usage.",
     drawnTotal: "Drawn total",
     groupedTotal: "Combined total",
     filteredOutTotal: "Filtered out total",
@@ -462,6 +465,9 @@ export const visualizationMessages = {
     unknownItems: "그리지 않은 항목",
     scopeTotal: "범위 합계",
     scopeTotalBasisLine: "범위 합계 {value} · {basis}",
+    scopeMayExceedUsage: "실제 사용량보다 클 수 있음",
+    scopeMayExceedUsageTooltip:
+      "복제된 파일이 같은 공간을 나눠 써서 실제 디스크 사용량보다 크게 보일 수 있습니다.",
     drawnTotal: "그린 항목 합계",
     groupedTotal: "묶음 합계",
     filteredOutTotal: "필터링 제외 합계",

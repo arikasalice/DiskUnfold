@@ -927,7 +927,17 @@ remainder?: VizTotal,
  * says why). Valid only with `remainder`; keys are not empty, sorted and without
  * duplicates, and an unregistered key is preserved. Omitted rather than null.
  */
-remainderReasonKeys?: Array<string>, };
+remainderReasonKeys?: Array<string>,
+/**
+ * The F03 measurement limits of `scope` (#351): the `measurementLimits` that
+ * `space.total` gives the same item in the model's size basis, from the same
+ * function, so the two always agree. A model that does not measure size has none.
+ *
+ * Only the scope total has them: the other totals are sums F06 makes, which do
+ * not inherit F03's limits. Omitted when there is none, never empty or null; keys
+ * are not empty or repeated, keep F03's order, and an unknown key is preserved.
+ */
+scopeMeasurementLimits?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy,
 /**
  * Revision of the type classification table, present when the model's
