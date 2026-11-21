@@ -18,6 +18,7 @@ const JOB_ID_TABLES: &[&str] = &[
     "job_runtime_job_link",
     "job_runtime_job_record",
     "job_runtime_job_scope_root",
+    "job_runtime_approval_check",
 ];
 
 impl AppDb {
