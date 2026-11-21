@@ -43,6 +43,8 @@ struct PendingSnapshot<'a> {
     snapshot_id: Id,
 }
 
+/// Combines registration and folder synchronization, mapping a sync failure after
+/// successful registration to `SnapshotPublishError::RegisteredNotDurable`.
 impl PendingSnapshotFile for PendingSnapshot<'_> {
     fn publish(mut self: Box<Self>) -> Result<(), SnapshotPublishError> {
         let mut file = self.file.take().ok_or(SnapshotPublishError::WriteFailed(
@@ -97,6 +99,7 @@ mod tests {
         available: bool,
         supported: bool,
         fail_write: bool,
+        register_error: Option<io::ErrorKind>,
         folder_sync_error: Option<io::ErrorKind>,
         temporaries: BTreeMap<String, Vec<u8>>,
         finals: BTreeMap<String, Vec<u8>>,
@@ -203,6 +206,9 @@ mod tests {
 
         fn register(&mut self, snapshot_id: &Id) -> io::Result<()> {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some(kind) = state.register_error {
+                return Err(kind.into());
+            }
             let final_name = snapshot_id.as_str().to_owned();
             if state.finals.contains_key(&final_name) {
                 return Err(io::ErrorKind::AlreadyExists.into());
@@ -290,6 +296,27 @@ mod tests {
             state.finals.get(filename.as_str()).map(Vec::as_slice),
             Some(&b"original"[..])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn publish_write_failure_removes_temp_without_creating_final()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let filename = id()?;
+        let filesystem = FakeFileSystem::with_state(|state| {
+            state.register_error = Some(io::ErrorKind::Other);
+        });
+        let state = filesystem.clone();
+        let store = SnapshotFileStore::new(filesystem);
+        let mut pending = store.create_pending(&filename)?;
+        pending.write_all(b"staged")?;
+        assert!(matches!(
+            pending.publish(),
+            Err(SnapshotPublishError::WriteFailed(io::ErrorKind::Other))
+        ));
+        let state = state.snapshot();
+        assert!(!state.temporaries.contains_key(filename.as_str()));
+        assert!(!state.finals.contains_key(filename.as_str()));
         Ok(())
     }
 

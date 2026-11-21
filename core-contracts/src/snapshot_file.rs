@@ -90,6 +90,8 @@ pub trait SnapshotFileSystem: Send + Sync {
 /// Handle-relative operations on the snapshots folder.
 pub trait SnapshotFileDirectory: Send + Sync {
     /// Confirms no-replace registration support before the caller writes snapshot bytes.
+    /// `Ok` is only a pre-check and does not guarantee a later registration succeeds;
+    /// registration failure is still reported as `WriteFailed`.
     fn check_no_replace_register(&self) -> Result<(), SnapshotFileError>;
 
     /// Exclusively creates and locks the identifier-derived temporary file.
@@ -98,7 +100,8 @@ pub trait SnapshotFileDirectory: Send + Sync {
         snapshot_id: &Id,
     ) -> Result<Box<dyn SnapshotFileSystemTempFile>, SnapshotFileError>;
 
-    /// Synchronizes the folder after successful registration.
+    /// Synchronizes the folder after successful registration. An error does not undo
+    /// registration; the final name remains registered.
     fn sync_folder(&self) -> io::Result<()>;
 }
 
@@ -112,6 +115,8 @@ pub trait SnapshotFileSystemTempFile: Write + Send {
 
     /// Registers this handle under the final identifier without replacing a name.
     ///
-    /// An error guarantees the final name was not registered.
+    /// If the final name already exists, it is preserved and this call fails. This
+    /// operation never replaces a name. An error guarantees this handle was not
+    /// registered under the final name.
     fn register(&mut self, snapshot_id: &Id) -> io::Result<()>;
 }
