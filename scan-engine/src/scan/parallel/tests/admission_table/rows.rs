@@ -268,6 +268,7 @@ fn root_group_counts_a_firmlink_target_once_across_both_paths() -> Result<(), St
     let tree = tree_of(listings, 7);
     let group = RootVolumeGroup {
         data_mount: b"/System/Volumes/Data".to_vec(),
+        system_name: None,
         device: 1,
         data_inode: 20,
         firmlinks: vec![ConfirmedFirmlink {

@@ -131,7 +131,7 @@ export function TargetPickerPreview() {
             dropError={undefined}
             pathDescription=""
             reviewDescriptionId={undefined}
-            feedback={null}
+            feedback={() => null}
             isInitial={false}
             onPathCompositionChange={() => undefined}
             review={{

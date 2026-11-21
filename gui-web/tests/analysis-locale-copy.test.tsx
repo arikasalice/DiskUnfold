@@ -256,7 +256,11 @@ function summaryTotal(sharedLimit: boolean): SpaceTotal {
   };
 }
 
-function renderSummary(total: SpaceTotal, basis: "allocated" | "logical") {
+function renderSummary(
+  total: SpaceTotal,
+  basis: "allocated" | "logical",
+  wait?: "running" | "paused",
+) {
   const client = createAnalysisClient(async () => {
     throw new Error("Unexpected request in the pinned result summary");
   });
@@ -273,8 +277,8 @@ function renderSummary(total: SpaceTotal, basis: "allocated" | "logical") {
           close: () => {},
           retry: () => {},
         }}
-        scan={undefined}
-        wait={undefined}
+        scan={wait ? "scan-a" : undefined}
+        wait={wait}
         roots={[unixPath("/")]}
         exclusions={[]}
         preferences={{
@@ -323,6 +327,22 @@ test("F03 #351 does not promote the allocated limit to logical size or show it w
   expect(screen.queryByText(sharedSpaceSentence)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
   expect(screen.queryByText("Shared space")).toBeNull();
+});
+
+test("F03 #351 hides the shared notice and row while the allocated size is awaited", async () => {
+  const total = summaryTotal(true);
+  const waitingTotal: SpaceTotal = {
+    ...total,
+    sizes: total.sizes.map(({ size, ...entry }) => ({
+      ...entry,
+      size: { basis: size.basis, evidence: "unknown", state: "unknown" },
+    })),
+  };
+  renderSummary(waitingTotal, "allocated", "running");
+  expect(screen.queryByText(sharedSpaceSentence)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(screen.queryByText("Shared space")).toBeNull();
+  expect(screen.getAllByText("Checking file sizes")).toHaveLength(1);
 });
 
 test("F03 #351 space.detail uses Counted per file only when allocated carries the limit", async () => {

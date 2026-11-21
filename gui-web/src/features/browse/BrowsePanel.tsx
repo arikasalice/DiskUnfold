@@ -28,6 +28,7 @@ import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import { useBrowseDedupLimit } from "./use-browse-dedup-limit";
+import type { InspectedItem } from "./use-item-inspection";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -36,8 +37,14 @@ import {
   parentLocation,
   readOnlyBreadcrumbs,
 } from "./browse-panel-parts";
-import type { InspectItem, Opened } from "./browse-panel-parts";
+import type { InspectItem } from "./browse-panel-parts";
 import { useItemInspection } from "./use-item-inspection";
+import {
+  priorView,
+  PreviousFolderAction,
+  restorePrevious,
+} from "./browse-history";
+import type { View } from "./browse-history";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -55,7 +62,6 @@ export type BrowseOpenLocation = Extract<
   { kind: "opened" }
 >;
 
-type View = { opened: Opened; pages: BrowsePages };
 /**
  * The control that held focus when a folder was opened; a pressed control
  * that is still usable afterwards keeps the focus.
@@ -137,6 +143,8 @@ export function BrowsePanel({
     pinned = resultVersion,
     retrying = false,
     pressed = false,
+    rememberCurrent = false,
+    inspectionToRestore?: InspectedItem,
   ) {
     if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
@@ -195,9 +203,18 @@ export function BrowsePanel({
             ? { origin: active, pressed }
             : undefined;
         setMessage(undefined);
+        const previous = priorView(
+          view,
+          response.page.resultVersion,
+          location,
+          retrying,
+          inspectionToRestore ?? inspection.selected,
+          rememberCurrent,
+        );
         setView({
           opened: { ...response, page: { ...response.page, rows: [] } },
           pages,
+          ...(previous ? { previous } : {}),
         });
       })
       .catch(() => {
@@ -346,6 +363,19 @@ export function BrowsePanel({
           <div className="du-browse-header">
             <PreviousResultNotice previous={previousResult} />
             <div className="du-browse-context">
+              <PreviousFolderAction
+                previous={view.previous}
+                text={text}
+                onPress={() =>
+                  restorePrevious(
+                    view,
+                    setView,
+                    inspection.restore,
+                    inspection.reset,
+                    busy,
+                  )
+                }
+              />
               <div className="du-card__actions">
                 <Action
                   ref={upAction}
@@ -416,6 +446,20 @@ export function BrowsePanel({
         inspection={inspection.selected}
         inspectItem={inspectItem}
         close={inspection.close}
+        navigateItem={(item) => {
+          if (page && item.resultVersion === page.resultVersion) {
+            const inspectionToRestore = inspection.selected;
+            inspection.close();
+            navigate(
+              item,
+              page.resultVersion,
+              false,
+              false,
+              true,
+              inspectionToRestore,
+            );
+          }
+        }}
       />
     </section>
   );

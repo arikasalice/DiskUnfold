@@ -294,6 +294,7 @@ fn undecidable_exclusion_is_withheld_and_kept() {
 fn volume_group() -> RootVolumeGroup {
     RootVolumeGroup {
         data_mount: b"/System/Volumes/Data".to_vec(),
+        system_name: None,
         device: 1,
         data_inode: 20,
         firmlinks: vec![ConfirmedFirmlink {

@@ -50,10 +50,21 @@ export function folderPath(
   const ancestors = breadcrumbs.slice(0, -1);
   // A supplied root label names the single scope root (for example, sample data)
   // instead of its native path; multi-root results already show it at the virtual root.
-  const crumbLabel = (index: number, value: BrowseValue<string>) =>
-    rootLabel !== undefined && !knownVirtualRoot && index === 0
+  const crumbLabel = (
+    index: number,
+    value: BrowseValue<string>,
+    isStartupVolume = false,
+  ) =>
+    rootLabel !== undefined &&
+    !knownVirtualRoot &&
+    index === 0 &&
+    !isStartupVolume
       ? rootLabel
       : browseDisplayName(value, text);
+  const startupDiskTooltip = (label: string) => ({
+    tooltip: `${label} · / · ${text("ui.analysis.startup_disk", "Startup disk")}`,
+    accessibleLabel: `${label}, /, ${text("ui.analysis.startup_disk", "Startup disk")}`,
+  });
   if (
     ancestors.some(
       ({ item }) =>
@@ -66,14 +77,36 @@ export function folderPath(
     for (const [index, crumb] of ancestors.entries()) {
       entries.push({
         id: rowKey(crumb.item),
-        label: crumbLabel(index, crumb.displayName),
+        label: crumbLabel(index, crumb.displayName, crumb.isStartupVolume),
+        ...(crumb.isStartupVolume
+          ? {
+              ...startupDiskTooltip(
+                crumbLabel(index, crumb.displayName, crumb.isStartupVolume),
+              ),
+            }
+          : {}),
         onPress: () => open(crumb.item),
       });
     }
   }
   entries.push({
     id: rowKey(current.item),
-    label: crumbLabel(breadcrumbs.length - 1, current.displayName),
+    label: crumbLabel(
+      breadcrumbs.length - 1,
+      current.displayName,
+      current.isStartupVolume,
+    ),
+    ...(current.isStartupVolume
+      ? {
+          ...startupDiskTooltip(
+            crumbLabel(
+              breadcrumbs.length - 1,
+              current.displayName,
+              current.isStartupVolume,
+            ),
+          ),
+        }
+      : {}),
     current: true,
   });
   return entries;

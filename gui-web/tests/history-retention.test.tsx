@@ -364,3 +364,17 @@ test("the Retention header action reports when its panel is expanded", async () 
   await screen.findByRole("heading", { name: "History retention" });
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
 });
+
+test("places the retention panel below the history header actions", async () => {
+  setup();
+  await openRetention();
+  const panel = document.querySelector("#du-history-retention-panel")!;
+  const content = document.querySelector(".du-history-content")!;
+  const header = document.querySelector(".du-history-header")!;
+
+  expect(panel.parentElement).toBe(content);
+  expect(header.nextElementSibling).toBe(content);
+  expect(
+    content.contains(screen.getByRole("button", { name: "Back to analysis" })),
+  ).toBe(false);
+});
