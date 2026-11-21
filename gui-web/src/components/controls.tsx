@@ -33,6 +33,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
+import type { StatusShape } from "./status-table";
 import { isImeProcessingKey, useImeComposition } from "./ime-composition";
 import { useLocaleText } from "../i18n/presentation";
 import {
@@ -550,7 +551,11 @@ export function Choice({
   description: string;
   summary?: string | undefined;
   availablePercent?: number | undefined;
-  status: { text: string; tone: "neutral" | "good" };
+  status: {
+    text: string;
+    tone: "neutral" | "good";
+    shape?: StatusShape | undefined;
+  };
   icon: IconName;
   /** Reads in the secondary text colour, as a target outside the default list does. */
   secondary?: boolean | undefined;
@@ -589,7 +594,9 @@ export function Choice({
         </span>
       )}
       <span className="du-choice__status" id={statusId}>
-        <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+        <StatusBadge tone={status.tone} shape={status.shape}>
+          {status.text}
+        </StatusBadge>
       </span>
     </Radio>
   );

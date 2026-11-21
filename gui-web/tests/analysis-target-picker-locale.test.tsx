@@ -55,6 +55,7 @@ test("target picker shows the macOS path example and the shared folder label", (
           onPathCompositionChange={() => {}}
           review={{
             reviewing: false,
+            awaiting: false,
             targets: undefined,
             openPrivacySettings: () => {},
           }}

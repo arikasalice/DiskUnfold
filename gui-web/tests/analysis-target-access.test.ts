@@ -37,7 +37,12 @@ const unchecked: TargetProbeEvent = {
   aggregationUncertain: true,
   observedAt,
 };
-const idle = { selected: false, reviewing: false, reviewed: undefined };
+const idle = {
+  selected: false,
+  reviewing: false,
+  awaiting: false,
+  reviewed: undefined,
+};
 
 test("F01 #263: hidden volumes leave the default list until all are shown", () => {
   const entries = [root, efi, snap, legacy];
@@ -67,6 +72,31 @@ test("F01 #266: a network volume waits for selection, then shows its review", ()
     shownAccess(network, unchecked, true, { ...selected, reviewed }),
   ).toEqual({ access: "denied", deferred: true });
   expect(shownAccess(network, unchecked, true, selected).access).toBe(
+    "not_checked",
+  );
+});
+
+test("F02 #350: a selected network volume reads as checking until its review answers", () => {
+  const waiting = { ...idle, selected: true, awaiting: true };
+  expect(shownAccess(network, unchecked, true, waiting)).toEqual({
+    access: "checking",
+    deferred: true,
+  });
+  const reviewed = [
+    { path: network.path, access: "accessible" as const, reasonKey: null },
+  ];
+  expect(
+    shownAccess(network, unchecked, true, { ...waiting, reviewed }).access,
+  ).toBe("accessible");
+  // Another volume's review does not answer for this one.
+  const other = [
+    { path: root.path, access: "accessible" as const, reasonKey: null },
+  ];
+  expect(
+    shownAccess(network, unchecked, true, { ...waiting, reviewed: other })
+      .access,
+  ).toBe("checking");
+  expect(shownAccess(network, unchecked, true, idle).access).toBe(
     "not_checked",
   );
 });
