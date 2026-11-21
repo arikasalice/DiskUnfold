@@ -318,6 +318,54 @@ fn cancellation_records_remaining_items_and_history_failure_stops_the_job() -> T
     Ok(())
 }
 
+#[test]
+fn failed_first_item_history_still_reports_recorded_with_zero_rows() -> TestResult {
+    let analysis = FakeAnalysis::real().with_trash_facts();
+    let ops = fake_change_ops(&[1], CapabilityState::Supported)?;
+    ops.enqueue_move_outcome(TrashMoveOutcome::Moved {
+        identity_after_move: change_identity(1),
+        trash_location: None,
+    });
+    let app = assemble_with_ports(
+        analysis.clone(),
+        None,
+        ops,
+        Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default()),
+    )?;
+    let database = rusqlite::Connection::open(
+        app.profile
+            .path()
+            .join(du_platform_os::application_data::DATABASE_FILE),
+    )?;
+    database.execute_batch(
+        "CREATE TRIGGER fail_first_change_item BEFORE INSERT ON job_runtime_item_result
+         WHEN NEW.item_seq = 0
+         BEGIN SELECT RAISE(ABORT, 'injected first item history failure'); END;",
+    )?;
+    drop(database);
+    let plan_id = build_approved_trash_plan(&app, &analysis, &[1])?;
+    let execute = ok(
+        &app.engine,
+        "change.execute",
+        json!({"requestVersionId":plan_id}),
+    )?;
+    let job_ref: Id = serde_json::from_value(execute["jobRef"].clone())?;
+    wait_for_job(&app.engine, &execute["jobRef"])?;
+    wait_for_finished_event(&app.events, &job_ref)?;
+
+    let page = ok(
+        &app.engine,
+        "change.item_results",
+        json!({"jobRef":job_ref}),
+    )?;
+    assert_eq!(page["itemRecording"], "recorded");
+    assert_eq!(history_item_count(&app, &job_ref)?, 0);
+    let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
+    assert_eq!(history_page["itemRecording"], "recorded");
+    assert_eq!(history_page["counts"]["recorded"], "0");
+    Ok(())
+}
+
 fn build_approved_trash_plan(
     app: &PlanTestApp,
     analysis: &FakeAnalysis,
