@@ -31,6 +31,8 @@
   gap: 10px;
   min-inline-size: 0;
   min-block-size: 0;
+  /* Keep the closed retention panel's slide transform inside the history width. */
+  overflow-x: clip;
 }
 
 .du-history-header,

@@ -111,6 +111,20 @@ const galleryShots =
           scene: "tasks-panel",
         },
         {
+          name: "11-job-center-over-history-light-1280x800",
+          theme: "light",
+          width: 1280,
+          height: 800,
+          scene: "job-center-over-history",
+        },
+        {
+          name: "11-job-center-over-history-light-700x800",
+          theme: "light",
+          width: 700,
+          height: 800,
+          scene: "job-center-over-history",
+        },
+        {
           name: "header-auto-cleanup-on",
           theme: "light",
           width: 1280,
@@ -463,6 +477,17 @@ async function waitForRetention(session, selector, label) {
 
 async function prepareRetentionScene(session, scene) {
   if (scene === "header") return;
+  if (scene === "job-center-over-history") {
+    if ((await session.run(drawn, ".du-job-center[data-open]", 1)) !== 1)
+      throw new Error("The Job Center did not open over the history screen");
+    if (
+      await session.run(() =>
+        Boolean(document.querySelector(".du-history-retention[data-open]")),
+      )
+    )
+      throw new Error("The retention panel remained open with the Job Center");
+    return;
+  }
   await session.run(() => {
     const button = [...document.querySelectorAll("button")].find(
       (item) => item.textContent?.trim() === "보존 설정",
@@ -677,6 +702,19 @@ async function openDatePickerCalendar(session) {
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
+  if (surface === "job-center" || surface === "history-retention") {
+    const width = await session.run(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    if (width.scrollWidth !== width.clientWidth)
+      throw new Error(
+        `Horizontal overflow in ${surface}/${scene ?? name}: document width ${width.scrollWidth}px exceeds viewport ${width.clientWidth}px`,
+      );
+    console.log(
+      `${surface}/${scene ?? name}: document width ${width.scrollWidth}/${width.clientWidth}px`,
+    );
+  }
   const options = { format: "png" };
   if (!viewport) {
     const { cssContentSize } = await session.send("Page.getLayoutMetrics");

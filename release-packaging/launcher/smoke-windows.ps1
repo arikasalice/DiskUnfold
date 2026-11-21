@@ -2479,6 +2479,39 @@ function Test-CaptureHistory {
   if ($panelAction.Current.BoundingRectangle.Top -le $tasksOnHistory.Current.BoundingRectangle.Bottom) {
     throw 'The Job Center panel covers the app header row on the history screen'
   }
+  $scrollTargets = @()
+  $documentCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Document
+  )
+  $scrollTargets += @($window.FindAll($scopeTree, $documentCondition))
+  $paneCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Pane
+  )
+  $panes = @($window.FindAll($scopeTree, $paneCondition))
+  if ($panes.Count -gt 0) {
+    $mainPane = $panes |
+      Sort-Object { $_.Current.BoundingRectangle.Width * $_.Current.BoundingRectangle.Height } -Descending |
+      Select-Object -First 1
+    $scrollTargets += $mainPane
+  }
+  $scrollPatternFound = $false
+  foreach ($target in $scrollTargets) {
+    $scroll = $null
+    if (-not $target.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) {
+      continue
+    }
+    $scrollPatternFound = $true
+    if ($scroll.Current.HorizontallyScrollable -or $scroll.Current.VerticallyScrollable) {
+      throw "The history document or main pane scrolls with the Job Center open (horizontal=$($scroll.Current.HorizontallyScrollable), vertical=$($scroll.Current.VerticallyScrollable))"
+    }
+  }
+  if (-not $scrollPatternFound) {
+    'History document and main pane: UI Automation exposes no ScrollPattern'
+  } else {
+    'History document and main pane: no horizontal or vertical scrolling'
+  }
   "F21 #361 job center over history: retention panel closed, panel below the header"
   Send-SmokeKey 0x1B
   # The closed panel stays in the tree (hidden); Escape returns focus to the Tasks entry instead.
