@@ -39,9 +39,6 @@ export function buildManifest(manifest) {
         || !Array.isArray(config.labels)
         || config.labels.length !== allowedLabels.length
         || config.labels.some((label, index) => label !== allowedLabels[index])
-        || typeof config.group !== 'string'
-        || config.group.trim().length === 0
-        || !Number.isInteger(config.priority)
       ) {
         throw new Error(`Invalid selfHosted: ${key}`);
       }
@@ -96,14 +93,6 @@ function resolveDecisions(targets, runners, mode, trusted) {
       if (!Object.hasOwn(SELF_HOSTED_LABELS, key)) throw new Error(`Unknown force target: ${key}`);
       selectedKeys.add(key);
     }
-    const selectedGroups = new Set();
-    for (const target of targets) {
-      const key = targetKey(target);
-      if (!selectedKeys.has(key)) continue;
-      const group = target.selfHosted?.group;
-      if (group && selectedGroups.has(group)) throw new Error('force allows one target per group');
-      if (group) selectedGroups.add(group);
-    }
   }
 
   if (!trusted || mode === 'github-hosted') {
@@ -123,50 +112,23 @@ function resolveDecisions(targets, runners, mode, trusted) {
     return decisions;
   }
 
-  const groups = new Map();
   for (const target of targets) {
     if (!target.selfHosted) {
       decisions.set(targetKey(target), { kind: 'github-hosted', reason: 'no self-hosted configuration' });
       continue;
     }
-    const groupTargets = groups.get(target.selfHosted.group) ?? [];
-    groupTargets.push(target);
-    groups.set(target.selfHosted.group, groupTargets);
-  }
-
-  for (const [group, groupTargets] of groups) {
-    const busy = runners.some((runner) => runner?.busy === true
-      && groupTargets.some((target) => hasLabels(runner, target.selfHosted.labels)));
-    if (busy) {
-      for (const target of groupTargets) {
-        decisions.set(targetKey(target), { kind: 'github-hosted', reason: 'group busy' });
-      }
-      continue;
-    }
-
-    const candidates = groupTargets.flatMap((target, index) => {
-      const runner = runners.find((entry) => entry?.status === 'online' && hasLabels(entry, target.selfHosted.labels));
-      return runner ? [{ target, runner, index }] : [];
-    });
-    candidates.sort((left, right) => left.target.selfHosted.priority - right.target.selfHosted.priority
-      || left.index - right.index);
-    const winner = candidates[0];
-    for (const target of groupTargets) {
-      if (winner?.target === target) {
-        const name = typeof winner.runner.name === 'string' && winner.runner.name.trim()
-          ? winner.runner.name
-          : group;
-        decisions.set(targetKey(target), {
-          kind: 'self-hosted',
-          reason: `${name} online, idle`,
-        });
-      } else {
-        const hasOnlineRunner = candidates.some((candidate) => candidate.target === target);
-        decisions.set(targetKey(target), {
-          kind: 'github-hosted',
-          reason: hasOnlineRunner ? 'another target selected' : 'no online runner',
-        });
-      }
+    const key = targetKey(target);
+    const onlineRunners = runners.filter((runner) => runner?.status === 'online'
+      && hasLabels(runner, target.selfHosted.labels));
+    const runner = onlineRunners.find((entry) => entry?.busy !== true);
+    if (runner) {
+      const name = typeof runner.name === 'string' && runner.name.trim() ? runner.name : key;
+      decisions.set(key, { kind: 'self-hosted', reason: `${name} online, idle` });
+    } else {
+      decisions.set(key, {
+        kind: 'github-hosted',
+        reason: onlineRunners.length > 0 ? 'runner busy' : 'no online runner',
+      });
     }
   }
   return decisions;

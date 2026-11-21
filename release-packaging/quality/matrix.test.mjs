@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { buildManifest, resolveRunners, selectTargets } from './matrix.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./targets.json', import.meta.url), 'utf8'));
@@ -103,6 +107,24 @@ function kinds(runners, options) {
     .map((target) => [`${target.os}-${target.cpu}`, target.runnerKind]));
 }
 
+function cliDiagnostics(runners) {
+  const directory = mkdtempSync(join(tmpdir(), 'diskunfold-matrix-'));
+  try {
+    mkdirSync(join(directory, 'release-packaging', 'quality'), { recursive: true });
+    writeFileSync(join(directory, 'release-packaging', 'quality', 'targets.json'), JSON.stringify(manifest));
+    const runnersFile = join(directory, 'runners.json');
+    writeFileSync(runnersFile, JSON.stringify({ runners }));
+    const result = spawnSync(process.execPath, [
+      fileURLToPath(new URL('./matrix.mjs', import.meta.url)),
+      '--tier', 'pr', '--runners', runnersFile, '--mode', 'auto',
+    ], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stderr;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 test('auto selects the online idle ARM runner when Intel is offline', () => {
   assert.deepEqual(kinds(apiRunnerResponse({ intelStatus: 'offline' }).runners), {
     'linux-x64': 'github-hosted',
@@ -114,21 +136,23 @@ test('auto selects the online idle ARM runner when Intel is offline', () => {
   });
 });
 
-test('auto selects only the lower-priority-number target when both runners are online', () => {
+test('auto selects both targets when both runners are online and idle', () => {
   const result = kinds(apiRunnerResponse().runners);
   assert.equal(result['macos-x64'], 'self-hosted');
-  assert.equal(result['macos-arm64'], 'github-hosted');
+  assert.equal(result['macos-arm64'], 'self-hosted');
 });
 
-test('a busy runner makes its whole group use GitHub-hosted runners', () => {
+test('a busy runner falls back independently while the other target stays self-hosted', () => {
   const result = kinds(apiRunnerResponse({ armBusy: true }).runners);
-  assert.equal(result['macos-x64'], 'github-hosted');
+  assert.equal(result['macos-x64'], 'self-hosted');
   assert.equal(result['macos-arm64'], 'github-hosted');
+  assert.match(cliDiagnostics(apiRunnerResponse({ armBusy: true }).runners), /macos-arm64: github-hosted \(runner busy\)/);
 });
 
 test('offline, absent and malformed runner lists all fall back to hosted runners', () => {
+  const offlineRunners = apiRunnerResponse({ armStatus: 'offline', intelStatus: 'offline' }).runners;
   for (const runners of [
-    apiRunnerResponse({ armStatus: 'offline', intelStatus: 'offline' }).runners,
+    offlineRunners,
     [],
     { runners: [] },
   ]) {
@@ -136,6 +160,7 @@ test('offline, absent and malformed runner lists all fall back to hosted runners
     assert.equal(result['macos-x64'], 'github-hosted');
     assert.equal(result['macos-arm64'], 'github-hosted');
   }
+  assert.match(cliDiagnostics(offlineRunners), /macos-x64: github-hosted \(no online runner\)/);
 });
 
 test('untrusted events and github-hosted mode always use hosted runners', () => {
@@ -147,9 +172,12 @@ test('untrusted events and github-hosted mode always use hosted runners', () => 
   }
 });
 
-test('force mode selects one configured target without runner data and validates keys and groups', () => {
+test('force mode selects one or multiple configured targets without runner data and validates keys', () => {
   const result = resolveRunners(targets, [], { mode: 'force:macos-arm64' });
   assert.equal(result.find((target) => target.os === 'macos' && target.cpu === 'arm64').runnerKind, 'self-hosted');
+  const bothForced = resolveRunners(targets, [], { mode: 'force:macos-x64,macos-arm64' });
+  assert.equal(bothForced.find((target) => target.os === 'macos' && target.cpu === 'x64').runnerKind, 'self-hosted');
+  assert.equal(bothForced.find((target) => target.os === 'macos' && target.cpu === 'arm64').runnerKind, 'self-hosted');
   const withoutSelfHostedConfig = targets.map((target) => {
     const { selfHosted, ...rest } = target;
     return target.os === 'macos' && target.cpu === 'arm64' ? rest : target;
@@ -158,10 +186,6 @@ test('force mode selects one configured target without runner data and validates
     resolveRunners(withoutSelfHostedConfig, [], { mode: 'force:macos-arm64' })
       .find((target) => target.os === 'macos' && target.cpu === 'arm64').runnerKind,
     'github-hosted',
-  );
-  assert.throws(
-    () => resolveRunners(targets, [], { mode: 'force:macos-x64,macos-arm64' }),
-    new Error('force allows one target per group'),
   );
   assert.throws(
     () => resolveRunners(targets, [], { mode: 'force:macos-ppc64' }),
@@ -211,16 +235,14 @@ test('resolved entries omit manifest-only fields and keep Linux and Windows host
   }
 });
 
-test('selfHosted validation rejects non-macOS targets and malformed labels, groups or priorities', () => {
+test('selfHosted validation rejects non-macOS targets and malformed labels', () => {
   const withConfig = (key, config) => ({
     ...manifest,
     targets: manifest.targets.map((target) => (
       `${target.os}-${target.cpu}` === key ? { ...target, selfHosted: config } : target
     )),
   });
-  const config = { labels: ['self-hosted', 'macOS', 'X64'], group: 'mac-m1', priority: 1 };
+  const config = { labels: ['self-hosted', 'macOS', 'X64'] };
   assert.throws(() => buildManifest(withConfig('linux-x64', config)), new Error('Invalid selfHosted: linux-x64'));
   assert.throws(() => buildManifest(withConfig('macos-x64', { ...config, labels: ['self-hosted'] })), new Error('Invalid selfHosted: macos-x64'));
-  assert.throws(() => buildManifest(withConfig('macos-x64', { ...config, group: '  ' })), new Error('Invalid selfHosted: macos-x64'));
-  assert.throws(() => buildManifest(withConfig('macos-x64', { ...config, priority: 1.5 })), new Error('Invalid selfHosted: macos-x64'));
 });
