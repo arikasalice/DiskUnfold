@@ -233,6 +233,7 @@ version = "0.0.1"
 name = "du-change-planner"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "du-core-contracts",
 ]
 

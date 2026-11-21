@@ -514,5 +514,11 @@
     "role": "build",
     "distributed": false,
     "reason": "Read the license allow list and banned crates from deny.toml for the notices gate"
+  },
+  "cargo:du-change-planner:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute canonical du.plan.hash.v1 plan-version digests"
   }
 }
