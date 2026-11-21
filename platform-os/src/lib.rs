@@ -33,6 +33,7 @@ pub mod os_release;
 pub mod path_link;
 #[allow(unsafe_code)]
 pub mod process_memory;
+pub mod protection_facts;
 pub mod self_executable;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 #[allow(unsafe_code)]

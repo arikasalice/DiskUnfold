@@ -22,6 +22,7 @@ pub mod ports;
 pub mod product_ipc;
 pub mod product_ports;
 pub mod product_support;
+pub mod protection_facts;
 pub mod query_page_ipc;
 pub mod query_region_ipc;
 pub mod query_run_ipc;

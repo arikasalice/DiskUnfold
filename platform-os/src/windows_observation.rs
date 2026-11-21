@@ -68,9 +68,9 @@ use windows::{
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
             FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
-            FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO, FILE_ID_INFO, FILE_LIST_DIRECTORY,
             FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
+            FILE_SHARE_WRITE, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo, FileIdInfo,
             GETFINALPATHNAMEBYHANDLE_FLAGS, GetDriveTypeW, GetFileInformationByHandle,
             GetFileInformationByHandleEx, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
             OPEN_EXISTING, SYNCHRONIZE, VOLUME_NAME_GUID,
@@ -122,6 +122,49 @@ pub struct DirectoryIdentity {
     pub physical_path: Vec<u16>,
     pub volume: u64,
     pub file_id: u64,
+}
+
+/// Reads the full native identity of one path without following a reparse point.
+pub(crate) fn protection_identity(path: &Path) -> Result<(Vec<u8>, Vec<u8>, u64), PortError> {
+    use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
+
+    let wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: `wide` is NUL-terminated and remains alive until the handle is opened.
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide.as_ptr()),
+            FILE_READ_ATTRIBUTES.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL,
+            None,
+        )
+    }
+    .map_err(win_error)?;
+    // SAFETY: CreateFileW returned a valid owned handle.
+    let file = unsafe { File::from_raw_handle(handle.0) };
+    let mut info = FILE_ID_INFO::default();
+    // SAFETY: the buffer has the exact size and layout required for FileIdInfo.
+    unsafe {
+        GetFileInformationByHandleEx(
+            raw(&file),
+            FileIdInfo,
+            (&mut info as *mut FILE_ID_INFO).cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    }
+    .map_err(win_error)?;
+    let volume_guid = scope::volume_name(&final_path(&file, VOLUME_NAME_GUID)?)?;
+    Ok((
+        volume_guid,
+        info.FileId.Identifier.to_vec(),
+        info.VolumeSerialNumber,
+    ))
 }
 fn error(code: i32) -> PortError {
     let (kind, reason_key) = match code {

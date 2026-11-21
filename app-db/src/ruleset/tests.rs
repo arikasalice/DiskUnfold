@@ -59,6 +59,57 @@ fn read_port_pins_owned_raw_row_and_distinguishes_failures() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn builtin_initializer_is_idempotent_and_two_connections_race_safely() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("ruleset-init.sqlite");
+    drop(AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?);
+    let first = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    let second = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    let barrier = Arc::new(Barrier::new(2));
+    let attempts = [first, second]
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut db)| {
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                let row = row(1);
+                let mut row = row;
+                row.created_at_ms = index as i64;
+                let inserted = db.initialize_builtin_ruleset_if_empty(&row)?;
+                Ok::<_, RulesetError>((inserted, row))
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut inserted = 0;
+    let mut expected = None;
+    for attempt in attempts {
+        let (was_inserted, row) = attempt
+            .join()
+            .map_err(|_| "initializer thread failed")?
+            .map_err(|error| format!("initializer failed: {error:?}"))?;
+        inserted += usize::from(was_inserted);
+        if was_inserted {
+            expected = Some(row);
+        }
+    }
+    assert_eq!(inserted, 1);
+    let expected = expected.ok_or("both initializers reported an empty table")?;
+    let mut db = AppDb::open_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
+    let mut later = row(1);
+    later.created_at_ms = 99;
+    assert!(
+        !db.initialize_builtin_ruleset_if_empty(&later)
+            .map_err(|error| format!("{error:?}"))?
+    );
+    assert_eq!(
+        db.latest_ruleset().map_err(|error| format!("{error:?}"))?,
+        Some(expected)
+    );
+    Ok(())
+}
 #[test]
 fn two_connections_race_and_previous_version_remains_readable() -> TestResult {
     let dir = tempfile::tempdir()?;

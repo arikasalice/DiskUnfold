@@ -2,6 +2,8 @@
 mod analysis;
 mod approval_prepare;
 mod job;
+mod protection_facts;
+mod sources;
 mod storage;
 mod usecases;
 
@@ -23,7 +25,6 @@ use du_core_contracts::{
         PlanDraftEditRequest, PlanDraftEditResponse, PlanDraftOpenRequest, PlanDraftOpenResponse,
         PlanDraftSummary, PlanSourceCount, PlanSourceKind, SESSION_EVICTED,
     },
-    ruleset::RulesetRead,
 };
 use du_job_runtime::{JobClock, JobIdentity, JobRuntime};
 
@@ -32,8 +33,8 @@ use crate::{api::EngineBuilder, desktop::DesktopEvents, error::EngineError, work
 pub use analysis::{IngestPlanAnalysisSource, PlanAnalysisSource};
 pub use approval_prepare::{ApprovalPrepareService, ApprovalPreparedPlan};
 pub use du_change_planner::ports::{
-    AnalysisFactsPort, AnalysisItemFacts, ConfirmationToken, DescendantResult, Fact, GuardResult,
-    IdentityObservation, KnownLocation, KnownLocationKind, LinkBoundary,
+    AnalysisFactsPort, AnalysisItemFacts, ClassReleaseState, ConfirmationToken, DescendantResult,
+    Fact, GuardResult, IdentityObservation, KnownLocation, KnownLocationKind, LinkBoundary,
     PlanAction as PlannerAction, PlanItem, PlanItemState, PlanRejudgement,
     PlanSourceKind as PlannerSourceKind, PlanVersion, PlatformFactsPort as PlanPlatformFactsPort,
     PlatformProtectionFacts, ProtectionAction, ProtectionRulesetPort as PlanRulesetPort,
@@ -43,20 +44,12 @@ pub use du_change_planner::ports::{
     TargetIdentity,
 };
 pub use du_change_planner::readiness::PlanReadiness as DomainPlanReadiness;
+pub use sources::{PlanSources, built_in_protection_ruleset_row};
+use storage::VersionReader;
 pub use storage::{RulesetAdapter, SharedVersionStore};
-use storage::{RulesetAdapter as RawRulesetAdapter, VersionReader};
 use usecases::{UnknownPlatformFacts, UnknownTargetCheck};
 
 const MAX_DRAFTS: usize = 32;
-
-/// External persistence and optional fact adapters used by the desktop assembly.
-pub struct PlanSources {
-    versions: SharedVersionStore,
-    rulesets: Arc<dyn ProtectionRulesetPort>,
-    analysis: Option<Arc<dyn PlanAnalysisSource>>,
-    target_check: Option<Arc<dyn TargetCheckPort>>,
-    platform: Option<Arc<dyn DomainPlatformFactsPort>>,
-}
 
 /// Job identity and clock supplied by the desktop runtime.
 pub(crate) struct PlanJobPorts {
@@ -68,42 +61,6 @@ impl PlanJobPorts {
     /// Combines the desktop's job identity and clock for plan registration.
     pub(crate) fn new(identity: Arc<dyn JobIdentity>, clock: Arc<dyn JobClock>) -> Self {
         Self { identity, clock }
-    }
-}
-
-impl PlanSources {
-    /// Builds production adapters from the existing app-db ports.
-    pub fn new(versions: SharedVersionStore, rulesets: Arc<dyn RulesetRead + Send + Sync>) -> Self {
-        Self {
-            versions,
-            rulesets: Arc::new(RawRulesetAdapter::new(rulesets)),
-            analysis: None,
-            target_check: None,
-            platform: None,
-        }
-    }
-
-    /// Uses injected analysis facts, as in deterministic app-host boundary tests.
-    pub fn with_analysis(mut self, analysis: Arc<dyn PlanAnalysisSource>) -> Self {
-        self.analysis = Some(analysis);
-        self
-    }
-
-    /// Uses injected platform and target-check facts for deterministic tests.
-    pub fn with_fact_ports(
-        mut self,
-        target_check: Arc<dyn TargetCheckPort>,
-        platform: Arc<dyn DomainPlatformFactsPort>,
-    ) -> Self {
-        self.target_check = Some(target_check);
-        self.platform = Some(platform);
-        self
-    }
-
-    /// Uses an already validated ruleset snapshot source.
-    pub fn with_ruleset_port(mut self, rulesets: Arc<dyn ProtectionRulesetPort>) -> Self {
-        self.rulesets = rulesets;
-        self
     }
 }
 

@@ -3,3 +3,4 @@ pub mod api;
 mod domain;
 pub mod ports;
 pub mod readiness;
+pub mod ruleset;

@@ -1,11 +1,5 @@
-/// A fact that can be known or unavailable; unavailable never means false.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fact<T> {
-    /// A fact was established by its owning port.
-    Known(T),
-    /// The fact could not be established.
-    Unknown,
-}
+/// Shared fact contract; unknown values retain their stable reason key.
+pub type Fact<T> = du_core_contracts::protection_facts::ProtectionFact<T>;
 
 /// Result of verifying the current file identity against the pinned identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,24 +34,8 @@ pub enum ProtectionVolumeRole {
     MemoryTemporary,
 }
 
-/// Kind key from the platform known-location table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KnownLocationKind {
-    /// `loc.app_data`.
-    AppData,
-    /// `loc.user_cache`.
-    UserCache,
-    /// `loc.temp`.
-    Temp,
-    /// `loc.downloads`.
-    Downloads,
-    /// `loc.memory_managed`.
-    MemoryManaged,
-    /// `loc.trash_store`.
-    TrashStore,
-    /// `loc.user_home`.
-    UserHome,
-}
+/// Kind key from the shared platform known-location contract.
+pub type KnownLocationKind = du_core_contracts::protection_facts::KnownLocationId;
 
 /// Known-location lookup result for the target path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,18 +48,11 @@ pub enum KnownLocation {
     NotListed,
 }
 
-/// Protection action assigned to a classification by the fixed ruleset.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProtectionAction {
-    /// The target must never be changed.
-    Locked,
-    /// The requested operation has no supported change behavior.
-    NoChange,
-    /// The target is guidance-only until explicitly released.
-    GuidanceOnly,
-    /// The target may be changed after explicit confirmation.
-    Cleanable,
-}
+/// Action assigned to a classification by the verified shared ruleset.
+pub type ProtectionAction = du_core_contracts::ruleset::RulesetAction;
+
+/// Release state assigned to a classification by the verified ruleset.
+pub type ClassReleaseState = du_core_contracts::ruleset::ClassReleaseState;
 
 /// A guard result from the age, permission, or disk-backed check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

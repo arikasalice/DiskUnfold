@@ -25,48 +25,47 @@ use std::{
     time::{Duration, Instant},
 };
 
-type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+pub(super) type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-struct PlanTestApp {
-    engine: Engine,
-    events: Arc<DesktopEvents>,
+pub(super) struct PlanTestApp {
+    pub(super) engine: Engine,
+    pub(super) events: Arc<DesktopEvents>,
     profile: tempfile::TempDir,
     _database: crate::shared_database::SharedDatabase,
 }
 
 fn assemble(analysis: FakeAnalysis) -> TestResult<PlanTestApp> {
+    assemble_with_protection_facts(analysis, None)
+}
+
+pub(super) fn assemble_with_protection_facts(
+    analysis: FakeAnalysis,
+    protection_facts: Option<Arc<dyn du_core_contracts::protection_facts::ProtectionFactsPort>>,
+) -> TestResult<PlanTestApp> {
     let profile = tempfile::tempdir()?;
     let database = crate::startup_database::open(profile.path())?;
+    let ruleset = du_engine_api::plan::built_in_protection_ruleset_row(1)
+        .map_err(|error| format!("test ruleset build failed: {error:?}"))?;
     database
         .0
         .connection
         .lock()
         .map_err(|_| "test database lock poisoned")?
-        .append_ruleset(
-            0,
-            &du_app_db::ruleset::RulesetRow {
-                version: 1,
-                ruleset_hash: vec![7; 32],
-                hash_format: "test.v1".into(),
-                class_table_version: "1".into(),
-                known_location_table_version: "1".into(),
-                rule_format_version: 1,
-                origin: "gui".into(),
-                change_summary: "{}".into(),
-                body: "{}".into(),
-                created_at_ms: 1,
-            },
-        )
+        .initialize_builtin_ruleset_if_empty(&ruleset)
         .map_err(|error| format!("test ruleset setup failed: {error:?}"))?;
     let Some(ports) = scan_ports() else {
         return Err("no collection adapters on this platform".into());
     };
     let rules = super::size_rules::assemble(size_rule::default_size_rule_source())?;
     let versions: du_engine_api::plan::SharedVersionStore = Arc::new(Mutex::new(database.clone()));
-    let sources = PlanSources::new(versions, Arc::new(database.clone()))
+    let mut sources = PlanSources::new(versions, Arc::new(database.clone()))
         .with_analysis(Arc::new(analysis))
-        .with_fact_ports(Arc::new(MatchingTargets), Arc::new(FakePlatform))
-        .with_ruleset_port(Arc::new(FakeRuleset));
+        .with_fact_ports(Arc::new(MatchingTargets), Arc::new(FakePlatform));
+    if let Some(facts) = protection_facts {
+        sources = sources.with_protection_facts(facts);
+    } else {
+        sources = sources.with_ruleset_port(Arc::new(FakeRuleset));
+    }
     let mut builder = EngineBuilder::default();
     let limit: SharedTableLimitSource = Arc::new(du_engine_api::desktop::SharedTableLimit::default);
     let services = register_analysis_with_test_plan_sources(
@@ -90,17 +89,18 @@ fn assemble(analysis: FakeAnalysis) -> TestResult<PlanTestApp> {
 }
 
 #[derive(Clone)]
-struct FakeAnalysis {
+pub(super) struct FakeAnalysis {
     version_id: Id,
     data_source: DataSource,
     calls: Arc<AtomicUsize>,
     block_on_call: Option<usize>,
     entered: Option<mpsc::Sender<()>>,
     release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
+    path: Option<std::path::PathBuf>,
 }
 
 impl FakeAnalysis {
-    fn real() -> Self {
+    pub(super) fn real() -> Self {
         Self::new(DataSource::Real, None, None, None)
     }
 
@@ -117,10 +117,16 @@ impl FakeAnalysis {
             block_on_call,
             entered,
             release,
+            path: None,
         }
     }
 
-    fn item_ref(&self, item_no: u32) -> ItemRef {
+    pub(super) fn with_path(mut self, path: std::path::PathBuf) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    pub(super) fn item_ref(&self, item_no: u32) -> ItemRef {
         ItemRef {
             result_version: self.version_id.clone(),
             item_no,
@@ -167,6 +173,10 @@ impl AnalysisFactsPort for FakeAnalysis {
                     .map_err(|_| port_error("support.internal_error"))?;
             }
         }
+        if let Some(path) = &self.path {
+            return super::plan_test_support::analysis_item_for_path(path)
+                .map_err(|_| port_error("plan.source_not_current"));
+        }
         Ok(AnalysisItemFacts {
             path: OsPath {
                 encoding: PathEncoding::Unix,
@@ -184,6 +194,7 @@ impl AnalysisFactsPort for FakeAnalysis {
             size: None,
             modified_at: None,
             classification_id: Some("fixture.cleanable".into()),
+            descendants: Fact::Known(DescendantResult::Clear),
         })
     }
 }
@@ -204,12 +215,14 @@ impl PlanPlatformFactsPort for FakePlatform {
         &self,
         _: &AnalysisItemFacts,
         _: &RulesetSnapshot,
+        _: du_engine_api::plan::PlannerAction,
     ) -> Result<PlatformProtectionFacts, du_core_contracts::ports::PortError> {
         Ok(PlatformProtectionFacts {
             identity: Fact::Known(IdentityObservation::Matches),
             link_boundary: Fact::Known(LinkBoundary::WithinVolume),
             volume_role: Fact::Known(ProtectionVolumeRole::Ordinary),
             known_location: Fact::Known(KnownLocation::NotListed),
+            classification_id: Some("fixture.cleanable".into()),
             os_component: Fact::Known(false),
             age_guard: Fact::Known(GuardResult::Clear),
             permission_guard: Fact::Known(GuardResult::Clear),
@@ -227,11 +240,15 @@ impl PlanRulesetPort for FakeRuleset {
         Ok(RulesetSnapshot {
             version: 1,
             hash: vec![7; 32],
+            hash_format: "du.protect.ruleset.v1".into(),
             classification_version: 1,
             known_location_version: 1,
-            class_actions: BTreeMap::from([(
+            rule_format_version: 1,
+            user_rules: Vec::new(),
+            class_actions: BTreeMap::from([("fixture.cleanable".into(), ProtectionAction::Allow)]),
+            class_release_state: BTreeMap::from([(
                 "fixture.cleanable".into(),
-                ProtectionAction::Cleanable,
+                du_engine_api::plan::ClassReleaseState::NotReleasable,
             )]),
         })
     }
@@ -391,7 +408,11 @@ fn evicted_draft_returns_the_session_evicted_reason() -> TestResult {
     Ok(())
 }
 
-fn wait_for_fixed(events: &DesktopEvents, engine: &Engine, job_ref: &Value) -> TestResult<Value> {
+pub(super) fn wait_for_fixed(
+    events: &DesktopEvents,
+    engine: &Engine,
+    job_ref: &Value,
+) -> TestResult<Value> {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if let Some(json) = events.next_json() {
@@ -428,7 +449,7 @@ fn wait_for_job(engine: &Engine, job_ref: &Value) -> TestResult<Value> {
     Err("plan.build did not reach a terminal state".into())
 }
 
-fn ok(engine: &Engine, name: &str, body: Value) -> TestResult<Value> {
+pub(super) fn ok(engine: &Engine, name: &str, body: Value) -> TestResult<Value> {
     let response = call(engine, name, body)?;
     if let Some(error) = response.error {
         return Err(format!("{name}: {}", error.reason_key).into());

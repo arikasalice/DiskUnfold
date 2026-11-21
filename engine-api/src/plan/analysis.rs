@@ -1,12 +1,18 @@
 use std::sync::Arc;
 
-use du_analysis_index::{IngestSink, ResultVersion};
-use du_change_planner::ports::{AnalysisFactsPort, AnalysisItemFacts, TargetIdentity};
+use du_analysis_index::{
+    IngestSink, ResultVersion,
+    folder_collection::{FolderBoundary, FolderCollection, Unenumerated},
+};
+use du_change_planner::ports::{
+    AnalysisFactsPort, AnalysisItemFacts, DescendantResult, Fact, TargetIdentity,
+};
 use du_core_contracts::{
     Id, ItemRef, OsPath, PathEncoding, SizeBasis,
     data_source::DataSource,
     ports::{PortError, PortErrorKind},
-    result::ResultVersionRead,
+    protection_facts::fact_reason,
+    result::{ResultItemKind, ResultVersionRead},
 };
 
 use crate::{api::Channel, source_exposure::pin_current_for};
@@ -101,6 +107,7 @@ impl AnalysisFactsPort for PinnedAnalysis {
                     file_id: root.file_id.clone(),
                 })
             });
+        let descendants = pinned_descendants(self.0.as_ref(), item, detail.item.kind);
         Ok(AnalysisItemFacts {
             path,
             path_components,
@@ -110,9 +117,62 @@ impl AnalysisFactsPort for PinnedAnalysis {
             size: self.0.item_size(item.item_no, SizeBasis::Logical).cloned(),
             modified_at: self.0.item_modified_at(item.item_no).cloned(),
             classification_id: None,
+            descendants,
         })
     }
 }
+
+fn pinned_descendants(
+    version: &ResultVersion,
+    item: &ItemRef,
+    kind: ResultItemKind,
+) -> Fact<DescendantResult> {
+    if kind == ResultItemKind::File {
+        return Fact::Known(DescendantResult::Clear);
+    }
+    if kind != ResultItemKind::Directory {
+        return Fact::Unknown(fact_reason::PARTIAL);
+    }
+    let Ok(collection) = version.folder_collection(item) else {
+        return Fact::Unknown(fact_reason::PARTIAL);
+    };
+    let FolderCollection::Folder {
+        unenumerated,
+        boundary,
+    } = collection
+    else {
+        return Fact::Unknown(fact_reason::PARTIAL);
+    };
+    map_folder_collection(unenumerated, boundary)
+}
+
+fn map_folder_collection(
+    unenumerated: Unenumerated<'_>,
+    boundary: FolderBoundary,
+) -> Fact<DescendantResult> {
+    match unenumerated {
+        Unenumerated::Yes { reason_key } => Fact::Unknown(folder_reason(reason_key)),
+        Unenumerated::Unknown { reason_key } => Fact::Unknown(folder_reason(reason_key)),
+        Unenumerated::No => match boundary {
+            FolderBoundary::NoBoundary => Fact::Known(DescendantResult::Clear),
+            FolderBoundary::OtherVolume | FolderBoundary::AlreadyCounted => {
+                Fact::Known(DescendantResult::Incomplete)
+            }
+            FolderBoundary::Unknown { reason_key } => Fact::Unknown(folder_reason(reason_key)),
+            FolderBoundary::NotProvided => Fact::Unknown(fact_reason::UNSUPPORTED),
+        },
+    }
+}
+
+fn folder_reason(reason_key: &str) -> &'static str {
+    match reason_key {
+        "scan.cancelled" => fact_reason::CANCELLED,
+        _ => fact_reason::PARTIAL,
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 fn display_path(raw: &[u8], encoding: &PathEncoding) -> (String, bool) {
     match encoding {

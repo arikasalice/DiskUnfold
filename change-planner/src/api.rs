@@ -263,7 +263,7 @@ impl<'a> PlanBuilder<'a> {
                 continue;
             };
             let facts = analysis_facts(item);
-            let platform = self.ports.platform.read(&facts, ruleset);
+            let platform = self.ports.platform.read(&facts, ruleset, item.action);
             let summary = match platform {
                 Ok(platform) => {
                     item.restore = restore_restriction(item.action, platform.trash_capability);
@@ -307,7 +307,7 @@ impl<'a> PlanBuilder<'a> {
             Ok(facts) => facts,
             Err(_) => return RejudgementState::Undetermined,
         };
-        let platform = match self.ports.platform.read(&facts, ruleset) {
+        let platform = match self.ports.platform.read(&facts, ruleset, item.action) {
             Ok(platform) => platform,
             Err(_) => return RejudgementState::Undetermined,
         };
@@ -390,6 +390,11 @@ fn analysis_facts(item: &PlanItem) -> AnalysisItemFacts {
         size: item.expected_size.clone(),
         modified_at: item.expected_modified_at.clone(),
         classification_id: item.classification_id.clone(),
+        descendants: item.observed_descendants.unwrap_or(
+            du_core_contracts::protection_facts::ProtectionFact::Unknown(
+                du_core_contracts::protection_facts::fact_reason::PARTIAL,
+            ),
+        ),
     }
 }
 

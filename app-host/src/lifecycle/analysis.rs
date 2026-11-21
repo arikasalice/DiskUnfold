@@ -305,6 +305,9 @@ fn register_analysis_with_plan_source(
         let versions: du_engine_api::plan::SharedVersionStore =
             Arc::new(std::sync::Mutex::new(database.clone()));
         du_engine_api::plan::PlanSources::new(versions, Arc::new(database.clone()))
+            .with_protection_facts(Arc::new(
+                du_platform_os::protection_facts::SystemProtectionFacts,
+            ))
     });
     let approval_prepare = services.register_plans(builder, plan_sources)?;
     crate::approval::register(
@@ -387,6 +390,10 @@ mod linux_scan_tests;
 mod macos_scan_tests;
 #[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 mod native_cancel_seal_tests;
+#[cfg(test)]
+mod plan_protection_tests;
+#[cfg(test)]
+mod plan_test_support;
 #[cfg(test)]
 mod plan_tests;
 #[cfg(test)]

@@ -107,6 +107,7 @@ fn plan(
         }),
         expected_modified_at: None,
         classification_id: Some("class.user".into()),
+        observed_descendants: None,
         action,
         destination: None,
         overwrite: false,

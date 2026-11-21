@@ -1,8 +1,9 @@
 use crate::ports::{
-    AnalysisItemFacts, DescendantResult, EvaluatorError, EvaluatorId, Fact, GuardResult,
-    IdentityObservation, KnownLocation, LinkBoundary, PlanAction, PlatformProtectionFacts,
-    ProtectionAction, ProtectionDecision, ProtectionEvaluator, ProtectionEvaluatorInput,
-    ProtectionSummary, ProtectionVerdict, ProtectionVolumeRole, RulesetSnapshot,
+    AnalysisItemFacts, ClassReleaseState, DescendantResult, EvaluatorError, EvaluatorId, Fact,
+    GuardResult, IdentityObservation, KnownLocation, LinkBoundary, PlanAction,
+    PlatformProtectionFacts, ProtectionAction, ProtectionDecision, ProtectionEvaluator,
+    ProtectionEvaluatorInput, ProtectionSummary, ProtectionVerdict, ProtectionVolumeRole,
+    RulesetSnapshot,
 };
 /// Runs protection evaluation using one fixed ruleset and current facts.
 pub(crate) fn evaluate_protection(
@@ -58,7 +59,7 @@ pub(crate) fn evaluate_protection(
     let released = verdict == ProtectionVerdict::AllowReleased;
     ProtectionSummary {
         verdict,
-        classification_id: analysis.classification_id.clone(),
+        classification_id: platform.classification_id.clone(),
         released,
         evaluators: evaluated,
         evidence,
@@ -96,28 +97,25 @@ impl ProtectionEvaluator for BuiltinEvaluator {
             EvaluatorId::VolumeRole => volume_role(input.platform),
             EvaluatorId::KnownLocation => known_location(input.platform),
             EvaluatorId::OsComponent => os_component(input.platform),
-            EvaluatorId::ClassAction => class_action(input.analysis, input.ruleset),
+            EvaluatorId::ClassAction => class_action(input.platform, input.ruleset),
             EvaluatorId::ReleaseState => {
-                release_state(input.analysis, input.ruleset, input.release_confirmed)
+                release_state(input.ruleset, input.release_confirmed, input.platform)
             }
             EvaluatorId::GuardAge => guard(
                 input.platform.age_guard,
                 ProtectionVerdict::GuidanceOnly,
                 "protect.guidance_only",
-                "protect.age_unverifiable",
             ),
             EvaluatorId::GuardPermission => permission_guard(input.platform.permission_guard),
             EvaluatorId::GuardDiskBacked => guard(
                 input.platform.disk_backed_guard,
                 ProtectionVerdict::Deny,
                 "protect.no_change",
-                "protect.disk_backed_unverifiable",
             ),
             EvaluatorId::UserRule => guard(
                 input.platform.user_rule,
                 ProtectionVerdict::Deny,
                 "protect.user_rule",
-                "protect.user_rule_unverifiable",
             ),
             EvaluatorId::Descendant => descendant(input.platform),
         })
@@ -144,7 +142,7 @@ fn identity(
 ) -> ProtectionDecision {
     if analysis.identity.is_none() {
         return decision(
-            ProtectionVerdict::Deny,
+            ProtectionVerdict::Undetermined,
             Some("protect.identity_unavailable"),
         );
     }
@@ -154,10 +152,7 @@ fn identity(
             ProtectionVerdict::Deny,
             Some("protect.identity_unavailable"),
         ),
-        Fact::Unknown => decision(
-            ProtectionVerdict::Deny,
-            Some("protect.identity_unavailable"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -167,10 +162,7 @@ fn link_boundary(platform: &PlatformProtectionFacts) -> ProtectionDecision {
         Fact::Known(LinkBoundary::OutsideVolume) => {
             decision(ProtectionVerdict::Deny, Some("protect.link_boundary"))
         }
-        Fact::Unknown => decision(
-            ProtectionVerdict::Undetermined,
-            Some("protect.link_boundary"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -183,10 +175,7 @@ fn volume_role(platform: &PlatformProtectionFacts) -> ProtectionDecision {
         Fact::Known(
             ProtectionVolumeRole::VirtualFilesystem | ProtectionVolumeRole::MemoryTemporary,
         ) => decision(ProtectionVerdict::Deny, Some("protect.no_change")),
-        Fact::Unknown => decision(
-            ProtectionVerdict::Undetermined,
-            Some("protect.volume_role_unverifiable"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -201,10 +190,7 @@ fn known_location(platform: &PlatformProtectionFacts) -> ProtectionDecision {
             skip_class_rows: true,
             reason_key: None,
         },
-        Fact::Unknown => decision(
-            ProtectionVerdict::Undetermined,
-            Some("protect.known_location_unverifiable"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -212,28 +198,32 @@ fn os_component(platform: &PlatformProtectionFacts) -> ProtectionDecision {
     match platform.os_component {
         Fact::Known(true) => decision(ProtectionVerdict::Deny, Some("protect.locked")),
         Fact::Known(false) => decision(ProtectionVerdict::Allow, None),
-        Fact::Unknown => decision(
-            ProtectionVerdict::Undetermined,
-            Some("protect.component_unverifiable"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
-fn class_action(analysis: &AnalysisItemFacts, ruleset: &RulesetSnapshot) -> ProtectionDecision {
-    let Some(classification) = analysis.classification_id.as_ref() else {
+fn class_action(
+    platform: &PlatformProtectionFacts,
+    ruleset: &RulesetSnapshot,
+) -> ProtectionDecision {
+    let Some(classification) = platform.classification_id.as_ref() else {
         return decision(
             ProtectionVerdict::Undetermined,
             Some("protect.class_unverifiable"),
         );
     };
     match ruleset.class_actions.get(classification) {
-        Some(ProtectionAction::Locked) => decision(ProtectionVerdict::Deny, Some("protect.locked")),
+        Some(ProtectionAction::Locked | ProtectionAction::Deny) => {
+            decision(ProtectionVerdict::Deny, Some("protect.locked"))
+        }
         Some(ProtectionAction::NoChange) => {
             decision(ProtectionVerdict::Deny, Some("protect.no_change"))
         }
-        Some(ProtectionAction::GuidanceOnly | ProtectionAction::Cleanable) => {
-            decision(ProtectionVerdict::Allow, None)
-        }
+        Some(ProtectionAction::Allow) => decision(ProtectionVerdict::Allow, None),
+        Some(ProtectionAction::GuidanceOnly) => decision(
+            ProtectionVerdict::GuidanceOnly,
+            Some("protect.guidance_only"),
+        ),
         None => decision(
             ProtectionVerdict::Undetermined,
             Some("protect.class_unverifiable"),
@@ -242,34 +232,38 @@ fn class_action(analysis: &AnalysisItemFacts, ruleset: &RulesetSnapshot) -> Prot
 }
 
 fn release_state(
-    analysis: &AnalysisItemFacts,
     ruleset: &RulesetSnapshot,
-    release_confirmed: bool,
+    _release_confirmed: bool,
+    platform: &PlatformProtectionFacts,
 ) -> ProtectionDecision {
-    let Some(classification) = analysis.classification_id.as_ref() else {
+    let Some(classification) = platform.classification_id.as_ref() else {
         return decision(
             ProtectionVerdict::Undetermined,
             Some("protect.class_unverifiable"),
         );
     };
-    match ruleset.class_actions.get(classification) {
-        Some(ProtectionAction::GuidanceOnly) if release_confirmed => {
+    match (
+        ruleset.class_actions.get(classification),
+        ruleset.class_release_state.get(classification),
+    ) {
+        (Some(ProtectionAction::Allow), Some(ClassReleaseState::Released)) => {
             decision(ProtectionVerdict::AllowReleased, None)
         }
-        Some(ProtectionAction::GuidanceOnly) => decision(
+        (Some(ProtectionAction::Allow), Some(ClassReleaseState::NotReleasable)) => {
+            decision(ProtectionVerdict::Allow, None)
+        }
+        (Some(ProtectionAction::Deny), Some(ClassReleaseState::Protected)) => {
+            decision(ProtectionVerdict::Deny, Some("protect.locked"))
+        }
+        (Some(ProtectionAction::GuidanceOnly), Some(ClassReleaseState::NotReleasable)) => decision(
             ProtectionVerdict::GuidanceOnly,
             Some("protect.guidance_only"),
         ),
-        Some(ProtectionAction::Cleanable) if release_confirmed => {
-            decision(ProtectionVerdict::AllowReleased, None)
-        }
-        Some(ProtectionAction::Cleanable) => {
-            decision(ProtectionVerdict::Deny, Some("protect.locked"))
-        }
-        Some(ProtectionAction::Locked | ProtectionAction::NoChange) => {
-            decision(ProtectionVerdict::Allow, None)
-        }
-        None => decision(
+        (
+            Some(ProtectionAction::Locked | ProtectionAction::NoChange),
+            Some(ClassReleaseState::NotReleasable),
+        ) => decision(ProtectionVerdict::Allow, None),
+        _ => decision(
             ProtectionVerdict::Undetermined,
             Some("protect.class_unverifiable"),
         ),
@@ -280,12 +274,11 @@ fn guard(
     result: Fact<GuardResult>,
     protected: ProtectionVerdict,
     protected_reason: &'static str,
-    unknown_reason: &'static str,
 ) -> ProtectionDecision {
     match result {
         Fact::Known(GuardResult::Clear) => decision(ProtectionVerdict::Allow, None),
         Fact::Known(GuardResult::Protected) => decision(protected, Some(protected_reason)),
-        Fact::Unknown => decision(ProtectionVerdict::Undetermined, Some(unknown_reason)),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -295,10 +288,7 @@ fn permission_guard(result: Fact<GuardResult>) -> ProtectionDecision {
         Fact::Known(GuardResult::Protected) => {
             decision(ProtectionVerdict::Deny, Some("protect.permission_denied"))
         }
-        Fact::Unknown => decision(
-            ProtectionVerdict::Allow,
-            Some("protect.permission_unverifiable"),
-        ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 
@@ -309,10 +299,11 @@ fn descendant(platform: &PlatformProtectionFacts) -> ProtectionDecision {
             ProtectionVerdict::Deny,
             Some("protect.protected_descendant"),
         ),
-        Fact::Known(DescendantResult::Incomplete) | Fact::Unknown => decision(
+        Fact::Known(DescendantResult::Incomplete) => decision(
             ProtectionVerdict::Undetermined,
             Some("protect.descendant_unverifiable"),
         ),
+        Fact::Unknown(reason) => decision(ProtectionVerdict::Undetermined, Some(reason)),
     }
 }
 

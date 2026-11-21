@@ -46,14 +46,23 @@ impl ProtectionRulesetPort for RulesetAdapter {
         match row {
             None => Err(port_error(
                 PortErrorKind::NotFound,
-                "protect.ruleset_unavailable",
-            )),
-            // The raw row contract has no canonical body validator or hash algorithm.
-            // Do not turn an unverified policy into an allow decision.
-            Some(_) => Err(port_error(
-                PortErrorKind::SchemaMismatch,
                 "protect.ruleset_unreadable",
             )),
+            Some(row) => {
+                let verified = du_change_planner::ruleset::verify_ruleset_row(&row)
+                    .map_err(ruleset_read_error)?;
+                Ok(RulesetSnapshot {
+                    version: verified.version.get(),
+                    hash: verified.ruleset_hash.to_vec(),
+                    hash_format: verified.hash_format.as_str().into(),
+                    classification_version: verified.class_table_version.get(),
+                    known_location_version: verified.known_location_table_version.get(),
+                    rule_format_version: verified.rule_format_version.get(),
+                    user_rules: verified.user_rules,
+                    class_actions: verified.class_actions,
+                    class_release_state: verified.class_release_state,
+                })
+            }
         }
     }
 }
