@@ -3,7 +3,7 @@
 use du_core_contracts::snapshot_file::{
     SnapshotFileDirectory, SnapshotFileError, SnapshotFileSystem, SnapshotFileSystemTempFile,
 };
-#[cfg(test)]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ impl NativeSnapshotFileSystem {
         self.data_directory.join("snapshots")
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(windows, target_os = "linux")))]
     fn for_data_directory(data_directory: &Path) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
