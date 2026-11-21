@@ -15,7 +15,7 @@ const SELF_HOSTED_LABELS = Object.freeze({
   'macos-arm64': ['self-hosted', 'macOS', 'ARM64'],
 });
 
-const USAGE = 'Usage: node release-packaging/quality/matrix.mjs [--tier pr|full] [--runners <file>] [--mode <mode>] [--untrusted]';
+const USAGE = 'Usage: node release-packaging/quality/matrix.mjs [--tier pr|full] [--only <target,...>] [--runners <file>] [--mode <mode>] [--untrusted]';
 
 function targetKey(target) {
   return `${target.os}-${target.cpu}`;
@@ -64,6 +64,15 @@ export function selectTargets(manifest, tier) {
   if (tier === 'pr') return manifest.targets.filter((target) => target.prCheck === true);
   if (tier === 'full') return manifest.targets;
   throw new Error(`Unknown tier: ${tier}`);
+}
+
+/** Keeps only the listed targets (keys such as macos-arm64), in manifest order. Throws on unknown keys. */
+export function selectOnly(manifest, only) {
+  const keys = only.split(',');
+  const known = new Set(manifest.targets.map(targetKey));
+  const unknown = keys.find((key) => !known.has(key));
+  if (unknown !== undefined) throw new Error(`Unknown target: ${unknown}`);
+  return manifest.targets.filter((target) => keys.includes(targetKey(target)));
 }
 
 function runnerLabels(runner) {
@@ -160,7 +169,7 @@ function parseArgs(args) {
       options.trusted = false;
       continue;
     }
-    if (option !== '--tier' && option !== '--runners' && option !== '--mode') throw new Error(USAGE);
+    if (option !== '--tier' && option !== '--only' && option !== '--runners' && option !== '--mode') throw new Error(USAGE);
     if (seen.has(option) || index + 1 >= args.length || args[index + 1].startsWith('--')) {
       throw new Error(USAGE);
     }
@@ -169,6 +178,8 @@ function parseArgs(args) {
     if (option === '--tier') {
       if (value !== 'pr' && value !== 'full') throw new Error(USAGE);
       options.tier = value;
+    } else if (option === '--only') {
+      options.only = value;
     } else if (option === '--runners') {
       options.runnersFile = value;
     } else {
@@ -193,7 +204,7 @@ function readRunners(file) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const options = parseArgs(process.argv.slice(2));
   const manifest = buildManifest(JSON.parse(readFileSync('release-packaging/quality/targets.json', 'utf8')));
-  const targets = selectTargets(manifest, options.tier);
+  const targets = options.only === undefined ? selectTargets(manifest, options.tier) : selectOnly(manifest, options.only);
   const runners = readRunners(options.runnersFile);
   const decisions = resolveDecisions(targets, runners, options.mode, options.trusted);
   const include = resolveRunners(targets, runners, options);

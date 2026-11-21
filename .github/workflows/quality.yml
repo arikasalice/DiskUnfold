@@ -25,6 +25,10 @@ on:
         description: "Runner choice for the macOS native targets: auto (self-hosted when online and idle, otherwise GitHub-hosted), github-hosted, or force:<target> such as force:macos-arm64"
         type: string
         default: auto
+      only_targets:
+        description: "Run only these native targets, for example macos-x64,macos-arm64; skips the static checks, UI smoke and coverage"
+        type: string
+        default: ""
 permissions:
   contents: read
 # A newer push to the same pull request or branch replaces the older run, so only the latest commit
@@ -121,6 +125,7 @@ jobs:
           RUNNER_MODE: ${{ inputs.runner_mode || vars.DU_RUNNER_MODE || 'auto' }}
           # Pull requests from forks never reach a self-hosted runner.
           FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          ONLY_TARGETS: ${{ inputs.only_targets }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -137,6 +142,10 @@ jobs:
           fi
           args=(--tier "$tier" --runners "$RUNNER_TEMP/runners.json" --mode "$RUNNER_MODE")
           if [[ "$FORK_PR" == true ]]; then args+=(--untrusted); fi
+          if [[ -n "$ONLY_TARGETS" ]]; then
+            args+=(--only "$ONLY_TARGETS")
+            ui_smoke=false
+          fi
           matrix="$(node release-packaging/quality/matrix.mjs "${args[@]}")"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "ui_smoke=$ui_smoke" >> "$GITHUB_OUTPUT"
@@ -161,7 +170,7 @@ jobs:
   # Platform independent checks run once, here, beside the native jobs.
   static:
     needs: gate
-    if: needs.gate.outputs.run == 'true'
+    if: needs.gate.outputs.run == 'true' && inputs.only_targets == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -380,7 +389,7 @@ jobs:
   # Coverage is informational. Pull requests skip it; pushes and the scheduled run report it.
   reports:
     needs: prepare
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.only_targets == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

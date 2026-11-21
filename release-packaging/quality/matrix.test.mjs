@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { buildManifest, resolveRunners, selectTargets } from './matrix.mjs';
+import { buildManifest, resolveRunners, selectTargets, selectOnly } from './matrix.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./targets.json', import.meta.url), 'utf8'));
 const expectedRunners = {
@@ -245,4 +245,13 @@ test('selfHosted validation rejects non-macOS targets and malformed labels', () 
   const config = { labels: ['self-hosted', 'macOS', 'X64'] };
   assert.throws(() => buildManifest(withConfig('linux-x64', config)), new Error('Invalid selfHosted: linux-x64'));
   assert.throws(() => buildManifest(withConfig('macos-x64', { ...config, labels: ['self-hosted'] })), new Error('Invalid selfHosted: macos-x64'));
+});
+
+test('only keeps the listed targets in manifest order and rejects unknown keys', () => {
+  assert.deepEqual(
+    selectOnly(manifest, 'macos-arm64,macos-x64').map((target) => target.os + '-' + target.cpu),
+    ['macos-x64', 'macos-arm64'],
+  );
+  assert.deepEqual(selectOnly(manifest, 'linux-x64').length, 1);
+  assert.throws(() => selectOnly(manifest, 'macos-x64,beos-x64'), new Error('Unknown target: beos-x64'));
 });
