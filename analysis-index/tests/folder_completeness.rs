@@ -99,7 +99,7 @@ fn item(result: &ResultVersion, name: &str) -> Result<u32, String> {
         .map(|item| item.item_no)
         .ok_or_else(|| format!("no item {name}"))
 }
-fn space<'a>(result: &'a ResultVersion, name: &str) -> Result<&'a SpaceAggregate, String> {
+fn space(result: &ResultVersion, name: &str) -> Result<SpaceAggregate, String> {
     result
         .space(item(result, name)?)
         .ok_or("no aggregate".into())
@@ -111,7 +111,7 @@ fn completeness(a: &SpaceAggregate) -> [ResultCompleteness; 3] {
         a.unique_physical_completeness,
     ]
 }
-fn assert_unproven(a: &SpaceAggregate) {
+fn assert_unproven(a: SpaceAggregate) {
     for value in [&a.logical, &a.allocated, &a.unique_physical] {
         assert!(
             !matches!(value.amount, SizeAmount::Exact { .. }),
@@ -122,7 +122,7 @@ fn assert_unproven(a: &SpaceAggregate) {
     assert_eq!(a.inaccessible_ranges, None);
 }
 /// A gap ancestor has no exact value and no Complete state in any basis.
-fn assert_lowered(a: &SpaceAggregate, ranges: u64) {
+fn assert_lowered(a: SpaceAggregate, ranges: u64) {
     for value in [&a.logical, &a.allocated, &a.unique_physical] {
         assert!(
             !matches!(value.amount, SizeAmount::Exact { .. }),
