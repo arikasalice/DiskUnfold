@@ -2466,6 +2466,22 @@ function Test-CaptureHistory {
   if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
     throw 'Automatic cleanup remained on after cancelling the confirmation'
   }
+  # #361 scene: opening the Job Center from the history screen closes the retention panel, and
+  # the Job Center panel starts below the header row.
+  Expand-UI (Wait-TasksEntry)
+  $jobCenterTitle = Get-UiName 'Tasks'
+  $null = Wait-UI 'job center panel with retention closed' {
+    (Find-UI (Get-UiName 'View all task history') $button) -and -not (Find-UI $retentionTitleName $null)
+  }
+  Save-SmokeCapture '11-job-center-over-history'
+  $tasksOnHistory = Wait-TasksEntry
+  $panelAction = Find-UI (Get-UiName 'View all task history') $button
+  if ($panelAction.Current.BoundingRectangle.Top -le $tasksOnHistory.Current.BoundingRectangle.Bottom) {
+    throw 'The Job Center panel covers the app header row on the history screen'
+  }
+  "F21 #361 job center over history: retention panel closed, panel below the header"
+  Send-SmokeKey 0x1B
+  $null = Wait-UI 'job center closed' { -not (Find-UI (Get-UiName 'View all task history') $button) }
   $filterDisclosure = Wait-UI 'date and type filters disclosure' {
     $item = Find-UI 'Date and type filters' $button
     if ($item -and $item.Current.IsEnabled) { $item }
