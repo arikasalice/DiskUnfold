@@ -3,7 +3,10 @@ use std::path::Path;
 use du_core_contracts::{
     Id,
     history_ipc::{HistoryItemOutcome, HistoryRelation},
-    job::{DisplacedItem, ItemHistoryError, ItemHistoryRecord, ItemHistoryStart, ObservedSize},
+    job::{
+        DisplacedItem, ITEM_HISTORY_MAX_ITEM_REF_BYTES, ITEM_HISTORY_MAX_LOCATION_TEXT_CHARS,
+        ItemHistoryError, ItemHistoryRecord, ItemHistoryStart, ObservedSize,
+    },
 };
 use rusqlite::{Error, ErrorCode, Transaction, TransactionBehavior, params};
 
@@ -108,11 +111,10 @@ impl AppDb {
                 |row| row.get(0),
             )
             .map_err(map_item_error)?;
-        let sequence = i64::try_from(item.item_seq).map_err(|_| ItemHistoryError::Unavailable)?;
-        if sequence < next_sequence {
+        if prepared.sequence < next_sequence {
             return Err(ItemHistoryError::Duplicate);
         }
-        if sequence > next_sequence {
+        if prepared.sequence > next_sequence {
             return Err(ItemHistoryError::OutOfOrder);
         }
         tx.execute(
@@ -159,6 +161,8 @@ struct PreparedItem<'a> {
 impl<'a> PreparedItem<'a> {
     fn new(item: &'a ItemHistoryRecord) -> Result<Self, ItemHistoryError> {
         if item.item_ref.is_empty()
+            || item.item_ref.len() > ITEM_HISTORY_MAX_ITEM_REF_BYTES
+            || item.location_text.chars().count() > ITEM_HISTORY_MAX_LOCATION_TEXT_CHARS
             || item.displaced.as_ref().is_some_and(|displaced| {
                 displaced.name.as_deref() == Some("")
                     || displaced.original_location.as_deref() == Some("")
@@ -170,7 +174,7 @@ impl<'a> PreparedItem<'a> {
                     HistoryItemOutcome::Overwritten | HistoryItemOutcome::Failed
                 ))
         {
-            return Err(ItemHistoryError::Unavailable);
+            return Err(ItemHistoryError::Invalid);
         }
         let (size, size_state) = match item.observed_size {
             ObservedSize::Exact(value) => (Some(size_value(value)?), "exact"),
@@ -178,7 +182,7 @@ impl<'a> PreparedItem<'a> {
             ObservedSize::Unknown => (None, "unknown"),
         };
         Ok(Self {
-            sequence: i64::try_from(item.item_seq).map_err(|_| ItemHistoryError::Unavailable)?,
+            sequence: i64::try_from(item.item_seq).map_err(|_| ItemHistoryError::Invalid)?,
             size,
             size_state,
             displaced: item.displaced.as_ref(),
@@ -187,7 +191,7 @@ impl<'a> PreparedItem<'a> {
 }
 
 fn size_value(value: u64) -> Result<i64, ItemHistoryError> {
-    i64::try_from(value).map_err(|_| ItemHistoryError::Unavailable)
+    i64::try_from(value).map_err(|_| ItemHistoryError::Invalid)
 }
 
 fn optional_id_bytes(id: Option<&Id>) -> Result<Option<[u8; 16]>, ItemHistoryError> {

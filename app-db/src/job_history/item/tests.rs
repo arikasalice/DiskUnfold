@@ -90,6 +90,15 @@ fn read_page(
         .map_err(|error| format!("{error:?}").into())
 }
 
+fn read_list_page(
+    path: &std::path::Path,
+) -> Result<super::super::read::Page, Box<dyn std::error::Error>> {
+    let mut reader = AppDb::open_read_only_live(path).map_err(|error| format!("{error:?}"))?;
+    reader
+        .read_history_page(super::super::read::Filter::default(), None, 10)
+        .map_err(|error| format!("{error:?}").into())
+}
+
 #[test]
 fn appends_start_items_and_terminal_and_reads_items_in_order() -> TestResult {
     let (_dir, mut db, path) = database()?;
@@ -167,7 +176,7 @@ fn rejects_out_of_order_duplicates_and_check_incompatible_displacement() -> Test
     let mut invalid = item(1, HistoryItemOutcome::Overwritten);
     assert_eq!(
         db.append_item_history_result(&start.job_id, &invalid, 104),
-        Err(ItemHistoryError::Unavailable)
+        Err(ItemHistoryError::Invalid)
     );
     invalid.outcome = HistoryItemOutcome::Completed;
     invalid.displaced = Some(DisplacedItem {
@@ -178,7 +187,7 @@ fn rejects_out_of_order_duplicates_and_check_incompatible_displacement() -> Test
     });
     assert_eq!(
         db.append_item_history_result(&start.job_id, &invalid, 105),
-        Err(ItemHistoryError::Unavailable)
+        Err(ItemHistoryError::Invalid)
     );
     let mut valid = item(1, HistoryItemOutcome::Overwritten);
     valid.displaced = Some(DisplacedItem {
@@ -222,6 +231,29 @@ fn failed_item_transaction_leaves_gap_and_zero_item_start_is_recorded() -> TestR
 }
 
 #[test]
+fn item_rows_do_not_advance_the_history_list_revision() -> TestResult {
+    let (_dir, mut db, path) = database()?;
+    let start = per_item_start(7);
+    let initial = read_list_page(&path)?;
+    assert_eq!(initial.revision.max_record_seq, 0);
+    assert!(initial.rows.is_empty());
+
+    db.append_item_history_start(&start, 101)?;
+    assert_eq!(read_list_page(&path)?.revision.max_record_seq, 0);
+    db.append_item_history_result(&start.job_id, &item(0, HistoryItemOutcome::Completed), 102)?;
+    assert_eq!(read_list_page(&path)?.revision.max_record_seq, 0);
+    db.append_item_history_result(&start.job_id, &item(1, HistoryItemOutcome::Completed), 103)?;
+    assert_eq!(read_list_page(&path)?.revision.max_record_seq, 0);
+
+    db.append_scan_history(&summary(&start, 2, 0), 201)?;
+    let ended = read_list_page(&path)?;
+    assert_eq!(ended.revision.max_record_seq, 1);
+    assert_eq!(ended.rows.len(), 1);
+    assert_eq!(ended.rows[0].position.record_seq, 1);
+    Ok(())
+}
+
+#[test]
 fn item_check_constraints_allow_failed_displacement_but_reject_invalid_sizes() -> TestResult {
     let (_dir, mut db, _) = database()?;
     let start = per_item_start(6);
@@ -241,7 +273,38 @@ fn item_check_constraints_allow_failed_displacement_but_reject_invalid_sizes() -
     };
     assert_eq!(
         db.append_item_history_result(&start.job_id, &too_large, 103),
-        Err(ItemHistoryError::Unavailable)
+        Err(ItemHistoryError::Invalid)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_empty_and_oversized_item_fields_as_invalid() -> TestResult {
+    let (_dir, mut db, _) = database()?;
+    let start = per_item_start(8);
+    db.append_item_history_start(&start, 101)?;
+
+    let mut invalid = item(0, HistoryItemOutcome::Completed);
+    invalid.item_ref.clear();
+    assert_eq!(
+        db.append_item_history_result(&start.job_id, &invalid, 102),
+        Err(ItemHistoryError::Invalid)
+    );
+    invalid = item(0, HistoryItemOutcome::Completed);
+    invalid.item_ref = vec![0; 1_025];
+    assert_eq!(
+        db.append_item_history_result(&start.job_id, &invalid, 103),
+        Err(ItemHistoryError::Invalid)
+    );
+    invalid = item(0, HistoryItemOutcome::Completed);
+    invalid.location_text = "x".repeat(32_769);
+    assert_eq!(
+        db.append_item_history_result(&start.job_id, &invalid, 104),
+        Err(ItemHistoryError::Invalid)
+    );
+    assert_eq!(
+        db.append_item_history_result(&start.job_id, &item(0, HistoryItemOutcome::Completed), 105),
+        Ok(())
     );
     Ok(())
 }

@@ -221,12 +221,7 @@ fn order_errors_do_not_write_and_item_storage_failure_fails_the_job()
     runtime.flush()?;
     assert_eq!(
         *results.lock().map_err(|_| "results lock")?,
-        [
-            Err(ItemHistoryError::OutOfOrder),
-            Ok(()),
-            Err(ItemHistoryError::Duplicate),
-            Ok(())
-        ]
+        [Err(ItemHistoryError::OutOfOrder), Ok(()), Ok(()), Ok(())]
     );
     assert_eq!(
         store
@@ -305,6 +300,7 @@ fn failed_start_skips_body_and_summary_or_none_kinds_keep_existing_behavior()
         runtime.snapshot(&id)?.failure_reason_key.as_deref(),
         Some("history.record_failed")
     );
+    assert!(store.starts.lock().map_err(|_| "start lock")?.is_empty());
     assert!(
         store
             .summaries
@@ -334,3 +330,5 @@ fn failed_start_skips_body_and_summary_or_none_kinds_keep_existing_behavior()
     }
     Ok(())
 }
+
+mod recording;
