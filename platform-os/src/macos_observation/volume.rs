@@ -197,6 +197,19 @@ pub(crate) fn mount_identity(path: &CStr, listed: Fsid) -> Option<Vec<u8>> {
     }
 }
 
+/// The usage of one volume alone, as the file system reports it for the listed mount,
+/// accepted only while the path leads to the listed file system (#351). On APFS the
+/// statfs block counts are those of the whole container; `None` when the volume
+/// reports no usage of its own.
+pub(crate) fn mount_used_bytes(path: &CStr, listed: Fsid) -> Option<u64> {
+    let reply = volume_attribute::<8>(Target::Mount(path), ATTR_VOL_SPACEUSED).ok()??;
+    if reply.fsid != listed {
+        return None;
+    }
+    u64::try_from(i64::from_ne_bytes(reply.value?)).ok()
+}
+
+/// Whether `fd` is the root directory of a mounted file system.
 /// Whether `fd` is the root directory of a mounted file system.
 pub(super) fn is_mount_root(fd: BorrowedFd<'_>) -> Result<bool, PortError> {
     let mut reply = [0u8; 28];
