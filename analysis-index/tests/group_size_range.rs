@@ -48,6 +48,7 @@ fn row(value: SizeValue) -> Result<VizRow, String> {
         member_count: None,
         item_kind: None,
         condition: None,
+        unread: None,
     })
 }
 
