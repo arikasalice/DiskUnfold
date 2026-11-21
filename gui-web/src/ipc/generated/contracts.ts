@@ -1244,7 +1244,23 @@ export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, p
  * Human-readable display text; never reopen or compare a path from it.
  */
 displayPath?: string, };
-export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
+export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind,
+/**
+ * Restricts rows to these zero-based root indexes. Omission selects all roots.
+ * The list must contain 1 to 64 strictly ascending indexes, all below the
+ * pinned result's root count; `null`, empty, duplicate, descending, and
+ * oversized lists are invalid.
+ */
+rootIndexes?: Array<number>,
+/**
+ * Selects exactly issues counted as lane failures: every `collection_failed` row;
+ * `unread_range` rows at `open_directory` or `enumerate`; and traverse-stage unread
+ * rows with reason `scan.boundary_unverifiable` or the worker failure reason
+ * `scan.unclassified`. Omission is false. Known other-volume and revisit ranges,
+ * `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
+ * both filters apply.
+ */
+failuresOnly?: boolean, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
 /**

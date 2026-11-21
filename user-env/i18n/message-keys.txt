@@ -323,6 +323,8 @@ ui.analysis.lanes_wait_backpressure
 ui.analysis.lanes_wait_device_cap
 ui.analysis.lanes_wait_io
 ui.analysis.lanes_wait_unconfirmed
+ui.analysis.lanes_view_failures count:count
+ui.analysis.lanes_view_failures_action
 ui.analysis.lanes_wait_unknown
 ui.analysis.result_heading
 ui.analysis.progress_heading
@@ -1248,6 +1250,7 @@ ui.analysis.capacity_not_reported
 ui.analysis.capacity_combined_unverified
 ui.analysis.capacity_checked time:timestamp
 ui.analysis.issues_all
+ui.analysis.issues_unreadable_locations
 ui.analysis.issues_collection_failures
 ui.analysis.issues_unread_ranges
 ui.analysis.issues_uncertain_entries
@@ -1283,6 +1286,11 @@ ui.analysis.issue_unknown_reason
 ui.analysis.issues_retry
 ui.analysis.issues_load_more
 ui.analysis.issues_stale
+ui.analysis.issues_title
+ui.analysis.issues_filter_all_storages
+ui.analysis.issues_filter_paths_more count:count
+ui.analysis.issues_filter_storage
+ui.analysis.issues_filter_storage_name value:name
 ui.analysis.issues_not_found
 ui.analysis.issues_failed
 ui.analysis.issues_reopen_new

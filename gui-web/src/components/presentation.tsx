@@ -112,12 +112,14 @@ export function Heading({
   children,
   id,
   ref,
+  "aria-label": ariaLabel,
   programmaticFocus = false,
 }: {
   level: 1 | 2 | 3;
   children: ReactNode;
   id?: string;
   ref?: Ref<HTMLHeadingElement>;
+  "aria-label"?: string | undefined;
   programmaticFocus?: boolean;
 }) {
   const Tag = `h${level}` as const;
@@ -125,6 +127,7 @@ export function Heading({
     <Tag
       id={id}
       ref={ref}
+      aria-label={ariaLabel}
       tabIndex={programmaticFocus ? -1 : undefined}
       className={`du-heading du-heading--${level}`}
     >

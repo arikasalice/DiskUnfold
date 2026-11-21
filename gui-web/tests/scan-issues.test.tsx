@@ -166,7 +166,7 @@ test("F02 FR3.HD1.gui-web.DD1: changing the filter drops the previous cursor and
   openIssues();
   await screen.findByText("all-1");
   fireEvent.click(screen.getByRole("button", { name: "Load more issues" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Issue type" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Problem type" }), {
     target: { value: "untraversed_link" },
   });
   await screen.findByText("link-1");

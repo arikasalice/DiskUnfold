@@ -43,7 +43,7 @@ impl SendMetered for SyncSender<Event> {
     /// Counts a failure on the bound lane and sends; a full channel counts as
     /// the lane's backpressure while it blocks.
     fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
-        if matches!(event, Event::Failure { .. }) {
+        if event.counts_as_lane_failure() {
             lane_meter::failed();
         }
         lane_meter::send(self, event)

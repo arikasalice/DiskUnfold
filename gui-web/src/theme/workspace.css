@@ -244,6 +244,17 @@ body {
   cursor: default;
 }
 
+.du-text-link {
+  color: var(--du-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.du-text-link:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
+}
+
 .du-action[data-focus-visible],
 .du-action:focus-visible,
 .du-choice[data-focus-visible],
@@ -580,6 +591,10 @@ label.du-field > span {
 }
 
 @media (forced-colors: active) {
+  .du-text-link {
+    color: LinkText;
+  }
+
   .du-action,
   .du-choice,
   .du-field :is(input, select),
