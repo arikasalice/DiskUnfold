@@ -62,6 +62,9 @@ const surfaces = {
     count: 1,
     pointer: false,
   },
+  // F06 README 54 (#298): folders divided by type, as bars and as a treemap.
+  // Every scene draws the three folders' slices.
+  "type-slices": { ready: ".du-slice-stack", count: 3, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -306,6 +309,40 @@ const galleryShots =
                         scene: "partial",
                       },
                     ]
+                  : surface === "type-slices"
+                    ? [
+                        { name: "01-bars-light-1280", theme: "light", width: 1280, scene: "bar" },
+                        {
+                          name: "02-bars-video-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          legend: "동영상",
+                        },
+                        { name: "03-treemap-light-1280", theme: "light", width: 1280, scene: "treemap" },
+                        {
+                          name: "04-table-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          list: true,
+                        },
+                        {
+                          name: "05-bars-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "06-treemap-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "treemap",
+                          forcedColors: "active",
+                        },
+                        { name: "03-treemap-dark-1280", theme: "dark", width: 1280, scene: "treemap" },
+                      ]
                   : surface === "job-center"
                     ? [
                         {
@@ -969,7 +1006,27 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "histogram-list" && shot.step) {
+      else if (surface === "type-slices" && (shot.legend || shot.list)) {
+        const pressed = await session.run(
+          function pressTypeControl(legend, list) {
+            const target = legend
+              ? Array.from(
+                  document.querySelectorAll(".du-chart-legend [role='option']"),
+                ).find((option) => option.textContent?.startsWith(legend))
+              : Array.from(document.querySelectorAll("button")).find((button) =>
+                  button.textContent?.includes(list),
+                );
+            if (!(target instanceof HTMLElement)) return false;
+            target.click();
+            return true;
+          },
+          shot.legend ?? null,
+          shot.list ? "이 폴더의 항목" : null,
+        );
+        if (!pressed) throw new Error("The legend class or list was not found");
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "histogram-list" && shot.step) {
         await histogramListStep(session, shot.step);
         await save(session, shot.name, true);
       } else if (surface === "space-undrawn" && shot.viewInList) {

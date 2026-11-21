@@ -306,6 +306,9 @@ export const visualizationMessages = {
     unreadItself: "Couldn't read inside",
     unreadInside: "{count} subfolders unreadable",
     unreadInsideSome: "Some subfolders unreadable",
+    typeSlicesMore: "{name} + {count} more",
+    typeSlicesRest: "{count} more types · {size}",
+    typeSlicesUnsplit: "Not split by type · at least {size}",
   },
   ko: {
     loading: "그래프 불러오는 중",
@@ -609,6 +612,9 @@ export const visualizationMessages = {
     unreadItself: "안을 읽지 못함",
     unreadInside: "하위 {count}곳을 읽지 못함",
     unreadInsideSome: "하위 일부를 읽지 못함",
+    typeSlicesMore: "{name} 외 {count}개",
+    typeSlicesRest: "나머지 유형 {count}개 · {size}",
+    typeSlicesUnsplit: "유형별로 나누지 못함 · 최소 {size}",
   },
 } as const;
 export type VisualizationMessageKey = keyof typeof visualizationMessages.en;
