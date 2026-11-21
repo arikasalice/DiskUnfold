@@ -13,9 +13,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Volumes {
     calls: AtomicUsize,
     observation: RootVolumeGroupObservation,
+    home: Option<Vec<u8>>,
 }
 
 impl VolumePort for Volumes {
+    fn home_directory(&self) -> Option<Vec<u8>> {
+        self.home.clone()
+    }
+
     fn enumerate(&self) -> VolumeEnumeration {
         let unsupported = Capability {
             state: CapabilityState::Unsupported,
@@ -82,6 +87,7 @@ fn only_a_unix_root_review_queries_the_volume_port_once() {
     let volumes = Volumes {
         calls: AtomicUsize::new(0),
         observation: RootVolumeGroupObservation::Unconfirmed,
+        home: None,
     };
     assert_eq!(
         observe_group(&draft(b"/"), Some(&volumes)),
@@ -116,4 +122,30 @@ fn notices_and_gui_projection_cover_all_group_observations() {
         None
     );
     assert!(group_wire(&RootVolumeGroupObservation::NotApplicable).is_none());
+}
+
+#[test]
+fn home_is_offered_only_beside_an_unconfirmed_group_on_the_screen() {
+    use crate::api::Channel;
+    let volumes = Volumes {
+        calls: AtomicUsize::new(0),
+        observation: RootVolumeGroupObservation::Unconfirmed,
+        home: Some(b"/Users/minseo".to_vec()),
+    };
+    let unverified = vec![ScopeVolumeGroup::NOTICE_UNVERIFIED.to_owned()];
+    let offered = suggestion(&unverified, Channel::Gui, Some(&volumes));
+    assert_eq!(
+        offered.and_then(|path| path.raw.bytes().ok()),
+        Some(b"/Users/minseo".to_vec())
+    );
+    // Not beside a confirmed group, not on the command line, not without a home.
+    let merged = vec![ScopeVolumeGroup::NOTICE_MERGED.to_owned()];
+    assert!(suggestion(&merged, Channel::Gui, Some(&volumes)).is_none());
+    assert!(suggestion(&unverified, Channel::Cli, Some(&volumes)).is_none());
+    assert!(suggestion(&unverified, Channel::Gui, None).is_none());
+    let homeless = Volumes {
+        home: None,
+        ..volumes
+    };
+    assert!(suggestion(&unverified, Channel::Gui, Some(&homeless)).is_none());
 }

@@ -66,5 +66,27 @@ pub(super) fn scope_notices(
     notices.into_iter().collect()
 }
 
+/// The home folder offered beside an unconfirmed volume group, on the screen only
+/// (#263): never for another notice set or channel.
+pub(super) fn suggestion(
+    notices: &[String],
+    channel: crate::api::Channel,
+    volumes: Option<&dyn VolumePort>,
+) -> Option<OsPath> {
+    let unverified = notices
+        .iter()
+        .any(|notice| notice == ScopeVolumeGroup::NOTICE_UNVERIFIED);
+    if channel != crate::api::Channel::Gui || !unverified {
+        return None;
+    }
+    let raw = volumes?.home_directory()?;
+    Some(OsPath {
+        encoding: PathEncoding::Unix,
+        raw: du_core_contracts::PathBytes::from_bytes(&raw),
+        lossy: std::str::from_utf8(&raw).is_err(),
+        display: String::from_utf8_lossy(&raw).into_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests;

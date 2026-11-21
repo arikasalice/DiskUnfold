@@ -1,6 +1,8 @@
 //! Review a desktop scope using evidence obtained from the opened directory.
 mod digest;
+mod draft_check;
 mod volume_group;
+use draft_check::validate;
 pub(super) use volume_group::{group_notice, group_value, group_wire};
 use volume_group::{observe_group, scope_notices};
 pub mod exclusion;
@@ -14,8 +16,7 @@ use std::sync::Arc;
 use du_core_contracts::{
     OsPath, PathEncoding, Timestamp,
     analysis_ipc::{
-        ScopeBoundary, ScopeCorrespondence, ScopeDraft, ScopeReview, ScopeReviewRequest,
-        ScopeSource, TargetAccess,
+        ScopeCorrespondence, ScopeDraft, ScopeReview, ScopeReviewRequest, TargetAccess,
     },
     scan_observation::{OpenedScopeRoot, OptionalRecentScopeObserver, ScopeRootPort},
     volume::{RootVolumeGroup, RootVolumeGroupObservation, VolumePort},
@@ -110,8 +111,11 @@ impl UseCase for Review {
         caller: &CallerCtx,
     ) -> Result<Self::Response, EngineError> {
         // Only the response is projected; admission repeats review from raw paths.
-        self.review(request, caller.channel)
-            .map(crate::display_path::scope_review)
+        let mut review = self.review(request, caller.channel)?;
+        // Added after review, so no fingerprint depends on the suggestion.
+        review.suggested_include =
+            volume_group::suggestion(&review.notices, caller.channel, self.volumes.as_deref());
+        Ok(crate::display_path::scope_review(review))
     }
 }
 
@@ -171,33 +175,9 @@ impl Review {
             observed_at,
             request_seq: request.request_seq,
             volume_group: group_wire(&group),
+            suggested_include: None,
         })
     }
-}
-
-/// The draft source a channel submits: the command line names its scopes `cli`,
-/// the screen `gui` (#222).
-fn source_of(channel: Channel) -> ScopeSource {
-    match channel {
-        Channel::Cli => ScopeSource::Cli,
-        Channel::Gui | Channel::Mcp => ScopeSource::Gui,
-    }
-}
-
-fn validate(draft: &ScopeDraft, has_comparison: bool, channel: Channel) -> Result<(), EngineError> {
-    if !draft.exclusions.is_empty() {
-        exclusion::check(draft, has_comparison)?;
-    }
-    if draft.includes.is_empty() {
-        return Err(EngineError::reason("scope.empty"));
-    }
-    if draft.source != source_of(channel)
-        || draft.boundary != ScopeBoundary::CurrentVolume
-        || !draft.included_mounts.is_empty()
-    {
-        return Err(EngineError::reason("scope.target_unavailable"));
-    }
-    Ok(())
 }
 
 fn review_multiple(
@@ -240,6 +220,7 @@ fn review_multiple(
         observed_at,
         request_seq,
         volume_group: group_wire(group),
+        suggested_include: None,
     })
 }
 

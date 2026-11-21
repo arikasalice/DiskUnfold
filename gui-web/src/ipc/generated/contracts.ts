@@ -1140,7 +1140,15 @@ export type ScopeReview = { scope: ScopeDraft, notices: Array<string>, targets: 
  * The macOS root volume group the reviewed scope analyses as one volume (#263).
  * Omitted when the scope is not a volume group. GUI channel only.
  */
-volumeGroup?: ScopeVolumeGroup, };
+volumeGroup?: ScopeVolumeGroup,
+/**
+ * The user's home folder, offered only with
+ * [`ScopeVolumeGroup::NOTICE_UNVERIFIED`] so the user can pick their own files
+ * in one step (#263). A suggestion, not a permission: choosing it replaces the
+ * draft and the new draft is reviewed as usual. It never changes a fingerprint.
+ * Omitted otherwise; `null` is rejected. GUI channel only.
+ */
+suggestedInclude?: OsPath, };
 export type RecentScopeOpenRequest = { recentScopeRef: Id, requestSeq: number, };
 export type RecentScopeTargetState = "matched" | "moved" | "disconnected" | "unverifiable";
 export type RecentScopeOpenTarget = { path: OsPath, state: RecentScopeTargetState, proposedEntry: OsPath | null, };

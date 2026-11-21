@@ -182,6 +182,13 @@ pub trait VolumePort: Send + Sync {
     fn root_volume_group(&self) -> RootVolumeGroupObservation {
         RootVolumeGroupObservation::NotApplicable
     }
+    /// The current user's home folder from the OS user database, offered when the
+    /// root volume group cannot be confirmed (#263). A suggestion only: it is never
+    /// stored, logged or used as an authorization. `None` when unknown or not a
+    /// directory; adapters without one keep this default.
+    fn home_directory(&self) -> Option<Vec<u8>> {
+        None
+    }
     /// Verify read and search access to a directory without listing its entries.
     fn path_access(&self, path: &[u8]) -> Result<(), PortError>;
     /// Read current capacity for the requested directory, without caching observations.

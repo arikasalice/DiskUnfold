@@ -8,7 +8,7 @@ pub use du_core_contracts::startup::{
 #[cfg(feature = "fake")]
 mod fake;
 #[cfg(any(target_os = "macos", test))]
-mod fda;
+pub(crate) mod fda;
 #[cfg(all(target_os = "linux", feature = "webview"))]
 mod linux;
 #[cfg(all(target_os = "macos", feature = "webview"))]

@@ -15,7 +15,7 @@ const MAX_BUFFER: usize = 1 << 20;
 
 /// Returns the passwd home directory of the real user, or `None` when the
 /// lookup fails or yields an empty entry. Callers treat `None` as no evidence.
-pub(super) fn home_directory() -> Option<PathBuf> {
+pub(crate) fn home_directory() -> Option<PathBuf> {
     let mut size = INITIAL_BUFFER;
     while size <= MAX_BUFFER {
         let mut buffer = vec![0u8; size];

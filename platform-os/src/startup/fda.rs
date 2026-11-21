@@ -21,7 +21,7 @@ use std::{
 
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
-mod passwd;
+pub(crate) mod passwd;
 
 /// What one read-only attempt on a protected path established.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

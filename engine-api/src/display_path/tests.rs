@@ -147,6 +147,7 @@ fn review_projection_changes_display_text_only() -> Result<(), String> {
         observed_at: du_core_contracts::Timestamp::parse("2020-01-02T03:04:05.006Z")?,
         request_seq: 7,
         volume_group: None,
+        suggested_include: None,
     };
     let projected = scope_review(original.clone());
     let shown: Vec<_> = projected

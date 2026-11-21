@@ -265,6 +265,16 @@ impl VolumePort for MacVolumes {
             .unwrap_or(RootVolumeGroupObservation::Unconfirmed)
     }
 
+    fn home_directory(&self) -> Option<Vec<u8>> {
+        use std::os::unix::ffi::OsStrExt;
+        // The user database answers, not `HOME`; a missing or non-directory home
+        // is no suggestion (#263).
+        let home = crate::startup::fda::passwd::home_directory()?;
+        std::fs::metadata(&home)
+            .is_ok_and(|meta| meta.is_dir())
+            .then(|| home.as_os_str().as_bytes().to_vec())
+    }
+
     fn path_access(&self, path: &[u8]) -> Result<(), PortError> {
         open_checked(path).map(|_| ())
     }

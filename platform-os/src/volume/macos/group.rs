@@ -50,6 +50,7 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
         return RootVolumeGroupObservation::Unconfirmed;
     };
     let data = &data_mounts[0];
+    let listed = rows.len();
     let mut firmlinks = Vec::with_capacity(rows.len());
     for (source, relative) in rows {
         let target = [data.path.as_slice(), b"/", relative.as_slice()].concat();
@@ -61,7 +62,7 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
             Err(()) => return RootVolumeGroupObservation::Unconfirmed,
         }
     }
-    evaluate(root.0, &data_mounts, firmlinks)
+    evaluate(root.0, &data_mounts, firmlinks, listed)
         .map(RootVolumeGroupObservation::Confirmed)
         .unwrap_or(RootVolumeGroupObservation::Unconfirmed)
 }
@@ -173,8 +174,16 @@ fn evaluate(
     root_device: u64,
     data_mounts: &[DataMount],
     mut firmlinks: Vec<ConfirmedFirmlink>,
+    listed: usize,
 ) -> Option<RootVolumeGroup> {
-    if data_mounts.len() != 1 || data_mounts[0].device != root_device || firmlinks.is_empty() {
+    // Rows absent on both sides are skipped, but a group where most listed
+    // firmlinks are absent is not the layout the list describes.
+    let mostly_absent = firmlinks.len().saturating_mul(2) < listed;
+    if data_mounts.len() != 1
+        || data_mounts[0].device != root_device
+        || firmlinks.is_empty()
+        || mostly_absent
+    {
         return None;
     }
     firmlinks.sort_by(|left, right| left.source.cmp(&right.source));
@@ -230,10 +239,10 @@ mod tests {
     #[test]
     fn confirms_only_one_matching_data_mount_and_equal_firmlink_identities() {
         let rows = || vec![row(b"/Users", b"/Data/Users", 7, 11)];
-        assert!(evaluate(7, &[], rows()).is_none());
-        assert!(evaluate(7, &[data(b"/Data", 7, 3), data(b"/Data2", 7, 4)], rows()).is_none());
-        assert!(evaluate(7, &[data(b"/Data", 8, 3)], rows()).is_none());
-        let confirmed = evaluate(7, &[data(b"/Data", 7, 3)], rows());
+        assert!(evaluate(7, &[], rows(), 1).is_none());
+        assert!(evaluate(7, &[data(b"/Data", 7, 3), data(b"/Data2", 7, 4)], rows(), 1).is_none());
+        assert!(evaluate(7, &[data(b"/Data", 8, 3)], rows(), 1).is_none());
+        let confirmed = evaluate(7, &[data(b"/Data", 7, 3)], rows(), 1);
         assert_eq!(confirmed.as_ref().map(|group| group.data_inode), Some(3));
         assert_eq!(
             confirmed.map(|group| group.firmlinks[0].source.clone()),
@@ -252,7 +261,21 @@ mod tests {
             ),
             Ok(None)
         );
-        assert!(evaluate(7, &[data(b"/Data", 7, 3)], Vec::new()).is_none());
+        assert!(evaluate(7, &[data(b"/Data", 7, 3)], Vec::new(), 1).is_none());
+    }
+
+    #[test]
+    fn a_list_mostly_absent_on_this_machine_is_not_confirmed() {
+        let rows = |count: u64| {
+            (0..count)
+                .map(|index| row(b"/A", b"/Data/A", 7, 10 + index))
+                .collect::<Vec<_>>()
+        };
+        // One of nineteen rows absent (as /AppleInternal is) still confirms.
+        assert!(evaluate(7, &[data(b"/Data", 7, 3)], rows(18), 19).is_some());
+        // Exactly half present still confirms; fewer than half does not.
+        assert!(evaluate(7, &[data(b"/Data", 7, 3)], rows(2), 4).is_some());
+        assert!(evaluate(7, &[data(b"/Data", 7, 3)], rows(1), 3).is_none());
     }
 
     #[test]

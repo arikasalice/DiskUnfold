@@ -179,6 +179,27 @@ pub struct ScopeReview {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub volume_group: Option<ScopeVolumeGroup>,
+    /// The user's home folder, offered only with
+    /// [`ScopeVolumeGroup::NOTICE_UNVERIFIED`] so the user can pick their own files
+    /// in one step (#263). A suggestion, not a permission: choosing it replaces the
+    /// draft and the new draft is reviewed as usual. It never changes a fingerprint.
+    /// Omitted otherwise; `null` is rejected. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub suggested_include: Option<OsPath>,
+}
+
+/// An optional field that, when present, must not be `null`.
+fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 /// A root volume group in a reviewed scope (#263).
