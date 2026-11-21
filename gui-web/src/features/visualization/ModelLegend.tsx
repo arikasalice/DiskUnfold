@@ -56,10 +56,10 @@ export function useClassChoice(
             // slices and fades the others (README 54).
             if (shape.slices?.some((slice) => slice.key === shown))
               return { ...shape, chosenSlice: shown };
-            return shape.legendClass !== undefined &&
-              shape.legendClass !== shown
-              ? { ...shape, dimmed: true }
-              : shape;
+            if (shape.legendClass === undefined) return shape;
+            return shape.legendClass === shown
+              ? { ...shape, highlighted: true }
+              : { ...shape, dimmed: true };
           }),
     [shown, shapes],
   );
