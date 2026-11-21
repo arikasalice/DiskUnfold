@@ -330,7 +330,6 @@ impl<'a> PlanBuilder<'a> {
                     RejudgementState::ClassChanged
                 }
             }
-            ProtectionVerdict::SkipClassRows => RejudgementState::Undetermined,
         }
     }
 }

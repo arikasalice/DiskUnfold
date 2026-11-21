@@ -43,10 +43,7 @@ pub(crate) fn evaluate_protection(
                 if let Some(reason_key) = decision.reason_key {
                     evidence.push(reason_key);
                 }
-                if decision.verdict == ProtectionVerdict::SkipClassRows {
-                    skip_class_rows = true;
-                    continue;
-                }
+                skip_class_rows |= decision.skip_class_rows;
                 combine(&mut verdict, decision.verdict);
                 if verdict == ProtectionVerdict::Deny {
                     break;
@@ -74,7 +71,7 @@ fn combine(current: &mut ProtectionVerdict, next: ProtectionVerdict) {
         ProtectionVerdict::Undetermined => 4,
         ProtectionVerdict::GuidanceOnly => 3,
         ProtectionVerdict::AllowReleased => 2,
-        ProtectionVerdict::Allow | ProtectionVerdict::SkipClassRows => 1,
+        ProtectionVerdict::Allow => 1,
     };
     if rank(next) > rank(*current) {
         *current = next;
@@ -136,6 +133,7 @@ pub(crate) fn standard_evaluators() -> impl Iterator<Item = Box<dyn ProtectionEv
 fn decision(verdict: ProtectionVerdict, reason_key: Option<&str>) -> ProtectionDecision {
     ProtectionDecision {
         verdict,
+        skip_class_rows: false,
         reason_key: reason_key.map(str::to_owned),
     }
 }
@@ -194,10 +192,15 @@ fn volume_role(platform: &PlatformProtectionFacts) -> ProtectionDecision {
 
 fn known_location(platform: &PlatformProtectionFacts) -> ProtectionDecision {
     match platform.known_location {
-        Fact::Known(KnownLocation::Listed) => {
+        Fact::Known(KnownLocation::Root) => {
             decision(ProtectionVerdict::Deny, Some("protect.no_change"))
         }
-        Fact::Known(KnownLocation::NotListed) => decision(ProtectionVerdict::SkipClassRows, None),
+        Fact::Known(KnownLocation::Under(_)) => decision(ProtectionVerdict::Allow, None),
+        Fact::Known(KnownLocation::NotListed) => ProtectionDecision {
+            verdict: ProtectionVerdict::Allow,
+            skip_class_rows: true,
+            reason_key: None,
+        },
         Fact::Unknown => decision(
             ProtectionVerdict::Undetermined,
             Some("protect.known_location_unverifiable"),
@@ -320,7 +323,6 @@ pub(crate) fn plan_reason(verdict: ProtectionVerdict) -> Option<&'static str> {
         ProtectionVerdict::Undetermined => Some("plan.item.undetermined"),
         ProtectionVerdict::GuidanceOnly => Some("plan.item.guidance_only"),
         ProtectionVerdict::Allow | ProtectionVerdict::AllowReleased => None,
-        ProtectionVerdict::SkipClassRows => Some("plan.item.undetermined"),
     }
 }
 
@@ -331,7 +333,6 @@ pub(crate) fn plan_state(verdict: ProtectionVerdict) -> crate::ports::PlanItemSt
         ProtectionVerdict::Deny | ProtectionVerdict::Undetermined => Rejected,
         ProtectionVerdict::GuidanceOnly => Held,
         ProtectionVerdict::Allow | ProtectionVerdict::AllowReleased => Included,
-        ProtectionVerdict::SkipClassRows => Rejected,
     }
 }
 

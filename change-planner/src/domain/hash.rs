@@ -247,7 +247,6 @@ fn verdict_code(verdict: ProtectionVerdict) -> u8 {
         ProtectionVerdict::GuidanceOnly => 2,
         ProtectionVerdict::Undetermined => 3,
         ProtectionVerdict::Deny => 4,
-        ProtectionVerdict::SkipClassRows => 5,
     }
 }
 

@@ -293,6 +293,7 @@ impl ProtectionEvaluator for ProbeEvaluator {
         }
         Ok(ProtectionDecision {
             verdict: self.decision,
+            skip_class_rows: false,
             reason_key: None,
         })
     }

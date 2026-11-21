@@ -40,12 +40,33 @@ pub enum ProtectionVolumeRole {
     MemoryTemporary,
 }
 
-/// Known-location lookup result.
+/// Kind key from the platform known-location table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KnownLocationKind {
+    /// `loc.app_data`.
+    AppData,
+    /// `loc.user_cache`.
+    UserCache,
+    /// `loc.temp`.
+    Temp,
+    /// `loc.downloads`.
+    Downloads,
+    /// `loc.memory_managed`.
+    MemoryManaged,
+    /// `loc.trash_store`.
+    TrashStore,
+    /// `loc.user_home`.
+    UserHome,
+}
+
+/// Known-location lookup result for the target path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KnownLocation {
-    /// The path is a protected volume, profile, or standard system root.
-    Listed,
-    /// The path is absent from the known-location table.
+    /// The path is a listed volume, profile, or standard top-level root.
+    Root,
+    /// The path is below a listed root of this kind.
+    Under(KnownLocationKind),
+    /// The path is outside the known-location table.
     NotListed,
 }
 

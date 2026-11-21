@@ -2,7 +2,10 @@ mod fixtures;
 
 use du_change_planner::{
     api::{EvaluatorRegistry, EvaluatorRegistryError},
-    ports::{EvaluatorId, Fact, IdentityObservation, PlanItemState, ProtectionVerdict},
+    ports::{
+        ConfirmationChoice, ConfirmationToken, EvaluatorId, Fact, IdentityObservation,
+        KnownLocation, KnownLocationKind, PlanItemState, ProtectionVerdict,
+    },
 };
 use fixtures::{
     FakePorts, item_facts, platform_facts, probe_registry, probe_registry_with, request, selection,
@@ -87,13 +90,20 @@ fn fr7_hd1_app_host_dd1_denies_identity_mismatch_and_unavailable_identity() {
 }
 
 #[test]
-fn fr7_hd1_app_host_dd1_uses_the_twelve_evaluators_in_order_and_skips_rows_five_to_seven() {
+fn fr7_hd1_app_host_dd1_skips_rows_five_to_seven_when_location_is_not_listed() {
     let fake = FakePorts::standard();
     let plan = fake
         .planner()
         .build(request(&fake, vec![selection(&fake, 1)]));
     assert!(plan.is_ok());
     if let Ok(plan) = plan {
+        assert_eq!(plan.items[0].state, PlanItemState::Included);
+        assert!(
+            plan.items[0]
+                .protection
+                .as_ref()
+                .is_some_and(|summary| { summary.verdict == ProtectionVerdict::Allow })
+        );
         assert_eq!(
             EvaluatorId::ORDERED,
             [
@@ -136,6 +146,106 @@ fn fr7_hd1_app_host_dd1_uses_the_twelve_evaluators_in_order_and_skips_rows_five_
                 EvaluatorId::Descendant,
             ]
         );
+    }
+}
+
+#[test]
+fn fr7_hd1_app_host_dd1_denies_a_known_location_root() {
+    let mut fake = FakePorts::standard();
+    fake.platform.known_location = Fact::Known(KnownLocation::Root);
+    let plan = fake
+        .planner()
+        .build(request(&fake, vec![selection(&fake, 1)]));
+    assert!(plan.is_ok());
+    if let Ok(plan) = plan {
+        let item = &plan.items[0];
+        assert_eq!(item.state, PlanItemState::Rejected);
+        assert_eq!(item.reason_key.as_deref(), Some("plan.item.protected"));
+        let Some(summary) = &item.protection else {
+            return;
+        };
+        assert_eq!(summary.verdict, ProtectionVerdict::Deny);
+        assert!(
+            summary
+                .evidence
+                .iter()
+                .any(|key| key == "protect.no_change")
+        );
+        assert_eq!(
+            summary
+                .evaluators
+                .iter()
+                .map(|entry| entry.0)
+                .collect::<Vec<_>>(),
+            vec![
+                EvaluatorId::Identity,
+                EvaluatorId::LinkBoundary,
+                EvaluatorId::VolumeRole,
+                EvaluatorId::KnownLocation,
+            ]
+        );
+    }
+}
+
+#[test]
+fn fr7_hd1_app_host_dd1_evaluates_classification_under_user_cache_and_releases_it() {
+    let mut fake = FakePorts::standard();
+    fake.platform.known_location = Fact::Known(KnownLocation::Under(KnownLocationKind::UserCache));
+    let mut plan_request = request(&fake, vec![selection(&fake, 1)]);
+    plan_request
+        .confirmations
+        .push(ConfirmationChoice::ReleaseDefaultProtection);
+    let plan = fake.planner().build(plan_request);
+    assert!(plan.is_ok());
+    if let Ok(plan) = plan {
+        let item = &plan.items[0];
+        assert_eq!(item.state, PlanItemState::Included);
+        let Some(summary) = &item.protection else {
+            return;
+        };
+        assert_eq!(summary.verdict, ProtectionVerdict::AllowReleased);
+        assert!(summary.released);
+        assert_eq!(
+            summary
+                .evaluators
+                .iter()
+                .map(|entry| entry.0)
+                .collect::<Vec<_>>(),
+            EvaluatorId::ORDERED.to_vec()
+        );
+        assert!(plan.confirmations.iter().any(|token| matches!(
+            token,
+            ConfirmationToken::ReleaseDefaultProtection { classification_ids }
+                if classification_ids == &["user-file".to_owned()]
+        )));
+    }
+}
+
+#[test]
+fn fr7_hd1_app_host_dd1_keeps_unknown_known_location_undetermined() {
+    let mut fake = FakePorts::standard();
+    fake.platform.known_location = Fact::Unknown;
+    let plan = fake
+        .planner()
+        .build(request(&fake, vec![selection(&fake, 1)]));
+    assert!(plan.is_ok());
+    if let Ok(plan) = plan {
+        let item = &plan.items[0];
+        assert_eq!(item.state, PlanItemState::Rejected);
+        assert_eq!(item.reason_key.as_deref(), Some("plan.item.undetermined"));
+        assert!(item.protection.as_ref().is_some_and(|summary| {
+            summary.verdict == ProtectionVerdict::Undetermined
+                && summary
+                    .evidence
+                    .iter()
+                    .any(|key| key == "protect.known_location_unverifiable")
+                && summary
+                    .evaluators
+                    .iter()
+                    .map(|entry| entry.0)
+                    .collect::<Vec<_>>()
+                    == EvaluatorId::ORDERED.to_vec()
+        }));
     }
 }
 

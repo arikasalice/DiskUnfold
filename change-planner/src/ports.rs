@@ -295,8 +295,6 @@ pub enum ProtectionVerdict {
     Undetermined,
     /// The operation is denied.
     Deny,
-    /// Skip the OS-component, class-action, and release-state rows.
-    SkipClassRows,
 }
 
 /// One evaluator result, with its original protection reason when available.
@@ -304,6 +302,8 @@ pub enum ProtectionVerdict {
 pub struct ProtectionDecision {
     /// Evaluator result.
     pub verdict: ProtectionVerdict,
+    /// Whether the known-location evaluator skips rows 5 through 7.
+    pub skip_class_rows: bool,
     /// Original protection reason key retained as evidence.
     pub reason_key: Option<String>,
 }
