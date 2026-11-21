@@ -771,6 +771,44 @@ async function histogramListStep(session, step) {
     throw new Error("The focus did not return to the bar: " + back);
 }
 
+/**
+ * The checking mark turns, and stands still with reduced motion from the OS or from
+ * the app setting (F02 #350).
+ */
+async function checkProgressMarkMotion(session) {
+  const animation = () =>
+    session.run(
+      () =>
+        getComputedStyle(
+          document.querySelector(
+            '.du-badge[data-status-shape="progress"] .du-badge__shape',
+          ),
+        ).animationName,
+    );
+  if ((await animation()) === "none")
+    throw new Error("The checking mark does not turn");
+  await session.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "prefers-color-scheme", value: "light" },
+      { name: "prefers-reduced-motion", value: "reduce" },
+    ],
+  });
+  if ((await animation()) !== "none")
+    throw new Error("The checking mark turns with reduced motion from the OS");
+  await session.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "prefers-color-scheme", value: "light" },
+      { name: "prefers-reduced-motion", value: "no-preference" },
+    ],
+  });
+  await session.run(() => {
+    document.documentElement.dataset.duMotion = "reduce";
+  });
+  if ((await animation()) !== "none")
+    throw new Error("The checking mark turns with reduced motion in the app");
+  console.log("checking mark: turns, and stands still with reduced motion");
+}
+
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
@@ -973,6 +1011,8 @@ try {
           await sleep(150);
         }
         await save(session, shot.name, false, scene);
+        if (scene === "checking" && shot.name === "light-1280")
+          await checkProgressMarkMotion(session);
       } else if (surface === "history-retention") {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
