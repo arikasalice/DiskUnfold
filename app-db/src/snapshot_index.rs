@@ -17,12 +17,13 @@ use rusqlite::{
 
 use crate::AppDb;
 
+mod list;
+use list::{append_list_rows, list_known_older_sql, list_null_tail_sql, list_sql};
+
 /// Schema version that introduced the snapshot index.
 pub const SNAPSHOT_INDEX_SCHEMA_VERSION: u32 = 11;
 
-const LIST_FIELDS: &str = "snapshot_id, file_name, source_version_id, lineage_id, source_kind,
-    observed_at_ms, created_at_ms, scope_label, condition_summary, completeness,
-    format_version, body_size, body_hash, state, verify_failed_at_ms, updated_at_ms, row_version";
+const MAX_CONDITION_SUMMARY_BYTES: usize = 65_536;
 
 impl SnapshotIndexPort for AppDb {
     fn register(
@@ -31,11 +32,28 @@ impl SnapshotIndexPort for AppDb {
         volumes: &[SnapshotIndexVolume],
         baseline_pinned_at_ms: Option<i64>,
     ) -> Result<SnapshotIndexRegisterResult, SnapshotIndexError> {
+        if !valid_snapshot_input(row) || !valid_registration_options(volumes, baseline_pinned_at_ms)
+        {
+            return Err(SnapshotIndexError::InvalidInput);
+        }
+
+        let snapshot_id = required_id_bytes(&row.snapshot_id)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(write_error)?;
         ensure_schema(&tx)?;
+
+        let snapshot_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM snapshot_store_snapshot WHERE snapshot_id = ?1)",
+                [snapshot_id.as_slice()],
+                |result| result.get(0),
+            )
+            .map_err(read_error)?;
+        if snapshot_exists {
+            return Err(SnapshotIndexError::InvalidInput);
+        }
 
         if let Some(existing) = active_by_source(&tx, &row.source_version_id)? {
             let list_seq = read_list_seq(&tx)?;
@@ -47,19 +65,6 @@ impl SnapshotIndexPort for AppDb {
             });
         }
 
-        if row.state != SnapshotIndexState::Active
-            || row.format_version == 0
-            || !row.scope_label.is_empty() && row.scope_label.len() != 32
-            || volumes.iter().any(|volume| {
-                volume.volume_index == u16::MAX
-                    || volume.identity_kind != SnapshotVolumeIdentityKind::None
-                    || volume.identity_capability != SnapshotVolumeIdentityCapability::Unknown
-            })
-        {
-            return Err(SnapshotIndexError::InvalidInput);
-        }
-
-        let snapshot_id = required_id_bytes(&row.snapshot_id)?;
         let source_version_id = required_id_bytes(&row.source_version_id)?;
         let lineage_id = required_id_bytes(&row.lineage_id)?;
         tx.execute(
@@ -172,43 +177,41 @@ impl SnapshotIndexPort for AppDb {
             .map(|cursor| required_id_bytes(&cursor.snapshot_id))
             .transpose()?;
         let cursor_id = cursor_bytes.unwrap_or([0; 16]);
-        let mut statement = tx
-            .prepare_cached(&format!(
-                "SELECT {LIST_FIELDS}, EXISTS(
-                     SELECT 1 FROM snapshot_store_baseline b
-                     WHERE b.snapshot_id = s.snapshot_id)
-                 FROM snapshot_store_snapshot s
-                 WHERE s.state = 'active' AND (
-                     ?1 = 0 OR
-                     (?2 IS NULL AND s.observed_at_ms IS NULL AND s.snapshot_id > ?3) OR
-                     (?2 IS NOT NULL AND (s.observed_at_ms IS NULL OR
-                         s.observed_at_ms < ?2 OR
-                         (s.observed_at_ms = ?2 AND s.snapshot_id > ?3)))
-                 )
-                 ORDER BY s.observed_at_ms IS NULL, s.observed_at_ms DESC, s.snapshot_id ASC
-                 LIMIT ?4"
-            ))
-            .map_err(read_error)?;
-        let mut rows = statement
-            .query(params![
-                if after.is_some() { 1_i64 } else { 0_i64 },
-                after.and_then(|cursor| cursor.observed_at_ms),
-                cursor_id.as_slice(),
-                fetch,
-            ])
-            .map_err(read_error)?;
         let mut entries = Vec::new();
-        while let Some(row) = rows.next().map_err(read_error)? {
-            let snapshot = decode_snapshot(row).map_err(read_error)?;
-            let pinned: bool = row.get(17).map_err(read_error)?;
-            entries.push(SnapshotIndexEntry {
-                row: snapshot,
-                volumes: Vec::new(),
-                pinned,
-            });
+        match after {
+            None => {
+                append_list_rows(&tx, &list_sql(None), &[&fetch], &mut entries)?;
+            }
+            Some(cursor) => match cursor.observed_at_ms {
+                None => append_list_rows(
+                    &tx,
+                    &list_sql(after),
+                    &[&cursor_id.as_slice(), &fetch],
+                    &mut entries,
+                )?,
+                Some(observed_at_ms) => {
+                    append_list_rows(
+                        &tx,
+                        &list_sql(after),
+                        &[&observed_at_ms, &cursor_id.as_slice(), &fetch],
+                        &mut entries,
+                    )?;
+                    let remaining = fetch - entries.len() as i64;
+                    if remaining > 0 {
+                        append_list_rows(
+                            &tx,
+                            &list_known_older_sql(),
+                            &[&observed_at_ms, &remaining],
+                            &mut entries,
+                        )?;
+                    }
+                    let remaining = fetch - entries.len() as i64;
+                    if remaining > 0 {
+                        append_list_rows(&tx, &list_null_tail_sql(), &[&remaining], &mut entries)?;
+                    }
+                }
+            },
         }
-        drop(rows);
-        drop(statement);
 
         let has_more = entries.len() > limit;
         entries.truncate(limit);
@@ -229,6 +232,33 @@ impl SnapshotIndexPort for AppDb {
             next_cursor,
         })
     }
+}
+
+fn valid_snapshot_input(row: &SnapshotIndexRow) -> bool {
+    row.state == SnapshotIndexState::Active
+        && row.format_version > 0
+        && row.file_name == format!("{}.dusnap", row.snapshot_id.as_str())
+        && row.condition_summary.len() <= MAX_CONDITION_SUMMARY_BYTES
+        && serde_json::from_str::<serde_json::Value>(&row.condition_summary).is_ok()
+        && row.created_at_ms >= 0
+        && row.updated_at_ms >= 0
+        && row.row_version >= 1
+        && row.body_size >= 0
+        && row.observed_at_ms.is_none_or(|value| value >= 0)
+        && row.verify_failed_at_ms.is_none_or(|value| value >= 0)
+        && (row.scope_label.is_empty() || row.scope_label.len() == 32)
+}
+
+fn valid_registration_options(
+    volumes: &[SnapshotIndexVolume],
+    baseline_pinned_at_ms: Option<i64>,
+) -> bool {
+    baseline_pinned_at_ms.is_none_or(|value| value >= 0)
+        && volumes.iter().all(|volume| {
+            volume.volume_index < u16::MAX
+                && volume.identity_kind == SnapshotVolumeIdentityKind::None
+                && volume.identity_capability == SnapshotVolumeIdentityCapability::Unknown
+        })
 }
 
 fn ensure_schema(tx: &Transaction<'_>) -> Result<(), SnapshotIndexError> {

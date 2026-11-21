@@ -33,7 +33,7 @@ pub enum SnapshotIndexState {
     Removed,
 }
 
-/// Kind assigned to a volume identity.
+/// Kind assigned to a volume identity. Registration currently accepts only `None`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotVolumeIdentityKind {
     /// A Windows volume GUID.
@@ -46,7 +46,7 @@ pub enum SnapshotVolumeIdentityKind {
     None,
 }
 
-/// Capability of the volume identity observation.
+/// Capability of the volume identity observation. Registration currently accepts only `Unknown`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotVolumeIdentityCapability {
     /// The identity is supported by the current policy.
@@ -67,7 +67,7 @@ pub enum SnapshotVolumeIdentityCapability {
 pub struct SnapshotIndexRow {
     /// UUID v7 for this snapshot index row.
     pub snapshot_id: Id,
-    /// Snapshot file name, without a filesystem path.
+    /// Snapshot file name, exactly `<snapshot_id>.dusnap` without a filesystem path.
     pub file_name: String,
     /// UUID v7 of the sealed result version.
     pub source_version_id: Id,
@@ -79,9 +79,9 @@ pub struct SnapshotIndexRow {
     pub observed_at_ms: Option<i64>,
     /// Index row creation time in Unix milliseconds.
     pub created_at_ms: i64,
-    /// Scope marker bytes, empty when sealed metadata had no marker.
+    /// Scope marker bytes, empty or exactly 32 bytes.
     pub scope_label: Vec<u8>,
-    /// Sealed `conditionSummary` JSON text, preserved as-is.
+    /// Sealed `conditionSummary` JSON text, preserved as-is and capped at 65,536 UTF-8 bytes.
     pub condition_summary: String,
     /// Completeness from the sealed metadata, absent when unknown.
     pub completeness: Option<SnapshotIndexCompleteness>,
@@ -237,7 +237,8 @@ pub trait SnapshotIndexPort {
     /// A repeated active `source_version_id` returns the existing snapshot ID and
     /// current list sequence without changing the database. A successful new row
     /// advances the sequence exactly once. Implementations must not retry a busy
-    /// operation; they return `Busy` after their configured timeout.
+    /// operation; they return `Busy` after their configured timeout. Reusing an
+    /// existing `snapshot_id` is invalid input, including for an active source.
     fn register(
         &mut self,
         row: &SnapshotIndexRow,

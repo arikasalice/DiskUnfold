@@ -9,6 +9,10 @@ use std::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+mod constraints;
+mod query_plan;
+mod registration;
+
 fn id(value: u64) -> Id {
     let mut bytes = [0; 16];
     bytes[..6].copy_from_slice(&value.to_be_bytes()[2..]);
@@ -19,7 +23,7 @@ fn id(value: u64) -> Id {
 fn row(snapshot: u64, source: u64, observed_at_ms: Option<i64>) -> SnapshotIndexRow {
     SnapshotIndexRow {
         snapshot_id: id(snapshot),
-        file_name: format!("snapshot-{snapshot}.dusnap"),
+        file_name: format!("{}.dusnap", id(snapshot).as_str()),
         source_version_id: id(source),
         lineage_id: id(900),
         source_kind: SnapshotIndexSourceKind::Local,
@@ -71,12 +75,106 @@ fn register_is_idempotent_and_finds_the_active_source() -> TestResult {
     assert_eq!(repeated.list_seq, 1);
     assert!(!repeated.inserted);
     assert_eq!(
+        db.register(&first_row, &[], None),
+        Err(SnapshotIndexError::InvalidInput)
+    );
+    let seq: i64 = db.connection.query_row(
+        "SELECT list_seq FROM snapshot_store_list_state WHERE name = 'snapshot_list'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(seq, 1);
+    assert_eq!(
         db.find_active_by_source(&id(101))?,
         Some(first_row.snapshot_id)
     );
     assert_eq!(count(&db.connection, "snapshot_store_snapshot")?, 1);
     assert_eq!(count(&db.connection, "snapshot_store_snapshot_volume")?, 1);
     assert_eq!(count(&db.connection, "snapshot_store_baseline")?, 0);
+    Ok(())
+}
+
+#[test]
+fn a_deleted_source_can_be_registered_again_with_a_new_snapshot_id() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = installed(&dir)?;
+    db.register(&row(1, 101, Some(100)), &[], None)?;
+    db.connection.execute(
+        "UPDATE snapshot_store_snapshot SET state = 'deleted' WHERE snapshot_id = ?1",
+        [id(1).v7_bytes().ok_or("invalid test id")?.as_slice()],
+    )?;
+    let replacement = db.register(&row(2, 101, Some(200)), &[], None)?;
+    assert!(replacement.inserted);
+    assert_eq!(replacement.snapshot_id, id(2));
+    assert_eq!(replacement.list_seq, 2);
+    assert_eq!(count(&db.connection, "snapshot_store_snapshot")?, 2);
+    Ok(())
+}
+
+#[test]
+fn gui_snapshot_connections_enforce_foreign_keys_and_snapshot_rows_cannot_be_deleted() -> TestResult
+{
+    let dir = tempfile::tempdir()?;
+    let mut db = installed(&dir)?;
+    let foreign_keys: i64 = db
+        .connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
+    assert_eq!(foreign_keys, 1);
+
+    let missing = id(999).v7_bytes().ok_or("invalid test id")?;
+    let child_volume = db.connection.execute(
+        "INSERT INTO snapshot_store_snapshot_volume
+             (snapshot_id, volume_index, identity_kind, identity_capability)
+         VALUES (?1, 0, 'none', 'unknown')",
+        [missing.as_slice()],
+    );
+    assert!(child_volume.is_err());
+    let baseline = db.connection.execute(
+        "INSERT INTO snapshot_store_baseline(snapshot_id, pinned_at_ms) VALUES (?1, 1)",
+        [missing.as_slice()],
+    );
+    assert!(baseline.is_err());
+    let deletion = db.connection.execute(
+        "INSERT INTO snapshot_store_deletion
+             (deletion_id, snapshot_id, deleted_at_ms, cause, file_removed)
+         VALUES (?1, ?2, 1, 'manual', 1)",
+        params![
+            id(998).v7_bytes().ok_or("invalid test id")?.as_slice(),
+            missing.as_slice()
+        ],
+    );
+    assert!(deletion.is_err());
+
+    let inserted = db.register(&row(1, 101, Some(100)), &[], None)?;
+    let snapshot_id = inserted.snapshot_id.v7_bytes().ok_or("invalid test id")?;
+    db.connection.execute(
+        "UPDATE snapshot_store_snapshot SET state = 'deleted' WHERE snapshot_id = ?1",
+        [snapshot_id.as_slice()],
+    )?;
+    db.connection.execute(
+        "INSERT INTO snapshot_store_deletion
+             (deletion_id, snapshot_id, deleted_at_ms, cause, file_removed)
+         VALUES (?1, ?2, 300, 'manual', 1)",
+        params![
+            id(700).v7_bytes().ok_or("invalid test id")?.as_slice(),
+            snapshot_id.as_slice()
+        ],
+    )?;
+    assert!(
+        db.connection
+            .execute(
+                "DELETE FROM snapshot_store_snapshot WHERE snapshot_id = ?1",
+                [snapshot_id.as_slice()],
+            )
+            .is_err()
+    );
+    let state: String = db.connection.query_row(
+        "SELECT state FROM snapshot_store_snapshot WHERE snapshot_id = ?1",
+        [snapshot_id.as_slice()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(state, "deleted");
+    assert_eq!(count(&db.connection, "snapshot_store_deletion")?, 1);
     Ok(())
 }
 
@@ -199,17 +297,50 @@ fn active_pages_sort_unknown_times_last_and_reject_stale_cursors() -> TestResult
 fn volume_identity_writers_are_restricted_and_debug_redacts_sensitive_values() -> TestResult {
     let dir = tempfile::tempdir()?;
     let mut db = installed(&dir)?;
-    let mut unsupported = volume(0);
-    unsupported.identity_kind = SnapshotVolumeIdentityKind::Guid;
-    unsupported.identity_capability = SnapshotVolumeIdentityCapability::Supported;
-    assert_eq!(
-        db.register(&row(1, 101, Some(100)), &[unsupported], None),
-        Err(SnapshotIndexError::InvalidInput)
-    );
+    for kind in [
+        SnapshotVolumeIdentityKind::Guid,
+        SnapshotVolumeIdentityKind::Uuid,
+        SnapshotVolumeIdentityKind::FsUuid,
+    ] {
+        let mut unsupported = volume(0);
+        unsupported.identity_kind = kind;
+        assert_eq!(
+            db.register(&row(1, 101, Some(100)), &[unsupported], None),
+            Err(SnapshotIndexError::InvalidInput)
+        );
+    }
+    for capability in [
+        SnapshotVolumeIdentityCapability::Supported,
+        SnapshotVolumeIdentityCapability::Partial,
+        SnapshotVolumeIdentityCapability::Unsupported,
+    ] {
+        let mut unsupported = volume(0);
+        unsupported.identity_capability = capability;
+        assert_eq!(
+            db.register(&row(1, 101, Some(100)), &[unsupported], None),
+            Err(SnapshotIndexError::InvalidInput)
+        );
+    }
     let mut sensitive_volume = volume(0);
     sensitive_volume.observed_volume_id = Some(b"raw-secret".to_vec());
     db.register(&row(1, 101, Some(100)), &[sensitive_volume.clone()], None)?;
     db.register(&row(2, 102, Some(90)), &[sensitive_volume.clone()], None)?;
+    let unsupported_kind_check = db.connection.execute(
+        "INSERT INTO snapshot_store_snapshot_volume
+             (snapshot_id, volume_index, observed_volume_id, identity_kind,
+              identity_capability)
+         VALUES (?1, 1, X'01', 'guid', 'unknown')",
+        [id(1).v7_bytes().ok_or("invalid test id")?.as_slice()],
+    );
+    assert!(unsupported_kind_check.is_err());
+    let unsupported_capability_check = db.connection.execute(
+        "INSERT INTO snapshot_store_snapshot_volume
+             (snapshot_id, volume_index, observed_volume_id, identity_kind,
+              identity_capability)
+         VALUES (?1, 1, X'01', 'none', 'supported')",
+        [id(2).v7_bytes().ok_or("invalid test id")?.as_slice()],
+    );
+    assert!(unsupported_capability_check.is_err());
     let page = db.list_active(10, None)?;
     assert_eq!(
         page.rows[0].volumes[0].observed_volume_id,
@@ -234,6 +365,10 @@ fn deletion_records_reject_update_and_delete() -> TestResult {
     let snapshot_id = result.snapshot_id.v7_bytes().ok_or("invalid test id")?;
     let deletion_id = id(700).v7_bytes().ok_or("invalid test id")?;
     db.connection.execute(
+        "UPDATE snapshot_store_snapshot SET state = 'deleted' WHERE snapshot_id = ?1",
+        [snapshot_id.as_slice()],
+    )?;
+    db.connection.execute(
         "INSERT INTO snapshot_store_deletion
              (deletion_id, snapshot_id, deleted_at_ms, cause, file_removed)
          VALUES (?1, ?2, 300, 'manual', 1)",
@@ -256,6 +391,7 @@ fn deletion_records_reject_update_and_delete() -> TestResult {
             .is_err()
     );
     assert_eq!(count(&db.connection, "snapshot_store_deletion")?, 1);
+    assert_eq!(count(&db.connection, "snapshot_store_snapshot")?, 1);
     Ok(())
 }
 
