@@ -48,6 +48,8 @@ mod ranked_bar;
 mod ranked_group_model;
 mod ranked_projection;
 mod remainder;
+mod sankey;
+mod sankey_model;
 pub mod selection;
 mod shape_slices;
 mod unread;
@@ -263,6 +265,7 @@ enum Candidate {
     Projection(DeferredRender),
     Histogram(crate::viz_pages::histogram::DeferredSelectedPages),
     RankedGroup(crate::viz_pages::ranked_group::DeferredRankedGroup),
+    Sankey(crate::viz_pages::sankey::DeferredSankeyPages),
 }
 type CandidateSlot = Mutex<Option<Candidate>>;
 type RankedWork = (Candidate, Option<VizModel>, u64, Option<(String, u32)>);

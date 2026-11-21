@@ -6,6 +6,7 @@ mod lower_bound;
 mod measure;
 mod remainder;
 mod revisions;
+mod sankey;
 mod scope_limits;
 mod support;
 mod totals;
@@ -198,7 +199,7 @@ fn a_second_default_registration_is_rejected() -> TestResult {
 }
 
 #[test]
-fn trend_waterfall_and_sankey_are_unavailable_with_the_same_rows_everywhere() -> TestResult {
+fn trend_and_waterfall_are_unavailable_with_the_same_rows_everywhere() -> TestResult {
     let harness = Harness::product(2000)?;
     let lineage =
         serde_json::to_value(harness.publish(&two_files(3))?).map_err(|e| e.to_string())?;
@@ -207,7 +208,6 @@ fn trend_waterfall_and_sankey_are_unavailable_with_the_same_rows_everywhere() ->
     let cases = [
         ("trend", "viz.unavailable.single_observation"),
         ("waterfall", "viz.unavailable.no_baseline"),
-        ("sankey", "viz.unavailable.no_attribution"),
     ];
     for (seq, (format, reason)) in (1..).zip(cases) {
         let entry = availability_of(&answer, format)?;
@@ -218,7 +218,7 @@ fn trend_waterfall_and_sankey_are_unavailable_with_the_same_rows_everywhere() ->
         assert_eq!(rendered["reasonKey"], reason, "{format}");
         assert_eq!(
             rendered["availableFormats"],
-            json!(["bar", "histogram", "treemap"])
+            json!(["bar", "histogram", "sankey", "treemap"])
         );
         assert!(rendered.get("model").is_none(), "{format}");
         let rows = rows_of(&harness, &rendered)?;
@@ -233,13 +233,13 @@ fn formats_without_a_compute_route_never_enter_the_treemap_projection() -> TestR
     let harness = Harness::overclaiming(2000)?;
     harness.publish(&two_files(3))?;
     let view = harness.open_view()?;
-    for (seq, format) in (1..).zip(["trend", "waterfall", "sankey"]) {
+    for (seq, format) in (1..).zip(["trend", "waterfall"]) {
         let reason = harness.reason("viz.render", render_body(&view, seq, format, 3))?;
         assert_eq!(reason, "support.internal_error", "{format}");
     }
     assert_eq!(harness.children_read.load(Ordering::SeqCst), 0);
     // The same producer still serves the treemap, which does have a route.
-    let treemap = harness.ok("viz.render", render_body(&view, 4, "treemap", 3))?;
+    let treemap = harness.ok("viz.render", render_body(&view, 3, "treemap", 3))?;
     assert_eq!(treemap["kind"], "model");
     assert_eq!(harness.children_read.load(Ordering::SeqCst), 2);
     Ok(())

@@ -177,7 +177,13 @@ fn scope_facts_read_sizes_and_keep_missing_sources_absent() -> TestResult {
     assert_eq!(facts.histogram_bins, Evidence::Known(()));
     assert_eq!(facts.trend_observations, Evidence::Absent);
     assert_eq!(facts.comparison, Evidence::Absent);
-    assert_eq!(facts.attribution, Evidence::Absent);
+    // A real scan with an exact scope total can be followed to folders and types (#296).
+    assert_eq!(
+        facts.attribution,
+        Evidence::Known(crate::required_data::Attribution {
+            has_negative_flow: false
+        })
+    );
     Ok(())
 }
 
