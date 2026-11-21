@@ -1,6 +1,7 @@
 //! Operating-system adapters. The in-memory implementation is test-only.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub mod application_data;
+pub mod change_ops;
 #[cfg(unix)]
 pub mod cli_link;
 pub mod device;
@@ -35,6 +36,8 @@ pub mod process_memory;
 pub mod self_executable;
 pub mod startup;
 pub mod support_environment;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix_change;
 pub mod volume;
 #[cfg(feature = "webview")]
 pub mod webview;
