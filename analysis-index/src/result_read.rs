@@ -252,6 +252,13 @@ impl ResultVersion {
         &self.items[start..end]
     }
 
+    /// The immediate child of `parent` stored under `name`, if any.
+    pub fn child_named(&self, parent: u32, name: &[u8]) -> Option<&ResultItem> {
+        self.children(parent)
+            .iter()
+            .find(|child| child.name == name)
+    }
+
     /// Returns the root-to-item chain in the same immutable hierarchy.
     pub(crate) fn ancestors<'a>(
         &'a self,

@@ -199,6 +199,8 @@ fn a_row_boundary_round_trips_in_every_state() -> TestResult {
             boundary: Some(expected),
             unread_inside: None,
             counted_at: None,
+            counted_at_item: None,
+            group_volume_role: None,
         };
         let absent = json!({ "state": "present", "value": false });
         assert_eq!(
@@ -217,6 +219,8 @@ fn an_omitted_boundary_is_not_serialized() -> TestResult {
         boundary: None,
         unread_inside: None,
         counted_at: None,
+        counted_at_item: None,
+        group_volume_role: None,
     };
     assert_eq!(
         to_value(flags)?,

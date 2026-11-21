@@ -50,7 +50,7 @@ test("target picker shows the macOS path example and the shared folder label", (
           dropError={undefined}
           pathDescription=""
           reviewDescriptionId={undefined}
-          feedback={null}
+          feedback={() => null}
           isInitial
           onPathCompositionChange={() => {}}
           review={{

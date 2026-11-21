@@ -289,6 +289,11 @@ function ReportSummary({ report, wholeVolume, display }: ReportProps) {
 /** Volume observations and the difference behind the summary. */
 function ReportDetails({ report, wholeVolume, display }: ReportProps) {
   const text = useLocaleText();
+  const otherVolumes = report.otherVolumes;
+  const hasOtherVolumes = otherVolumes !== undefined;
+  const otherVolumesTotal = hasOtherVolumes
+    ? otherVolumesTotalText(otherVolumes ?? [], display, text)
+    : undefined;
   return (
     <>
       <Readout
@@ -327,10 +332,30 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             ),
             value: `${displaySizeWithBytes(report.uniquePhysical.size, display, text)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness, text)}`,
           },
-          ...report.factors.map(({ key, value }) => ({
-            label: factorLabel(key, text),
-            value: amount(value, display, text),
-          })),
+          ...report.factors.flatMap(({ key, value }) =>
+            key === "gap.out_of_scope" && hasOtherVolumes
+              ? [
+                  {
+                    label: text(
+                      "ui.analysis.volume_other_system_volumes",
+                      "Other system volumes",
+                    ),
+                    value: otherVolumesTotal,
+                  },
+                  ...(otherVolumes ?? []).map(
+                    ({ volumeName, role, amount: rowAmount }) => ({
+                      label: otherVolumeLabel(volumeName, role, text),
+                      value: amount(rowAmount, display, text),
+                    }),
+                  ),
+                ]
+              : [
+                  {
+                    label: factorLabel(key, text),
+                    value: amount(value, display, text),
+                  },
+                ],
+          ),
           {
             label: text(
               "ui.analysis.volume_unexplained_difference",
@@ -360,4 +385,45 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
       />
     </>
   );
+}
+
+function otherVolumesTotalText(
+  rows: NonNullable<VolumeGapResponse["otherVolumes"]>,
+  display: SizeDisplay,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  const unknown = rows.find((row) => row.amount.state === "unknown");
+  if (unknown) return amount(unknown.amount, display, text);
+  return volumeBytes(
+    rows
+      .reduce((total, row) => {
+        if (row.amount.state !== "exact") return total;
+        return total + BigInt(row.amount.bytes);
+      }, 0n)
+      .toString(),
+    display,
+    text,
+  );
+}
+
+function otherVolumeLabel(
+  volumeName: string,
+  role: string | undefined,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  switch (role) {
+    case "volume_role.vm":
+      return text("ui.analysis.volume_role_vm", "Virtual memory (VM)");
+    case "volume_role.preboot":
+      return text(
+        "ui.analysis.volume_role_preboot",
+        "Startup preparation (Preboot)",
+      );
+    case "volume_role.recovery":
+      return text("ui.analysis.volume_role_recovery", "Recovery");
+    case "volume_role.update":
+      return text("ui.analysis.volume_role_update", "Update");
+    default:
+      return volumeName;
+  }
 }

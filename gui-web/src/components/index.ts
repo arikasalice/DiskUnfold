@@ -1,5 +1,6 @@
 export {
   Action,
+  ActionWithTooltip,
   Choice,
   ChoiceGroup,
   DateField,

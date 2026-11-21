@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { parseDate } from "@internationalized/date";
 import {
@@ -53,6 +53,7 @@ type ActionProps = Pick<
   | "aria-disabled"
   | "aria-describedby"
 > & {
+  slot?: Exclude<ButtonProps["slot"], undefined>;
   variant?: "primary" | "secondary" | "quiet";
   compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
@@ -82,6 +83,18 @@ export function Action({
       )}
     </Button>
   );
+}
+
+/** An action whose native tooltip gives its full destination. */
+export function ActionWithTooltip({
+  tooltip,
+  ...action
+}: ActionProps & { tooltip: string }) {
+  const button = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    button.current?.setAttribute("title", tooltip);
+  }, [tooltip]);
+  return <Action ref={button} {...action} />;
 }
 
 /**

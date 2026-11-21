@@ -228,6 +228,7 @@ export function AnalysisPanel({
   const [resultRoots, setResultRoots] = useState<OsPath[]>([]);
   const [resultExclusions, setResultExclusions] =
     useState<readonly ScopeExclusion[]>();
+  const [resultGroupUnverified, setResultGroupUnverified] = useState(false);
   const [reviewProblem, setReviewProblem] = useState<string>();
   const [rejectedRevision, setRejectedRevision] = useState<number>();
   const [error, setError] = useState<string>();
@@ -640,6 +641,9 @@ export function AnalysisPanel({
       // A scan that is already running is joined only with the same review.
       setResultRoots(review.scope.includes);
       setResultExclusions(review.scope.exclusions);
+      setResultGroupUnverified(
+        review.notices.includes("scope.volume_group_unverified"),
+      );
       focusResult.current = true;
       preserveScopeEditorAfterStart(usedFallback, limitError, setEditorOpen);
       setReceipt(result);
@@ -726,7 +730,7 @@ export function AnalysisPanel({
               }
               pathDescription={pathDescription}
               reviewDescriptionId={hasProblem ? reviewProblemId : undefined}
-              feedback={
+              feedback={(onChooseFolder) => (
                 <ScopeReviewFeedback
                   review={review}
                   ready={ready}
@@ -737,8 +741,9 @@ export function AnalysisPanel({
                   }
                   problem={reviewProblem}
                   problemId={reviewProblemId}
+                  onChooseFolder={onChooseFolder}
                 />
-              }
+              )}
               onPathCompositionChange={setPathComposing}
               primaryPathRef={firstPath}
               review={{
@@ -895,6 +900,7 @@ export function AnalysisPanel({
                 roots={resultRoots}
                 priorityArea={priorityArea}
                 exclusions={resultExclusions}
+                groupUnverified={resultGroupUnverified}
                 actions={
                   <ResultActions
                     version={browseVersion(scan)}

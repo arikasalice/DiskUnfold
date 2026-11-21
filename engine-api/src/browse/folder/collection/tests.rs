@@ -75,6 +75,7 @@ fn counted_at_is_only_set_for_the_matching_already_counted_firmlink_target() -> 
         )
         .map_err(|error| format!("{error:?}"))?;
     add_folder(&mut build, &[])?;
+    add_folder(&mut build, &["Users"])?;
     add_folder(&mut build, &["System"])?;
     add_folder(&mut build, &["System", "Volumes"])?;
     add_folder(&mut build, &["System", "Volumes", "Data"])?;
@@ -123,5 +124,29 @@ fn counted_at_is_only_set_for_the_matching_already_counted_firmlink_target() -> 
             .is_none()
     );
     assert!(page(&["System", "Volumes", "Data"])?.counted_at.is_none());
+    // The item to move to is the firmlink folder itself, in the same version.
+    assert_eq!(
+        page(&["System", "Volumes", "Data", "Users"])?.counted_at_item,
+        Some(item_at(&version, &["Users"])?)
+    );
+    assert!(
+        page(&["System", "Volumes", "Data", "Other"])?
+            .counted_at_item
+            .is_none()
+    );
+    // Only the data mount itself is marked; the screen never compares paths.
+    assert_eq!(
+        page(&["System", "Volumes", "Data"])?
+            .group_volume_role
+            .as_deref(),
+        Some(FolderFlags::GROUP_ROLE_DATA)
+    );
+    for path in [
+        &["System", "Volumes"][..],
+        &["Users"],
+        &["System", "Volumes", "Data", "Users"],
+    ] {
+        assert!(page(path)?.group_volume_role.is_none(), "{path:?}");
+    }
     Ok(())
 }

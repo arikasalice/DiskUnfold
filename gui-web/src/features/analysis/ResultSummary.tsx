@@ -42,6 +42,7 @@ import {
 import type { SizeBasisFilter, SizeDisplay, SizeWait } from "./space-format";
 import { useDialogResult } from "./use-dialog-result";
 import { DialogUpdateStatus } from "./DialogUpdateStatus";
+import { ResultGroupNotice } from "./AnalysisActions";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function Coverage({ total }: { total: SpaceTotal }) {
@@ -141,6 +142,7 @@ export function PinnedResult({
   wait,
   roots,
   exclusions,
+  groupUnverified = false,
   preferences,
   displayChoice,
   onDisplayChoice,
@@ -155,6 +157,7 @@ export function PinnedResult({
   wait: SizeWait | undefined;
   roots: readonly OsPath[];
   exclusions: readonly ScopeExclusion[] | undefined;
+  groupUnverified?: boolean;
   preferences: AnalysisDisplayPreferences;
   displayChoice: SizeDisplay | undefined;
   onDisplayChoice: (choice: SizeDisplay) => void;
@@ -211,6 +214,7 @@ export function PinnedResult({
   return (
     <div className="du-results">
       <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
+      <ResultGroupNotice unverified={groupUnverified} />
       <div className="du-metrics">
         <Metric
           label={basisLabel}
