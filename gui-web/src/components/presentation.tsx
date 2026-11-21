@@ -278,7 +278,7 @@ export function Notice({
   icon,
 }: {
   children: ReactNode;
-  tone?: "info" | "error";
+  tone?: "info" | "warning" | "error";
   id?: string;
   announce?: boolean;
   /** Replaces the default notice icon. */
@@ -288,7 +288,7 @@ export function Notice({
   if (announce) role = tone === "error" ? "alert" : "status";
   return (
     <div id={id} className={`du-notice du-notice--${tone}`} role={role}>
-      <Icon name={icon ?? (tone === "error" ? "alert" : "activity")} />
+      <Icon name={icon ?? (tone === "info" ? "activity" : "alert")} />
       <div>{children}</div>
     </div>
   );

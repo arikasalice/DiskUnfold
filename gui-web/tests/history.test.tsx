@@ -95,10 +95,7 @@ test("loads history without a redundant status title, filters, and preserves opa
     .mockResolvedValueOnce(response([row], "opaque"))
     .mockResolvedValueOnce(response([row]))
     .mockResolvedValue(response());
-  const client = {
-    call,
-    subscribe: () => () => {},
-  } as unknown as AnalysisClient;
+  const client = historyEvents(call).client;
   render(<HistoryPanel client={client} onClose={() => {}} />);
   expect(
     await screen.findByRole("table", { name: "Operation history" }),
@@ -136,10 +133,7 @@ test("ignores a late response when filters change", async () => {
         }),
     )
     .mockResolvedValue(response());
-  const client = {
-    call,
-    subscribe: () => () => {},
-  } as unknown as AnalysisClient;
+  const client = historyEvents(call).client;
   render(<HistoryPanel client={client} onClose={() => {}} />);
   expect(
     screen.getByRole("progressbar", { name: "Loading history" }),
@@ -208,10 +202,7 @@ test("restarts a stale page", async () => {
       new AnalysisError("STALE_VERSION", "history.version_changed"),
     )
     .mockResolvedValueOnce(response());
-  const client = {
-    call,
-    subscribe: () => () => {},
-  } as unknown as AnalysisClient;
+  const client = historyEvents(call).client;
   render(<HistoryPanel client={client} onClose={() => {}} />);
   fireEvent.click(
     await screen.findByRole("button", { name: "Load more history" }),
@@ -221,11 +212,19 @@ test("restarts a stale page", async () => {
   expect(call.mock.calls[2]?.[1]).toMatchObject({ cursor: null });
 });
 
-function historyEvents(call: ReturnType<typeof vi.fn>) {
+function historyEvents(call: (name: string, body: unknown) => unknown) {
   let listen: ((event: EventEnvelope) => void) | undefined;
   let seq = 0;
   const client = {
-    call,
+    call: (async (name: string, body: unknown) => {
+      if (name === "history.retention_get")
+        return {
+          enabled: false,
+          suggestedDays: 90,
+          policyFingerprint: "history-test-policy",
+        };
+      return call(name, body);
+    }) as AnalysisClient["call"],
     subscribe(listener: (event: EventEnvelope) => void) {
       listen = listener;
       return () => {
@@ -432,10 +431,7 @@ test("announces an error and retries the first page", async () => {
     .fn()
     .mockRejectedValueOnce(new Error("offline"))
     .mockResolvedValue(response());
-  const client = {
-    call,
-    subscribe: () => () => {},
-  } as unknown as AnalysisClient;
+  const client = historyEvents(call).client;
   render(<HistoryPanel client={client} onClose={() => {}} />);
   expect(await screen.findByRole("alert")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -449,10 +445,7 @@ test("history is a separate screen and closing returns focus", async () => {
       ? Promise.resolve(response())
       : new Promise(() => {}),
   );
-  const client = {
-    call,
-    subscribe: () => () => {},
-  } as unknown as AnalysisClient;
+  const client = historyEvents(call).client;
   render(<App analysis={client} />);
   const open = screen.getByRole("button", { name: "Tasks" });
   open.focus();

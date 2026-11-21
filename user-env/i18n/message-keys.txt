@@ -714,6 +714,48 @@ ui.history.relation_retry
 ui.history.relation_restore
 ui.history.relation_move_undo
 ui.history.relation_effect_check
+ui.history.retention.settings
+ui.history.retention.header_line days:count
+ui.history.retention.panel_title
+ui.history.retention.description
+ui.history.retention.description.unix
+ui.history.retention.auto_cleanup
+ui.history.retention.confirm_period
+ui.history.retention.confirm_days days:count
+ui.history.retention.keep_for
+ui.history.retention.days
+ui.history.retention.suggested
+ui.history.retention.apply
+ui.history.retention.invalid_days
+ui.history.retention.policy_unreadable
+ui.history.retention.policy_invalid
+ui.history.retention.load_failed
+ui.history.retention.count_unavailable
+ui.history.retention.change_failed
+ui.history.retention.enabled
+ui.history.retention.disabled
+ui.history.retention.period_saved days:count
+ui.history.retention.enable_title
+ui.history.retention.shorten_title days:count
+ui.history.retention.enable_action
+ui.history.retention.shorten_action
+ui.history.retention.cancel
+ui.history.retention.to_remove
+ui.history.retention.review_summary
+ui.history.retention.count count:count
+ui.history.retention.target_period
+ui.history.retention.held
+ui.history.retention.held_note
+ui.history.retention.undo_info
+ui.history.retention.undo_info_note
+ui.history.retention.zero_targets days:count
+ui.history.retention.disk_unchanged
+ui.history.retention.disk_unchanged.unix
+ui.history.retention.review_stale
+ui.history.retention.save_failed
+ui.history.retention.time_unknown
+ui.history.retention.close
+ui.history.retention.loading
 ui.settings.app_format_version
 ui.settings.app_scale
 ui.settings.close_details

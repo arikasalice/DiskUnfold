@@ -95,6 +95,12 @@ const notRecordedItems: HistoryItemsResponse = {
 /** Responds only with local gallery data; unrelated commands intentionally fail. */
 export const historyListClient: AnalysisClient = {
   call: (async (name: string, body: { jobRef?: string }) => {
+    if (name === "history.retention_get")
+      return {
+        enabled: false,
+        suggestedDays: 90,
+        policyFingerprint: "preview-policy",
+      };
     if (name === "history.list") {
       const page: HistoryListResponse = {
         revision,

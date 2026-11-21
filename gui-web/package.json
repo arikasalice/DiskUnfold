@@ -15,6 +15,7 @@
     "capture:browse-gallery": "node scripts/capture-gallery.mjs browse",
     "capture:date-picker-gallery": "node scripts/capture-gallery.mjs date-picker",
     "capture:job-center-gallery": "node scripts/capture-gallery.mjs job-center",
+    "capture:history-retention-gallery": "node scripts/capture-gallery.mjs history-retention",
     "build": "vite build",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run arch && npm run locale:check",
     "locale:check": "node scripts/check-locale.mjs",

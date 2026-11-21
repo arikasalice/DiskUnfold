@@ -4,8 +4,10 @@ export {
   ChoiceGroup,
   DateField,
   FolderDropSurface,
+  IntegerField,
   PathField,
   SelectField,
+  SwitchField,
 } from "./controls";
 export {
   BrandMark,

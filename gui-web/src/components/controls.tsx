@@ -21,6 +21,7 @@ import {
   Popover,
   Radio,
   RadioGroup,
+  Switch as AriaSwitch,
   Text,
   TextField,
   Tooltip,
@@ -53,7 +54,7 @@ type ActionProps = Pick<
   | "aria-disabled"
   | "aria-describedby"
 > & {
-  variant?: "primary" | "secondary" | "quiet";
+  variant?: "primary" | "secondary" | "quiet" | "danger";
   compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
 } & (
@@ -81,6 +82,80 @@ export function Action({
         children
       )}
     </Button>
+  );
+}
+
+/** A labelled integer field with an optional unit and an announced error. */
+export function IntegerField({
+  label,
+  value,
+  unit,
+  after,
+  error,
+  onChange,
+  inputRef,
+  isDisabled,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  after?: ReactNode | undefined;
+  error?: string | undefined;
+  onChange: (value: string) => void;
+  inputRef?: Ref<HTMLInputElement> | undefined;
+  isDisabled?: boolean | undefined;
+}) {
+  return (
+    <TextField
+      value={value}
+      onChange={onChange}
+      {...(isDisabled !== undefined && { isDisabled })}
+      isInvalid={error !== undefined}
+      className="du-field du-integer-field"
+    >
+      <Label>{label}</Label>
+      <div className="du-integer-field__control">
+        <Input
+          ref={inputRef}
+          type="number"
+          min={1}
+          step={1}
+          inputMode="numeric"
+        />
+        <span aria-hidden="true">{unit}</span>
+        {after}
+      </div>
+      {error !== undefined && (
+        <Text slot="errorMessage" role="alert">
+          {error}
+        </Text>
+      )}
+    </TextField>
+  );
+}
+
+/** A React Aria switch with a visible text label and shared focus behavior. */
+export function SwitchField({
+  label,
+  isSelected,
+  onChange,
+  isDisabled,
+}: {
+  label: string;
+  isSelected: boolean;
+  onChange: (selected: boolean) => void;
+  isDisabled?: boolean | undefined;
+}) {
+  return (
+    <AriaSwitch
+      className="du-switch"
+      isSelected={isSelected}
+      onChange={onChange}
+      {...(isDisabled !== undefined && { isDisabled })}
+    >
+      <span className="du-switch__label">{label}</span>
+      <span className="du-switch__indicator" aria-hidden="true" />
+    </AriaSwitch>
   );
 }
 
