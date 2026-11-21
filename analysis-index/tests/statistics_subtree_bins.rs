@@ -139,7 +139,7 @@ fn pinned_f03_files_preserve_missing_lower_bounds_and_partition_results() -> Res
     )
     .map_err(|e| format!("{e:?}"))?;
     assert_eq!(first.computed.bins, other.computed.bins);
-    assert_eq!(first.summary.aggregate, *old.space(0).ok_or("aggregate")?);
+    assert_eq!(first.summary.aggregate, old.space(0).ok_or("aggregate")?);
     assert_eq!(first.summary.counts.files, 5);
     assert_eq!(first.summary.counts.untraversed_links, 1);
     assert_eq!(first.computed.bins.intervals[0].count, 1);
