@@ -166,7 +166,7 @@ export const visualizationMessages = {
     scopeTotalBasisLine: "Scope total {value} · {basis}",
     scopeMayExceedUsage: "may exceed actual usage",
     scopeMayExceedUsageTooltip:
-      "Cloned files share the same space, so this can look larger than the actual disk usage.",
+      "Cloned files share space, so this can be larger than the actual disk usage.",
     drawnTotal: "Drawn total",
     groupedTotal: "Combined total",
     filteredOutTotal: "Filtered out total",
