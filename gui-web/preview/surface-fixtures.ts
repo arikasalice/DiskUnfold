@@ -393,7 +393,8 @@ export type JobCenterGalleryScene =
   | "resync"
   | "empty"
   | "cancel-confirm"
-  | "forced-colors";
+  | "forced-colors"
+  | "toast-open-panel";
 
 const finished = (
   state: AnalysisJobTerminal["state"],
