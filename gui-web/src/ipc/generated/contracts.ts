@@ -855,6 +855,15 @@ policyFingerprint: string,
  * Stable reason key when the stored policy could not be trusted.
  */
 unavailableReason?: string, };
+export type HistoryRetentionChangeKind = "none" | "enable" | "shorten" | "extend" | "disable" | "set_period";
+export type HistoryRetentionReviewRequest = { enabled: boolean, days?: number, };
+export type HistoryRetentionApplyRequest = { reviewRef: Id, fingerprint: string, };
+export type HistoryRetentionCancelRequest = { reviewRef: Id, };
+export type HistoryRetentionReview = { reviewRef: Id, changeKind: HistoryRetentionChangeKind, confirmationRequired: boolean, cleanupAfterApply: boolean, targetCount: string, targetEarliestAtMs?: number | null, targetLatestAtMs?: number | null, heldCount: string, undoInfoRemovalCount: string, fingerprint: string, };
+export type HistoryRetentionApplyOutcome = "applied" | "no_effect";
+export type HistoryRetentionApplyResponse = { outcome: HistoryRetentionApplyOutcome, policy: HistoryRetentionPolicy, cleanupJobRef?: Id, };
+export type HistoryRetentionCancelOutcome = "cancelled" | "no_effect";
+export type HistoryRetentionCancelResponse = { outcome: HistoryRetentionCancelOutcome, };
 export type Id = string;
 export type ByteSize = string;
 export type Timestamp = string;

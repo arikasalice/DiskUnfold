@@ -103,7 +103,8 @@ impl ErrorEnvelope {
             | "scope.changed"
             | "result.requery_required"
             | "group.rules_modified"
-            | "history.version_changed" => ErrorCode::StaleVersion,
+            | "history.version_changed"
+            | "history.review_stale" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"
@@ -113,7 +114,9 @@ impl ErrorEnvelope {
             | "viz.model_expired"
             | "sample.session_closed"
             | "group.result_expired"
-            | "locale.bundle_unavailable" => ErrorCode::NotFound,
+            | "locale.bundle_unavailable"
+            | "history.review_not_found"
+            | "session.evicted" => ErrorCode::NotFound,
             "command.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" | "viz.busy" => {
@@ -123,6 +126,8 @@ impl ErrorEnvelope {
             | "support.internal_error"
             | "request.cancelled"
             | "history.storage_unavailable"
+            | "history.count_unavailable"
+            | "history.policy_store_failed"
             | "locale.registration_failed" => ErrorCode::Internal,
             _ => return None,
         })
@@ -214,6 +219,25 @@ mod tests {
                 .ok_or("scan resource reason was not registered")?;
             assert_eq!(envelope.reason_key, reason);
             assert_eq!(envelope.code, ErrorCode::InvalidArgument);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retention_reasons_keep_their_published_error_codes() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for (reason, expected) in [
+            ("history.review_stale", ErrorCode::StaleVersion),
+            ("history.review_not_found", ErrorCode::NotFound),
+            ("session.evicted", ErrorCode::NotFound),
+            ("history.count_unavailable", ErrorCode::Internal),
+            ("history.policy_store_failed", ErrorCode::Internal),
+        ] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("retention reason was not registered")?;
+            assert_eq!(envelope.reason_key, reason);
+            assert_eq!(envelope.code, expected);
         }
         Ok(())
     }

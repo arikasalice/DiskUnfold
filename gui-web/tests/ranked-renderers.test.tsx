@@ -169,3 +169,57 @@ test("#318: a folder's bar name starts with the folder icon; a file's has none",
   expect(Number(names[1]!.getAttribute("x"))).toBe(4);
   expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
 });
+
+test("F06 README 47: the axis ends at the largest single bar and a larger Other is drawn to the end with a break", () => {
+  const base = props([
+    { name: "big.iso", value: "10 MiB", share: 0.1 },
+    { name: "small.txt", value: "5 MiB", share: 0.05 },
+    { name: "Other 80", value: "100 MiB", share: 1 },
+  ]);
+  const shapes = base.shapes.map((shape, index) =>
+    index === 2 ? { ...shape, group: true } : shape,
+  );
+  const { container } = render(
+    <BarRenderer
+      {...base}
+      shapes={shapes}
+      drawnShorterNote="Drawn shorter than scale"
+      notToScaleMark="not to scale"
+    />,
+  );
+  const widths = Array.from(
+    container.querySelectorAll(".du-geometry-shape rect"),
+  ).map((rect) => Number(rect.getAttribute("width")));
+  // The largest single bar spans the plot; the half-size one half of it; Other
+  // spans it too, past its proportion, and carries the break.
+  expect(widths[0]).toBe(widths[2]);
+  expect(Math.abs(widths[1]! * 2 - widths[0]!)).toBeLessThanOrEqual(2);
+  expect(container.querySelectorAll(".du-geometry-bar-break")).toHaveLength(2);
+  const other = container.querySelector('[aria-label="Other 80, 100 MiB"]');
+  expect(other?.getAttribute("title")).toBe("Drawn shorter than scale");
+  // Its value says it is not to scale; the single bars' values do not.
+  const notes = container.querySelectorAll(".du-geometry-bar-note");
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.textContent).toBe(" · not to scale");
+});
+
+test("F06 README 47: an Other no larger than the largest single bar is not broken", () => {
+  const base = props([
+    { name: "big.iso", value: "10 MiB", share: 1 },
+    { name: "Other 3", value: "4 MiB", share: 0.4 },
+  ]);
+  const shapes = base.shapes.map((shape, index) =>
+    index === 1 ? { ...shape, group: true } : shape,
+  );
+  const { container } = render(
+    <BarRenderer
+      {...base}
+      shapes={shapes}
+      drawnShorterNote="Drawn shorter than scale"
+      notToScaleMark="not to scale"
+    />,
+  );
+  expect(container.querySelectorAll(".du-geometry-bar-break")).toHaveLength(0);
+  expect(container.querySelector("[title]")).toBeNull();
+  expect(container.querySelector(".du-geometry-bar-note")).toBeNull();
+});

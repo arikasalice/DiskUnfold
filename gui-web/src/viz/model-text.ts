@@ -135,7 +135,7 @@ export function shapeLabels(
     accessibleLabel,
     ...look.drawn,
     ...(place.childCount ? { container: true } : {}),
-    ...(shape.itemKind === "folder" ? { folder: true } : {}),
+    ...shapeMarks(shape),
     // A lower bound is drawn with a dashed right and bottom edge: it may be larger (4.6).
     ...((shape.quantity ?? shape.size).state === "lower_bound"
       ? { lowerBound: true }
@@ -242,4 +242,15 @@ function classLook(
     drawn: { ...look, legendClass: key },
     said: key === FOLDER_CLASS ? [] : [legendClassName(model, key, text)],
   };
+}
+
+/**
+ * A shape's kind marks: a folder carries the folder icon in a bar chart (#318);
+ * a group is a group with a dashed border in every state, since it stands for
+ * many (README 4.6, 47.4).
+ */
+function shapeMarks(shape: VizShape) {
+  if (!shape.groupRef)
+    return shape.itemKind === "folder" ? { folder: true } : {};
+  return { group: true, dashed: true };
 }

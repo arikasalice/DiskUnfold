@@ -28,6 +28,10 @@ const NAME_GAP = 12;
 /** A folder's icon before its name (#318): the icon and the space after it. */
 const ICON = 14;
 const ICON_ROOM = ICON + 4;
+/** The break of a group bar drawn shorter (F06 README 47): its distance from the end, the gap and spacing. */
+const BREAK_FROM_END = 16;
+const BREAK_WIDTH = 3;
+const BREAK_SPACING = 4;
 /** The widest histogram column; a few bins do not stretch across the chart. */
 const MAX_COLUMN = 96;
 /** The tallest histogram, so the bin names stay in view below the columns. */
@@ -146,32 +150,59 @@ export function BarRenderer(props: GeometryRendererProps) {
       ),
   );
   const plotLeft = nameWidth + NAME_GAP;
-  const plotWidth = Math.max(0, width - plotLeft - VALUE_ROOM);
   const rows = props.shapes.flatMap((shape) => {
     const part = share(shape, props.viewport);
     return part === null ? [] : [{ shape, part }];
   });
+  // The axis ends at the largest bar of one item; a larger group bar is drawn to
+  // the end with a break, since its length is not comparable (README 47).
+  const axis = Math.max(
+    0,
+    ...rows.filter(({ shape }) => !shape.group).map(({ part }) => part),
+  );
+  const isBroken = (shape: Shape, part: number) =>
+    shape.group === true && axis > 0 && part > axis;
+  // A broken bar says "not to scale" after its value, so its value takes more room.
+  const mark = props.notToScaleMark ? ` · ${props.notToScaleMark}` : "";
+  const room =
+    VALUE_ROOM +
+    (rows.some(({ shape, part }) => isBroken(shape, part))
+      ? textWidth(mark)
+      : 0);
+  const plotWidth = Math.max(0, width - plotLeft - room);
+  const scaled = rows.map(({ shape, part }) => {
+    const broken = isBroken(shape, part);
+    const fraction = axis > 0 ? Math.min(1, part / axis) : part;
+    return {
+      shape,
+      broken,
+      length: Math.max(2, Math.round(fraction * plotWidth)),
+    };
+  });
   const height = Math.max(
     BAR + 2 * PAD,
-    PAD * 2 + rows.length * (BAR + GAP) - GAP,
+    PAD * 2 + scaled.length * (BAR + GAP) - GAP,
   );
-  const shapes = rows.map(({ shape, part }, index) => {
+  const shapes = scaled.map(({ shape, broken, length }, index) => {
     const top = PAD + index * (BAR + GAP);
-    const length = Math.max(2, Math.round(part * plotWidth));
-    return bare(
+    const drawn = bare(
       shape,
       rect(plotLeft, top, plotLeft + length, top + BAR, width, height),
     );
+    return broken && props.drawnShorterNote
+      ? { ...drawn, note: props.drawnShorterNote }
+      : drawn;
   });
-  const decorations = rows.map(({ shape, part }, index) => {
+  const decorations = scaled.map(({ shape, broken, length }, index) => {
     const middle = PAD + index * (BAR + GAP) + BAR / 2;
-    const length = Math.max(2, Math.round(part * plotWidth));
     const { name, value } = words(shape);
+    const top = PAD + index * (BAR + GAP);
     // A folder and a file are told apart by the icon, also while a narrowed
     // chart gives them one colour (F06 README 46.12).
     const nameLeft = PAD + (shape.folder ? ICON_ROOM : 0);
     return (
       <g key={shape.shapeRef}>
+        {broken && breakMarks(plotLeft + length - BREAK_FROM_END, top)}
         {shape.folder && (
           <ChartIcon name="folder" x={PAD} y={middle - ICON / 2} size={ICON} />
         )}
@@ -184,6 +215,9 @@ export function BarRenderer(props: GeometryRendererProps) {
           y={middle}
         >
           {value}
+          {broken && mark && (
+            <tspan className="du-geometry-bar-note">{mark}</tspan>
+          )}
         </text>
       </g>
     );
@@ -321,4 +355,18 @@ function histogramColumns(props: GeometryRendererProps): Column[] {
   const first = all.findIndex((column) => column.shape);
   const last = all.findLastIndex((column) => column.shape);
   return first < 0 ? [] : all.slice(first, last + 1);
+}
+
+/**
+ * Two slanted gaps in the bar's surface colour, the mark of a bar drawn shorter
+ * than the axis (F06 README 47). In forced colours they take the Canvas colour.
+ */
+function breakMarks(x: number, top: number) {
+  return [0, BREAK_WIDTH + BREAK_SPACING].map((offset) => (
+    <path
+      key={offset}
+      className="du-geometry-bar-break"
+      d={`M ${x + offset} ${top + BAR} L ${x + offset + BREAK_WIDTH + 3} ${top} L ${x + offset + 2 * BREAK_WIDTH + 3} ${top} L ${x + offset + BREAK_WIDTH} ${top + BAR} Z`}
+    />
+  ));
 }

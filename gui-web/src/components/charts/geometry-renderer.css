@@ -272,3 +272,24 @@
 .du-chart-icon {
   color: var(--du-text);
 }
+/* A group bar drawn shorter than the axis: two slanted gaps in the surface
+   colour near its end (F06 README 47). */
+.du-geometry-bar-break {
+  fill: var(--du-surface);
+}
+@media (forced-colors: active) {
+  .du-geometry-bar-break {
+    fill: Canvas;
+  }
+}
+/* A group narrowed to one type: its border is dashed (README 47.4, 4.6). */
+.du-geometry-shape[data-dashed] > rect:first-of-type {
+  stroke: var(--du-text);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+/* The "not to scale" mark after a broken bar's value, in the secondary text colour (README 47). */
+.du-geometry-bar-note {
+  fill: var(--du-muted);
+}

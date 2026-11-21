@@ -1,5 +1,6 @@
 //! The assembly registers the product visualization through the production path.
 use super::{super::*, register};
+use du_core_contracts::settings::SettingsStore as _;
 use du_core_contracts::{
     Id, ResultEnvelope,
     startup::{
@@ -97,6 +98,10 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
         &Capabilities,
         &settings,
         &database,
+        Some((
+            crate::history_retention::HistoryExpiryReader::new(profile.path(), database.clone()),
+            Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default()),
+        )),
         #[cfg(windows)]
         None,
     )?;
@@ -108,6 +113,47 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
         events: desktop.events,
         _profile: profile,
     })
+}
+
+#[test]
+fn retention_review_and_apply_save_hidden_policy_through_the_owner() -> Result<(), Failure> {
+    let assembled = assemble()?;
+    let review = ipc(
+        &assembled.engine,
+        "history.retention_review",
+        json!({"enabled":true,"days":30}),
+    )?;
+    assert!(review.error.is_none(), "{:?}", review.error);
+    assert_eq!(review.body["changeKind"], "enable");
+    assert_eq!(review.body["targetCount"], "0");
+    let apply = ipc(
+        &assembled.engine,
+        "history.retention_apply",
+        json!({
+            "reviewRef": review.body["reviewRef"],
+            "fingerprint": review.body["fingerprint"]
+        }),
+    )?;
+    assert!(apply.error.is_none(), "{:?}", apply.error);
+    assert_eq!(apply.body["outcome"], "applied");
+    assert_eq!(apply.body["policy"]["enabled"], true);
+    assert_eq!(apply.body["policy"]["specifiedDays"], 30);
+
+    let mut reader =
+        du_app_db::AppDb::open_read_only(&assembled._profile.path().join("diskunfold.db"))
+            .map_err(|error| format!("{error:?}"))?;
+    let saved = reader.load().map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        saved
+            .values
+            .get(du_user_env::history_retention::ENABLED_KEY),
+        Some(&json!(true))
+    );
+    assert_eq!(
+        saved.values.get(du_user_env::history_retention::DAYS_KEY),
+        Some(&json!(30))
+    );
+    Ok(())
 }
 
 pub(super) fn ipc(engine: &Engine, name: &str, body: Value) -> Result<ResultEnvelope, Failure> {
@@ -205,6 +251,7 @@ fn a_viz_command_registered_by_another_owner_stops_the_engine_build() -> Result<
         &Capabilities,
         &settings,
         &database,
+        None,
         #[cfg(windows)]
         None,
     )?;

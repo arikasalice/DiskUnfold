@@ -199,6 +199,7 @@ fn session_prepares_pinned_rows_before_selected_ranked_strategy() -> Result<(), 
         },
         fingerprint: "fixture".into(),
         max_shapes: 1,
+        filter: None,
     };
     let pending = session
         .defer_ranked_group(candidate, &mut || false)
@@ -291,6 +292,7 @@ fn make_pending(
         },
         fingerprint: "fixture".into(),
         max_shapes: top + 1,
+        filter: None,
     };
     target
         .defer_ranked_group(input, &mut || false)

@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 
 pub use crate::settings_error::SettingsError;
 use crate::{CatalogEntry, Registry};
+mod history_retention_owner;
 mod restore_status;
 pub mod search;
 pub use restore_status::{RestoreItem, RestoreSource, RestoreStatus};

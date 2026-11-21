@@ -90,6 +90,10 @@ pub(super) fn register_desktop(
     capabilities: &dyn StartupCapabilitiesPort,
     settings: &Arc<StartupSettings>,
     database: &SharedDatabase,
+    retention: Option<(
+        crate::history_retention::HistoryExpiryReader,
+        Arc<dyn du_core_contracts::job::SessionUndoInfo>,
+    )>,
     #[cfg(windows)] recent: Option<super::RecentScopeOptions>,
 ) -> Result<Desktop, Box<dyn std::error::Error>> {
     let Some(ports) = scan_ports() else {
@@ -125,6 +129,15 @@ pub(super) fn register_desktop(
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
+    if let Some((expiry_reader, undo_info)) = retention {
+        services.register_history_retention(
+            builder,
+            settings.clone().history_retention_policy_source(),
+            settings.clone().history_retention_policy_saver(),
+            expiry_reader,
+            undo_info,
+        );
+    }
     services
         .bind_scope_observation_log(Arc::new(database.scope_observations()))
         .map_err(std::io::Error::other)

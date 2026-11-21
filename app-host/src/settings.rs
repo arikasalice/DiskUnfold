@@ -136,6 +136,23 @@ impl StartupSettings {
         Arc::new(move || self.history_retention_policy())
     }
 
+    /// Supplies an owner-only saver for the reviewed F21 retention policy.
+    pub(super) fn history_retention_policy_saver(
+        self: Arc<Self>,
+    ) -> du_engine_api::history::retention::HistoryRetentionPolicySaver {
+        Arc::new(move |enabled, days| {
+            let mut service = self.service.lock().map_err(|_| {
+                du_engine_api::history::retention::HistoryRetentionPolicySaveError::Unavailable
+            })?;
+            service
+                .save_history_retention_policy(enabled, days, current_time_ms())
+                .map_err(|_| {
+                    du_engine_api::history::retention::HistoryRetentionPolicySaveError::Unavailable
+                })?;
+            Ok(service.history_retention_policy())
+        })
+    }
+
     /// Supplies the validated setting when a scan is admitted.
     pub(super) fn scan_limit_source(self: Arc<Self>) -> SharedTableLimitSource {
         Arc::new(move || {
