@@ -48,7 +48,19 @@ const page = {
   nextCursor: null,
 };
 function client(call: ReturnType<typeof vi.fn>): AnalysisClient {
-  return { call, subscribe: () => () => {} } as unknown as AnalysisClient;
+  const invoke = call as unknown as (name: string, body: unknown) => unknown;
+  return {
+    call: (async (name: string, body: unknown) => {
+      if (name === "history.retention_get")
+        return {
+          enabled: false,
+          suggestedDays: 90,
+          policyFingerprint: "history-detail-test-policy",
+        };
+      return invoke(name, body);
+    }) as AnalysisClient["call"],
+    subscribe: () => () => {},
+  } as AnalysisClient;
 }
 
 test("opens a valid row, preserves filters and scroll, and restores focus", async () => {

@@ -49,6 +49,11 @@ const surfaces = {
     pointer: false,
   },
   "job-center": { ready: ".du-job-center__header", count: 1, pointer: false },
+  "history-retention": {
+    ready: ".du-history-retention__header",
+    count: 1,
+    pointer: false,
+  },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -87,158 +92,213 @@ const output = resolve(
 );
 const height = 900;
 const galleryShots =
-  surface === "scan-lanes" && requestedScanLaneScene === "scope-collapsed"
+  surface === "history-retention"
     ? [
         {
-          name: "scope-collapsed-light-1280",
+          name: "panel-light-1280",
           theme: "light",
           width: 1280,
-          height: 720,
+          scene: "panel",
         },
+        { name: "panel-dark-1280", theme: "dark", width: 1280, scene: "panel" },
+        { name: "panel-light-700", theme: "light", width: 700, scene: "panel" },
         {
-          name: "scope-collapsed-dark-1280",
-          theme: "dark",
-          width: 1280,
-          height: 720,
-        },
-        {
-          name: "scope-collapsed-light-700",
-          theme: "light",
-          width: 700,
-          height: 720,
-        },
-        {
-          name: "scope-collapsed-dark-700",
-          theme: "dark",
-          width: 700,
-          height: 720,
-        },
-        {
-          name: "07-toast-open-panel-700",
-          theme: "light",
-          width: 700,
-          scene: "toast-open-panel",
-        },
-        {
-          name: "07-toast-open-panel-1280",
+          name: "header-auto-cleanup-on",
           theme: "light",
           width: 1280,
-          scene: "toast-open-panel",
+          scene: "header",
+        },
+        {
+          name: "enable-confirmation",
+          theme: "light",
+          width: 1280,
+          scene: "enable",
+        },
+        {
+          name: "zero-target-confirmation",
+          theme: "light",
+          width: 1280,
+          scene: "zero",
+        },
+        {
+          name: "count-unavailable",
+          theme: "light",
+          width: 1280,
+          scene: "count-unavailable",
+        },
+        { name: "stale-recount", theme: "light", width: 1280, scene: "stale" },
+        {
+          name: "save-failure",
+          theme: "light",
+          width: 1280,
+          scene: "save-failure",
+        },
+        {
+          name: "unreadable-policy",
+          theme: "light",
+          width: 1280,
+          scene: "unreadable",
+        },
+        {
+          name: "forced-colors-confirmation",
+          theme: "light",
+          width: 1280,
+          scene: "enable",
+          forcedColors: "active",
         },
       ]
-    : surface === "scan-lanes" && requestedScanLaneScene === "scope-expanded"
+    : surface === "scan-lanes" && requestedScanLaneScene === "scope-collapsed"
       ? [
           {
-            name: "scope-expanded-light-1280",
+            name: "scope-collapsed-light-1280",
             theme: "light",
             width: 1280,
             height: 720,
           },
           {
-            name: "scope-expanded-dark-1280",
+            name: "scope-collapsed-dark-1280",
             theme: "dark",
             width: 1280,
             height: 720,
           },
           {
-            name: "scope-expanded-light-700",
+            name: "scope-collapsed-light-700",
             theme: "light",
             width: 700,
             height: 720,
           },
           {
-            name: "scope-expanded-dark-700",
+            name: "scope-collapsed-dark-700",
             theme: "dark",
             width: 700,
             height: 720,
           },
         ]
-      : surface === "scan-lanes" &&
-          requestedScanLaneScene === "scope-error-known"
+      : surface === "scan-lanes" && requestedScanLaneScene === "scope-expanded"
         ? [
             {
-              name: "limit-error-known-light-1280",
+              name: "scope-expanded-light-1280",
               theme: "light",
               width: 1280,
               height: 720,
             },
+            {
+              name: "scope-expanded-dark-1280",
+              theme: "dark",
+              width: 1280,
+              height: 720,
+            },
+            {
+              name: "scope-expanded-light-700",
+              theme: "light",
+              width: 700,
+              height: 720,
+            },
+            {
+              name: "scope-expanded-dark-700",
+              theme: "dark",
+              width: 700,
+              height: 720,
+            },
           ]
         : surface === "scan-lanes" &&
-            requestedScanLaneScene === "scope-error-unknown"
+            requestedScanLaneScene === "scope-error-known"
           ? [
               {
-                name: "limit-error-unknown-light-1280",
+                name: "limit-error-known-light-1280",
                 theme: "light",
                 width: 1280,
                 height: 720,
               },
             ]
-          : surface === "scan-lanes" && requestedScanLaneScene === "progress"
+          : surface === "scan-lanes" &&
+              requestedScanLaneScene === "scope-error-unknown"
             ? [
                 {
-                  name: "progress-light-1280",
+                  name: "limit-error-unknown-light-1280",
                   theme: "light",
                   width: 1280,
-                  height: 900,
+                  height: 720,
                 },
               ]
-            : surface === "job-center"
+            : surface === "scan-lanes" && requestedScanLaneScene === "progress"
               ? [
                   {
-                    name: "01-light-1280",
+                    name: "progress-light-1280",
                     theme: "light",
                     width: 1280,
-                    scene: "main",
-                  },
-                  {
-                    name: "01-dark-1280",
-                    theme: "dark",
-                    width: 1280,
-                    scene: "main",
-                  },
-                  {
-                    name: "01-light-700",
-                    theme: "light",
-                    width: 700,
-                    scene: "main",
-                  },
-                  {
-                    name: "02-request-pending-no-effect",
-                    theme: "light",
-                    width: 1280,
-                    scene: "request-pending",
-                  },
-                  {
-                    name: "03-resync",
-                    theme: "light",
-                    width: 1280,
-                    scene: "resync",
-                  },
-                  {
-                    name: "04-empty",
-                    theme: "light",
-                    width: 1280,
-                    scene: "empty",
-                  },
-                  {
-                    name: "05-cancel-confirm",
-                    theme: "light",
-                    width: 1280,
-                    scene: "cancel-confirm",
-                  },
-                  {
-                    name: "06-forced-colors",
-                    theme: "light",
-                    width: 1280,
-                    scene: "forced-colors",
-                    forcedColors: "active",
+                    height: 900,
                   },
                 ]
-              : [
-                  { name: "light-1280", theme: "light", width: 1280 },
-                  { name: "dark-1280", theme: "dark", width: 1280 },
-                  { name: "light-700", theme: "light", width: 700 },
-                ];
+              : surface === "job-center"
+                ? [
+                    {
+                      name: "01-light-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "main",
+                    },
+                    {
+                      name: "01-dark-1280",
+                      theme: "dark",
+                      width: 1280,
+                      scene: "main",
+                    },
+                    {
+                      name: "01-light-700",
+                      theme: "light",
+                      width: 700,
+                      scene: "main",
+                    },
+                    {
+                      name: "02-request-pending-no-effect",
+                      theme: "light",
+                      width: 1280,
+                      scene: "request-pending",
+                    },
+                    {
+                      name: "03-resync",
+                      theme: "light",
+                      width: 1280,
+                      scene: "resync",
+                    },
+                    {
+                      name: "04-empty",
+                      theme: "light",
+                      width: 1280,
+                      scene: "empty",
+                    },
+                    {
+                      name: "05-cancel-confirm",
+                      theme: "light",
+                      width: 1280,
+                      scene: "cancel-confirm",
+                    },
+                    {
+                      name: "06-forced-colors",
+                      theme: "light",
+                      width: 1280,
+                      scene: "forced-colors",
+                      forcedColors: "active",
+                    },
+                    {
+                      name: "07-toast-open-panel-700",
+                      theme: "light",
+                      width: 700,
+                      scene: "toast-open-panel",
+                    },
+                    {
+                      name: "07-toast-open-panel-1280",
+                      theme: "light",
+                      width: 1280,
+                      scene: "toast-open-panel",
+                    },
+                  ]
+                : [
+                    { name: "light-1280", theme: "light", width: 1280 },
+                    { name: "dark-1280", theme: "dark", width: 1280 },
+                    { name: "light-700", theme: "light", width: 700 },
+                  ];
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -360,6 +420,76 @@ async function page(port) {
   return { send, once, run, close: () => socket.close() };
 }
 
+async function waitForRetention(session, selector, label) {
+  const ready = await session.run(async (query) => {
+    for (let tries = 0; tries < 200; tries++) {
+      if (document.querySelector(query)) return true;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    return false;
+  }, selector);
+  if (!ready) throw new Error("The retention preview did not show " + label);
+}
+
+async function prepareRetentionScene(session, scene) {
+  if (scene === "header") return;
+  await session.run(() => {
+    const button = [...document.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === "보존 설정",
+    );
+    if (!button) throw new Error("The retention settings button was not found");
+    button.click();
+  });
+  await waitForRetention(
+    session,
+    ".du-history-retention[data-open]",
+    "the panel",
+  );
+  if (scene === "panel") return;
+  if (scene === "unreadable") {
+    await waitForRetention(
+      session,
+      ".du-history-retention .du-notice--warning",
+      "the policy warning",
+    );
+    return;
+  }
+  await session.run(() => {
+    const toggle = document.querySelector('[role="switch"]');
+    if (!(toggle instanceof HTMLElement))
+      throw new Error("The cleanup switch was not found");
+    toggle.click();
+  });
+  if (scene === "count-unavailable") {
+    await waitForRetention(
+      session,
+      ".du-history-retention .du-notice--error",
+      "the count error",
+    );
+    return;
+  }
+  await waitForRetention(
+    session,
+    '[role="alertdialog"]',
+    "the confirmation dialog",
+  );
+  if (scene === "stale" || scene === "save-failure") {
+    await session.run(() => {
+      const button = [
+        ...document.querySelectorAll('[role="alertdialog"] button'),
+      ].find((item) => item.textContent?.trim() === "켜기");
+      if (!button) throw new Error("The confirm button was not found");
+      button.click();
+    });
+    await waitForRetention(
+      session,
+      scene === "stale"
+        ? ".du-history-retention__dialog .du-notice"
+        : ".du-history-retention__dialog .du-notice--error",
+      scene === "stale" ? "the refreshed counts" : "the save error",
+    );
+  }
+}
 /* In the page: waits for `count` elements matching `selector`, the fonts and two frames. */
 async function drawn(selector, count) {
   const cells = () => document.querySelectorAll(selector).length;
@@ -699,7 +829,10 @@ try {
           );
         await saveLanes(session, shot.name, shot.locale);
       } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
-      else if (surface === "job-center") await save(session, shot.name, true);
+      else if (surface === "history-retention") {
+        await prepareRetentionScene(session, shot.scene ?? "panel");
+        await save(session, shot.name, true);
+      } else if (surface === "job-center") await save(session, shot.name, true);
       else await save(session, shot.name, false, scene);
     }
   }

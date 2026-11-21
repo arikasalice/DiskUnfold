@@ -1,0 +1,112 @@
+.du-history-retention {
+  --du-history-retention-size: min(360px, calc(100vw - 48px));
+  position: fixed;
+  z-index: 20;
+  inset-block-start: calc(var(--du-titlebar-height) + 60px);
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  inline-size: var(--du-history-retention-size);
+  min-inline-size: 0;
+  border-inline-start: 1px solid var(--du-border);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+  color: var(--du-text);
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(100%);
+  transition:
+    transform 150ms ease,
+    visibility 0s linear 150ms;
+}
+
+.du-history-retention[data-open] {
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition:
+    transform 150ms ease,
+    visibility 0s;
+}
+
+.du-history-retention__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-block-end: 1px solid var(--du-border);
+}
+
+.du-history-retention__header .du-heading {
+  font-size: 20px;
+}
+
+.du-history-retention__header .du-action {
+  min-inline-size: 36px;
+  min-block-size: 36px;
+}
+
+.du-history-retention__body {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-block-size: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.du-history-retention__body > .du-notice {
+  margin: 0;
+}
+
+.du-history-retention__period {
+  display: grid;
+  gap: 10px;
+}
+
+.du-history-retention__period > .du-action {
+  justify-self: start;
+}
+
+.du-integer-field__control .du-badge {
+  flex: none;
+}
+
+.du-history-retention__dialog {
+  display: grid;
+  gap: 14px;
+}
+
+.du-history-retention__dialog > .du-notice {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .du-history-retention,
+  .du-history-retention[data-open] {
+    transition: none;
+  }
+}
+
+:root[data-du-motion="reduce"] .du-history-retention,
+:root[data-du-motion="reduce"] .du-history-retention[data-open] {
+  transition: none;
+}
+
+@media (forced-colors: active) {
+  .du-history-retention {
+    border-inline-start: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+
+  .du-history-retention__header {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+}

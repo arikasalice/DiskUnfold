@@ -28,6 +28,11 @@ import {
   stateTone,
 } from "./history-labels";
 import { HistoryDetailPanel } from "./HistoryDetailPanel";
+import {
+  HistoryRetentionPanel,
+  retentionHeaderText,
+  useHistoryRetention,
+} from "./HistoryRetention";
 import "../../theme/history.css";
 
 type StateFilter =
@@ -50,6 +55,8 @@ export function HistoryPanel({
   onClose: () => void;
 }) {
   const text = useLocaleText();
+  const retention = useHistoryRetention(client);
+  const retentionLine = retentionHeaderText(retention.policy, text);
   const states = [
     { value: "all", label: text("ui.history.filter_all_states", "All states") },
     { value: "done", label: text("ui.history.state_completed", "Completed") },
@@ -137,12 +144,30 @@ export function HistoryPanel({
     >
       <div ref={list} className="du-history-screen" hidden={Boolean(selected)}>
         <header className="du-history-header">
-          <Heading level={2} ref={title} programmaticFocus>
-            {text("ui.history.operation_history", "Operation history")}
-          </Heading>
-          <Action variant="quiet" icon="back" onPress={onClose}>
-            {text("ui.history.back_to_analysis", "Back to analysis")}
-          </Action>
+          <div className="du-history-header__title">
+            <Heading level={2} ref={title} programmaticFocus>
+              {text("ui.history.operation_history", "Operation history")}
+            </Heading>
+            {retentionLine && (
+              <Text kind="muted" className="du-history-retention-line">
+                {retentionLine}
+              </Text>
+            )}
+          </div>
+          <div className="du-history-header__actions">
+            <Action
+              ref={retention.triggerRef}
+              variant="quiet"
+              aria-expanded={retention.isOpen}
+              aria-controls="du-history-retention-panel"
+              onPress={retention.openPanel}
+            >
+              {text("ui.history.retention.settings", "Retention")}
+            </Action>
+            <Action variant="quiet" icon="back" onPress={onClose}>
+              {text("ui.history.back_to_analysis", "Back to analysis")}
+            </Action>
+          </div>
         </header>
         <div className="du-history-controls">
           <div className="du-history-filter-row">
@@ -215,6 +240,7 @@ export function HistoryPanel({
           />
         ) : null}
       </div>
+      <HistoryRetentionPanel controller={retention} />
       {selected && (
         <HistoryDetailPanel
           key={selected}
