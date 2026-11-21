@@ -21,6 +21,10 @@ on:
         description: Save the Rust and apt caches of this run (to warm or measure a branch; only that branch can read them)
         type: boolean
         default: false
+      runner_mode:
+        description: "Runner choice for the macOS native targets: auto (self-hosted when online and idle, otherwise GitHub-hosted), github-hosted, or force:<target> such as force:macos-arm64"
+        type: string
+        default: auto
 permissions:
   contents: read
 # A newer push to the same pull request or branch replaces the older run, so only the latest commit
@@ -89,6 +93,24 @@ jobs:
           node-version: 26.13.0
           cache: npm
           cache-dependency-path: gui-web/package-lock.json
+      # The runner list needs a token that may read repository administration data. Without the
+      # RUNNER_STATUS_TOKEN secret, or when the API call fails, every target stays on GitHub-hosted runners.
+      - name: Query self-hosted runners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          RUNNER_MODE: ${{ inputs.runner_mode || vars.DU_RUNNER_MODE || 'auto' }}
+        run: |
+          out="$RUNNER_TEMP/runners.json"
+          echo '{"runners":[]}' > "$out"
+          if [[ "$RUNNER_MODE" == auto ]]; then
+            if gh api "repos/$REPO/actions/runners" > "$out.new" 2> "$out.err"; then
+              mv "$out.new" "$out"
+            else
+              echo "::notice::Runner status is unavailable, so GitHub-hosted runners are used (set the RUNNER_STATUS_TOKEN secret to enable self-hosted runners): $(head -c 200 "$out.err")"
+            fi
+          fi
       - id: plan
         shell: bash
         env:
@@ -96,6 +118,9 @@ jobs:
           EVENT: ${{ github.event_name }}
           FULL_INPUT: ${{ inputs.full }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUNNER_MODE: ${{ inputs.runner_mode || vars.DU_RUNNER_MODE || 'auto' }}
+          # Pull requests from forks never reach a self-hosted runner.
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -110,7 +135,9 @@ jobs:
             files="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')"
             if grep -Eq "$gui" <<< "$files"; then ui_smoke=true; else ui_smoke=false; fi
           fi
-          matrix="$(node release-packaging/quality/matrix.mjs --tier "$tier")"
+          args=(--tier "$tier" --runners "$RUNNER_TEMP/runners.json" --mode "$RUNNER_MODE")
+          if [[ "$FORK_PR" == true ]]; then args+=(--untrusted); fi
+          matrix="$(node release-packaging/quality/matrix.mjs "${args[@]}")"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "ui_smoke=$ui_smoke" >> "$GITHUB_OUTPUT"
           echo "tier=$tier ui_smoke=$ui_smoke"
@@ -214,7 +241,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
+    name: native (${{ matrix.os }}-${{ matrix.cpu }}, ${{ matrix.runnerKind }})
+    runs-on: ${{ fromJSON(matrix.runsOn) }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -228,7 +256,18 @@ jobs:
           save-cache: ${{ env.CACHE_SAVE }}
       - name: Install pinned Rust
         shell: bash
-        run: rustup toolchain install 1.99.1 --profile minimal --component clippy && rustup default 1.99.1
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
+            # A self-hosted machine may lack rustup or keep ~/.cargo/bin outside the job's PATH.
+            export PATH="$HOME/.cargo/bin:$PATH"
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            if ! command -v rustup > /dev/null; then
+              curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            fi
+          fi
+          rustup toolchain install 1.99.1 --profile minimal --component clippy
+          rustup default 1.99.1
       - name: Confirm native architecture
         shell: bash
         env:
