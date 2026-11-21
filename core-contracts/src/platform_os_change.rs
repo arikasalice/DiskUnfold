@@ -130,7 +130,7 @@ pub trait ChangeOpsPort: ItemIdentityPort + Send + Sync {
 }
 
 /// Session-only restoration information for one trashed plan item (FR6.HD2.app-host.DD1).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TrashedUndoInfo {
     /// Position in the immutable plan version.
     pub item_no: u32,
@@ -154,13 +154,26 @@ pub struct TrashedUndoInfo {
     pub moved_at: Timestamp,
 }
 
-/// App-host port for session-only undo registration and lookup (FR6.HD2.app-host.DD1).
+impl std::fmt::Debug for TrashedUndoInfo {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TrashedUndoInfo")
+            .field("item_no", &self.item_no)
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
+/// App-host port for per-item session-only undo information (FR6.HD2.app-host.DD1).
 ///
 /// The executor calls `register_trashed` once at job finalization. A failed or
 /// over-limit registration leaves the affected items unavailable for undo and
 /// does not alter their terminal outcomes. The records remain in process
-/// memory for the current app session.
-pub trait SessionUndoRead: Send + Sync {
+/// memory for the current app session. This port and
+/// [`crate::job::SessionUndoInfo`] expose one registry through two narrow
+/// interfaces: this port manages individual trashed items, while the job-level
+/// port coordinates restore use and retention by job.
+pub trait SessionUndoStore: Send + Sync {
     /// Registers the completed or identity-race items from one job as a batch.
     fn register_trashed(&self, job_ref: &Id, items: &[TrashedUndoInfo]) -> Result<(), PortError>;
 
@@ -168,12 +181,58 @@ pub trait SessionUndoRead: Send + Sync {
     fn contains(&self, job_ref: &Id, item_no: u32) -> Result<bool, PortError>;
 
     /// Reads the undo information for one item; None means it is not registered.
+    /// An item reserved by retention is treated as not registered and returns
+    /// `Ok(None)`.
     fn get_trashed(&self, job_ref: &Id, item_no: u32)
     -> Result<Option<TrashedUndoInfo>, PortError>;
 
     /// Removes one item after its undo operation is complete; not_found means absent.
+    /// This is the per-item counterpart of the job-level
+    /// [`crate::job::SessionUndoInfo::remove`].
     fn remove_trashed(&self, job_ref: &Id, item_no: u32) -> Result<(), PortError>;
 
     /// Clears all undo information when the application session ends.
     fn clear(&self) -> Result<(), PortError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{PathBytes, PathEncoding};
+
+    #[test]
+    fn trashed_undo_info_debug_redacts_paths_and_identity() -> Result<(), &'static str> {
+        let info = TrashedUndoInfo {
+            item_no: 7,
+            item_ref: ItemRef {
+                result_version: Id::from_v7_bytes([1; 16]),
+                item_no: 7,
+            },
+            original_path: OsPath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(b"/private/debug-secret.txt"),
+                display: "/private/debug-secret.txt".to_owned(),
+                lossy: false,
+            },
+            identity: ChangeIdentity {
+                volume_id: b"volume-secret".to_vec(),
+                file_id: b"file-secret".to_vec(),
+                change_token: Some(b"token-secret".to_vec()),
+            },
+            kind: EntryKind::File,
+            size: None,
+            modified_at: None,
+            children_fingerprint: None,
+            parent_identity: None,
+            trash_location: Some(TrashLocationRef::from_adapter("trash-secret".to_owned())),
+            moved_at: Timestamp::from_unix_millis(0).ok_or("valid timestamp")?,
+        };
+
+        let debug = format!("{info:?}");
+
+        assert_eq!(debug, "TrashedUndoInfo { item_no: 7, kind: File }");
+        assert!(!debug.contains("/private/debug-secret.txt"));
+        assert!(!debug.contains("secret"));
+        Ok(())
+    }
 }

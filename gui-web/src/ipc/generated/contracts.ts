@@ -1860,7 +1860,7 @@ export type GroupTotals = { classificationRef: Id, resultVersion: Id,
  * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
  */
 dataSource?: DataSource, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
-export type FileChange = "trash" | "move" | "delete";
+export type ChangeAction = "trash" | "move" | "delete";
 export type PlanSourceKind = "manual" | "goal_alternative" | "duplicate_keep" | "scenario";
 export type PlanOriginChannel = "gui" | "cli" | "mcp";
 export type PlanReadiness = "experience_plan" | "needs_confirmation" | "no_executable_items" | "approval_possible";
@@ -1876,7 +1876,7 @@ export type PlanDraftOpenRequest = { source: PlanSourceKind, itemRefs: Array<Ite
  */
 alternativeRef?: Id, };
 export type PlanDraftOpenResponse = { draftRef: Id, editSeq: number, summary: PlanDraftSummary, };
-export type PlanDraftEdit = { "kind": "add_item", itemRef: ItemRef, } | { "kind": "remove_item", itemRef: ItemRef, } | { "kind": "set_action", itemRef: ItemRef, action: FileChange, } | { "kind": "set_destination", itemRef: ItemRef,
+export type PlanDraftEdit = { "kind": "add_item", itemRef: ItemRef, } | { "kind": "remove_item", itemRef: ItemRef, } | { "kind": "set_action", itemRef: ItemRef, action: ChangeAction, } | { "kind": "set_destination", itemRef: ItemRef,
 /**
  * Null or omitted clears the destination.
  */
@@ -1915,7 +1915,7 @@ effectSummary: unknown,
  * opaque to consumers of the common plan head.
  */
 restorationLimitSummary: unknown, originChannel: PlanOriginChannel, fixedAt: Timestamp, changeSummary: string, };
-export type PlanVersionItem = { itemNo: number, itemRef: ItemRef, action: FileChange,
+export type PlanVersionItem = { itemNo: number, itemRef: ItemRef, action: ChangeAction,
 /**
  * Omitted or null means the action has no destination.
  */
@@ -1974,7 +1974,7 @@ export type ApprovalProtectionResult = { itemRef: ItemRef, disposition: PlanItem
 reasonKey?: string, };
 export type ApprovalProtectionSummary = { rulesetVersion: string, classTableVersion: string, unlockedClasses: Array<string>, unlockedItemCount: number, unlockedBytes: ByteSize, requiredBasicProtectionAck: boolean, };
 export type ApprovalOverwriteSummary = { overwriteItemCount: number, displacedBytes: ByteSize, requiredOverwriteAck: boolean, };
-export type ApprovalReviewSummary = { targetCount: number, targetSize: ByteSize, visibleSelectionCount: number, hiddenSelectionCount: number, hiddenDescendantCount: number, actions: Array<FileChange>,
+export type ApprovalReviewSummary = { targetCount: number, targetSize: ByteSize, visibleSelectionCount: number, hiddenSelectionCount: number, hiddenDescendantCount: number, actions: Array<ChangeAction>,
 /**
  * Omitted or null means the request has no destination.
  */

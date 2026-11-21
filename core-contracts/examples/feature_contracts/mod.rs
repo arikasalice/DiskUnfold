@@ -1,9 +1,9 @@
-use du_core_contracts::{approval_ipc::*, change_ipc::*, job::FileChange, plan_ipc::*};
+use du_core_contracts::{approval_ipc::*, change_ipc::*, job::ChangeAction, plan_ipc::*};
 use ts_rs::TS;
 
 pub(crate) fn declarations(config: &ts_rs::Config) -> Vec<String> {
     vec![
-        FileChange::decl(config),
+        ChangeAction::decl(config),
         PlanSourceKind::decl(config),
         PlanOriginChannel::decl(config),
         PlanReadiness::decl(config),

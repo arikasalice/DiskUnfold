@@ -2,7 +2,7 @@
 //! Design items: FR1.HD2.app-host.DD1, FR3.HD1.app-host.DD1,
 //! FR10.HD1.app-host.DD1, FR13.HD1.app-host.DD1.
 
-use crate::{Id, ItemRef, Timestamp, job::FileChange, values::OsPath};
+use crate::{Id, ItemRef, Timestamp, job::ChangeAction, values::OsPath};
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 /// F10 GUI command for opening a plan draft (FR1.HD2.app-host.DD1).
@@ -239,7 +239,7 @@ pub enum PlanDraftEdit {
     },
     SetAction {
         item_ref: ItemRef,
-        action: FileChange,
+        action: ChangeAction,
     },
     SetDestination {
         item_ref: ItemRef,
@@ -371,7 +371,7 @@ pub struct PlanVersionHead {
 pub struct PlanVersionItem {
     pub item_no: u32,
     pub item_ref: ItemRef,
-    pub action: FileChange,
+    pub action: ChangeAction,
     /// Omitted or null means the action has no destination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]

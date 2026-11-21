@@ -5,7 +5,7 @@
 
 use crate::{
     Id, ItemRef, Timestamp,
-    job::FileChange,
+    job::ChangeAction,
     plan_ipc::{PlanHash, PlanItemDisposition},
     values::{ByteSize, OsPath},
 };
@@ -149,7 +149,7 @@ pub struct ApprovalReviewSummary {
     pub visible_selection_count: u32,
     pub hidden_selection_count: u32,
     pub hidden_descendant_count: u32,
-    pub actions: Vec<FileChange>,
+    pub actions: Vec<ChangeAction>,
     /// Omitted or null means the request has no destination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
