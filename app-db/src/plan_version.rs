@@ -8,8 +8,12 @@ use du_core_contracts::{
 use rusqlite::{OptionalExtension, Row, TransactionBehavior, params, types::Type};
 use std::io::{Error as IoError, ErrorKind};
 
-/// F10 leaves the body size open; cap JSON before parsing and persistence at 1 MiB.
-const MAX_PLAN_BODY_BYTES: usize = 1024 * 1024;
+/// Maximum serialized plan body accepted by the storage adapter.
+///
+/// The plan builder allows at most 100,000 items. Budgeting 1.25 KiB per item,
+/// including a path of up to about 1 KiB, gives about 122.1 MiB; this rounds up
+/// to 128 MiB for the stored body.
+const MAX_PLAN_BODY_BYTES: usize = 128 * 1024 * 1024;
 const COLUMNS: &str = "plan_version_id, lineage_id, parent_plan_version_id,
  version_hash, hash_format, ruleset_version, readiness, origin_channel, body, created_at_ms";
 
@@ -88,6 +92,12 @@ impl PlanVersionStore for AppDb {
     }
 }
 
+/// Validates a plan version at the storage boundary.
+///
+/// The plan builder must reject an oversized plan first with a `plan.*` reason.
+/// Reaching this guard with an oversized plan is a caller bug: `db.invalid_input`
+/// is internal-only (`INTERNAL` on the wire), and `db.duplicate` is not exposed
+/// as a user error.
 fn validate(version: &PlanVersionRecord) -> Result<(), PortError> {
     if version.data_source == DataSource::Sample {
         return Err(port_error(

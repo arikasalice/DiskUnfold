@@ -185,6 +185,7 @@ fn caller_input_violations_are_not_reported_as_database_corruption() -> TestResu
     let dir = tempfile::tempdir()?;
     let mut db = database(&dir.path().join("invalid-input.db"))?;
     add_ruleset(&db)?;
+    assert_eq!(MAX_PLAN_BODY_BYTES, 128 * 1024 * 1024);
 
     let mut invalid_json = record(4, 40, None, 100);
     invalid_json.body = "{".into();
@@ -193,7 +194,7 @@ fn caller_input_violations_are_not_reported_as_database_corruption() -> TestResu
     let mut zero_ruleset = record(6, 40, None, 100);
     zero_ruleset.ruleset_version = 0;
     let mut oversized_body = record(7, 40, None, 100);
-    oversized_body.body = format!("{}{{}}", " ".repeat(MAX_PLAN_BODY_BYTES + 1));
+    oversized_body.body = format!("{}{{}}", " ".repeat(MAX_PLAN_BODY_BYTES - 1));
 
     for bad in [
         invalid_json,
