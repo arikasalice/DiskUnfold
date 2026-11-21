@@ -1939,10 +1939,14 @@ function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
 }
 # F06 #306 (README 46.13): "Show in list" puts the files of the type below the chart's folder in
 # the chart's place: clip.mp4 directly in the scope and talk.mp4 in docs, largest first. Locations
-# start at the scope folder's name, so the docs row is the list's own text.
+# start at the scope folder's name, so the docs location is the list's own text; below 720 px it
+# sits under the name in the row header, whose name then holds both.
 function Save-TypeListCaptures([switch]$Short) {
   Invoke-UI (Wait-UI 'Show in list' { Find-UI 'Show in list' $button })
-  $null = Wait-UI 'the docs location in the list' { Find-UI 'type-narrowing-scope\docs' $null } 60
+  $null = Wait-UI 'the docs location in the list' {
+    @($window.FindAll($scopeTree, [Windows.Automation.Condition]::TrueCondition) |
+      Where-Object { $_.Current.Name -like '*type-narrowing-scope\docs*' }) | Select-Object -First 1
+  } 60
   Save-SmokeCapture '05-file-list'
   if ($Short) { return }
   Invoke-UI (Wait-UI 'the Name header' { Find-UI 'Name' $button })
