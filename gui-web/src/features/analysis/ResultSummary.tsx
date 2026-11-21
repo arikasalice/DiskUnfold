@@ -30,6 +30,7 @@ import type { VolumePart } from "./summary-batch";
 import { useSizeWait } from "./awaited-sizes";
 import {
   awaitedSize,
+  ALLOCATED_MAY_INCLUDE_SHARED,
   displayAwaitedSize,
   displayMeasurement,
   displayMeasurementLimit,
@@ -120,6 +121,85 @@ function scopeRows(
   return rows;
 }
 
+function measurementRows(
+  sizes: SpaceTotal["sizes"],
+  basisLabels: Record<SizeBasisFilter, string>,
+  sharedLimits: readonly string[],
+  sizeWait: SizeWait | undefined,
+  display: SizeDisplay,
+  text: LocaleText,
+) {
+  return sizes.flatMap<{
+    label: string;
+    value: ReactNode;
+    pending?: boolean;
+    notes?: readonly string[];
+  }>(({ size, completeness, measurementLimits }) => {
+    const waited = awaitedSize(size, measurementLimits, sizeWait);
+    if (waited)
+      return [
+        {
+          label: basisLabels[size.basis],
+          value: displayAwaitedSize(waited, text).value,
+          pending: true,
+        },
+      ];
+    const value = displaySize(size, display, text);
+    const raw = displayRawSize(size, display.regional, text);
+    const row = {
+      label: basisLabels[size.basis],
+      value: <Unbroken>{value}</Unbroken>,
+      notes: [
+        ...(raw && raw !== value ? [raw] : []),
+        displayMeasurement(size, completeness, text),
+        ...(sharedLimits.length > 0 ? [] : measurementLimits)
+          .filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED)
+          .map((key) => displayMeasurementLimit(key, text)),
+      ],
+    };
+    if (
+      size.basis !== "allocated" ||
+      !measurementLimits.includes(ALLOCATED_MAY_INCLUDE_SHARED)
+    )
+      return [row];
+    return [
+      row,
+      {
+        label: text("ui.analysis.space_shared", "Shared space"),
+        value: text(
+          "ui.analysis.shared_space_counted_per_file",
+          "Counted per file",
+        ),
+        notes: [displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)],
+      },
+    ];
+  });
+}
+
+function commonMeasurementLimits(
+  total: SpaceTotal,
+  sizeWait: SizeWait | undefined,
+) {
+  const shown = total.sizes.filter(
+    ({ size, measurementLimits }) =>
+      !awaitedSize(size, measurementLimits, sizeWait),
+  );
+  const visible = (limits: readonly string[]) =>
+    limits.filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED);
+  const first = visible(shown[0]?.measurementLimits ?? []);
+  return shown.length > 1 &&
+    first.length > 0 &&
+    shown.every(({ measurementLimits }) => {
+      const limits = visible(measurementLimits);
+      return (
+        limits.length === first.length &&
+        limits.every((key) => first.includes(key))
+      );
+    })
+    ? first
+    : [];
+}
+
 /**
  * Displays the given totals in place. A newer `total` changes the values
  * without remounting the parts around them, so expanded sections, focus and
@@ -192,22 +272,12 @@ export function PinnedResult({
   const leadWait =
     lead && awaitedSize(lead.size, lead.measurementLimits, sizeWait);
   const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
+  const leadMayIncludeShared =
+    leadAwaited === undefined &&
+    lead?.size.basis === "allocated" &&
+    lead.measurementLimits.includes(ALLOCATED_MAY_INCLUDE_SHARED);
   // Limits that every shown size row has in common are said once (#214).
-  const shown = total.sizes.filter(
-    ({ size, measurementLimits }) =>
-      !awaitedSize(size, measurementLimits, sizeWait),
-  );
-  const first = shown[0]?.measurementLimits ?? [];
-  const sharedLimits =
-    shown.length > 1 &&
-    first.length > 0 &&
-    shown.every(
-      ({ measurementLimits }) =>
-        measurementLimits.length === first.length &&
-        measurementLimits.every((key) => first.includes(key)),
-    )
-      ? first
-      : [];
+  const sharedLimits = commonMeasurementLimits(total, sizeWait);
   return (
     <div className="du-results">
       <Readout label={pathsLabel} rows={scopeRows(roots, exclusions, text)} />
@@ -231,36 +301,24 @@ export function PinnedResult({
             unavailable
           )}
         </Metric>
+        {leadMayIncludeShared && (
+          <Notice tone="info">
+            {displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)}
+          </Notice>
+        )}
       </div>
       <Coverage total={total} />
       <DetailDisclosure title={measurements}>
         <Readout
           label={measurements}
-          rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
-            const waited = awaitedSize(size, measurementLimits, sizeWait);
-            // An awaited size shows no measurement and none of its limits;
-            // what it waits for is said once, below the lead value.
-            if (waited) {
-              return {
-                label: basisLabels[size.basis],
-                value: displayAwaitedSize(waited, text).value,
-                pending: true,
-              };
-            }
-            const value = displaySize(size, display, text);
-            const raw = displayRawSize(size, regional, text);
-            return {
-              label: basisLabels[size.basis],
-              value: <Unbroken>{value}</Unbroken>,
-              notes: [
-                ...(raw && raw !== value ? [raw] : []),
-                displayMeasurement(size, completeness, text),
-                ...(sharedLimits.length > 0 ? [] : measurementLimits).map(
-                  (key) => displayMeasurementLimit(key, text),
-                ),
-              ],
-            };
-          })}
+          rows={measurementRows(
+            total.sizes,
+            basisLabels,
+            sharedLimits,
+            sizeWait,
+            display,
+            text,
+          )}
         />
         {sharedLimits.length > 0 && (
           <Text kind="muted">{displaySharedLimits(sharedLimits, text)}</Text>

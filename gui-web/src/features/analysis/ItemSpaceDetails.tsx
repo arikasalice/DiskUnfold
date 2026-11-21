@@ -17,6 +17,7 @@ import type {
   SpaceDetailSize,
 } from "../../ipc";
 import {
+  ALLOCATED_MAY_INCLUDE_SHARED,
   displayEvidence,
   displayMeasurementLimit,
   displaySizeWithBytes,
@@ -53,7 +54,9 @@ function sizeText(
   return [
     displaySizeWithBytes(value.size, display, text),
     displayEvidence(value.size.evidence, text),
-    ...value.measurementLimits.map((key) => displayMeasurementLimit(key, text)),
+    ...value.measurementLimits
+      .filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED)
+      .map((key) => displayMeasurementLimit(key, text)),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -67,6 +70,11 @@ function rows(
 ) {
   const decision = detail.exclusiveDecision;
   const formatSize = (value: SpaceDetailSize) => sizeText(value, display, text);
+  const allocatedMayIncludeShared =
+    detail.allocated.state === "present" &&
+    detail.allocated.value.measurementLimits.includes(
+      ALLOCATED_MAY_INCLUDE_SHARED,
+    );
   return [
     {
       label: text(
@@ -92,7 +100,16 @@ function rows(
     },
     {
       label: text("ui.analysis.space_shared", "Shared space"),
-      value: describe(detail.shared, formatSize, text),
+      value: allocatedMayIncludeShared
+        ? text("ui.analysis.shared_space_counted_per_file", "Counted per file")
+        : describe(detail.shared, formatSize, text),
+      ...(allocatedMayIncludeShared
+        ? {
+            notes: [
+              displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text),
+            ],
+          }
+        : {}),
     },
     {
       label: text(

@@ -11,6 +11,8 @@ export type { SizeDisplay } from "../../i18n/bytes";
 export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
 
 export type SizeBasisFilter = SizeValue["basis"];
+export const ALLOCATED_MAY_INCLUDE_SHARED =
+  "space.allocated_may_include_shared";
 export const sizeLabels = {
   logical: "Logical size",
   allocated: "Allocated size",
@@ -90,6 +92,13 @@ const spaceReasonMessages = new Map<string, Message>([
 
 /** The message of each reason that only limits a measurement. */
 const measurementLimitMessages = new Map<string, Message>([
+  [
+    ALLOCATED_MAY_INCLUDE_SHARED,
+    [
+      "ui.analysis.allocated_may_include_shared",
+      "Cloned files share space, so this can be larger than the actual disk usage.",
+    ],
+  ],
   [
     "space.data_insufficient",
     [

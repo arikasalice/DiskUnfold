@@ -456,6 +456,8 @@ ui.analysis.space_observed_allocated
 ui.analysis.space_unique_physical
 ui.analysis.space_exclusive
 ui.analysis.space_shared
+ui.analysis.shared_space_counted_per_file
+ui.analysis.allocated_may_include_shared
 ui.analysis.space_exclusive_confirmed
 ui.analysis.space_confirmed
 ui.analysis.space_not_confirmed
