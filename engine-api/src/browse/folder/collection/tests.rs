@@ -46,6 +46,7 @@ fn item_at(version: &ResultVersion, path: &[&str]) -> Result<ItemRef, String> {
 fn counted_at_is_only_set_for_the_matching_already_counted_firmlink_target() -> Result<(), String> {
     let group = RootVolumeGroup {
         data_mount: b"/System/Volumes/Data".to_vec(),
+        system_name: None,
         device: 1,
         data_inode: 20,
         firmlinks: vec![ConfirmedFirmlink {

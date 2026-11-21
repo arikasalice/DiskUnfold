@@ -120,8 +120,12 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
     let system_role = system_role(&mount_path, flags);
     let container = container(&mount_source);
     let used = used_bytes(entry, &mount_path);
+    let name = CString::new(mount_path.as_slice())
+        .ok()
+        .and_then(|path| volume::mount_name(&path));
     Ok(VolumeMount {
         display_path: String::from_utf8_lossy(&mount_path).into_owned(),
+        name,
         volume_id: identity(entry, &mount_path),
         role: role(&filesystem),
         mount_path,

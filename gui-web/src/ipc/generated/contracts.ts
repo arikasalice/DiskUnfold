@@ -1143,7 +1143,16 @@ export type AnalysisTarget = { kind: TargetKind | null, path: OsPath, connected:
  * Whether the target belongs in the default list (F01 #263). The engine always
  * sets it; absent means listed. It only arranges the list and never limits a scope.
  */
-defaultVisible?: boolean, };
+defaultVisible?: boolean,
+/**
+ * The OS-confirmed system volume of a confirmed root volume group.
+ * Omitted when the group or system role is not confirmed. GUI channel only.
+ */
+isStartupVolume?: boolean,
+/**
+ * Volume name reported by the operating system, when available. GUI channel only.
+ */
+volumeName?: string, };
 export type TargetList = { targets: Array<AnalysisTarget>, probeJobRef: Id | null, observedAt: Timestamp, unavailableReason: string | null, };
 export type TargetStatusChanged = { target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
 export type TargetProbeEvent = { sequence: number, target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
@@ -1607,7 +1616,11 @@ export type BrowseBreadcrumb = { item: ItemRef,
 /**
  * Human-readable display text; never reopen or compare a path from it.
  */
-displayName: BrowseValue<string>, };
+displayName: BrowseValue<string>,
+/**
+ * The root item of a confirmed macOS startup volume group. GUI channel only.
+ */
+isStartupVolume?: boolean, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
 export type BrowseContext = { origin: ResultOrigin,
 /**

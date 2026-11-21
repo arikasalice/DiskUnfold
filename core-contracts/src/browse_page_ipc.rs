@@ -291,6 +291,14 @@ pub struct BrowseBreadcrumb {
     pub item: ItemRef,
     /// Human-readable display text; never reopen or compare a path from it.
     pub display_name: BrowseValue<String>,
+    /// The root item of a confirmed macOS startup volume group. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub is_startup_volume: Option<bool>,
 }
 /// The opened location's relationship to its scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,7 +386,7 @@ where
 }
 
 /// An optional field that, when present, must not be `null`.
-fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
