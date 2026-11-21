@@ -961,7 +961,12 @@ memberCount?: VizQuantity,
  * Kind of the referenced item, on item shapes only; omitted when unknown. See
  * [`VizItemKind`].
  */
-itemKind?: VizItemKind, };
+itemKind?: VizItemKind,
+/**
+ * The files by legend class of a folder whose children are not drawn, or of the
+ * Other group by its members; the same list as its row's. See [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>,
 /**
@@ -1076,13 +1081,22 @@ condition?: QueryCondition,
  * Whether this folder could not be read (F06 README 53): item rows of folders
  * only. See [`VizUnread`].
  */
-unread?: VizUnread, };
+unread?: VizUnread,
+/**
+ * The files by legend class (F06 README 54) of a folder row, or of the Other
+ * group row by its members together, under the type color criterion, unfiltered,
+ * in a real scan. Omitted where it does not apply, including a folder whose own
+ * listing failed; empty when every file was counted and there is none. See
+ * [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
 export type VizUnread = { "kind": "itself" } | { "kind": "inside",
 /**
  * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
  * when a cancellation or disconnection left folders below it uncounted.
  */
 count?: string, } | { "kind": "unknown" };
+export type VizTypeSlice = { classKey: string, itemCount: VizQuantity, total: VizQuantity, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

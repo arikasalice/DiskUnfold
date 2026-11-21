@@ -6,6 +6,7 @@
 //! the members come from the projection, and only their consistency is checked.
 use super::{
     Error, OtherPresentation, RowPresentation, denominator, make_row, original_size, quantity,
+    row_slices,
 };
 use du_analysis_index::{
     ResultVersion,
@@ -110,12 +111,17 @@ pub(crate) fn nested_group_rows(
         {
             return Err(Error::SourceMismatch);
         }
+        let filtered = model.filter.is_some();
+        let slices = row_slices(version, &presentation, &model.basis, filtered, &mut || {
+            false
+        })?;
         rows.push(make_row(
             version,
             item,
             &member.size,
             presentation,
             &denominator,
+            slices,
         )?);
     }
     if rows.is_empty() {
@@ -147,6 +153,19 @@ pub(super) fn group_row(
     let mut display_flags = other.display_flags.clone();
     display_flags.sort_unstable();
     display_flags.dedup();
+    let members: Vec<_> = group
+        .members
+        .iter()
+        .map(|member| member.item.clone())
+        .collect();
+    let type_slices = crate::viz_pages::type_slices::group_slices(
+        version,
+        &members,
+        &group.total.basis,
+        other.type_slices,
+        &mut || false,
+    )
+    .map_err(|_| Error::InvalidGroup)?;
     let row = VizRow {
         item_ref: None,
         group_ref: Some(group.group_ref.clone()),
@@ -162,6 +181,7 @@ pub(super) fn group_row(
         item_kind: None,
         condition: None,
         unread: None,
+        type_slices,
     };
     row.validate_revision(version.version_id())
         .map_err(|_| Error::InvalidGroup)?;

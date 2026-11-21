@@ -135,6 +135,7 @@ fn other(label_key: Option<&str>) -> OtherPresentation {
         label_key: label_key.map(str::to_owned),
         legend_class_key: "source.class".into(),
         display_flags: vec!["source.group".into()],
+        type_slices: false,
     }
 }
 fn labels(model: &projection::Model) -> Vec<RowPresentation> {
