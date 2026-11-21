@@ -187,3 +187,51 @@ fn a_legend_row_narrows_the_bar_chart_to_its_type() -> TestResult {
     );
     Ok(())
 }
+
+/// 25 videos of 100..=124 bytes and one 1,000-byte document, all directly in the scope.
+fn many_videos() -> Publication<'static> {
+    let mut named: Vec<(&'static [&'static [u8]], Option<u64>)> = (0..25_u64)
+        .map(|index| {
+            let name: &'static [u8] = Box::leak(
+                format!("clip-{index:02}.mp4")
+                    .into_bytes()
+                    .into_boxed_slice(),
+            );
+            let path: &'static [&'static [u8]] = Box::leak(vec![name].into_boxed_slice());
+            (path, Some(100 + index))
+        })
+        .collect();
+    named.push((&[b"report.pdf"], Some(1_000)));
+    Publication {
+        files: &[],
+        named: Box::leak(named.into_boxed_slice()),
+        ..two_files(3)
+    }
+}
+
+#[test]
+fn a_narrowed_bar_chart_groups_past_twenty_bars_in_the_types_class() -> TestResult {
+    let harness = Harness::product(2000)?;
+    harness.publish(&many_videos())?;
+    let view = harness.open_view()?;
+    let body = narrowed(&harness, &view, "type.video", "bar")?;
+    let answer = harness.ok("viz.render", body)?;
+    assert_eq!(answer["kind"], "model", "{answer}");
+    let model = &answer["model"];
+    let shapes = model["shapes"].as_array().ok_or("no shapes")?;
+    // The largest 20 videos, then one Other of the other 5 (README 47).
+    assert_eq!(shapes.len(), 21);
+    let group = shapes
+        .iter()
+        .find(|shape| shape["groupRef"].is_string())
+        .ok_or("no group")?;
+    assert_eq!(group["legendClassKey"], "type.video");
+    assert_eq!(group["memberCount"]["value"], "5");
+    let totals = &model["totals"];
+    assert_eq!(bytes(&totals["scope"]), "3800");
+    assert_eq!(bytes(&totals["drawn"]), "2290");
+    assert_eq!(bytes(&totals["grouped"]), "510");
+    assert_eq!(bytes(&totals["filteredOut"]), "1000");
+    assert_eq!(bytes(&totals["remainder"]), "0");
+    Ok(())
+}

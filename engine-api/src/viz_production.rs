@@ -115,7 +115,15 @@ impl EvidenceProducer for ProductionEvidence {
         _source: &CurrentAnalysis,
         request: &VizRenderRequest,
     ) -> Result<Option<OtherPresentation>, EngineError> {
-        Ok(groups::other_group(&request.format))
+        // Narrowed, the Other group holds files of that type only and takes its class.
+        let mut other = groups::other_group(&request.format);
+        if let (Some(other), Some(key)) = (
+            other.as_mut(),
+            crate::viz_runtime::narrowed_type_key(request),
+        ) {
+            other.legend_class_key = key.to_owned();
+        }
+        Ok(other)
     }
 
     fn histogram_facts(

@@ -22,9 +22,7 @@ use std::{
 mod physical;
 use physical::{link_bytes, physical_file};
 mod partial;
-pub(crate) use partial::{
-    Partial, Unattributed, admit_filtered_cancellable, admit_partial_cancellable,
-};
+pub(crate) use partial::{Partial, Unattributed, admit_filtered_cancellable};
 
 /// Original F03 value and item associated with an index in the resulting layout.
 #[derive(Clone, Debug)]

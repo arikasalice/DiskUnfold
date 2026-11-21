@@ -132,6 +132,7 @@ pub fn prepare_children<'a>(
         input,
         sources,
         filtered_bytes: 0,
+        filter: None,
     })
 }
 
@@ -213,6 +214,7 @@ pub struct Prepared<'a> {
     input: Vec<bar::Item>,
     sources: HashMap<u32, ItemRef>,
     filtered_bytes: u64,
+    filter: Option<super::filter::ItemFilter>,
 }
 
 /// Validates the source, aggregation evidence and members without calculating geometry.
@@ -270,6 +272,7 @@ pub fn prepare<'a>(
         input,
         sources,
         filtered_bytes: 0,
+        filter: None,
     })
 }
 
@@ -331,15 +334,7 @@ impl Prepared<'_> {
                         .cloned()
                         .ok_or(Error::InvalidEvidence)?,
                 ),
-                bar::BarRef::Other(items) => verified_other(
-                    self.version,
-                    &self.scope,
-                    &self.basis,
-                    items,
-                    &self.sources,
-                    bar.value,
-                    cancelled,
-                )?,
+                bar::BarRef::Other(items) => self.verified_other(items, bar.value, cancelled)?,
             };
             bars.push(Bar {
                 identity,
@@ -400,39 +395,58 @@ fn validate_aggregate(
     }
 }
 
-fn verified_other(
-    version: &ResultVersion,
-    scope: &ItemRef,
-    basis: &SizeBasis,
-    items: &[u32],
-    sources: &HashMap<u32, ItemRef>,
-    sum: Weight,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<BarIdentity, Error> {
-    let mut members = Vec::with_capacity(items.len());
-    for item in items {
-        check(cancelled)?;
-        members.push(sources.get(item).cloned().ok_or(Error::InvalidEvidence)?);
+impl Prepared<'_> {
+    /// The Other bar of these children, its total established independently.
+    fn verified_other(
+        &self,
+        items: &[u32],
+        sum: Weight,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<BarIdentity, Error> {
+        let mut members = Vec::with_capacity(items.len());
+        for item in items {
+            check(cancelled)?;
+            members.push(
+                self.sources
+                    .get(item)
+                    .cloned()
+                    .ok_or(Error::InvalidEvidence)?,
+            );
+        }
+        let size = other_total(
+            self.version,
+            &self.scope,
+            &self.basis,
+            &members,
+            sum,
+            self.filter,
+            cancelled,
+        )?;
+        Ok(BarIdentity::Other { members, size })
     }
-    let size = other_total(version, scope, basis, &members, sum, cancelled)?;
-    Ok(BarIdentity::Other { members, size })
 }
 
 /// The exact total of an Other group of `scope`'s children, established
 /// independently of the layout that summed `sum`: by the F03 set total of the
 /// members, or, since that total takes file rows only, by the per-child
 /// attribution the treemap sums for its own Other group (#242). Anything else
-/// fails closed with `GroupAttributionUnavailable`.
+/// fails closed with `GroupAttributionUnavailable`. Under a filter the F03 set
+/// total counts unfiltered files, so only the filtered attribution can establish it.
 pub fn other_total(
     version: &ResultVersion,
     scope: &ItemRef,
     basis: &SizeBasis,
     members: &[ItemRef],
     sum: Weight,
+    filter: Option<super::filter::ItemFilter>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<SizeValue, Error> {
     if !matches!(sum, Weight::Exact(_)) {
         return Err(Error::GroupAttributionUnavailable);
+    }
+    let items: Vec<u32> = members.iter().map(|member| member.item_no).collect();
+    if filter.is_some() {
+        return other::partition_total(version, scope, basis, &items, sum, filter, cancelled);
     }
     let aggregate = version
         .selection_total(members, true, &mut *cancelled)
@@ -448,8 +462,7 @@ pub fn other_total(
     if weight(&size)? == sum {
         return Ok(size);
     }
-    let items: Vec<u32> = members.iter().map(|member| member.item_no).collect();
-    other::partition_total(version, scope, basis, &items, sum, cancelled)
+    other::partition_total(version, scope, basis, &items, sum, None, cancelled)
 }
 
 fn weight(size: &SizeValue) -> Result<Weight, Error> {

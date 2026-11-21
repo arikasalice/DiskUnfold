@@ -105,7 +105,13 @@ export function ModelRows({
   const columns: Column[] = [
     {
       header: text.message("name"),
-      cell: (row) => <RowName name={nameOf(row)} item={row.itemRef !== null} />,
+      cell: (row) => (
+        <RowName
+          name={nameOf(row)}
+          item={row.itemRef !== null}
+          folder={row.itemKind === "folder"}
+        />
+      ),
     },
     ...(hasOpenableGroups
       ? [

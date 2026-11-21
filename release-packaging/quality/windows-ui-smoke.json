@@ -35,6 +35,8 @@
     { "name": "type-narrowing-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureTypeNarrowingShort"] },
     { "name": "type-narrowing-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureTypeNarrowingShort"] },
     { "name": "type-narrowing-many", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureTypeNarrowingMany"] },
+    { "name": "type-narrowing-many-contrast", "locale": "ko", "theme": "contrast", "windowSize": "1280x800", "arguments": ["-CaptureTypeNarrowingMany"] },
+    { "name": "bar-other-small", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureBarOtherSmall"] },
     { "name": "history", "locale": "ko", "theme": "light", "windowSize": "1280x800", "arguments": ["-CaptureHistory"] },
     { "name": "history-dark", "locale": "ko", "theme": "dark", "windowSize": "1280x800", "arguments": ["-CaptureHistory"] },
     { "name": "history-narrow", "locale": "ko", "theme": "light", "windowSize": "700x800", "arguments": ["-CaptureHistory"] },

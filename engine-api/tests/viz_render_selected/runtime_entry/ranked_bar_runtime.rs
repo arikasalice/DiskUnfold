@@ -401,16 +401,18 @@ fn coordinate_precision_items_do_not_double_count_members_of_other() -> Result<(
     let response = f.ok("viz.render", make(2))?;
     assert_eq!(response["kind"], "model");
     let model = &response["model"];
-    assert_eq!(model["summary"]["groupedItems"]["value"], "2");
-    assert_eq!(model["summary"]["omittedItems"]["value"], "98");
+    // The largest 20 children are bars of their own (README 47); the other 81 are grouped.
+    assert_eq!(model["summary"]["groupedItems"]["value"], "81");
+    assert_eq!(model["summary"]["omittedItems"]["value"], "19");
     assert_eq!(model["summary"]["unknownItems"]["value"], "0");
     assert_eq!(model["shapes"].as_array().map(Vec::len), Some(1));
     assert_eq!(
         model["totals"]["drawn"]["quantity"]["value"],
         "1000000000000"
     );
-    assert_eq!(model["totals"]["grouped"]["quantity"]["value"], "3");
-    assert_eq!(model["totals"]["remainder"]["quantity"]["value"], "5047");
+    // The group holds 1..=81; the 19 bars of 82..=100 have no coordinate and stay in the remainder.
+    assert_eq!(model["totals"]["grouped"]["quantity"]["value"], "3321");
+    assert_eq!(model["totals"]["remainder"]["quantity"]["value"], "1729");
 
     let rows = f.ok(
         "viz.rows",
@@ -421,7 +423,7 @@ fn coordinate_precision_items_do_not_double_count_members_of_other() -> Result<(
             "count": 10
         }),
     )?;
-    assert_eq!(rows["totalCount"], 100);
+    assert_eq!(rows["totalCount"], 21);
     let group = f.call(
         "viz.group_rows",
         json!({
@@ -432,7 +434,7 @@ fn coordinate_precision_items_do_not_double_count_members_of_other() -> Result<(
         }),
     );
     assert!(group.error.is_none(), "{:?}", group.error);
-    assert_eq!(group.body["totalCount"], 2);
+    assert_eq!(group.body["totalCount"], 81);
     Ok(())
 }
 

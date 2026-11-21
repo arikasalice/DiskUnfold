@@ -214,6 +214,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             label={text.message("spaceDistribution")}
             selectedText={text.message("selected")}
             fallbackNotice={text.message("graphFallback")}
+            drawnShorterNote={text.message("barDrawnShorter")}
             missingFallbackNotice={text.message("graphRowsUnavailable")}
             width={view.viewport.width}
             height={view.viewport.height}
@@ -300,20 +301,17 @@ function patternsOn(legend: LegendControls | undefined, auto: boolean) {
 
 /**
  * Tells the narrowing what this frame shows (README 46.12): whether the scan is
- * still running and whether the chart has an Other group. A narrowed bar chart
- * needs a finished scan and no Other group.
+ * still running. A narrowed bar chart needs a finished scan.
  */
 function useNarrowingReport(
   narrowing: TypeNarrowing | undefined,
   frame: ModelResponse,
 ) {
   const report = narrowing?.report;
-  const format = frame.model.representation.format;
   const scanning = frame.completeness === "partial";
-  const grouped = frame.model.shapes.some((shape) => shape.groupRef != null);
   useEffect(() => {
-    report?.({ format, scanning, grouped });
-  }, [report, format, scanning, grouped]);
+    report?.({ scanning });
+  }, [report, scanning]);
 }
 
 /** The chosen type's chip and totals, or the highlighted class's chip. */

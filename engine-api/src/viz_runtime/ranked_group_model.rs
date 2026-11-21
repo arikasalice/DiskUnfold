@@ -104,6 +104,7 @@ pub(super) fn prepare(
                 other,
                 fingerprint: admitted.key.clone(),
                 max_shapes: admitted.max_shapes,
+                filter: admitted.filter,
             },
             cancelled,
         )
@@ -123,6 +124,11 @@ fn fallback(
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<RankedWork, EngineError> {
     let admitted = &work.admitted;
+    // The fallback table lists the children unfiltered; a narrowed chart does not
+    // narrow instead (README 46.12).
+    if admitted.filter.is_some() {
+        return Err(super::condition::not_allowed());
+    }
     let request = &admitted.request;
     let candidate = work
         .session

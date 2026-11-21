@@ -6,26 +6,26 @@ use du_core_contracts::{ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue}
 use super::{Error, check};
 use crate::{
     ResultVersion,
-    visualization::{geometry::Weight, treemap},
+    visualization::{filter::ItemFilter, geometry::Weight, treemap},
 };
 
 /// The exact total of `items` when each is a child of `scope` that the treemap
 /// attributes on its own evidence (the per-child admission its tail sums), and that
-/// total equals `sum`. A member that is not attributed fails closed.
+/// total equals `sum`. A member that is not attributed fails closed. Under a
+/// filter each member counts the bytes the filter keeps (F06 README 47).
 pub(super) fn partition_total(
     version: &ResultVersion,
     scope: &ItemRef,
     basis: &SizeBasis,
     items: &[u32],
     sum: Weight,
+    filter: Option<ItemFilter>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<SizeValue, Error> {
-    let admitted =
-        treemap::admit_partial_cancellable(version, scope, basis, cancelled).map_err(|error| {
-            match error {
-                treemap::AdmissionError::Cancelled => Error::Cancelled,
-                _ => Error::GroupAttributionUnavailable,
-            }
+    let admitted = treemap::admit_filtered_cancellable(version, scope, basis, filter, cancelled)
+        .map_err(|error| match error {
+            treemap::AdmissionError::Cancelled => Error::Cancelled,
+            _ => Error::GroupAttributionUnavailable,
         })?;
     let wanted: HashSet<u32> = items.iter().copied().collect();
     let mut bytes = 0_u64;
