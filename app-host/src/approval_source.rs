@@ -4,20 +4,23 @@
 //! entry point (F28 approval) must connect it as the first check of approval review and
 //! grant. Until then it only documents and tests the decision.
 
-use du_core_contracts::{data_source::DataSource, sample_ipc::APPROVAL_SAMPLE_SOURCE_DENIED};
+use du_core_contracts::{
+    data_source::DataSource, plan_ipc::PLAN_SOURCE_NOT_CURRENT,
+    sample_ipc::APPROVAL_SAMPLE_SOURCE_DENIED,
+};
 
 /// Checks the data source of the plan a caller wants reviewed or approved.
 ///
 /// `found` is the source recorded on the requested plan, or `None` when the plan
 /// could not be found. A missing or sample plan is denied with
-/// `approval.sample_source_denied`, so no approval state is created for it. The
+/// `approval.sample_source_denied`; a snapshot plan is denied with
+/// `plan.source_not_current`. No approval state is created for denied plans. The
 /// host runs this as the first row of approval review and grant, before any other check.
 pub fn check_request_plan_source(found: Option<DataSource>) -> Result<(), &'static str> {
     match found {
         Some(DataSource::Real) => Ok(()),
-        Some(DataSource::Sample | DataSource::Snapshot) | None => {
-            Err(APPROVAL_SAMPLE_SOURCE_DENIED)
-        }
+        Some(DataSource::Sample) | None => Err(APPROVAL_SAMPLE_SOURCE_DENIED),
+        Some(DataSource::Snapshot) => Err(PLAN_SOURCE_NOT_CURRENT),
     }
 }
 
@@ -33,10 +36,7 @@ mod tests {
                 Some(DataSource::Sample),
                 Err("approval.sample_source_denied"),
             ),
-            (
-                Some(DataSource::Snapshot),
-                Err("approval.sample_source_denied"),
-            ),
+            (Some(DataSource::Snapshot), Err("plan.source_not_current")),
             (None, Err("approval.sample_source_denied")),
         ];
         for (found, expected) in rows {

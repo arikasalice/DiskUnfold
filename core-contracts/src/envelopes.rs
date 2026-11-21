@@ -100,6 +100,7 @@ impl ErrorEnvelope {
             | "cursor.expired"
             | "result.version_released"
             | "result.version_stale"
+            | crate::plan_ipc::PLAN_SOURCE_NOT_CURRENT
             | "scope.changed"
             | "result.requery_required"
             | "group.rules_modified"
@@ -228,6 +229,10 @@ mod tests {
     {
         let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
         for (reason, expected) in [
+            (
+                crate::plan_ipc::PLAN_SOURCE_NOT_CURRENT,
+                ErrorCode::StaleVersion,
+            ),
             ("history.review_stale", ErrorCode::StaleVersion),
             ("history.review_not_found", ErrorCode::NotFound),
             ("session.evicted", ErrorCode::NotFound),
