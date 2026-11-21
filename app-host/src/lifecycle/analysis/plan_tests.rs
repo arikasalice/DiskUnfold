@@ -1,27 +1,24 @@
 //! F10 plan commands exercised through the GUI IPC dispatcher (FR1.HD2, FR10.HD1, FR11.HD1).
 use super::*;
 use du_core_contracts::{
-    CallEnvelope, ENVELOPE_VERSION, Id, ItemRef, OsPath, PathBytes, PathEncoding, ResultEnvelope,
-    data_source::DataSource, result::ResultItemKind, volume::CapabilityState,
+    CallEnvelope, ENVELOPE_VERSION, Id, ResultEnvelope,
+    data_source::DataSource,
+    platform_os_change::{ChangeOpsPort, SessionUndoStore},
+    volume::CapabilityState,
 };
 use du_engine_api::{
     plan::{
-        AnalysisFactsPort, AnalysisItemFacts, DescendantResult, Fact, GuardResult,
-        IdentityObservation, KnownLocation, LinkBoundary, PlanAnalysisSource,
-        PlanPlatformFactsPort, PlanRulesetPort, PlanSources, PlanTargetCheckPort,
+        AnalysisItemFacts, DescendantResult, Fact, GuardResult, IdentityObservation, KnownLocation,
+        LinkBoundary, PlanPlatformFactsPort, PlanRulesetPort, PlanSources, PlanTargetCheckPort,
         PlatformProtectionFacts, ProtectionAction, ProtectionVolumeRole, RulesetSnapshot,
-        TargetCheck, TargetIdentity,
+        TargetCheck,
     },
     size_rule,
 };
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex, mpsc},
     time::{Duration, Instant},
 };
 
@@ -32,6 +29,7 @@ pub(super) struct PlanTestApp {
     pub(super) events: Arc<DesktopEvents>,
     profile: tempfile::TempDir,
     _database: crate::shared_database::SharedDatabase,
+    undo: Arc<dyn SessionUndoStore>,
 }
 
 fn assemble(analysis: FakeAnalysis) -> TestResult<PlanTestApp> {
@@ -41,6 +39,20 @@ fn assemble(analysis: FakeAnalysis) -> TestResult<PlanTestApp> {
 pub(super) fn assemble_with_protection_facts(
     analysis: FakeAnalysis,
     protection_facts: Option<Arc<dyn du_core_contracts::protection_facts::ProtectionFactsPort>>,
+) -> TestResult<PlanTestApp> {
+    assemble_with_ports(
+        analysis,
+        protection_facts,
+        Arc::new(du_platform_os::change_ops::SystemChangeOps),
+        Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default()),
+    )
+}
+
+fn assemble_with_ports(
+    analysis: FakeAnalysis,
+    protection_facts: Option<Arc<dyn du_core_contracts::protection_facts::ProtectionFactsPort>>,
+    change_ops: Arc<dyn ChangeOpsPort>,
+    undo: Arc<dyn SessionUndoStore>,
 ) -> TestResult<PlanTestApp> {
     let profile = tempfile::tempdir()?;
     let database = crate::startup_database::open(profile.path())?;
@@ -75,8 +87,19 @@ pub(super) fn assemble_with_protection_facts(
         limit,
         rules,
         None,
-        sources,
+        super::PlanChangeServices {
+            plan_sources: Some(sources),
+            undo: Some(undo.clone()),
+            ops: change_ops,
+        },
     )?;
+    let history_reader = crate::history::HistoryReader::open(profile.path(), database.clone())?;
+    du_engine_api::history::items::register(
+        &mut builder,
+        history_reader,
+        &du_platform_os::entropy::OsRandom,
+    )
+    .map_err(|error| format!("history items registration failed: {error:?}"))?;
     services.events.mark_document_ready();
     let events = services.events.clone();
     let engine = builder.build()?;
@@ -85,119 +108,12 @@ pub(super) fn assemble_with_protection_facts(
         events,
         profile,
         _database: database,
+        undo,
     })
 }
 
-#[derive(Clone)]
-pub(super) struct FakeAnalysis {
-    version_id: Id,
-    data_source: DataSource,
-    calls: Arc<AtomicUsize>,
-    block_on_call: Option<usize>,
-    entered: Option<mpsc::Sender<()>>,
-    release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
-    path: Option<std::path::PathBuf>,
-}
-
-impl FakeAnalysis {
-    pub(super) fn real() -> Self {
-        Self::new(DataSource::Real, None, None, None)
-    }
-
-    fn new(
-        data_source: DataSource,
-        block_on_call: Option<usize>,
-        entered: Option<mpsc::Sender<()>>,
-        release: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
-    ) -> Self {
-        Self {
-            version_id: Id::from_v7_bytes([1; 16]),
-            data_source,
-            calls: Arc::new(AtomicUsize::new(0)),
-            block_on_call,
-            entered,
-            release,
-            path: None,
-        }
-    }
-
-    pub(super) fn with_path(mut self, path: std::path::PathBuf) -> Self {
-        self.path = Some(path);
-        self
-    }
-
-    pub(super) fn item_ref(&self, item_no: u32) -> ItemRef {
-        ItemRef {
-            result_version: self.version_id.clone(),
-            item_no,
-        }
-    }
-}
-
-impl PlanAnalysisSource for FakeAnalysis {
-    fn pin(
-        &self,
-        version: &Id,
-    ) -> Result<Arc<dyn AnalysisFactsPort>, du_core_contracts::ports::PortError> {
-        if version != &self.version_id {
-            return Err(port_error("plan.result_stale"));
-        }
-        Ok(Arc::new(self.clone()))
-    }
-}
-
-impl AnalysisFactsPort for FakeAnalysis {
-    fn data_source(&self, version: &Id) -> Result<DataSource, du_core_contracts::ports::PortError> {
-        (version == &self.version_id)
-            .then_some(self.data_source)
-            .ok_or_else(|| port_error("plan.result_stale"))
-    }
-
-    fn read_item(
-        &self,
-        item: &ItemRef,
-    ) -> Result<AnalysisItemFacts, du_core_contracts::ports::PortError> {
-        if item.result_version != self.version_id || item.item_no == 0 {
-            return Err(port_error("plan.result_stale"));
-        }
-        let call = self.calls.fetch_add(1, Ordering::AcqRel) + 1;
-        if self.block_on_call == Some(call) {
-            if let Some(entered) = &self.entered {
-                let _ = entered.send(());
-            }
-            if let Some(release) = &self.release {
-                release
-                    .lock()
-                    .map_err(|_| port_error("support.internal_error"))?
-                    .recv()
-                    .map_err(|_| port_error("support.internal_error"))?;
-            }
-        }
-        if let Some(path) = &self.path {
-            return super::plan_test_support::analysis_item_for_path(path)
-                .map_err(|_| port_error("plan.source_not_current"));
-        }
-        Ok(AnalysisItemFacts {
-            path: OsPath {
-                encoding: PathEncoding::Unix,
-                raw: PathBytes::from_bytes(b"/fixture/file"),
-                display: "/fixture/file".into(),
-                lossy: false,
-            },
-            path_components: vec![b"/fixture".to_vec(), b"file".to_vec()],
-            volume_id: b"fixture-volume".to_vec(),
-            identity: Some(TargetIdentity {
-                volume_id: b"fixture-volume".to_vec(),
-                file_id: b"fixture-file".to_vec(),
-            }),
-            kind: ResultItemKind::File,
-            size: None,
-            modified_at: None,
-            classification_id: Some("fixture.cleanable".into()),
-            descendants: Fact::Known(DescendantResult::Clear),
-        })
-    }
-}
+mod source;
+pub(super) use source::FakeAnalysis;
 
 struct MatchingTargets;
 impl PlanTargetCheckPort for MatchingTargets {
@@ -375,6 +291,8 @@ fn unimplemented_source_conversions_are_denied_without_placeholder_behavior() ->
     }
     Ok(())
 }
+
+mod trash_tests;
 
 #[test]
 fn evicted_draft_returns_the_session_evicted_reason() -> TestResult {

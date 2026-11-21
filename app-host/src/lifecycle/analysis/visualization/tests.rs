@@ -93,6 +93,7 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
     let database = crate::startup_database::open(profile.path())?;
     let settings = Arc::new(StartupSettings::open(&database, 1, &["en", "ko"])?);
     let mut builder = EngineBuilder::default();
+    let undo = Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default());
     let desktop = register_desktop(
         &mut builder,
         &Capabilities,
@@ -100,7 +101,8 @@ fn assemble_in(profile: tempfile::TempDir) -> Result<Assembled, Failure> {
         &database,
         Some((
             crate::history_retention::HistoryExpiryReader::new(profile.path(), database.clone()),
-            Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default()),
+            undo.clone(),
+            undo,
             Arc::new(|_| {}),
         )),
         #[cfg(windows)]

@@ -27,6 +27,12 @@ use super::{
 use crate::size_rule::SizeRules;
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
 
+pub use du_job_runtime::{
+    DeduplicationKey as DesktopDeduplicationKey, JobPriority as DesktopJobPriority,
+    JobSnapshot as DesktopJobSnapshot, RuntimeError as DesktopJobError,
+    Submission as DesktopSubmission, SubmitResult as DesktopSubmitResult,
+};
+
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
 const TARGET_ENUMERATION_DEADLINE: Duration = Duration::from_secs(2);
@@ -145,7 +151,50 @@ pub struct DesktopServices {
     clock: Arc<dyn JobClock>,
 }
 
+/// Narrow app-host handle for registering and submitting desktop-owned jobs.
+#[derive(Clone)]
+pub struct DesktopJobQueue {
+    runtime: Arc<JobRuntime>,
+    workers: Arc<Workers>,
+}
+
+impl DesktopJobQueue {
+    /// Registers one job kind in the desktop runtime.
+    pub fn register(
+        &self,
+        descriptor: du_core_contracts::job::JobDescriptor,
+    ) -> Result<(), DesktopJobError> {
+        self.runtime.register(descriptor)
+    }
+
+    /// Submits a job and stores its caller-owned state before workers can observe it.
+    pub fn submit(
+        &self,
+        submission: DesktopSubmission,
+        admit: impl FnOnce(&Id) -> Result<(), DesktopJobError>,
+    ) -> Result<DesktopSubmitResult, DesktopJobError> {
+        let result = self.runtime.submit_with_admission(submission, admit)?;
+        if matches!(&result, DesktopSubmitResult::Created(_)) {
+            self.workers.notify();
+        }
+        Ok(result)
+    }
+
+    /// Reads the authoritative state of a desktop job.
+    pub fn snapshot(&self, job_ref: &Id) -> Result<DesktopJobSnapshot, DesktopJobError> {
+        self.runtime.snapshot(job_ref)
+    }
+}
+
 impl DesktopServices {
+    /// Returns the desktop runtime through its app-host composition boundary.
+    pub fn jobs(&self) -> DesktopJobQueue {
+        DesktopJobQueue {
+            runtime: self.runtime.clone(),
+            workers: self.workers.clone(),
+        }
+    }
+
     /// Registers F10 plan drafting and the `plan.build` job with host-owned storage.
     pub fn register_plans(
         &self,

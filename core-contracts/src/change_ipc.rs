@@ -41,6 +41,8 @@ pub const CHANGE_ITEM_VOLUME_UNAVAILABLE: &str = "change.item.volume_unavailable
 pub const CHANGE_ITEM_OUTCOME_UNKNOWN: &str = "change.item.outcome_unknown";
 /// Stable F11 item reason keys (FR8.HD1.app-host.DD2).
 pub const CHANGE_ITEM_CANCELLED: &str = "change.item.cancelled";
+/// Stable F11 item reason key for an item already claimed by this execution (FR5.HD1.app-host.DD1).
+pub const CHANGE_ITEM_ALREADY_PROCESSED: &str = "change.item.already_processed";
 
 /// Terminal item states returned by F11 (FR6.HD1.app-host.DD1, FR7.HD1.app-host.DD1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

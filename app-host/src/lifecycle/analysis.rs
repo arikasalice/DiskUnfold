@@ -26,8 +26,15 @@ struct ScanPorts {
 type HistoryRetentionRegistration = (
     crate::history_retention::HistoryExpiryReader,
     Arc<dyn du_core_contracts::job::SessionUndoInfo>,
+    Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>,
     Arc<dyn Fn(bool) + Send + Sync>,
 );
+
+struct PlanChangeServices {
+    plan_sources: Option<du_engine_api::plan::PlanSources>,
+    undo: Option<Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>>,
+    ops: Arc<dyn du_core_contracts::platform_os_change::ChangeOpsPort>,
+}
 
 /// Use cases that must exist once the analysis flow is registered.
 ///
@@ -35,7 +42,7 @@ type HistoryRetentionRegistration = (
 /// the same step as `scan.start`, which supplies its job bodies.
 /// FR10.HD1.app-host.DD2: the visualization registration adds the `viz.*` commands
 /// and the `viz.compute` job kind.
-const REQUIRED_USE_CASES: [&str; 18] = [
+const REQUIRED_USE_CASES: [&str; 20] = [
     "scan.start",
     "scan.failures",
     "viz.view.open",
@@ -54,6 +61,8 @@ const REQUIRED_USE_CASES: [&str; 18] = [
     "plan.get",
     "plan.item_reason",
     "plan.history",
+    "change.execute",
+    "change.item_results",
 ];
 
 /// The single per-platform injection point for scan collection adapters.
@@ -134,6 +143,13 @@ pub(super) fn register_desktop(
     #[cfg(not(windows))]
     let recent_capacity = None;
     let size_rules = settings.clone().size_rules();
+    let item_undo = retention
+        .as_ref()
+        .map(|(_, _, undo, _)| undo.clone())
+        .unwrap_or_else(|| {
+            Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default())
+                as Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>
+        });
     let services = register_analysis_with_rules(
         builder,
         ports,
@@ -141,30 +157,31 @@ pub(super) fn register_desktop(
         settings.clone().scan_limit_source(),
         size_rules,
         recent_capacity,
+        Some(item_undo),
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
     crate::snapshot_save::register(&services, builder, database)
         .map_err(|error| report_pre_window_error(capabilities, error))?;
-    let history_prune_trigger = if let Some((expiry_reader, undo_info, policy_changed)) = retention
-    {
-        Some(
-            services.register_history_retention(
-                builder,
-                settings.clone().history_retention_policy_source(),
-                settings
-                    .clone()
-                    .history_retention_policy_saver(policy_changed.clone()),
-                expiry_reader,
-                undo_info,
-                Arc::new(crate::history_retention::HistoryPruneWriter::new(
-                    settings.clone(),
-                    database.clone(),
-                )),
-            )?,
-        )
-    } else {
-        None
-    };
+    let history_prune_trigger =
+        if let Some((expiry_reader, undo_info, _undo_store, policy_changed)) = retention {
+            Some(
+                services.register_history_retention(
+                    builder,
+                    settings.clone().history_retention_policy_source(),
+                    settings
+                        .clone()
+                        .history_retention_policy_saver(policy_changed.clone()),
+                    expiry_reader,
+                    undo_info,
+                    Arc::new(crate::history_retention::HistoryPruneWriter::new(
+                        settings.clone(),
+                        database.clone(),
+                    )),
+                )?,
+            )
+        } else {
+            None
+        };
     services
         .bind_scope_observation_log(Arc::new(database.scope_observations()))
         .map_err(std::io::Error::other)
@@ -231,6 +248,7 @@ fn register_analysis(
         scan_limit,
         size_rules,
         recent_capacity,
+        None,
     )
 }
 
@@ -245,6 +263,7 @@ fn register_analysis_with_rules(
     scan_limit: SharedTableLimitSource,
     size_rules: du_engine_api::size_rule::SizeRules,
     recent_capacity: Option<std::num::NonZeroUsize>,
+    undo: Option<Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>>,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     register_analysis_with_plan_source(
         builder,
@@ -253,7 +272,11 @@ fn register_analysis_with_rules(
         scan_limit,
         size_rules,
         recent_capacity,
-        None,
+        PlanChangeServices {
+            plan_sources: None,
+            undo,
+            ops: Arc::new(du_platform_os::change_ops::SystemChangeOps),
+        },
     )
 }
 
@@ -265,7 +288,7 @@ fn register_analysis_with_test_plan_sources(
     scan_limit: SharedTableLimitSource,
     size_rules: du_engine_api::size_rule::SizeRules,
     recent_capacity: Option<std::num::NonZeroUsize>,
-    plan_sources: du_engine_api::plan::PlanSources,
+    services: PlanChangeServices,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     register_analysis_with_plan_source(
         builder,
@@ -274,7 +297,7 @@ fn register_analysis_with_test_plan_sources(
         scan_limit,
         size_rules,
         recent_capacity,
-        Some(plan_sources),
+        services,
     )
 }
 
@@ -285,7 +308,7 @@ fn register_analysis_with_plan_source(
     scan_limit: SharedTableLimitSource,
     size_rules: du_engine_api::size_rule::SizeRules,
     recent_capacity: Option<std::num::NonZeroUsize>,
-    plan_sources: Option<du_engine_api::plan::PlanSources>,
+    plan_change: PlanChangeServices,
 ) -> Result<DesktopServices, Box<dyn std::error::Error>> {
     let history = Arc::new(database.history(crate::settings::current_time_ms));
     let random = &du_platform_os::entropy::OsRandom;
@@ -301,7 +324,7 @@ fn register_analysis_with_plan_source(
             recent_admission_capacity: recent_capacity,
         },
     )?;
-    let plan_sources = plan_sources.unwrap_or_else(|| {
+    let plan_sources = plan_change.plan_sources.unwrap_or_else(|| {
         let versions: du_engine_api::plan::SharedVersionStore =
             Arc::new(std::sync::Mutex::new(database.clone()));
         du_engine_api::plan::PlanSources::new(versions, Arc::new(database.clone()))
@@ -310,14 +333,23 @@ fn register_analysis_with_plan_source(
             ))
     });
     let approval_prepare = services.register_plans(builder, plan_sources)?;
+    let undo = plan_change.undo.unwrap_or_else(|| {
+        Arc::new(crate::session_undo_info::SessionUndoInfoRegistry::default())
+            as Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>
+    });
     crate::approval::register(
         builder,
         approval_prepare,
-        database.clone(),
-        services.events.clone(),
-        Arc::new(du_platform_os::entropy::OsRandom),
-        true,
-    );
+        crate::approval::ChangeHostConfig {
+            database: database.clone(),
+            events: services.events.clone(),
+            random: Arc::new(du_platform_os::entropy::OsRandom),
+            primary_window: true,
+            jobs: services.jobs(),
+            ops: plan_change.ops,
+            undo,
+        },
+    )?;
     Ok(services)
 }
 

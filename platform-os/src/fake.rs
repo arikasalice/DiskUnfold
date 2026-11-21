@@ -7,7 +7,7 @@ use std::{
 };
 
 mod change_ops;
-pub use change_ops::{FakeChangeCall, FakeChangeOps};
+pub use change_ops::{FakeChangeCall, FakeChangeLookupGate, FakeChangeOps};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
