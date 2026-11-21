@@ -1,7 +1,13 @@
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// Confirmation token facts stored with a plan version.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum ConfirmationToken {
     /// Classifications whose default protection was released for included items.
     ReleaseDefaultProtection { classification_ids: Vec<String> },
@@ -13,7 +19,8 @@ pub enum ConfirmationToken {
 }
 
 /// One immutable plan version returned by the pure domain.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlanVersion {
     /// UUID v7 version identifier.
     pub version_id: Id,
@@ -40,7 +47,7 @@ pub struct PlanVersion {
     /// Readiness decision.
     pub readiness: crate::readiness::PlanReadiness,
     /// Hash format tag.
-    pub hash_format: &'static str,
+    pub hash_format: String,
     /// BLAKE3 hash of the canonical du.plan.hash.v1 scope.
     pub hash: [u8; 32],
     /// Creation time, deliberately excluded from the plan hash.
@@ -48,7 +55,8 @@ pub struct PlanVersion {
 }
 
 /// Protection ruleset values fixed into a plan version.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RulesetVersion {
     /// Monotonic version.
     pub version: u64,
