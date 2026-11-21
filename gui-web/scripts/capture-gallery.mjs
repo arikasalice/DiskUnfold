@@ -54,6 +54,8 @@ const surfaces = {
     count: 1,
     pointer: false,
   },
+  // F06 README 51 (#349): the items not drawn and the legend under long counts.
+  "space-undrawn": { ready: ".du-undrawn-line", count: 1, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -230,75 +232,91 @@ const galleryShots =
                     height: 900,
                   },
                 ]
-              : surface === "job-center"
+              : surface === "space-undrawn"
                 ? [
+                    { name: "01-light-1280", theme: "light", width: 1280 },
                     {
-                      name: "01-light-1280",
+                      name: "02-view-in-list-light-1280",
                       theme: "light",
                       width: 1280,
-                      scene: "main",
+                      viewInList: true,
                     },
                     {
-                      name: "01-dark-1280",
-                      theme: "dark",
-                      width: 1280,
-                      scene: "main",
-                    },
-                    {
-                      name: "01-light-700",
+                      name: "03-legend-light-1130",
                       theme: "light",
-                      width: 700,
-                      scene: "main",
+                      width: 1130,
                     },
-                    {
-                      name: "02-request-pending-no-effect",
-                      theme: "light",
-                      width: 1280,
-                      scene: "request-pending",
-                    },
-                    {
-                      name: "03-resync",
-                      theme: "light",
-                      width: 1280,
-                      scene: "resync",
-                    },
-                    {
-                      name: "04-empty",
-                      theme: "light",
-                      width: 1280,
-                      scene: "empty",
-                    },
-                    {
-                      name: "05-cancel-confirm",
-                      theme: "light",
-                      width: 1280,
-                      scene: "cancel-confirm",
-                    },
-                    {
-                      name: "06-forced-colors",
-                      theme: "light",
-                      width: 1280,
-                      scene: "forced-colors",
-                      forcedColors: "active",
-                    },
-                    {
-                      name: "07-toast-open-panel-700",
-                      theme: "light",
-                      width: 700,
-                      scene: "toast-open-panel",
-                    },
-                    {
-                      name: "07-toast-open-panel-1280",
-                      theme: "light",
-                      width: 1280,
-                      scene: "toast-open-panel",
-                    },
+                    { name: "01-dark-1280", theme: "dark", width: 1280 },
                   ]
-                : [
-                    { name: "light-1280", theme: "light", width: 1280 },
-                    { name: "dark-1280", theme: "dark", width: 1280 },
-                    { name: "light-700", theme: "light", width: 700 },
-                  ];
+                : surface === "job-center"
+                  ? [
+                      {
+                        name: "01-light-1280",
+                        theme: "light",
+                        width: 1280,
+                        scene: "main",
+                      },
+                      {
+                        name: "01-dark-1280",
+                        theme: "dark",
+                        width: 1280,
+                        scene: "main",
+                      },
+                      {
+                        name: "01-light-700",
+                        theme: "light",
+                        width: 700,
+                        scene: "main",
+                      },
+                      {
+                        name: "02-request-pending-no-effect",
+                        theme: "light",
+                        width: 1280,
+                        scene: "request-pending",
+                      },
+                      {
+                        name: "03-resync",
+                        theme: "light",
+                        width: 1280,
+                        scene: "resync",
+                      },
+                      {
+                        name: "04-empty",
+                        theme: "light",
+                        width: 1280,
+                        scene: "empty",
+                      },
+                      {
+                        name: "05-cancel-confirm",
+                        theme: "light",
+                        width: 1280,
+                        scene: "cancel-confirm",
+                      },
+                      {
+                        name: "06-forced-colors",
+                        theme: "light",
+                        width: 1280,
+                        scene: "forced-colors",
+                        forcedColors: "active",
+                      },
+                      {
+                        name: "07-toast-open-panel-700",
+                        theme: "light",
+                        width: 700,
+                        scene: "toast-open-panel",
+                      },
+                      {
+                        name: "07-toast-open-panel-1280",
+                        theme: "light",
+                        width: 1280,
+                        scene: "toast-open-panel",
+                      },
+                    ]
+                  : [
+                      { name: "light-1280", theme: "light", width: 1280 },
+                      { name: "dark-1280", theme: "dark", width: 1280 },
+                      { name: "light-700", theme: "light", width: 700 },
+                    ];
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -833,7 +851,30 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true);
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else await save(session, shot.name, false, scene);
+      else if (surface === "space-undrawn" && shot.viewInList) {
+        // A headless page has no focus of its own, so :focus would not paint.
+        await session.send("Emulation.setFocusEmulationEnabled", {
+          enabled: true,
+        });
+        const pressed = await session.run(function pressViewInList() {
+          const button = Array.from(
+            document.querySelectorAll(".du-undrawn-line .du-action"),
+          ).find((element) => element.textContent?.trim() === "목록에서 보기");
+          if (!(button instanceof HTMLElement)) return false;
+          button.click();
+          return true;
+        });
+        if (!pressed) throw new Error("View in list was not found");
+        await sleep(300);
+        const focused = await session.run(
+          () => document.activeElement?.getAttribute("aria-rowindex") ?? "",
+        );
+        if (focused !== "4")
+          throw new Error(
+            "The first item not drawn was not focused: " + focused,
+          );
+        await save(session, shot.name, false);
+      } else await save(session, shot.name, false, scene);
     }
   }
   if (surface === "scan-lanes" && !requestedScanLaneScene) {

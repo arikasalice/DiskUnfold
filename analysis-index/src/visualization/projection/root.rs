@@ -1,7 +1,7 @@
 //! The navigation-root level of a projection: rows, shapes, group and totals.
 use super::{
     Detail, Error, Group, GroupMember, Lod, Model, Options, RemainderCauses, Row, Shape, Source,
-    Totals, gaps, group_ref, level,
+    Totals, UnknownShare, gaps, group_ref, level,
 };
 use crate::visualization::{
     self, detail,
@@ -39,6 +39,7 @@ pub(super) fn build(
         return Err(Error::InvalidSource);
     }
     let min_area = detail::min_area(detail::rect_area(bounds), options.max_shapes);
+    let filtered = filter.is_some();
     let level = level::build(
         level::Request {
             version,
@@ -150,6 +151,8 @@ pub(super) fn build(
             .filter(|skipped| skipped.reason == NoArea::CoordinatePrecision)
             .count() as u64;
     let unknown_items = level.unattributed.len() as u64;
+    let unknown_share = unknown_share(&level, filtered)?;
+    let first_unknown_row = (!level.unattributed.is_empty()).then_some(level.rows.len());
     // The totals are defined on [Totals]: drawn adds the shaped root siblings above and
     // grouped adds this level's group below. No remainder is stored; it is the scope
     // minus these, and a difference of lower bounds is not a value. What it holds is
@@ -223,10 +226,39 @@ pub(super) fn build(
             group_tail: options.group_tail,
             groups,
             unknown_items,
+            unknown_share,
+            first_unknown_row,
             omitted_items,
             reason_keys: gaps::reasons(version, parent, cancelled)?,
             remainder_causes,
         },
+    })
+}
+
+// The navigation-root share without an area: the parent's partition bytes less the
+// attributed siblings' (see [UnknownShare]). It is exact unless the parent is a lower
+// bound and an unread entry may lie under a sibling without an area, which F03 says by
+// making that sibling's own value a lower bound.
+fn unknown_share(level: &level::Level, filtered: bool) -> Result<UnknownShare, Error> {
+    if level.unattributed.is_empty() {
+        return Ok(UnknownShare::None);
+    }
+    if filtered {
+        return Ok(UnknownShare::Unknown);
+    }
+    let bytes = level
+        .parent_bytes
+        .checked_sub(level.attributed_bytes)
+        .ok_or(Error::InvalidLayout)?;
+    let lower = matches!(level.parent_value.amount, SizeAmount::LowerBound { .. })
+        && level
+            .unattributed
+            .iter()
+            .any(|child| !matches!(child.value.amount, SizeAmount::Exact { .. }));
+    Ok(match (bytes, lower) {
+        (0, _) => UnknownShare::None,
+        (bytes, true) => UnknownShare::LowerBound(bytes),
+        (bytes, false) => UnknownShare::Exact(bytes),
     })
 }
 

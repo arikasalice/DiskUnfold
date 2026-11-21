@@ -674,6 +674,12 @@ label.du-field > span {
   inline-size: 100%;
 }
 
+/* A row the screen moved the focus to, such as "View in list" (F06 README 51.3). */
+.du-data-table tr[tabindex="-1"]:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
+}
+
 .du-data-table th,
 .du-data-table td {
   padding: 0;

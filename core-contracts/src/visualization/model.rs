@@ -309,6 +309,26 @@ pub struct VizSummary {
     pub omitted_items: VizQuantity,
     pub unknown_items: VizQuantity,
     pub reason_keys: Vec<String>,
+    /// Bytes of the scope measured under navigation-root items without a provable area
+    /// and outside every drawn item (F06 README 51.3). Treemap only; omitted when no
+    /// such item holds a measured byte, and never an exact zero.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_present"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub unknown_size: Option<VizQuantity>,
+    /// Position in the navigation root's table (viz.rows without parentShapeRef) of the
+    /// first row without a provable area, or else of the first expanded folder whose
+    /// level has one. Treemap only; omitted when no table row is such a row.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_present"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub first_unknown_row: Option<u32>,
 }
 
 fn optional_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
@@ -391,6 +411,7 @@ impl VizModel {
         {
             return Err("invalid legend or summary");
         }
+        self.summary.validate()?;
         Ok(())
     }
 
@@ -465,6 +486,7 @@ impl VizModel {
 }
 
 mod shape;
+mod summary;
 #[cfg(test)]
 mod tests;
 mod totals;

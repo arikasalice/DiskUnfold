@@ -17,6 +17,7 @@ import {
   vizMessage,
 } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
+import type { RowReveal } from "./UndrawnLine";
 
 /** Class keys that mean a row has no classification. */
 const UNCLASSIFIED = new Set([
@@ -55,6 +56,7 @@ export function ModelRows({
   returnTargetRef,
   title,
   expanded = false,
+  reveal,
 }: {
   page: ModelRowsPage;
   /** Absent for a fallback table, which has no model of its own to look classes up in. */
@@ -72,6 +74,8 @@ export function ModelRows({
   title?: string;
   /** Opens the section when it first shows; the rows are what a reader came for. */
   expanded?: boolean;
+  /** A row to open the section on and focus (F06 README 51.3, 48.4). */
+  reveal?: RowReveal | null;
 }) {
   const rowTitle = title ?? defaultTitle(model, text);
   // In the chart's place the rows open expanded; under a chart they wait
@@ -81,6 +85,7 @@ export function ModelRows({
   const { request, response } = page;
   const { rows } = response;
   const next = request.start + rows.length;
+  const revealed = revealInPage(reveal, request.start, next, open);
   const paged = request.start > 0 || next < response.totalCount;
   const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
   const showClassification = rows.some(
@@ -163,7 +168,7 @@ export function ModelRows({
       ? [
           {
             header: text.message("classification"),
-            cell: (row: VizRow) => classCell(model, row.legendClassKey, text),
+            cell: (row: VizRow) => classification(model, row, text),
           },
         ]
       : []),
@@ -189,8 +194,9 @@ export function ModelRows({
     >
       <DetailDisclosure
         title={rowTitle}
-        defaultExpanded={open}
-        key={`${request.modelRef}:${request.resultRevision}`}
+        defaultExpanded={revealed.expand}
+        // A reveal opens the section again even after the reader folded it.
+        key={`${request.modelRef}:${request.resultRevision}:${revealed.key}`}
       >
         {sharedDenominator !== null && (
           <Text>
@@ -209,6 +215,7 @@ export function ModelRows({
           rows={rows}
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
           renderCells={(row) => columns.map(({ cell }) => cell(row))}
+          focusRow={revealed.focusRow}
         />
         {onPage && paged && (
           <div className="du-review-actions">
@@ -233,6 +240,44 @@ export function ModelRows({
         )}
       </DetailDisclosure>
     </div>
+  );
+}
+
+/**
+ * The reveal of a row on this page: the section opens and the row takes the
+ * focus. Without one the section opens as it otherwise would (open).
+ */
+function revealInPage(
+  reveal: RowReveal | null | undefined,
+  start: number,
+  end: number,
+  open: boolean,
+) {
+  if (!reveal || reveal.row < start || reveal.row >= end)
+    return { expand: open, key: "", focusRow: null };
+  return {
+    expand: true,
+    key: String(reveal.token),
+    focusRow: { index: reveal.row - start, token: reveal.token },
+  };
+}
+
+/**
+ * The classification cell. A row the type does not apply to reads "—", named
+ * "No category" for assistive technology (F06 README 51, TERMS 「유형」).
+ */
+function classification(
+  model: VizModel | undefined,
+  row: VizRow,
+  text: VizText,
+) {
+  if (!UNCLASSIFIED.has(row.legendClassKey))
+    return classCell(model, row.legendClassKey, text);
+  return (
+    <>
+      <div aria-hidden="true">—</div>
+      <div className="du-visually-hidden">{text.message("noCategory")}</div>
+    </>
   );
 }
 

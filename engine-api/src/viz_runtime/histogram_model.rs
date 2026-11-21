@@ -181,6 +181,8 @@ pub(super) fn build(
                 complete,
             )?,
             reason_keys: vec![],
+            unknown_size: None,
+            first_unknown_row: None,
         },
         strategy: QueryStrategy {
             id: admitted.descriptor.strategy.id.clone(),

@@ -953,7 +953,19 @@ memberCount?: VizQuantity,
  */
 itemKind?: VizItemKind, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
-export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>, };
+export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>,
+/**
+ * Bytes of the scope measured under navigation-root items without a provable area
+ * and outside every drawn item (F06 README 51.3). Treemap only; omitted when no
+ * such item holds a measured byte, and never an exact zero.
+ */
+unknownSize?: VizQuantity,
+/**
+ * Position in the navigation root's table (viz.rows without parentShapeRef) of the
+ * first row without a provable area, or else of the first expanded folder whose
+ * level has one. Treemap only; omitted when no table row is such a row.
+ */
+firstUnknownRow?: number, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).

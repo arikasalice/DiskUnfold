@@ -1060,6 +1060,7 @@ ui.visualization.nextRows
 ui.visualization.nextSelection
 ui.visualization.noAttribution
 ui.visualization.noBaseline
+ui.visualization.noCategory
 ui.visualization.noDrawableItems
 ui.visualization.noFormats
 ui.visualization.noGraphTargets
@@ -1148,6 +1149,11 @@ ui.visualization.unavailableTitleSingleObservation
 ui.visualization.unavailableTitleUnknown
 ui.visualization.unavailableValue
 ui.visualization.unavailable_for_folder
+ui.visualization.undrawnAtLeast size:name
+ui.visualization.undrawnCount count:count
+ui.visualization.undrawnShowInList
+ui.visualization.undrawnShowInListName summary:name
+ui.visualization.undrawnTooltip
 ui.visualization.unknownFormat
 ui.visualization.formatChoice
 ui.visualization.formatNoData

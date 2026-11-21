@@ -284,6 +284,13 @@ export const visualizationMessages = {
     listLoadMore: "Load more files",
     listLoadingMore: "Loading more files…",
     legendMore: "{count} more classes",
+    undrawnCount: "Items not drawn: {count}",
+    undrawnAtLeast: "at least {size}",
+    undrawnTooltip:
+      "These couldn't be assigned to items, so they aren't drawn. Areas show proportions among the drawn items.",
+    undrawnShowInList: "View in list",
+    undrawnShowInListName: "{summary}, View in list",
+    noCategory: "No category",
   },
   ko: {
     loading: "그래프 불러오는 중",
@@ -565,6 +572,13 @@ export const visualizationMessages = {
     listLoadMore: "파일 더 보기",
     listLoadingMore: "파일을 더 불러오는 중…",
     legendMore: "분류 {count}개 더 보기",
+    undrawnCount: "그리지 않은 항목 {count}개",
+    undrawnAtLeast: "최소 {size}",
+    undrawnTooltip:
+      "크기를 항목에 나눌 수 없어 그래프에 그리지 않았습니다. 그래프의 넓이는 그린 항목끼리의 비율입니다.",
+    undrawnShowInList: "목록에서 보기",
+    undrawnShowInListName: "{summary}, 목록에서 보기",
+    noCategory: "분류 해당 없음",
   },
 } as const;
 export type VisualizationMessageKey = keyof typeof visualizationMessages.en;
