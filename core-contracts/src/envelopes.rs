@@ -77,6 +77,8 @@ impl ErrorEnvelope {
             | "viz.viewport_invalid"
             | "viz.format_unknown"
             | "snapshot.format_unknown"
+            | "snapshot.list_limit_invalid"
+            | "snapshot.cursor_invalid"
             | "viz.strategy_unknown"
             | "viz.measure_unknown"
             | "viz.denominator_invalid"
@@ -106,6 +108,7 @@ impl ErrorEnvelope {
             | "group.rules_modified"
             | "history.version_changed"
             | "history.review_stale" => ErrorCode::StaleVersion,
+            "snapshot.cursor_stale" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"

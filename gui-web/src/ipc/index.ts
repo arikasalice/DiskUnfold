@@ -132,6 +132,8 @@ import type {
   SampleOpenRequest,
   SampleSession,
   SampleSessionRequest,
+  SnapshotListRequest,
+  SnapshotListResponse,
 } from "./generated/contracts";
 
 export { SIZE_UNIT_RULES } from "./generated/contracts";
@@ -361,6 +363,12 @@ export type {
   SampleOpenRequest,
   SampleSession,
   SampleSessionRequest,
+  SnapshotListRequest,
+  SnapshotListResponse,
+  SnapshotSummary,
+  SnapshotListCompleteness,
+  SnapshotListSourceKind,
+  SnapshotListVolume,
 } from "./generated/contracts";
 
 type Commands = {
@@ -434,6 +442,7 @@ type Commands = {
   "sample.status": [SampleSessionRequest, SampleSession];
   "sample.reset": [SampleSessionRequest, SampleSession];
   "sample.close": [SampleSessionRequest, SampleClosed];
+  "snapshot.list": [SnapshotListRequest, SnapshotListResponse];
   "group.rules.get": [GroupRulesGetRequest, GroupRuleset];
   "group.rules.save": [GroupRulesSaveRequest, GroupRulesSaveResponse];
   "group.classify": [GroupClassifyRequest, GroupClassifyResponse];

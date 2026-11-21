@@ -28,6 +28,7 @@ pub mod search;
 pub mod search_page;
 pub mod shutdown;
 pub mod size_rule;
+pub mod snapshot_list;
 pub mod snapshot_save;
 mod source_exposure;
 pub mod space;

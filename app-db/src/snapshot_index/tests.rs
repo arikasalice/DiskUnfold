@@ -272,6 +272,7 @@ fn active_pages_sort_unknown_times_last_and_reject_stale_cursors() -> TestResult
     db.register(&row(13, 113, Some(300)), &[], Some(500))?;
 
     let first = db.list_active(2, None)?;
+    assert_eq!(first.list_seq, 4);
     assert_eq!(first.rows.len(), 2);
     assert_eq!(first.rows[0].row.snapshot_id, id(12));
     assert_eq!(first.rows[1].row.snapshot_id, id(13));
@@ -283,9 +284,11 @@ fn active_pages_sort_unknown_times_last_and_reject_stale_cursors() -> TestResult
     assert_eq!(second.rows[0].row.snapshot_id, id(10));
     assert_eq!(second.rows[1].row.snapshot_id, id(11));
     assert_eq!(second.rows[1].row.observed_at_ms, None);
+    assert_eq!(second.list_seq, 4);
     assert_eq!(second.next_cursor, None);
 
-    db.register(&row(14, 114, Some(400)), &[], None)?;
+    let saved = db.register(&row(14, 114, Some(400)), &[], None)?;
+    assert_eq!(saved.list_seq, 5);
     assert_eq!(
         db.list_active(2, Some(&cursor)),
         Err(SnapshotIndexError::StaleCursor)

@@ -34,6 +34,7 @@ use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
 use du_core_contracts::snapshot_ipc::*;
+use du_core_contracts::snapshot_list_ipc::*;
 use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::startup_ipc::*;
 use du_core_contracts::visualization::availability::{
@@ -433,6 +434,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SnapshotSaveExistingSnapshot::decl(&config),
         SnapshotSaveExistingJob::decl(&config),
         SnapshotSaveExistingOutcome::decl(&config),
+        SnapshotListRequest::decl(&config),
+        SnapshotListResponse::decl(&config),
+        SnapshotSummary::decl(&config),
+        SnapshotListCompleteness::decl(&config),
+        SnapshotListSourceKind::decl(&config),
+        SnapshotListVolume::decl(&config),
         SnapshotChange::decl(&config),
         SnapshotChangedBody::decl(&config),
         GroupRuleReview::decl(&config),

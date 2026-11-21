@@ -65,12 +65,9 @@ pub(super) fn register(
     database: &SharedDatabase,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let files = Arc::new(SnapshotFileStore::new(NativeSnapshotFileSystem::new()?));
-    services.register_snapshot_save(
-        builder,
-        Arc::new(Mutex::new(SharedSnapshotIndex(database.clone()))),
-        files,
-        true,
-    )?;
+    let index = Arc::new(Mutex::new(SharedSnapshotIndex(database.clone())));
+    services.register_snapshot_save(builder, index.clone(), files, true)?;
+    services.register_snapshot_list(builder, index, true);
     Ok(())
 }
 
