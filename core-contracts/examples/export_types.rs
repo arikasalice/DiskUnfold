@@ -14,6 +14,7 @@ use du_core_contracts::product_support::{
 };
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::query_region_ipc::*;
+use du_core_contracts::query_run_ipc::*;
 use du_core_contracts::result_events::{
     PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
 };
@@ -393,6 +394,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         QueryRegionOpened::decl(&config),
         QueryRegionCloseRequest::decl(&config),
         QueryRegionClosed::decl(&config),
+        QueryRunRequest::decl(&config),
+        QueryRunResponse::decl(&config),
         QueryCancelTarget::decl(&config),
         QueryCancelRequest::decl(&config),
         QueryCancelOutcome::decl(&config),

@@ -240,5 +240,6 @@ pub(super) fn search_request(
             descending: false,
         }],
         count: None,
+        scope: None,
     }
 }

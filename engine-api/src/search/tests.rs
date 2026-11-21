@@ -184,8 +184,8 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
                 descending: false,
             }],
             count: None,
+            scope: None,
         };
-
     let first = entry
         .execute(
             make_request(1, "sort.path", None, Some(id(2)), Condition::All(vec![])),
@@ -209,7 +209,7 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
             ),
             &caller
         ),
-        Err(SearchError::InvalidRequest)
+        Err(SearchError::UnknownPredicate)
     ));
     let old_page = sets
         .open_page(first.query_ref(), &id(2), 0, None)
@@ -433,7 +433,7 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
             ),
             &CallerCtx::new(Channel::Gui, id(11), None),
         ),
-        Err(SearchError::InvalidRequest)
+        Err(SearchError::UnknownSort)
     ));
     assert!(matches!(
         entry.execute_async(
@@ -450,7 +450,7 @@ fn invalid_cancelled_and_replaced_searches_preserve_published_results() -> Resul
             ),
             &CallerCtx::new(Channel::Gui, id(14), None),
         ),
-        Err(SearchError::InvalidRequest)
+        Err(SearchError::UnknownPredicate)
     ));
     assert_eq!(
         runtime.state(&active.job_ref),

@@ -6,6 +6,7 @@ pub mod page;
 pub(crate) mod plan;
 pub mod prepared;
 pub(crate) mod sorting;
+pub mod subtree;
 mod total;
 pub use condition::{Basis, Boundary, Condition, Kind, NameEncoding, NameTest, Predicate, Truth};
 pub use total::TotalWithObservationRange;

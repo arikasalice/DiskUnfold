@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 mod admission;
 mod completion;
 mod delivery_busy;
+mod run;
 mod search;
 mod stale_version;
 mod unknown_fields;

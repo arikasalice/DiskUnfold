@@ -68,6 +68,8 @@ import type {
   QueryRegionOpened,
   QueryRegionCloseRequest,
   QueryRegionClosed,
+  QueryRunRequest,
+  QueryRunResponse,
   QueryCancelRequest,
   QueryCancelled,
   QueryPageResponse,
@@ -155,6 +157,10 @@ export type {
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
+  QueryRunRequest,
+  QueryRunResponse,
+  SearchQueryPage,
+  SearchQueryRow,
   BrowseValue,
   DisplayPreferences,
   EventEnvelope,
@@ -395,6 +401,7 @@ type Commands = {
   "query.region.close": [QueryRegionCloseRequest, QueryRegionClosed];
   "query.cancel": [QueryCancelRequest, QueryCancelled];
   "query.page": [QueryPageRequest, QueryPageResponse];
+  "query.run": [QueryRunRequest, QueryRunResponse];
   "viz.view.open": [VizViewOpenRequest, VizViewChannel];
   "viz.view.close": [VizViewChannel, VizViewOpenRequest];
   "viz.render": [VizRenderRequest, VizRenderResponse];

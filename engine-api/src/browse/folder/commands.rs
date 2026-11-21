@@ -59,13 +59,18 @@ pub(crate) fn register(
         workers: workers.clone(),
         regions: regions.clone(),
     });
-    builder.register(Page(session));
-    Ok(Some(Arc::new(crate::search::SearchEntry::new(
+    builder.register(Page(session.clone()));
+    let entry = Arc::new(crate::search::SearchEntry::new(
         sets,
         regions,
         ids,
         crate::search::SearchWorkers::new(jobs, workers),
-    ))))
+    ));
+    builder.register(super::run::Run {
+        entry: entry.clone(),
+        session,
+    });
+    Ok(Some(entry))
 }
 
 struct Open {

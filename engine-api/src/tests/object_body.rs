@@ -226,6 +226,7 @@ fn every_composed_command_rejects_non_object_bodies_on_each_allowed_channel()
         "history.items",
         "history.list",
         "job.cancel",
+        "query.run",
         "scan.start",
         "scope.review",
         "space.total",

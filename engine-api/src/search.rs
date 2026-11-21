@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use du_analysis_index::query::{
-    Condition, Error as QueryError, Registry, SortSpec,
+    Condition, Error as QueryError, FolderLocation, Registry, SortSpec,
     page::{Page, PageError, ResultSets},
     prepared::{PreparedSearch, PreparedSearchError, SearchInput},
 };
@@ -30,6 +30,8 @@ pub struct SearchRequest {
     pub condition: Condition,
     pub sorts: Vec<SortSpec>,
     pub count: Option<u32>,
+    /// Restricts candidates to the items below a folder or every scope root (query.run).
+    pub scope: Option<FolderLocation>,
 }
 
 /// Internal failures before the transport owner maps them to a response envelope.
@@ -37,7 +39,15 @@ pub struct SearchRequest {
 pub enum SearchError {
     WrongChannel,
     RegionUnavailable,
+    /// The request sequence was not strictly increasing, or the request was otherwise
+    /// malformed for the region.
     InvalidRequest,
+    InvalidPageSize,
+    InvalidCondition,
+    UnknownPredicate,
+    UnknownSort,
+    /// The subtree scope is not a folder of the admitted version.
+    ScopeUnavailable,
     StaleVersion,
     NoSource,
     Cancelled,
@@ -114,25 +124,7 @@ impl SearchEntry {
         if caller.is_cancelled() {
             return Err(SearchError::Cancelled);
         }
-
-        let admission = self
-            .sets
-            .admit_search(
-                request.result_version.as_ref(),
-                request.parent_search_ref.as_ref(),
-            )
-            .map_err(page_error)?;
-        let prepared = PreparedSearch::new(
-            self.sets.clone(),
-            admission,
-            &self.registry,
-            SearchInput {
-                condition: request.condition,
-                sorts: request.sorts,
-                count: request.count,
-            },
-        )
-        .map_err(prepared_error)?;
+        let (prepared, _) = self.prepare(&request)?;
         if caller.is_cancelled() {
             return Err(SearchError::Cancelled);
         }
@@ -146,7 +138,10 @@ impl SearchEntry {
                 request.request_seq,
                 Ok::<_, ()>(prepared),
             )
-            .map_err(|_| SearchError::RegionUnavailable)?
+            .map_err(|error| match error {
+                RegionError::InvalidSequence => SearchError::InvalidRequest,
+                _ => SearchError::RegionUnavailable,
+            })?
             .map_err(|()| SearchError::InvalidRequest)?;
         if let Some(job) = promotion.previous_job {
             let _ = self.regions.cancel_job(&job);
@@ -198,25 +193,7 @@ impl SearchEntry {
         if caller.is_cancelled() {
             return Err(SearchError::Cancelled);
         }
-        let admission = self
-            .sets
-            .admit_search(
-                request.result_version.as_ref(),
-                request.parent_search_ref.as_ref(),
-            )
-            .map_err(page_error)?;
-        let result_version = admission.version().version_id().clone();
-        let prepared = PreparedSearch::new(
-            self.sets.clone(),
-            admission,
-            &self.registry,
-            SearchInput {
-                condition: request.condition,
-                sorts: request.sorts,
-                count: request.count,
-            },
-        )
-        .map_err(prepared_error)?;
+        let (prepared, result_version) = self.prepare(&request)?;
         if caller.is_cancelled() {
             return Err(SearchError::Cancelled);
         }
@@ -326,6 +303,48 @@ impl SearchEntry {
             result_version,
         })
     }
+
+    /// The item count (a cheap work estimate) and data source of the version a search
+    /// would admit now, for the channel exposure check before any evaluation.
+    pub(crate) fn admitted_version(
+        &self,
+        expected: Option<&Id>,
+    ) -> Result<(usize, du_core_contracts::data_source::DataSource), SearchError> {
+        let version = self
+            .sets
+            .admit_search(expected, None)
+            .map_err(page_error)?
+            .version();
+        Ok((version.items().len(), version.data_source()))
+    }
+
+    /// Admits the source and validates the whole request without traversing items.
+    fn prepare(&self, request: &SearchRequest) -> Result<(PreparedSearch, Id), SearchError> {
+        let admission = self
+            .sets
+            .admit_search(
+                request.result_version.as_ref(),
+                request.parent_search_ref.as_ref(),
+            )
+            .map_err(page_error)?;
+        let result_version = admission.version().version_id().clone();
+        let prepared = PreparedSearch::new(
+            self.sets.clone(),
+            admission,
+            &self.registry,
+            SearchInput {
+                condition: request.condition.clone(),
+                sorts: request.sorts.clone(),
+                count: request.count,
+            },
+        )
+        .map_err(prepared_error)?;
+        let prepared = match request.scope {
+            Some(scope) => prepared.within(scope).map_err(prepared_error)?,
+            None => prepared,
+        };
+        Ok((prepared, result_version))
+    }
 }
 
 struct SearchEvaluation {
@@ -424,8 +443,13 @@ fn page_error(error: PageError) -> SearchError {
 fn prepared_error(error: PreparedSearchError) -> SearchError {
     match error {
         PreparedSearchError::Query(QueryError::Cancelled) => SearchError::Cancelled,
+        PreparedSearchError::Query(QueryError::InvalidCondition) => SearchError::InvalidCondition,
+        PreparedSearchError::Query(QueryError::UnknownPredicate) => SearchError::UnknownPredicate,
+        PreparedSearchError::Query(QueryError::UnknownSort) => SearchError::UnknownSort,
         PreparedSearchError::Query(_) => SearchError::InvalidRequest,
+        PreparedSearchError::Page(PageError::InvalidRange) => SearchError::InvalidPageSize,
         PreparedSearchError::Page(error) => page_error(error),
+        PreparedSearchError::ScopeUnavailable => SearchError::ScopeUnavailable,
     }
 }
 

@@ -2,11 +2,12 @@
 use std::sync::Arc;
 
 use super::{
-    Condition, Error, Registry, Sort, SortSpec,
+    Condition, Error, FolderLocation, Registry, Sort, SortSpec,
     page::{
         DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PageError, ResultSets, SearchAdmission, ValidatedSearch,
     },
 };
+use du_core_contracts::result::{ResultItemKind, ResultVersionRead};
 
 /// Failure to prepare or evaluate a pinned search.
 #[derive(Debug)]
@@ -15,6 +16,9 @@ pub enum PreparedSearchError {
     Query(Error),
     /// Source ownership, page size, or the candidate could not be validated.
     Page(PageError),
+    /// The subtree scope is not a folder of the admitted version, or a refinement
+    /// was combined with a subtree scope.
+    ScopeUnavailable,
 }
 
 /// Caller-supplied search inputs, validated before the prepared search is created.
@@ -35,6 +39,7 @@ pub struct PreparedSearch {
     condition: Condition,
     sorts: Vec<SortSpec>,
     count: u32,
+    scope: Option<FolderLocation>,
 }
 
 impl PreparedSearch {
@@ -81,7 +86,29 @@ impl PreparedSearch {
             condition,
             sorts,
             count,
+            scope: None,
         })
+    }
+
+    /// Restricts candidates to the items below one folder at any depth, or below every
+    /// scope root (the subtree access path of query.run). The folder or roots themselves
+    /// are not candidates. A refinement of a parent search cannot be restricted.
+    pub fn within(mut self, scope: FolderLocation) -> Result<Self, PreparedSearchError> {
+        if self.admission.parent().is_some() {
+            return Err(PreparedSearchError::ScopeUnavailable);
+        }
+        if let FolderLocation::Item(item) = scope {
+            let version = self.admission.version();
+            let folder = version
+                .items()
+                .get(item as usize)
+                .ok_or(PreparedSearchError::ScopeUnavailable)?;
+            if folder.kind != ResultItemKind::Directory {
+                return Err(PreparedSearchError::ScopeUnavailable);
+            }
+        }
+        self.scope = Some(scope);
+        Ok(self)
     }
 
     /// Evaluates exactly the prepared search, then validates its entire candidate outside
@@ -94,8 +121,17 @@ impl PreparedSearch {
         let (first, rest) = borrowed
             .split_first()
             .ok_or(PreparedSearchError::Query(Error::UnknownSort))?;
-        let result = match self.admission.parent() {
-            Some(parent) => super::run_in_result_with_sorts(
+        let result = match (self.admission.parent(), self.scope) {
+            (_, Some(scope)) => super::subtree::run_subtree_with_sorts(
+                &self.registry,
+                self.admission.version(),
+                scope,
+                &self.condition,
+                *first,
+                rest,
+                cancelled,
+            ),
+            (Some(parent), None) => super::run_in_result_with_sorts(
                 &self.registry,
                 parent,
                 &self.condition,
@@ -103,7 +139,7 @@ impl PreparedSearch {
                 rest,
                 cancelled,
             ),
-            None => super::run_with_sorts(
+            (None, None) => super::run_with_sorts(
                 &self.registry,
                 self.admission.version(),
                 &self.condition,
