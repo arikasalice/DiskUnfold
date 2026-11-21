@@ -16,7 +16,7 @@ const HOSTED_RUNNERS = Object.freeze({
  */
 export function buildManifest(manifest) {
   const keys = new Set();
-  const prTargets = [];
+  const prTargetOs = new Set();
   for (const target of manifest.targets) {
     const key = `${target.os}-${target.cpu}`;
     if (keys.has(key) || target.runner !== HOSTED_RUNNERS[key] || !target.rustTarget) {
@@ -25,12 +25,12 @@ export function buildManifest(manifest) {
     if ('prCheck' in target && typeof target.prCheck !== 'boolean') {
       throw new Error(`Invalid prCheck: ${key}`);
     }
-    if (target.prCheck === true) prTargets.push(key);
+    if (target.prCheck === true) prTargetOs.add(target.os);
     keys.add(key);
   }
   if (keys.size !== 6) throw new Error('Expected six OS/CPU targets');
-  if (prTargets.length !== 3 || ['linux-x64', 'windows-x64', 'macos-arm64'].some((key) => !prTargets.includes(key))) {
-    throw new Error('Expected PR targets: linux-x64, windows-x64, macos-arm64');
+  if (['linux', 'windows', 'macos'].some((os) => !prTargetOs.has(os))) {
+    throw new Error('Expected a PR target for each OS: linux, windows, macos');
   }
   return manifest;
 }

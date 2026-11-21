@@ -34,27 +34,32 @@ test('self-hosted and unknown runner labels are rejected', () => {
   }
 });
 
-test('PR and full tiers select three and six targets respectively', () => {
-  assert.deepEqual(
-    selectTargets(manifest, 'pr').map((target) => `${target.os}-${target.cpu}`),
-    ['linux-x64', 'windows-x64', 'macos-arm64'],
-  );
-  assert.equal(selectTargets(manifest, 'full').length, 6);
+test('PR and full tiers select the same six targets', () => {
+  assert.deepEqual(selectTargets(manifest, 'pr'), selectTargets(manifest, 'full'));
+  assert.equal(selectTargets(manifest, 'pr').length, 6);
 });
 
 test('unknown tiers are rejected', () => {
   assert.throws(() => selectTargets(manifest, 'nightly'), new Error('Unknown tier: nightly'));
 });
 
-test('invalid PR target assignments and non-boolean prCheck values are rejected', () => {
-  const unexpectedTarget = {
+test('a manifest without PR targets for every OS is rejected', () => {
+  const missingMacosTargets = {
     ...manifest,
-    targets: manifest.targets.map((target) =>
-      target.os === 'macos' && target.cpu === 'x64' ? { ...target, prCheck: true } : target,
-    ),
+    targets: manifest.targets.map((target) => {
+      if (target.os !== 'macos') return target;
+      const withoutPrCheck = { ...target };
+      delete withoutPrCheck.prCheck;
+      return withoutPrCheck;
+    }),
   };
-  assert.throws(() => buildManifest(unexpectedTarget), /Expected PR targets/);
+  assert.throws(
+    () => buildManifest(missingMacosTargets),
+    new Error('Expected a PR target for each OS: linux, windows, macos'),
+  );
+});
 
+test('non-boolean prCheck values are rejected', () => {
   const nonBoolean = {
     ...manifest,
     targets: manifest.targets.map((target) => ({

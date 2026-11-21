@@ -1,6 +1,6 @@
 name: Quality
 # Tiers (see release-packaging/quality/README.md):
-#   pull_request            3 native targets (one per OS), static checks, Windows UI smoke only when GUI code changed.
+#   pull_request            the native targets marked prCheck in targets.json (all six), static checks, Windows UI smoke only when GUI code changed.
 #   push to main / 0.0.1    the pull request set plus the full UI smoke, coverage and duplication report; saves caches.
 #   schedule / manual full  all six native targets, UI smoke with the treemap repeat, coverage and duplication report.
 on:
@@ -17,6 +17,10 @@ on:
         description: Run all six native targets and the UI smoke repeat
         type: boolean
         default: true
+      save_cache:
+        description: Save the Rust and apt caches of this run (to warm or measure a branch; only that branch can read them)
+        type: boolean
+        default: false
 permissions:
   contents: read
 # A newer push to the same pull request or branch replaces the older run, so only the latest commit
@@ -32,9 +36,9 @@ env:
   CARGO_NET_RETRY: "10"
   RUSTUP_MAX_RETRIES: "10"
   RUST_BACKTRACE: short
-  # Caches are saved only by pushes to the default branch and by the scheduled run. Pull requests and
-  # other manual runs restore caches and never write them.
-  CACHE_SAVE: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+  # Caches are saved only by pushes to the default branch, by the scheduled run and by a manual run
+  # with save_cache=true. Pull requests and other manual runs restore caches and never write them.
+  CACHE_SAVE: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'workflow_dispatch' && inputs.save_cache) }}
   # One package list for every Linux job keeps a single apt cache per CPU architecture.
   LINUX_PACKAGES: libgtk-4-dev libwebkitgtk-6.0-dev pkg-config xvfb openbox xdotool dbus-x11 btrfs-progs
 jobs:
