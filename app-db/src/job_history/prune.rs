@@ -21,6 +21,9 @@ const JOB_ID_TABLES: &[&str] = &[
     "job_runtime_approval_check",
 ];
 
+/// F28 retains approval rows without a live job-history link for a fixed 90 days.
+const UNLINKED_APPROVAL_RETENTION_DAYS: u32 = 90;
+
 impl AppDb {
     /// Reads one keyset page of expired jobs and their attached row counts.
     pub fn read_history_prune_candidates(
@@ -101,6 +104,7 @@ impl AppDb {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_delete_error)?;
         let cutoff_ms = cutoff(days, reference_ms);
+        let unlinked_approval_cutoff_ms = cutoff(UNLINKED_APPROVAL_RETENTION_DAYS, reference_ms);
         let mut eligible = Vec::new();
         for candidate in candidates {
             let bytes = candidate
@@ -142,18 +146,32 @@ impl AppDb {
             }
         }
 
-        let has_expired_unattached_approval_check: bool = tx
+        let has_expired_unlinked_approval_check: bool = tx
             .query_row(
                 "SELECT EXISTS (
-                    SELECT 1 FROM job_runtime_approval_check
-                    WHERE job_id IS NULL AND created_at_ms <= ?1
+                    SELECT 1
+                    FROM job_runtime_approval_check AS approval
+                    WHERE approval.created_at_ms <= ?1
+                      AND (
+                          approval.job_id IS NULL
+                          OR (
+                              NOT EXISTS (
+                                  SELECT 1 FROM job_runtime_job_record AS record
+                                  WHERE record.job_id = approval.job_id
+                              )
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM job_runtime_job_interrupt AS interrupted
+                                  WHERE interrupted.job_id = approval.job_id
+                              )
+                          )
+                      )
                 )",
-                [cutoff_ms],
+                [unlinked_approval_cutoff_ms],
                 |row| row.get(0),
             )
             .map_err(map_delete_error)?;
 
-        if eligible.is_empty() && !has_expired_unattached_approval_check {
+        if eligible.is_empty() && !has_expired_unlinked_approval_check {
             let revision = read_revision(&tx).map_err(map_delete_error)?;
             tx.commit().map_err(map_delete_error)?;
             return Ok(HistoryPruneDeleteReceipt {
@@ -204,16 +222,29 @@ impl AppDb {
             }
         }
 
-        let deleted_unattached = tx
+        let deleted_unlinked_approvals = tx
             .execute(
-                "DELETE FROM job_runtime_approval_check
-                 WHERE job_id IS NULL AND created_at_ms <= ?1",
-                [cutoff_ms],
+                "DELETE FROM job_runtime_approval_check AS approval
+                 WHERE approval.created_at_ms <= ?1
+                   AND (
+                       approval.job_id IS NULL
+                       OR (
+                           NOT EXISTS (
+                               SELECT 1 FROM job_runtime_job_record AS record
+                               WHERE record.job_id = approval.job_id
+                           )
+                           AND NOT EXISTS (
+                               SELECT 1 FROM job_runtime_job_interrupt AS interrupted
+                               WHERE interrupted.job_id = approval.job_id
+                           )
+                       )
+                   )",
+                [unlinked_approval_cutoff_ms],
             )
             .map_err(map_delete_error)?;
         deleted_row_count = deleted_row_count
             .checked_add(
-                u64::try_from(deleted_unattached)
+                u64::try_from(deleted_unlinked_approvals)
                     .map_err(|_| HistoryPruneDeleteError::Unavailable)?,
             )
             .ok_or(HistoryPruneDeleteError::Unavailable)?;
