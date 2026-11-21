@@ -130,6 +130,49 @@ fn invalid_items_do_not_write_or_make_the_context_continue_impossible()
     Ok(())
 }
 
+/// An older number is a duplicate even with identical content; only the latest one is idempotent.
+/// Invalid data is rejected before the number is judged.
+#[test]
+fn older_numbers_are_duplicates_and_invalid_data_is_judged_before_the_number()
+-> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(ItemHistoryStore::default());
+    let runtime = make_runtime(store.clone())?;
+    runtime.register(descriptor(HistoryMode::PerItem))?;
+
+    let mut invalid_old = item(0);
+    invalid_old.item_ref = Vec::new();
+    let mut invalid_ahead = item(9);
+    invalid_ahead.item_ref = Vec::new();
+    let (body, results) = scripted_body(
+        vec![
+            item(0),
+            item(1),
+            item(0),
+            invalid_old,
+            invalid_ahead,
+            item(1),
+        ],
+        None,
+    );
+    runtime.submit(submission(body)?)?;
+    runtime.run_next()?;
+    runtime.flush()?;
+
+    assert_eq!(
+        *results.lock().map_err(|_| "results lock")?,
+        [
+            Ok(()),
+            Ok(()),
+            Err(ItemHistoryError::Duplicate),
+            Err(ItemHistoryError::Invalid),
+            Err(ItemHistoryError::Invalid),
+            Ok(())
+        ]
+    );
+    assert_eq!(store.items.lock().map_err(|_| "item lock")?.len(), 2);
+    Ok(())
+}
+
 #[test]
 fn identical_latest_item_resend_is_idempotent_and_conflicts_are_rejected()
 -> Result<(), Box<dyn std::error::Error>> {
