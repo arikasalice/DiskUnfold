@@ -9,7 +9,8 @@ permissions:
 
 jobs:
   check-author:
-    runs-on: ubuntu-latest
+    # The job only calls the GitHub API with curl, so the one-vCPU runner is enough.
+    runs-on: ubuntu-slim
     steps:
       - name: Close pull requests from non-collaborators
         env:
@@ -18,6 +19,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           if [[ "$AUTHOR_ASSOCIATION" != "OWNER" && "$AUTHOR_ASSOCIATION" != "COLLABORATOR" ]]; then
-            gh pr close "$PR_NUMBER" --repo "$REPO" --comment "Pull requests to this repository are currently restricted to authorized collaborators only."
+            api="$GITHUB_API_URL/repos/$REPO"
+            auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+            curl -fsS -X POST "${auth[@]}" "$api/issues/$PR_NUMBER/comments" \
+              -d '{"body":"Pull requests to this repository are currently restricted to authorized collaborators only."}' > /dev/null
+            curl -fsS -X PATCH "${auth[@]}" "$api/pulls/$PR_NUMBER" -d '{"state":"closed"}' > /dev/null
           fi
