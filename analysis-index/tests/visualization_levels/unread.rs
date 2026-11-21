@@ -18,9 +18,10 @@ fn an_unread_entry_leaves_a_lower_bound_and_the_gap_reason_in_the_summary() {
         &["locked"],
     );
     let model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
-    // The unread entry has no value and no area; the rest is drawn by its own values.
+    // The unread entry is at least zero bytes (#341), so it has no area and is not an
+    // unknown item; the rest is drawn by its own values.
     assert_eq!(model.shapes.len(), 2);
-    assert_eq!(model.detail.unknown_items, 1);
+    assert_eq!(model.detail.unknown_items, 0);
     assert_eq!(model.detail.reason_keys, ["scan.path_denied"]);
     // The unread entry is directly under the scope, so the scope is a lower bound.
     assert!(is_lower_bound(&model.totals.scope));

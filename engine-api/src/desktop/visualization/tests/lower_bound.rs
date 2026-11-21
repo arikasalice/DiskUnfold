@@ -257,9 +257,10 @@ fn a_scope_with_an_unread_entry_is_a_model_with_the_gap_reason_and_the_state_of_
     let answer = render_in(&harness, &view, 1, 0)?;
     let model = &answer["model"];
     assert_eq!(model["shapes"].as_array().map(Vec::len), Some(2));
-    // The reason is the range's own key; the unread entry has no area and is counted.
+    // The reason is the range's own key; the unread entry is at least zero bytes (#341),
+    // so it has no area and is not an unknown item.
     assert_eq!(model["summary"]["reasonKeys"], json!(["scan.path_denied"]));
-    assert_eq!(count(model, "unknownItems")?, 1);
+    assert_eq!(count(model, "unknownItems")?, 0);
     // The unread entry is directly under the scope, so the scope is a lower bound.
     assert_eq!(total(model, "scope")?, ("lower_bound".into(), 150));
     assert_within_scope(model)?;
