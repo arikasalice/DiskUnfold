@@ -38,7 +38,7 @@ fn a_folder_row_reads_and_writes_its_slices() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn slices_are_refused_when_null_repeated_unknown_or_not_on_a_folder_item_row() {
+fn slices_are_refused_when_null_repeated_unknown_or_on_an_item_row_that_is_not_a_folder() {
     let unknown = json!({"classKey":"type.video","itemCount":{"unit":"items","state":"exact","value":"1"},"total":{"unit":"bytes","state":"unknown","reasonKey":"space.data_insufficient"}});
     let in_count = json!({"classKey":"type.video","itemCount":{"unit":"bytes","state":"exact","value":"1"},"total":{"unit":"bytes","state":"exact","value":"1"}});
     for bad in [
@@ -67,6 +67,11 @@ fn slices_are_refused_when_null_repeated_unknown_or_not_on_a_folder_item_row() {
     group["itemRef"] = Value::Null;
     group["groupRef"] = json!("g1");
     group.as_object_mut().map(|row| row.remove("itemKind"));
+    // The Other group carries its members' slices (README 54.2); another group does not.
+    let mut other_group = group.clone();
+    other_group["labelKey"] = json!("ui.visualization.group.other");
+    other_group["displayName"] = json!("ui.visualization.group.other");
+    assert!(serde_json::from_value::<VizRow>(other_group).is_ok());
     for bad in [file, unknown_kind, group] {
         assert!(
             serde_json::from_value::<VizRow>(bad.clone()).is_err(),

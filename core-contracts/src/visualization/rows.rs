@@ -11,6 +11,8 @@ use crate::{
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
 
+mod slices;
+
 /// Maximum rows in one positional visualization page.
 pub const MAX_PAGE_COUNT: u32 = 1000;
 
@@ -116,10 +118,11 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub unread: Option<VizUnread>,
-    /// The folder's files by legend class (F06 README 54): item rows of folders under
-    /// the type color criterion, unfiltered, in a real scan. Omitted where it does not
-    /// apply, including a folder whose own listing failed; empty when every file was
-    /// counted and there is none. See [`VizTypeSlice`].
+    /// The files by legend class (F06 README 54) of a folder row, or of the Other
+    /// group row by its members together, under the type color criterion, unfiltered,
+    /// in a real scan. Omitted where it does not apply, including a folder whose own
+    /// listing failed; empty when every file was counted and there is none. See
+    /// [`VizTypeSlice`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub type_slices: Option<Vec<VizTypeSlice>>,
@@ -194,13 +197,7 @@ impl VizRow {
         if self.unread.is_some() && self.item_ref.is_none() {
             return Err("unread state on a group row");
         }
-        if let Some(slices) = &self.type_slices {
-            if self.item_ref.is_none() || self.item_kind != Some(VizItemKind::Folder) {
-                return Err("type slices on a row that is not a folder");
-            }
-            VizTypeSlice::validate_list(slices)?;
-        }
-        Ok(())
+        self.validate_type_slices()
     }
     /// Checks the item revision only; group membership requires the pinned model.
     pub fn validate_revision(&self, revision: &Id) -> Result<(), &'static str> {

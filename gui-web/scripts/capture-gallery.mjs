@@ -715,7 +715,12 @@ async function open(
     }
   } else {
     const expected =
-      surface === "browse" && scene === "scan-status" ? 6 : count;
+      surface === "browse" && scene === "scan-status"
+        ? 6
+        : // The bars add the Other group's slices to the three folders'.
+          surface === "type-slices" && scene === "bar"
+          ? 4
+          : count;
     if ((await session.run(drawn, ready, expected)) !== expected)
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),

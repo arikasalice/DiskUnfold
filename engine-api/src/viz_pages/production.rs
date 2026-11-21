@@ -52,6 +52,9 @@ pub struct OtherPresentation {
     pub legend_class_key: String,
     /// Display flags supplied by their owner.
     pub display_flags: Vec<String>,
+    /// The group carries its members' type slices (F06 README 54.2): set by the
+    /// presentation owner under the type criterion when nothing narrows the model.
+    pub type_slices: bool,
 }
 
 /// Assembly refuses inputs when required source or presentation evidence is unavailable.

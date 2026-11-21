@@ -45,6 +45,31 @@ pub(crate) fn folder_slices(
         Err(type_legend::TotalsError::Cancelled) => return Err(SlicesError::Cancelled),
         Err(type_legend::TotalsError::InvalidScope) => return Err(SlicesError::Invalid),
     };
+    to_slices(types).map(Some)
+}
+
+/// The slices of the Other group of `members` (README 54.2), when `enabled`: the
+/// presentation owner turns them on under the type criterion without a filter. Its
+/// row and its shape take them from here.
+pub(crate) fn group_slices(
+    version: &ResultVersion,
+    members: &[ItemRef],
+    basis: &SizeBasis,
+    enabled: bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<VizTypeSlice>>, SlicesError> {
+    if !enabled {
+        return Ok(None);
+    }
+    match folder_types::group_types(version, members, basis, cancelled) {
+        Ok(Some(types)) => to_slices(types).map(Some),
+        Ok(None) => Ok(None),
+        Err(type_legend::TotalsError::Cancelled) => Err(SlicesError::Cancelled),
+        Err(type_legend::TotalsError::InvalidScope) => Err(SlicesError::Invalid),
+    }
+}
+
+fn to_slices(types: folder_types::FolderTypes) -> Result<Vec<VizTypeSlice>, SlicesError> {
     let lower = types.below_unread;
     types
         .classes
@@ -67,5 +92,4 @@ pub(crate) fn folder_slices(
             })
         })
         .collect::<Result<Vec<_>, _>>()
-        .map(Some)
 }
