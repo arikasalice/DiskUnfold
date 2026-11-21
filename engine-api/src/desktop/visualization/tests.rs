@@ -10,6 +10,7 @@ mod support;
 mod totals;
 mod type_filter;
 mod type_legend;
+mod unread_folders;
 
 use std::sync::{Arc, atomic::Ordering};
 

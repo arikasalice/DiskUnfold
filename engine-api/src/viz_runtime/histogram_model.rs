@@ -183,6 +183,8 @@ pub(super) fn build(
             reason_keys: vec![],
             unknown_size: None,
             first_unknown_row: None,
+            unread_folders: None,
+            first_unread_row: None,
         },
         strategy: QueryStrategy {
             id: admitted.descriptor.strategy.id.clone(),

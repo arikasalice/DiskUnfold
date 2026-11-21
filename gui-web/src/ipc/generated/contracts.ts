@@ -965,7 +965,20 @@ unknownSize?: VizQuantity,
  * first row without a provable area, or else of the first expanded folder whose
  * level has one. Treemap only; omitted when no table row is such a row.
  */
-firstUnknownRow?: number, };
+firstUnknownRow?: number,
+/**
+ * Folders below the model's scope whose listing failed (F06 README 48, #346): a
+ * recorded scan gap, or a folder a cancellation or disconnection left unread. Exact
+ * from the recorded gaps; a lower bound while the scan runs or when such marks make
+ * the count incomplete. Omitted when there are none, never an exact zero. These
+ * folders are not in `unknownItems`.
+ */
+unreadFolders?: VizQuantity,
+/**
+ * Position in the navigation root's table of the first row that is such a folder
+ * or holds one. Omitted with `unreadFolders`, or when no table row holds one.
+ */
+firstUnreadRow?: number, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
@@ -1048,7 +1061,18 @@ itemKind?: VizItemKind,
  * the size basis has no size predicate (unique physical size). Omitted rather
  * than null.
  */
-condition?: QueryCondition, };
+condition?: QueryCondition,
+/**
+ * Whether this folder could not be read (F06 README 53): item rows of folders
+ * only. See [`VizUnread`].
+ */
+unread?: VizUnread, };
+export type VizUnread = { "kind": "itself" } | { "kind": "inside",
+/**
+ * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
+ * when a cancellation or disconnection left folders below it uncounted.
+ */
+count?: string, } | { "kind": "unknown" };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.

@@ -60,7 +60,7 @@ use du_core_contracts::visualization::request::{
 use du_core_contracts::visualization::response::{VizRenderModelResponse, VizRenderResponse};
 use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow,
-    VizRows, VizRowsRequest, VizSizeRange,
+    VizRows, VizRowsRequest, VizSizeRange, VizUnread,
 };
 use du_core_contracts::volume_gap_ipc::*;
 use du_core_contracts::*;
@@ -247,6 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRatio::decl(&config),
         VizDenominator::decl(&config),
         VizRow::decl(&config),
+        VizUnread::decl(&config),
         VizRowsRequest::decl(&config),
         VizGroupRowsRequest::decl(&config),
         VizSizeRange::decl(&config),
