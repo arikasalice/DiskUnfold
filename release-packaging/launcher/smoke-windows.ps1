@@ -2481,7 +2481,12 @@ function Test-CaptureHistory {
   }
   "F21 #361 job center over history: retention panel closed, panel below the header"
   Send-SmokeKey 0x1B
-  $null = Wait-UI 'job center closed' { -not (Find-UI (Get-UiName 'View all task history') $button) }
+  # The closed panel stays in the tree (hidden); Escape returns focus to the Tasks entry instead.
+  $null = Wait-UI 'job center Escape focus restoration' {
+    $focused = $ae::FocusedElement
+    $taskName = Get-UiName 'Tasks'
+    if ($focused -and ($focused.Current.Name -eq $taskName -or $focused.Current.Name.StartsWith($taskName + ', '))) { $focused }
+  }
   $filterDisclosure = Wait-UI 'date and type filters disclosure' {
     $item = Find-UI 'Date and type filters' $button
     if ($item -and $item.Current.IsEnabled) { $item }
