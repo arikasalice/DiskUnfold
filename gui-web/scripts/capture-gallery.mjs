@@ -390,6 +390,14 @@ const defaultGalleryShots =
                           hover: "동영상",
                         },
                         {
+                          name: "08-bars-preview-video-forced-colors-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "bar",
+                          hover: "동영상",
+                          forcedColors: "active",
+                        },
+                        {
                           name: "03-treemap-light-1280",
                           theme: "light",
                           width: 1280,
