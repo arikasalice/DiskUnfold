@@ -10,7 +10,7 @@ import {
   RegionalFormatContext,
 } from "../src/i18n/regional-format";
 import type { RegionalFormat } from "../src/i18n/regional-format";
-import { koreanText } from "./result-summary-fixture";
+import { englishText, koreanText } from "./result-summary-fixture";
 import "../src/theme/analysis-results.css";
 import {
   oneScanLaneStatus,
@@ -31,18 +31,6 @@ const regional: RegionalFormat = {
   timeZonePolicy: "utc",
   localTimeZoneStatus: "identified",
 };
-const laneText: LocaleText = (key, fallback, values) =>
-  koreanText(
-    key,
-    fallback,
-    Object.fromEntries(
-      Object.entries(values ?? {}).map(([name, value]) => [
-        name,
-        typeof value === "bigint" ? displayInteger(value, regional) : value,
-      ]),
-    ),
-  );
-
 const progress: AnalysisJobProgress = {
   sequence: 27,
   completed: 427,
@@ -56,17 +44,42 @@ const progress: AnalysisJobProgress = {
 export function ScanLanesPreview() {
   const params = new URLSearchParams(window.location.search);
   const scene = params.get("scene") ?? "main";
+  const locale = params.get("locale") === "en" ? "en" : "ko";
+  const localeText = locale === "en" ? englishText : koreanText;
+  const laneText: LocaleText = (key, fallback, values) =>
+    localeText(
+      key,
+      fallback,
+      Object.fromEntries(
+        Object.entries(values ?? {}).map(([name, value]) => [
+          name,
+          typeof value === "bigint" ? displayInteger(value, regional) : value,
+        ]),
+      ),
+    );
   const versionSummary = useRef<HTMLDivElement>(null);
   if (scene.startsWith("scope-"))
     return (
       <CollectionConditionsPreview scene={scene as CollectionPreviewScene} />
     );
   const oneLane = scene === "one-lane";
-  const resourceScene = scene === "progress";
+  const resourceScene =
+    scene === "progress" || scene === "progress-limit-error";
+  const errorScene = scene === "progress-limit-error";
   const scan = {
     status: { jobRef: "preview-scan", state: "running" },
     progress,
-    laneStatus: oneLane ? oneScanLaneStatus : scanLaneStatus,
+    laneStatus: oneLane
+      ? oneScanLaneStatus
+      : errorScene
+        ? {
+            ...scanLaneStatus,
+            lanes: scanLaneStatus.lanes.map((lane) => ({
+              ...lane,
+              permit: 16,
+            })),
+          }
+        : scanLaneStatus,
   } as ReturnType<typeof useScanResult>;
   const client = {
     call: (async (name: string) => {

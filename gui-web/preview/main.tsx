@@ -7,5 +7,8 @@ import "./gallery.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing preview root");
-document.documentElement.lang = "ko";
+document.documentElement.lang =
+  new URLSearchParams(window.location.search).get("locale") === "en"
+    ? "en"
+    : "ko";
 createRoot(root).render(<Gallery />);

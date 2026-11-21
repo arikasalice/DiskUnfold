@@ -20,7 +20,7 @@
 //   npm run capture:date-picker-gallery -- [output folder]
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
-//            scope-error-unknown | progress
+//            scope-error-unknown | progress | progress-limit-error
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -61,6 +61,7 @@ const scanLaneScenes = [
   "scope-error-known",
   "scope-error-unknown",
   "progress",
+  "progress-limit-error",
 ];
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
 const requestedScanLaneScene =
@@ -238,7 +239,25 @@ const galleryShots =
                   { name: "dark-1280", theme: "dark", width: 1280 },
                   { name: "light-700", theme: "light", width: 700 },
                 ];
-const shots = galleryShots;
+const shots =
+  surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
+    ? [
+        {
+          name: "progress-limit-error-light-1280",
+          theme: "light",
+          width: 1280,
+          height: 720,
+          locale: "ko",
+        },
+        {
+          name: "progress-limit-error-light-1280",
+          theme: "light",
+          width: 1280,
+          height: 720,
+          locale: "en",
+        },
+      ]
+    : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -402,6 +421,7 @@ async function open(
   query = "",
   forcedColors = "none",
   viewportHeight = height,
+  locale = "ko",
 ) {
   await session.send("Emulation.setDeviceMetricsOverride", {
     width,
@@ -424,6 +444,7 @@ async function open(
       "&theme=" +
       theme +
       (scene ? "&scene=" + scene : "") +
+      (locale === "en" ? "&locale=en" : "") +
       query,
   });
   await loaded;
@@ -523,7 +544,7 @@ async function save(session, name, viewport = false, scene) {
 }
 
 /** Captures only the product progress header, without gallery controls. */
-async function saveLanes(session, name) {
+async function saveLanes(session, name, locale = "ko") {
   const clip = await session.run(function headerClip() {
     const element = document.querySelector(
       ".du-scan-lanes-preview .du-result__header",
@@ -543,7 +564,10 @@ async function saveLanes(session, name) {
     captureBeyondViewport: true,
     clip: { ...clip, scale: 1 },
   });
-  const file = join(output, "gallery-scan-lanes-browser-ko-" + name + ".png");
+  const file = join(
+    output,
+    "gallery-scan-lanes-browser-" + locale + "-" + name + ".png",
+  );
   await writeFile(file, Buffer.from(data, "base64"));
   console.log(file);
 }
@@ -571,6 +595,7 @@ try {
         "",
         shot.forcedColors,
         shot.height ?? height,
+        shot.locale ?? "ko",
       );
       if (surface === "scan-lanes" && scene?.startsWith("scope-"))
         await save(session, shot.name, true, scene);
@@ -593,6 +618,86 @@ try {
             "The resource change is not waiting on the current folder",
           );
         await saveLanes(session, shot.name);
+      } else if (surface === "scan-lanes" && scene === "progress-limit-error") {
+        const expanded = await session.run(function expandLimit() {
+          const button = document.querySelector(
+            ".du-resource-limit__heading button",
+          );
+          if (!(button instanceof HTMLElement)) return false;
+          button.click();
+          return true;
+        });
+        if (!expanded) throw new Error("The limit disclosure was not found");
+        if (
+          (await session.run(
+            drawn,
+            ".du-resource-limit__heading button[aria-expanded='true']",
+            1,
+          )) < 1
+        )
+          throw new Error("The limit disclosure did not expand");
+        if (
+          (await session.run(
+            drawn,
+            ".du-scan-resource-control .du-resource-limit__field input",
+            1,
+          )) < 1
+        )
+          throw new Error("The collection limit field did not open");
+        const entered = await session.run(function enterLimitError() {
+          const input = document.querySelector(
+            ".du-scan-resource-control .du-resource-limit__field input",
+          );
+          if (!(input instanceof HTMLInputElement)) return false;
+          const setValue = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          setValue?.call(input, "99");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.value === "99";
+        });
+        if (!entered) throw new Error("The invalid limit was not entered");
+        if (
+          (await session.run(
+            drawn,
+            ".du-scan-resource-control [slot='errorMessage']",
+            1,
+          )) < 1
+        )
+          throw new Error("The 1 to 16 limit error was not shown");
+        const layout = await session.run(function checkLimitErrorLayout() {
+          const lineCount = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return 0;
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return range.getClientRects().length;
+          };
+          const input = document.querySelector(
+            ".du-scan-resource-control .du-resource-limit__field input",
+          );
+          return {
+            inputWidth: input?.getBoundingClientRect().width ?? 0,
+            errorLines: lineCount(
+              ".du-scan-resource-control [slot='errorMessage']",
+            ),
+            previousLines: lineCount(
+              ".du-scan-resource-control .du-resource-limit__previous",
+            ),
+          };
+        });
+        if (
+          layout.inputWidth > 144 ||
+          layout.inputWidth < 100 ||
+          layout.errorLines !== 1 ||
+          layout.previousLines !== 1
+        )
+          throw new Error(
+            "Unexpected limit error layout: " + JSON.stringify(layout),
+          );
+        await saveLanes(session, shot.name, shot.locale);
       } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
       else if (surface === "job-center") await save(session, shot.name, true);
       else await save(session, shot.name, false, scene);

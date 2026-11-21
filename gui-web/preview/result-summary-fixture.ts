@@ -10,6 +10,7 @@ import type {
   VolumeGapResponse,
 } from "../src/ipc";
 import korean from "../../user-env/i18n/ko.json";
+import english from "../../user-env/i18n/en.json";
 
 /*
  * Synthetic data for the result summary of the analysis screen. The product
@@ -19,23 +20,27 @@ import korean from "../../user-env/i18n/ko.json";
 
 type Message = string | { kind: "plural"; variants: { other: string } };
 
-const messages = new Map(
-  ((korean as unknown[]).find(Array.isArray) as [string, Message][]).map(
-    ([key, message]) => [key, message],
-  ),
-);
+function bundleText(bundle: unknown[]): LocaleText {
+  const messages = new Map(
+    ((bundle.find(Array.isArray) as [string, Message][] | undefined) ?? []).map(
+      ([key, message]) => [key, message],
+    ),
+  );
+  return (key, fallback, values) => {
+    const message = messages.get(key);
+    const template =
+      message === undefined
+        ? fallback
+        : typeof message === "string"
+          ? message
+          : message.variants.other;
+    return interpolate(template, (name) => String(values?.[name] ?? ""));
+  };
+}
 
-/** Texts of the Korean bundle the product ships; Korean has one plural form. */
-export const koreanText: LocaleText = (key, fallback, values) => {
-  const message = messages.get(key);
-  const template =
-    message === undefined
-      ? fallback
-      : typeof message === "string"
-        ? message
-        : message.variants.other;
-  return interpolate(template, (name) => String(values?.[name] ?? ""));
-};
+/** Texts from the shipped Korean and English bundles for gallery previews. */
+export const koreanText = bundleText(korean as unknown[]);
+export const englishText = bundleText(english as unknown[]);
 
 const version = "preview-result";
 const observedAt = "2026-11-15T09:00:00.000Z";

@@ -86,8 +86,19 @@
 }
 
 .du-resource-limit__field {
-  max-inline-size: 7.5rem;
+  inline-size: min(18rem, 100%);
+  max-inline-size: 100%;
   min-inline-size: 0;
+}
+
+.du-resource-limit__field .du-field > label,
+.du-resource-limit__field .du-field > input {
+  inline-size: 7.5rem;
+}
+
+.du-resource-limit__field .du-field [slot="errorMessage"],
+.du-resource-limit__previous {
+  inline-size: 100%;
 }
 
 .du-resource-limit__field .du-field[data-invalid] input {
@@ -105,7 +116,7 @@
   gap: 2px;
   min-inline-size: 0;
   max-inline-size: 100%;
-  inline-size: max-content;
+  inline-size: 18rem;
   flex: 0 1 auto;
 }
 
@@ -123,12 +134,31 @@
 
 .du-scan-resource-control .du-resource-limit {
   justify-items: end;
-  inline-size: max-content;
+  inline-size: 100%;
   max-inline-size: 100%;
 }
 
 .du-scan-resource-control .du-resource-limit__field {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+
+.du-scan-resource-control .du-resource-limit__field .du-field {
+  justify-items: end;
+}
+
+.du-scan-resource-control .du-resource-limit__field .du-field > label,
+.du-scan-resource-control .du-resource-limit__field .du-field > input {
   inline-size: 7.5rem;
+}
+
+.du-scan-resource-control
+  .du-resource-limit__field
+  .du-field
+  [slot="errorMessage"],
+.du-scan-resource-control .du-resource-limit__previous {
+  inline-size: 100%;
+  text-align: end;
 }
 
 .du-scan-resource-control__feedback {
