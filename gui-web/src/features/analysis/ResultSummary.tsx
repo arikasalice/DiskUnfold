@@ -30,6 +30,7 @@ import type { VolumePart } from "./summary-batch";
 import { useSizeWait } from "./awaited-sizes";
 import {
   awaitedSize,
+  ALLOCATED_MAY_INCLUDE_SHARED,
   displayAwaitedSize,
   displayMeasurement,
   displayMeasurementLimit,
@@ -124,13 +125,17 @@ function scopeRows(
 
 function commonMeasurementLimits(sizes: SpaceTotal["sizes"]) {
   if (sizes.length < 2) return [];
-  const first = sizes[0]!.measurementLimits;
+  const withoutSharedLimit = (limits: readonly string[]) =>
+    limits.filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED);
+  const first = withoutSharedLimit(sizes[0]!.measurementLimits);
   if (first.length === 0) return [];
-  return sizes.every(
-    ({ measurementLimits }) =>
-      measurementLimits.length === first.length &&
-      measurementLimits.every((key) => first.includes(key)),
-  )
+  return sizes.every(({ measurementLimits }) => {
+    const visible = withoutSharedLimit(measurementLimits);
+    return (
+      visible.length === first.length &&
+      visible.every((key) => first.includes(key))
+    );
+  })
     ? first
     : [];
 }
@@ -213,6 +218,10 @@ export function PinnedResult({
   const leadWait =
     lead && awaitedSize(lead.size, lead.measurementLimits, sizeWait);
   const leadAwaited = leadWait && displayAwaitedSize(leadWait, text);
+  const leadMayIncludeShared =
+    leadAwaited === undefined &&
+    lead?.size.basis === "allocated" &&
+    lead.measurementLimits.includes(ALLOCATED_MAY_INCLUDE_SHARED);
   // Limits that every shown size row has in common are said once (#214).
   const shown = total.sizes.filter(
     ({ size, measurementLimits }) =>
@@ -244,34 +253,64 @@ export function PinnedResult({
           )}
         </Metric>
       </div>
+      {leadMayIncludeShared && (
+        <Notice tone="info">
+          {displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)}
+        </Notice>
+      )}
       <Coverage total={total} />
       <DetailDisclosure title={measurements}>
         <Readout
           label={measurements}
-          rows={total.sizes.map(({ size, completeness, measurementLimits }) => {
+          rows={total.sizes.flatMap<{
+            label: string;
+            value: ReactNode;
+            pending?: boolean;
+            notes?: readonly string[];
+          }>(({ size, completeness, measurementLimits }) => {
             const waited = awaitedSize(size, measurementLimits, sizeWait);
             // An awaited size shows no measurement and none of its limits;
             // what it waits for is said once, below the lead value.
             if (waited) {
-              return {
-                label: basisLabels[size.basis],
-                value: displayAwaitedSize(waited, text).value,
-                pending: true,
-              };
+              return [
+                {
+                  label: basisLabels[size.basis],
+                  value: displayAwaitedSize(waited, text).value,
+                  pending: true,
+                },
+              ];
             }
             const value = displaySize(size, display, text);
             const raw = displayRawSize(size, regional, text);
-            return {
+            const row = {
               label: basisLabels[size.basis],
               value: <Unbroken>{value}</Unbroken>,
               notes: [
                 ...(raw && raw !== value ? [raw] : []),
                 displayMeasurement(size, completeness, text),
-                ...(sharedLimits.length > 0 ? [] : measurementLimits).map(
-                  (key) => displayMeasurementLimit(key, text),
-                ),
+                ...(sharedLimits.length > 0 ? [] : measurementLimits)
+                  .filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED)
+                  .map((key) => displayMeasurementLimit(key, text)),
               ],
             };
+            if (
+              size.basis !== "allocated" ||
+              !measurementLimits.includes(ALLOCATED_MAY_INCLUDE_SHARED)
+            )
+              return [row];
+            return [
+              row,
+              {
+                label: text("ui.analysis.space_shared", "Shared space"),
+                value: text(
+                  "ui.analysis.shared_space_counted_per_file",
+                  "Counted per file",
+                ),
+                notes: [
+                  displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text),
+                ],
+              },
+            ];
           })}
         />
         {sharedLimits.length > 0 && (

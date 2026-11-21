@@ -12,15 +12,17 @@ import type { LocaleText } from "../src/i18n/presentation";
 import { RegionalFormatContext } from "../src/i18n/regional-format";
 import { CopyPath } from "../src/features/analysis/CopyPath";
 import { ItemSpaceDetails } from "../src/features/analysis/ItemSpaceDetails";
+import { PinnedResult } from "../src/features/analysis/ResultSummary";
 import { formatDate } from "../src/features/analysis/RecentScopeDisplay";
 import { RecentScopePicker } from "../src/features/analysis/RecentScopePicker";
-import { AnalysisError, createAnalysisClient } from "../src/ipc";
+import { AnalysisError, createAnalysisClient, unixPath } from "../src/ipc";
 import type {
   CallEnvelope,
   ItemRef,
   ResultEnvelope,
   SpaceDetail,
   SpaceDetailSize,
+  SpaceTotal,
 } from "../src/ipc";
 
 afterEach(cleanup);
@@ -46,6 +48,10 @@ const translations: Record<string, string> = {
   "ui.analysis.space_measurement_details": "공간 측정 세부 정보",
   "ui.analysis.observed_item_space": "관찰한 항목 공간",
   "ui.analysis.space_observed_logical": "관찰된 논리 크기",
+  "ui.analysis.space_shared": "공유 공간",
+  "ui.analysis.shared_space_counted_per_file": "파일마다 셈",
+  "ui.analysis.allocated_may_include_shared":
+    "복제된 파일이 같은 공간을 나눠 써서 실제 디스크 사용량보다 크게 보일 수 있습니다.",
   "ui.analysis.evidence_measured": "측정됨",
 };
 
@@ -201,10 +207,186 @@ test("item space details localize labels and show no capability codes", async ()
   expect(screen.getByLabelText("관찰한 항목 공간")).toBeTruthy();
   expect(screen.getByText("관찰된 논리 크기")).toBeTruthy();
   expect(screen.getByText("1 KiB · 1.024 bytes · 측정됨")).toBeTruthy();
+  expect(screen.getByText("공유 공간").nextElementSibling?.textContent).toBe(
+    "Not applicable",
+  );
+  expect(
+    screen.queryByText(
+      "복제된 파일이 같은 공간을 나눠 써서 실제 디스크 사용량보다 크게 보일 수 있습니다.",
+    ),
+  ).toBeNull();
   // No capability has a name yet: it reads as unknown, without its code.
   expect(screen.getByText("Unknown")).toBeTruthy();
   expect(screen.queryByText(/sparse_files|supported/)).toBeNull();
   expect(screen.getByText("2026.11.10 00:00:00Z")).toBeTruthy();
+});
+
+function summaryTotal(sharedLimit: boolean): SpaceTotal {
+  return {
+    resultVersion: "result-a",
+    requestSeq: 1,
+    completeness: "missing",
+    sizes: [
+      {
+        size: {
+          basis: "logical",
+          evidence: "os_reported",
+          state: "lower_bound",
+          bytes: "1100",
+        },
+        completeness: "missing",
+        measurementLimits: [],
+      },
+      {
+        size: {
+          basis: "allocated",
+          evidence: "os_reported",
+          state: "lower_bound",
+          bytes: "2200",
+        },
+        completeness: "missing",
+        measurementLimits: sharedLimit
+          ? ["space.allocated_may_include_shared"]
+          : [],
+      },
+    ],
+    missingItems: "0",
+    inaccessibleRanges: "0",
+    untraversedLinks: "0",
+  };
+}
+
+function renderSummary(
+  total: SpaceTotal,
+  basis: "allocated" | "logical",
+  wait?: "running" | "paused",
+) {
+  const client = createAnalysisClient(async () => {
+    throw new Error("Unexpected request in the pinned result summary");
+  });
+  return render(
+    localeTree(
+      <PinnedResult
+        client={client}
+        total={total}
+        latestVersion={total.resultVersion}
+        volume={{
+          target: undefined,
+          view: { state: "closed" },
+          open: () => {},
+          close: () => {},
+          retry: () => {},
+        }}
+        scan={wait ? "scan-a" : undefined}
+        wait={wait}
+        roots={[unixPath("/")]}
+        exclusions={[]}
+        preferences={{
+          display: { system: "iec", unit: 0, regional },
+          basis,
+          warning: undefined,
+        }}
+        displayChoice={undefined}
+        onDisplayChoice={() => {}}
+        onReopenLatest={() => {}}
+      />,
+      englishText,
+    ),
+  );
+}
+
+const sharedSpaceSentence =
+  "Cloned files share space, so this can be larger than the actual disk usage.";
+
+test("F03 #351 shows the allocated shared-space limit in the summary and measurement details", async () => {
+  renderSummary(summaryTotal(true), "allocated");
+  const metric = screen.getByRole("group", { name: "Allocated size" });
+  expect(screen.getByText("At least 2.200 bytes")).toBeTruthy();
+  const notice = screen.getByText(sharedSpaceSentence).closest(".du-notice");
+  expect(notice?.classList.contains("du-notice--info")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  const measurements = screen.getByLabelText("Measurement details");
+  expect(measurements.querySelector("dt")?.textContent).toBe("Logical size");
+  const sharedLabel = screen.getByText("Shared space");
+  expect(sharedLabel.nextElementSibling?.textContent).toContain(
+    "Counted per file",
+  );
+  expect(sharedLabel.nextElementSibling?.textContent).toContain(
+    sharedSpaceSentence,
+  );
+  expect(metric).toBeTruthy();
+});
+
+test("F03 #351 does not promote the allocated limit to logical size or show it when absent", async () => {
+  const logical = renderSummary(summaryTotal(true), "logical");
+  expect(screen.getByText("At least 1.100 bytes")).toBeTruthy();
+  expect(screen.queryByText(sharedSpaceSentence)).toBeNull();
+  logical.unmount();
+
+  renderSummary(summaryTotal(false), "allocated");
+  expect(screen.queryByText(sharedSpaceSentence)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(screen.queryByText("Shared space")).toBeNull();
+});
+
+test("F03 #351 hides the shared notice and row while the allocated size is awaited", async () => {
+  const total = summaryTotal(true);
+  const waitingTotal: SpaceTotal = {
+    ...total,
+    sizes: total.sizes.map(({ size, ...entry }) => ({
+      ...entry,
+      size: { basis: size.basis, evidence: "unknown", state: "unknown" },
+    })),
+  };
+  renderSummary(waitingTotal, "allocated", "running");
+  expect(screen.queryByText(sharedSpaceSentence)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Measurement details" }));
+  expect(screen.queryByText("Shared space")).toBeNull();
+  expect(screen.getAllByText("Checking file sizes")).toHaveLength(1);
+});
+
+test("F03 #351 space.detail uses Counted per file only when allocated carries the limit", async () => {
+  const item: ItemRef = { resultVersion: "result-a", itemNo: 2 };
+  const allocated: SpaceDetailSize = {
+    size: {
+      basis: "allocated",
+      evidence: "os_reported",
+      state: "exact",
+      bytes: "1200",
+    },
+    measurementLimits: ["space.allocated_may_include_shared"],
+  };
+  const detail: SpaceDetail = {
+    item,
+    logical: { state: "absent" },
+    allocated: { state: "present", value: allocated },
+    uniquePhysical: { state: "absent" },
+    exclusive: { state: "absent" },
+    shared: { state: "absent" },
+    linkGroup: { state: "absent" },
+    auxiliary: { state: "absent" },
+    exclusiveDecision: { confirmed: false, reasonKey: null },
+    observedAt: { state: "absent" },
+    capabilities: { state: "absent" },
+  };
+  const client = createAnalysisClient(async (_command, { envelope }) =>
+    response(envelope.name, envelope.correlationId, detail),
+  );
+  renderLocalized(
+    <ItemSpaceDetails
+      client={client}
+      item={item}
+      display={{ system: "iec", unit: "auto", regional }}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "공간 측정 세부 정보" }),
+  );
+  const shared = screen.getByText("공유 공간").nextElementSibling;
+  expect(shared?.textContent).toContain("파일마다 셈");
+  expect(shared?.textContent).toContain(
+    "복제된 파일이 같은 공간을 나눠 써서 실제 디스크 사용량보다 크게 보일 수 있습니다.",
+  );
 });
 
 test("item space problems use the active locale without reloading details", async () => {

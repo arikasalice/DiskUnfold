@@ -479,6 +479,8 @@
     ["ui.analysis.space_unique_physical","중복 없는 실제 크기",[]],
     ["ui.analysis.space_exclusive","전용 공간",[]],
     ["ui.analysis.space_shared","공유 공간",[]],
+    ["ui.analysis.shared_space_counted_per_file","파일마다 셈",[]],
+    ["ui.analysis.allocated_may_include_shared","복제된 파일이 같은 공간을 나눠 써서 실제 디스크 사용량보다 크게 보일 수 있습니다.",[]],
     ["ui.analysis.space_exclusive_confirmed","전용 공간 확인 여부",[]],
     ["ui.analysis.space_confirmed","확인됨",[]],
     ["ui.analysis.space_not_confirmed","확인되지 않음",[]],
