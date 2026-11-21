@@ -204,6 +204,15 @@ fn validate_scoped_records<S: SealedSpool, W: StagingSink>(
             };
         }
     };
+    if spool.decoded_length() > envelope::MAX_DECODED_BYTES {
+        return match sink.discard() {
+            Ok(()) => Err(Error::DecodedLimit),
+            Err(cleanup) => Err(Error::Discard {
+                failure: Box::new(Error::DecodedLimit),
+                cleanup,
+            }),
+        };
+    }
     let (sink, volume_body) = decode_sealed(
         spool,
         sink,
