@@ -291,7 +291,22 @@ jobs:
           EXPECTED_RUST_TARGET: ${{ matrix.rustTarget }}
         run: |
           rustc -vV | grep -Fx "host: $EXPECTED_RUST_TARGET"
+      # A self-hosted machine keeps its build output between runs, so the dependencies compile once per
+      # target and the GitHub cache is only used on hosted runners.
+      - name: Keep build output on the self-hosted machine
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rustTarget }}
+        run: |
+          set -euo pipefail
+          dir="$HOME/.cache/diskunfold-ci/target-$RUST_TARGET"
+          mkdir -p "$dir"
+          # Bound the disk use: start over when the folder passes 15 GB.
+          if [[ "$(du -sk "$dir" | cut -f1)" -gt 15728640 ]]; then rm -rf "$dir"; mkdir -p "$dir"; fi
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.environment == 'github-hosted'
         with:
           shared-key: native-${{ matrix.os }}-${{ matrix.cpu }}
           save-if: ${{ env.CACHE_SAVE == 'true' }}
