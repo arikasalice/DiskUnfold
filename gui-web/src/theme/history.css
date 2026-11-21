@@ -329,6 +329,23 @@
   outline-offset: -2px;
 }
 
+@media (min-width: 1024px) {
+  .du-history-content:has(> .du-history-retention[data-open]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .du-history-content:has(> .du-history-retention[data-open])
+    > .du-history-retention[data-open] {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    inset: auto;
+    inline-size: auto;
+  }
+}
+
 @media (max-width: 450px) {
   .du-history-controls:not(:has([aria-expanded="true"])) {
     grid-template-columns: minmax(0, 1fr);

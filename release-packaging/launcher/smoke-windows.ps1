@@ -2479,14 +2479,19 @@ function Test-CaptureHistory {
   if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
     throw 'Automatic cleanup remained on after cancelling the confirmation'
   }
-  # #361 scene: opening the Job Center from the history screen closes the retention panel, and
-  # the Job Center panel starts below the header row.
+  # #362 scene: opening the Job Center from the history screen closes the retention panel and
+  # uses the width-specific panel layout.
   Expand-UI (Wait-TasksEntry)
   $jobCenterTitle = Get-UiName 'Tasks'
   $null = Wait-UI 'job center panel with retention closed' {
     (Find-UI (Get-UiName 'View all task history') $button) -and -not (Find-UI $retentionTitleName $null)
   }
   Save-SmokeCapture '11-job-center-over-history'
+  if ($WindowSize -match '^1280x') {
+    $null = Wait-VisibleAction $retentionSettingsName
+    $null = Wait-VisibleAction $backToAnalysisName
+    'F21 #362 history header actions remain available with the Job Center open at 1280px'
+  }
   $tasksOnHistory = Wait-TasksEntry
   $panelAction = Find-UI (Get-UiName 'View all task history') $button
   if ($panelAction.Current.BoundingRectangle.Top -le $tasksOnHistory.Current.BoundingRectangle.Bottom) {
@@ -2525,7 +2530,7 @@ function Test-CaptureHistory {
   } else {
     'History document and main pane: no horizontal or vertical scrolling'
   }
-  "F21 #361 job center over history: retention panel closed, panel below the header"
+  "F21 #362 job center over history: retention panel closed, width-specific panel layout"
   Send-SmokeKey 0x1B
   # The closed panel stays in the tree (hidden); Escape returns focus to the Tasks entry instead.
   $null = Wait-UI 'job center Escape focus restoration' {

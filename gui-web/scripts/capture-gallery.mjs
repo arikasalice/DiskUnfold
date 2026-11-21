@@ -163,6 +163,18 @@ const defaultGalleryShots =
         { name: "panel-dark-1280", theme: "dark", width: 1280, scene: "panel" },
         { name: "panel-light-700", theme: "light", width: 700, scene: "panel" },
         {
+          name: "panel-light-1024",
+          theme: "light",
+          width: 1024,
+          scene: "panel",
+        },
+        {
+          name: "panel-light-1023",
+          theme: "light",
+          width: 1023,
+          scene: "panel",
+        },
+        {
           name: "history-with-tasks-light-1280",
           theme: "light",
           width: 1280,
@@ -172,6 +184,20 @@ const defaultGalleryShots =
           name: "11-job-center-over-history-light-1280x800",
           theme: "light",
           width: 1280,
+          height: 800,
+          scene: "job-center-over-history",
+        },
+        {
+          name: "11-job-center-over-history-light-1024x800",
+          theme: "light",
+          width: 1024,
+          height: 800,
+          scene: "job-center-over-history",
+        },
+        {
+          name: "11-job-center-over-history-light-1023x800",
+          theme: "light",
+          width: 1023,
           height: 800,
           scene: "job-center-over-history",
         },
@@ -996,6 +1022,8 @@ async function checkProgressMarkMotion(session) {
 /** Saves the whole page, or with `viewport` only what the window shows. */
 async function save(session, name, viewport = false, scene) {
   await session.run(settleAnimations);
+  if (surface === "history-retention")
+    await checkHistoryPanelLayout(session, scene);
   if (surface === "job-center" || surface === "history-retention") {
     const width = await session.run(() => ({
       scrollWidth: document.documentElement.scrollWidth,
@@ -1033,6 +1061,112 @@ async function save(session, name, viewport = false, scene) {
   );
   await writeFile(file, Buffer.from(data, "base64"));
   console.log(file);
+}
+
+async function checkHistoryPanelLayout(session, scene) {
+  const layout = await session.run((currentScene) => {
+    const panel = document.querySelector(
+      currentScene === "job-center-over-history"
+        ? ".du-job-center[data-open]"
+        : ".du-history-retention[data-open]",
+    );
+    const table = document.querySelector(".du-history-pages");
+    const header = document.querySelector(
+      currentScene === "job-center-over-history"
+        ? ".du-app-header"
+        : ".du-history-header",
+    );
+    if (!(panel instanceof HTMLElement)) return null;
+    if (!(table instanceof HTMLElement) || !(header instanceof HTMLElement))
+      throw new Error("The history panel layout elements were not found");
+    const panelBounds = panel.getBoundingClientRect();
+    const tableBounds = table.getBoundingClientRect();
+    const headerBounds = header.getBoundingClientRect();
+    const brand = document.querySelector(".du-app-header .du-brand");
+    const actions = document.querySelector(".du-app-header__actions");
+    const historyActions = Array.from(
+      document.querySelectorAll(".du-history-header__actions .du-action"),
+    ).map((element) => {
+      if (!(element instanceof HTMLElement)) return null;
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+        bottom: bounds.bottom,
+        visible:
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          bounds.width > 0 &&
+          bounds.height > 0,
+      };
+    });
+    const center = (element) => {
+      if (!(element instanceof HTMLElement)) return null;
+      const bounds = element.getBoundingClientRect();
+      return (bounds.top + bounds.bottom) / 2;
+    };
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      panelLeft: panelBounds.left,
+      panelTop: panelBounds.top,
+      panelBottom: panelBounds.bottom,
+      panelWidth: panelBounds.width,
+      tableRight: tableBounds.right,
+      headerBottom: headerBounds.bottom,
+      brandCenter: center(brand),
+      actionsCenter: center(actions),
+      historyActions,
+    };
+  }, scene);
+  if (!layout) return;
+
+  if (Math.abs(layout.panelWidth - 360) > 2)
+    throw new Error(`History side panel width is ${layout.panelWidth}px`);
+  const overlaps = layout.tableRight > layout.panelLeft + 1;
+  if (layout.viewportWidth >= 1024 && overlaps)
+    throw new Error(
+      `History table overlaps its side panel at ${layout.viewportWidth}px`,
+    );
+  if (layout.viewportWidth < 1024 && !overlaps)
+    throw new Error(
+      `History panel stopped overlaying below 1024px (${layout.viewportWidth}px)`,
+    );
+  if (layout.panelTop < layout.headerBottom - 1)
+    throw new Error("A history side panel covers its screen header");
+  if (
+    scene === "job-center-over-history" &&
+    layout.viewportWidth >= 1280 &&
+    layout.brandCenter !== null &&
+    layout.actionsCenter !== null &&
+    Math.abs(layout.brandCenter - layout.actionsCenter) > 2
+  )
+    throw new Error(
+      "The app header wrapped with the Job Center open at 1280px",
+    );
+  if (
+    scene === "job-center-over-history" &&
+    layout.viewportWidth >= 1024 &&
+    (layout.historyActions.length !== 2 ||
+      layout.historyActions.some(
+        (action) =>
+          !action ||
+          !action.visible ||
+          (action.right > layout.panelLeft + 1 &&
+            action.left < layout.panelLeft + layout.panelWidth - 1 &&
+            action.bottom > layout.panelTop + 1 &&
+            action.top < layout.panelBottom - 1),
+      ))
+  )
+    throw new Error(
+      `The Job Center covers the Retention or Back to analysis action at ${layout.viewportWidth}px`,
+    );
+  console.log(
+    `history-retention/${scene}: ${layout.viewportWidth}px, ${
+      overlaps ? "overlay" : "separate column"
+    }`,
+  );
 }
 
 /** Captures only the product progress header, without gallery controls. */
@@ -1291,7 +1425,7 @@ try {
           await checkProgressMarkMotion(session);
       } else if (surface === "history-retention") {
         await prepareRetentionScene(session, shot.scene ?? "panel");
-        await save(session, shot.name, true);
+        await save(session, shot.name, true, shot.scene ?? "panel");
       } else if (surface === "job-center") await save(session, shot.name, true);
       else if (surface === "type-slices" && shot.hover) {
         // The pointer rests on a legend row (README 46.1, #383): a real mouse move.
