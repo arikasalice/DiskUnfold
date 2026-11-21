@@ -1,10 +1,7 @@
 //! Table-driven F03 volume gap arithmetic over observations from one pinned result.
 
+use du_core_contracts::volume::{RootVolumeGroup, SystemVolumeRole, VolumeGroupRole, VolumeMount};
 use du_core_contracts::{ByteSize, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
-use du_core_contracts::{
-    analysis_ipc::ScopeVolumeGroup,
-    volume::{SystemVolumeRole, VolumeGroupRole, VolumeMount},
-};
 use std::collections::BTreeMap;
 
 /// Independent contributions to the gap between volume use and scoped allocation.
@@ -193,16 +190,16 @@ impl crate::ResultVersion {
         &self,
         target: VolumeGapTarget<'_>,
     ) -> Result<PinnedVolumeGap, crate::QueryError> {
-        self.volume_gap_with_mounts(target, None, &[])
+        self.volume_gap_with_mounts(target, &[])
     }
 
-    /// Computes a gap with the live mount observations and reviewed group marker
-    /// supplied by the caller. The scope marker is the integration point for the
-    /// reviewed `ScopeVolumeGroup`; mount roles support volume-list-only callers.
+    /// Computes a gap with the caller's current mount observations. Only a result
+    /// whose scope holds a confirmed root volume group uses them (#263): its basis is
+    /// the system and data volume usage, and the other system volumes of the same
+    /// container explain `gap.out_of_scope`.
     pub fn volume_gap_with_mounts(
         &self,
         target: VolumeGapTarget<'_>,
-        scope_volume_group: Option<&ScopeVolumeGroup>,
         volume_mounts: &[VolumeMount],
     ) -> Result<PinnedVolumeGap, crate::QueryError> {
         use du_core_contracts::result::{ResultCompleteness, ResultItemKind};
@@ -259,7 +256,7 @@ impl crate::ResultVersion {
         let group = root_volume_group(
             matches!(&target, VolumeGapTarget::Root(_)),
             volume_id.as_deref(),
-            scope_volume_group,
+            self.volume_group.as_ref(),
             volume_mounts,
         );
         let used = group
@@ -332,29 +329,17 @@ struct RootGroupUsage {
 fn root_volume_group(
     is_root_target: bool,
     selected_volume: Option<&[u8]>,
-    scope_volume_group: Option<&ScopeVolumeGroup>,
+    group: Option<&RootVolumeGroup>,
     mounts: &[VolumeMount],
 ) -> Option<RootGroupUsage> {
-    if !is_root_target {
-        return None;
-    }
+    let group = group.filter(|_| is_root_target)?;
     let system = mounts.iter().find(|mount| {
         mount.group_role == Some(VolumeGroupRole::System)
             && (selected_volume.is_none() || mount.volume_id.as_deref() == selected_volume)
     })?;
     let data = mounts.iter().find(|mount| {
-        mount.group_role == Some(VolumeGroupRole::Data)
-            && scope_volume_group.is_none_or(|group| {
-                group
-                    .data_mount
-                    .raw
-                    .bytes()
-                    .is_ok_and(|path| path == mount.mount_path)
-            })
+        mount.group_role == Some(VolumeGroupRole::Data) && mount.mount_path == group.data_mount
     });
-    if scope_volume_group.is_none() && data.is_none() {
-        return None;
-    }
     let used_bytes = system
         .used_bytes
         .zip(data.and_then(|mount| mount.used_bytes))

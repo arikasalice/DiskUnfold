@@ -170,48 +170,18 @@ fn decide_with(
     else {
         return Admission::Record;
     };
-    if meta.kind == ObservedKind::Firmlink {
-        let group_boundary = visited.group_firmlink(meta)
-            && parent.boundary.device().is_some_and(|device| {
-                visited
-                    .group
-                    .as_ref()
-                    .is_some_and(|group| group.device == device)
-            });
-        if !group_boundary {
-            return Admission::UntraversedLink;
-        }
-        return if reserve && visited.reserve(parent.root, meta.device, meta.inode)
-            || !reserve && !visited.known(parent.root, meta.device, meta.inode)
-        {
-            Admission::Enter
-        } else {
-            Admission::Revisit
-        };
+    if let Some(row) = group_row(entry, meta, parent, visited, reserve) {
+        return row;
     }
-    if meta.kind == ObservedKind::MountPoint {
-        if visited.group_data_mount(entry)
-            && parent.boundary.device().is_some_and(|device| {
-                visited
-                    .group
-                    .as_ref()
-                    .is_some_and(|group| group.device == device)
-            })
-        {
-            return if reserve && visited.reserve(parent.root, meta.device, meta.inode)
-                || !reserve && !visited.known(parent.root, meta.device, meta.inode)
-            {
-                Admission::Enter
-            } else {
-                Admission::Revisit
-            };
-        }
+    // The adapter established another volume even when the parent's is unknown.
+    if matches!(
+        meta.kind,
+        ObservedKind::MountPoint | ObservedKind::MountedFile
+    ) {
         return Admission::OutsideBoundary;
     }
-    if meta.kind == ObservedKind::MountedFile {
-        return Admission::OutsideBoundary;
-    }
-    if meta.kind == ObservedKind::Link {
+    // Outside a confirmed group, a firmlink is an untraversed link like any other.
+    if matches!(meta.kind, ObservedKind::Link | ObservedKind::Firmlink) {
         return Admission::UntraversedLink;
     }
     if parent
@@ -225,7 +195,7 @@ fn decide_with(
         return Admission::Record;
     }
     let (root, device, inode) = (parent.root, meta.device, meta.inode);
-    if matches!(parent.boundary, Boundary::Data(_)) && visited.data_firmlink_target(meta) {
+    if matches!(parent.boundary, Boundary::Data(_)) && visited.group_firmlink(meta) {
         return Admission::Revisit;
     }
     let first = match parent.boundary {
@@ -237,6 +207,39 @@ fn decide_with(
         (true, Boundary::Volume(_) | Boundary::Data(_)) => Admission::Enter,
         (true, Boundary::Unknown) => Admission::Unverifiable,
     }
+}
+
+/// The rows of a confirmed root volume group scope (#263), ahead of the general
+/// rows: a confirmed firmlink and the data mount are entered once.
+fn group_row(
+    entry: &ObservedEntry,
+    meta: &MetadataObservation,
+    parent: Parent,
+    visited: &Visited,
+    reserve: bool,
+) -> Option<Admission> {
+    let group = visited.group.as_ref()?;
+    if parent.boundary.device() != Some(group.device) {
+        return None;
+    }
+    let enters = match meta.kind {
+        ObservedKind::Firmlink => visited.group_firmlink(meta),
+        ObservedKind::MountPoint => visited.group_data_mount(entry),
+        _ => false,
+    };
+    if !enters {
+        return None;
+    }
+    let first = if reserve {
+        visited.reserve(parent.root, meta.device, meta.inode)
+    } else {
+        !visited.known(parent.root, meta.device, meta.inode)
+    };
+    Some(if first {
+        Admission::Enter
+    } else {
+        Admission::Revisit
+    })
 }
 
 fn consistent(entry: &ObservedEntry) -> Option<&MetadataObservation> {

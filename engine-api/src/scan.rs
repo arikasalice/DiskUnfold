@@ -176,7 +176,7 @@ pub(crate) fn register_with_options(
     let sets = Arc::new(ResultSets::new(store.clone()));
     space::register_total_with_queries(builder, sets.clone());
     space::detail::register(builder, store.clone());
-    space::volume_gap::register(builder, store.clone());
+    space::volume_gap::register(builder, store.clone(), options.volumes.clone());
     browse::register(builder, store.clone());
     let admitted = Arc::new(Mutex::new(None));
     let priority_control = options.priority_control;

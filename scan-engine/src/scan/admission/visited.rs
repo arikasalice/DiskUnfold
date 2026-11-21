@@ -97,6 +97,8 @@ impl Visited {
         Boundary::child(entry)
     }
 
+    /// Whether the directory is one end of a confirmed firmlink: the entry on the
+    /// system volume and its target below the data mount share this identity.
     pub(super) fn group_firmlink(&self, meta: &MetadataObservation) -> bool {
         self.group.as_ref().is_some_and(|group| {
             group
@@ -110,15 +112,6 @@ impl Visited {
         self.group
             .as_ref()
             .is_some_and(|group| is_data_mount(entry, group))
-    }
-
-    pub(super) fn data_firmlink_target(&self, meta: &MetadataObservation) -> bool {
-        self.group.as_ref().is_some_and(|group| {
-            group
-                .firmlinks
-                .iter()
-                .any(|link| link.device == meta.device && link.inode == meta.inode)
-        })
     }
 
     /// True when the directory was reserved or is a verified ancestor of `root`.

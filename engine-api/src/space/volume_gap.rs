@@ -8,6 +8,7 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     PathBytes, SizeEvidence,
+    volume::VolumePort,
     volume_gap_ipc::{
         VolumeGapAmount, VolumeGapCategories, VolumeGapObservation, VolumeGapRequest,
         VolumeGapResponse, VolumeGapRow, VolumeGapSize, VolumeGapVolumeRow,
@@ -18,15 +19,20 @@ use crate::{
     api::{CallerCtx, Channel, EngineBuilder, UseCase},
     error::EngineError,
 };
+use std::sync::Arc;
 
 const UNAVAILABLE: &str = "space.volume_report_unavailable";
 const OUT_OF_SCOPE: &str = "space.target_out_of_scope";
 
-pub(crate) fn register(builder: &mut EngineBuilder, store: IngestSink) {
-    builder.register(Query(store));
+pub(crate) fn register(
+    builder: &mut EngineBuilder,
+    store: IngestSink,
+    volumes: Option<Arc<dyn VolumePort>>,
+) {
+    builder.register(Query(store, volumes));
 }
 
-struct Query(IngestSink);
+struct Query(IngestSink, Option<Arc<dyn VolumePort>>);
 
 impl UseCase for Query {
     const NAME: &'static str = "space.volume_gap";
@@ -47,18 +53,24 @@ impl UseCase for Query {
         caller: &CallerCtx,
     ) -> Result<VolumeGapResponse, EngineError> {
         let version = super::pin(&self.0, Some(&request.result_version), caller.channel)?;
+        // Only a result of a confirmed root volume group reads the current mounts
+        // (#263); every other result keeps its own scan-time volume report.
+        let mounts = match (&self.1, version.volume_group()) {
+            (Some(volumes), Some(_)) => volumes.enumerate().mounts.unwrap_or_default(),
+            _ => Vec::new(),
+        };
         let result = match (
             request.target.root.as_ref(),
             request.target.volume_id.as_ref(),
         ) {
             (Some(root), None) => {
-                version.volume_gap_with_mounts(VolumeGapTarget::Root(root), None, &[])
+                version.volume_gap_with_mounts(VolumeGapTarget::Root(root), &mounts)
             }
             (None, Some(volume)) => {
                 let bytes = volume
                     .bytes()
                     .map_err(|_| EngineError::reason(OUT_OF_SCOPE))?;
-                version.volume_gap_with_mounts(VolumeGapTarget::Volume(&bytes), None, &[])
+                version.volume_gap_with_mounts(VolumeGapTarget::Volume(&bytes), &mounts)
             }
             _ => return Err(EngineError::reason(OUT_OF_SCOPE)),
         }

@@ -127,11 +127,7 @@ fn a_recorded_file_keeps_the_reason_of_each_unknown_attribute() -> Result<(), St
         &entry,
         &path,
         &mut counts,
-        (
-            None,
-            SharingEvidence::None,
-            super::super::admission::Admission::Record,
-        ),
+        (None, SharingEvidence::None, false),
     )
     .map_err(|e| format!("{e:?}"))?;
     let id = Id::parse("018f0000-0000-7000-8000-000000000002").map_err(|e| format!("{e:?}"))?;
