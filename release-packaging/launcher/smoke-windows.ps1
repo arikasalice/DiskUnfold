@@ -235,7 +235,7 @@ function Get-UiName([string]$name) {
 }
 # The settings database exists only after a first start: start the app once, close it, then store the
 # display language in it with python's sqlite3 and let the real start read it.
-function Initialize-SmokeLocale([string]$language, [string]$scale = '100') {
+function Initialize-SmokeLocale([string]$language, [string]$scale = '100', [switch]$SeedHistory) {
   $python = Get-Command python -ErrorAction SilentlyContinue
   if (-not $python) { throw 'python is needed to store the display language in the isolated profile' }
   $database = Join-Path $profile 'DiskUnfold\diskunfold.db'
@@ -256,17 +256,61 @@ function Initialize-SmokeLocale([string]$language, [string]$scale = '100') {
       if (-not $first.WaitForExit(15000)) { Stop-Process -Id $first.Id -Force; $first.WaitForExit() }
     }
   }
+  # History captures seed one old completed record using a different kind than the fresh scan.
   $seed = @'
-import sqlite3, sys
+import sqlite3, sys, uuid
 connection = sqlite3.connect(sys.argv[1])
 connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('locale.display_language', ?, 'owner', 0, 0, 1)", ('"' + sys.argv[2] + '"',))
 if sys.argv[3] != "100":
     connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('a11y.app_scale', ?, 'owner', 0, 0, 1)", (sys.argv[3],))
 connection.execute("UPDATE user_env_setting_version SET settings_version = settings_version + 1, updated_at_ms = 0 WHERE version_key = 'settings'")
+if sys.argv[4] == "1":
+    job_id = uuid.uuid4().bytes
+    old_ms = 1577836800000
+    record_seq = connection.execute("SELECT last_record_seq + 1 FROM job_runtime_history_state WHERE state_key = 'history'").fetchone()[0]
+    connection.execute(
+        """
+        INSERT INTO job_runtime_job_start
+            (job_id, kind_id, kind_version, scope_summary, started_at_ms,
+             record_origin, created_at_ms)
+        VALUES (?, 'duplicate.check', 1, 'Old history retention fixture',
+                ?, 'this_app', ?)
+        """,
+        (job_id, old_ms, old_ms),
+    )
+    connection.execute(
+        """
+        INSERT INTO job_runtime_job_record
+            (job_id, kind_id, kind_version, scope_summary, final_state,
+             completed_count, overwritten_count, failed_count, skipped_count,
+             unprocessed_count, started_at_ms, finished_at_ms, correlation_id,
+             created_at_ms)
+        VALUES (?, 'duplicate.check', 1, 'Old history retention fixture',
+                'done', 0, 0, 0, 0, 0, ?, ?, ?, ?)
+        """,
+        (job_id, old_ms, old_ms, uuid.uuid4().bytes, old_ms),
+    )
+    connection.execute(
+        """
+        INSERT INTO job_runtime_job_link
+            (job_id, record_origin, reckon_at_ms, record_seq, created_at_ms)
+        VALUES (?, 'this_app', ?, ?, ?)
+        """,
+        (job_id, old_ms, record_seq, old_ms),
+    )
+    connection.execute(
+        """
+        UPDATE job_runtime_history_state
+        SET last_record_seq = ?, row_version = row_version + 1, updated_at_ms = ?
+        WHERE state_key = 'history'
+        """,
+        (record_seq, old_ms),
+    )
 connection.commit()
 connection.close()
 '@
-  $seed | & $python.Source - $database $language $scale
+  $seedHistoryValue = if ($SeedHistory) { '1' } else { '0' }
+  $seed | & $python.Source - $database $language $scale $seedHistoryValue
   if ($LASTEXITCODE -ne 0) { throw "Could not store the display language and app scale (python exit code $LASTEXITCODE)" }
 }
 Add-Type -TypeDefinition @'
@@ -310,7 +354,10 @@ if ($Locale -ne 'en') { Initialize-UiNames $Locale }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
 $appEnvironment = @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') }
-if ($Locale -ne 'en' -or $AppScale -ne '100') { Initialize-SmokeLocale $Locale $AppScale }
+$seedHistory = $CaptureHistory -or $VerifyOperationHistory
+if ($Locale -ne 'en' -or $AppScale -ne '100' -or $seedHistory) {
+  Initialize-SmokeLocale $Locale $AppScale -SeedHistory:$seedHistory
+}
 # The WebView reports prefers-color-scheme from the Windows app color mode, which the app follows. Set
 # it for this run only and put it back in the final block below.
 $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
@@ -2318,6 +2365,70 @@ function Test-CaptureHistory {
       Select-Object -First 1
   }
   Save-SmokeCapture '01-operation-history'
+  $retentionSettingsName = Get-UiName 'Retention'
+  $retentionEntry = Wait-VisibleAction $retentionSettingsName
+  Expand-UI $retentionEntry
+  $retentionTitleName = Get-UiName 'History retention'
+  $null = Wait-UI 'history retention panel title' {
+    Find-UI $retentionTitleName $null
+  }
+  Save-SmokeCapture '09-retention-panel'
+  $autoCleanupName = Get-UiName 'Clean up automatically'
+  $findAutoCleanup = {
+    $nameCondition = [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $autoCleanupName)
+    $matches = $window.FindAll($scopeTree, $nameCondition)
+    foreach ($item in $matches) {
+      $pattern = $null
+      if ($item.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) { return $item }
+    }
+    foreach ($item in $matches) {
+      $pattern = $null
+      if ($item.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { return $item }
+    }
+  }
+  $autoCleanup = Wait-UI 'automatic cleanup switch' {
+    & $findAutoCleanup
+  }
+  $togglePattern = $null
+  if ($autoCleanup.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$togglePattern)) {
+    if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
+      throw 'Automatic cleanup was already on before the retention review'
+    }
+    $togglePattern.Toggle()
+  } else {
+    Invoke-UI $autoCleanup
+  }
+  $confirmationName = Get-UiName 'Turn on automatic cleanup?'
+  $null = Wait-UI 'automatic cleanup confirmation dialog' {
+    Find-UI $confirmationName $null
+  }
+  Save-SmokeCapture '10-retention-enable-confirmation'
+  $cancelName = Get-UiName 'Cancel'
+  $focusDeadline = [DateTime]::UtcNow.AddSeconds(3)
+  do {
+    $focused = $ae::FocusedElement
+    $focusedName = if ($focused) { $focused.Current.Name } else { '' }
+    if ($focusedName -eq $cancelName) { break }
+    Start-Sleep -Milliseconds 80
+  } while ([DateTime]::UtcNow -lt $focusDeadline)
+  "F21 #316 retention confirm focus: $focusedName"
+  if ($focusedName -ne $cancelName) {
+    throw "Retention confirmation focused '$focusedName' instead of '$cancelName'"
+  }
+  Send-SmokeKey 0x1B
+  $null = Wait-UI 'retention confirmation dismissed' {
+    -not (Find-UI $confirmationName $null)
+  }
+  $autoCleanup = Wait-UI 'automatic cleanup switch after cancellation' {
+    & $findAutoCleanup
+  }
+  $togglePattern = $null
+  if (-not $autoCleanup.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$togglePattern)) {
+    throw 'Automatic cleanup did not expose TogglePattern to verify it remained off'
+  }
+  if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
+    throw 'Automatic cleanup remained on after cancelling the confirmation'
+  }
   $filterDisclosure = Wait-UI 'date and type filters disclosure' {
     $item = Find-UI 'Date and type filters' $button
     if ($item -and $item.Current.IsEnabled) { $item }
