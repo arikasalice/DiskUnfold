@@ -12,6 +12,7 @@
 //   The default browse run captures the #133 scene and both #226 lower-bound scenes.
 // - scan-lanes scenes: the F02 #317 collection-condition states and the
 //   accepted resource change while the current folder is still being read.
+// - summary scene: F03 #386 allocated shared-space measurement limitation.
 //
 //   npm run capture:history-gallery -- [output folder]
 //   npm run capture:history-list-gallery -- [output folder]
@@ -21,6 +22,8 @@
 //   node scripts/capture-gallery.mjs scan-lanes <output folder> <scene>
 //     scene: scope-collapsed | scope-expanded | scope-error-known |
 //            scope-error-unknown | progress | progress-limit-error
+//   node scripts/capture-gallery.mjs summary <output folder> <scene>
+//     scene: shared-limit
 //
 // The browser is DU_CAPTURE_BROWSER or the first usual Edge or Chrome install.
 // Vite serves the page from preview/vite.config.ts (port 4192). The window
@@ -42,6 +45,7 @@ const surfaces = {
   history: { ready: ".du-history-item-location", count: 7, pointer: true },
   "history-list": { ready: ".du-history-operation", count: 4, pointer: true },
   browse: { ready: ".du-browse-grid__row", count: 3, pointer: false },
+  summary: { ready: ".du-metric__detail", count: 1, pointer: false },
   "scan-lanes": { ready: ".du-scan-lanes", count: 1, pointer: false },
   "date-picker": {
     ready: ".du-date-picker__control",
@@ -62,6 +66,7 @@ if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
 const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const summaryScenes = ["shared-limit"];
 const scanLaneScenes = [
   "scope-collapsed",
   "scope-expanded",
@@ -73,6 +78,8 @@ const scanLaneScenes = [
 const requestedBrowseScene = surface === "browse" ? process.argv[4] : undefined;
 const requestedScanLaneScene =
   surface === "scan-lanes" ? process.argv[4] : undefined;
+const requestedSummaryScene =
+  surface === "summary" ? process.argv[4] : undefined;
 const selectedBrowseScene =
   requestedBrowseScene === "notice"
     ? "lower-bounds-notice"
@@ -81,14 +88,18 @@ if (selectedBrowseScene && !browseScenes.includes(selectedBrowseScene))
   throw new Error("Unknown browse scene: " + selectedBrowseScene);
 if (requestedScanLaneScene && !scanLaneScenes.includes(requestedScanLaneScene))
   throw new Error("Unknown scan-lanes scene: " + requestedScanLaneScene);
+if (requestedSummaryScene && !summaryScenes.includes(requestedSummaryScene))
+  throw new Error("Unknown summary scene: " + requestedSummaryScene);
 const captureScenes =
-  surface === "browse"
-    ? selectedBrowseScene
-      ? [selectedBrowseScene]
-      : browseScenes
-    : surface === "scan-lanes" && requestedScanLaneScene
-      ? [requestedScanLaneScene]
-      : [undefined];
+  surface === "summary"
+    ? [requestedSummaryScene ?? "shared-limit"]
+    : surface === "browse"
+      ? selectedBrowseScene
+        ? [selectedBrowseScene]
+        : browseScenes
+      : surface === "scan-lanes" && requestedScanLaneScene
+        ? [requestedScanLaneScene]
+        : [undefined];
 const output = resolve(
   process.argv[3] ?? join(gui, "..", "quality-output", "gallery-" + surface),
 );
@@ -254,75 +265,83 @@ const galleryShots =
                       scene: "partial",
                     },
                   ]
-                : surface === "job-center"
+                : surface === "summary"
                   ? [
                       {
-                        name: "01-light-1280",
+                        name: "light-1280",
                         theme: "light",
                         width: 1280,
-                        scene: "main",
-                      },
-                      {
-                        name: "01-dark-1280",
-                        theme: "dark",
-                        width: 1280,
-                        scene: "main",
-                      },
-                      {
-                        name: "01-light-700",
-                        theme: "light",
-                        width: 700,
-                        scene: "main",
-                      },
-                      {
-                        name: "02-request-pending-no-effect",
-                        theme: "light",
-                        width: 1280,
-                        scene: "request-pending",
-                      },
-                      {
-                        name: "03-resync",
-                        theme: "light",
-                        width: 1280,
-                        scene: "resync",
-                      },
-                      {
-                        name: "04-empty",
-                        theme: "light",
-                        width: 1280,
-                        scene: "empty",
-                      },
-                      {
-                        name: "05-cancel-confirm",
-                        theme: "light",
-                        width: 1280,
-                        scene: "cancel-confirm",
-                      },
-                      {
-                        name: "06-forced-colors",
-                        theme: "light",
-                        width: 1280,
-                        scene: "forced-colors",
-                        forcedColors: "active",
-                      },
-                      {
-                        name: "07-toast-open-panel-700",
-                        theme: "light",
-                        width: 700,
-                        scene: "toast-open-panel",
-                      },
-                      {
-                        name: "07-toast-open-panel-1280",
-                        theme: "light",
-                        width: 1280,
-                        scene: "toast-open-panel",
                       },
                     ]
-                  : [
-                      { name: "light-1280", theme: "light", width: 1280 },
-                      { name: "dark-1280", theme: "dark", width: 1280 },
-                      { name: "light-700", theme: "light", width: 700 },
-                    ];
+                  : surface === "job-center"
+                    ? [
+                        {
+                          name: "01-light-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "main",
+                        },
+                        {
+                          name: "01-dark-1280",
+                          theme: "dark",
+                          width: 1280,
+                          scene: "main",
+                        },
+                        {
+                          name: "01-light-700",
+                          theme: "light",
+                          width: 700,
+                          scene: "main",
+                        },
+                        {
+                          name: "02-request-pending-no-effect",
+                          theme: "light",
+                          width: 1280,
+                          scene: "request-pending",
+                        },
+                        {
+                          name: "03-resync",
+                          theme: "light",
+                          width: 1280,
+                          scene: "resync",
+                        },
+                        {
+                          name: "04-empty",
+                          theme: "light",
+                          width: 1280,
+                          scene: "empty",
+                        },
+                        {
+                          name: "05-cancel-confirm",
+                          theme: "light",
+                          width: 1280,
+                          scene: "cancel-confirm",
+                        },
+                        {
+                          name: "06-forced-colors",
+                          theme: "light",
+                          width: 1280,
+                          scene: "forced-colors",
+                          forcedColors: "active",
+                        },
+                        {
+                          name: "07-toast-open-panel-700",
+                          theme: "light",
+                          width: 700,
+                          scene: "toast-open-panel",
+                        },
+                        {
+                          name: "07-toast-open-panel-1280",
+                          theme: "light",
+                          width: 1280,
+                          scene: "toast-open-panel",
+                        },
+                      ]
+                    : [
+                        { name: "light-1280", theme: "light", width: 1280 },
+                        { name: "dark-1280", theme: "dark", width: 1280 },
+                        { name: "light-700", theme: "light", width: 700 },
+                      ];
 const shots =
   surface === "scan-lanes" && requestedScanLaneScene === "progress-limit-error"
     ? [
@@ -385,8 +404,12 @@ async function launch(profile) {
   const portFile = join(profile, "DevToolsActivePort");
   for (let tries = 0; tries < 200; tries++) {
     if (existsSync(portFile)) {
-      const [port] = (await readFile(portFile, "utf8")).split("\n");
-      if (port) return { browser, port };
+      try {
+        const [port] = (await readFile(portFile, "utf8")).split("\n");
+        if (port) return { browser, port };
+      } catch (error) {
+        if (error?.code !== "EBUSY") throw error;
+      }
     }
     await sleep(50);
   }
@@ -631,6 +654,23 @@ async function open(
       throw new Error(
         "The " + surface + " surface was not drawn for " + (scene ?? "default"),
       );
+    if (surface === "summary" && scene === "shared-limit") {
+      const placed = await session.run(() => {
+        const metric = document.querySelector(
+          '[role="group"][aria-label="할당 크기"]',
+        );
+        const detail = metric?.querySelector(".du-metric__detail");
+        const notice = metric?.parentElement?.nextElementSibling;
+        return (
+          detail?.textContent === "불완전 측정 · 파일 시스템이 알려 준 값" &&
+          notice?.classList.contains("du-notice--info") === true
+        );
+      });
+      if (!placed)
+        throw new Error(
+          "The shared-space info notice is not immediately below the allocated measurement detail",
+        );
+    }
   }
 }
 

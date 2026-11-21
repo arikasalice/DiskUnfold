@@ -279,7 +279,7 @@ export function Gallery() {
           context={context}
         >
           {surface === "summary" ? (
-            <ResultSummaryPreview />
+            <ResultSummaryPreview scene={scene} />
           ) : surface === "browse" ? (
             <BrowseScanStatusPreview />
           ) : surface === "history" ? (

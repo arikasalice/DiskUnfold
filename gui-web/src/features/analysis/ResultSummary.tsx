@@ -301,12 +301,12 @@ export function PinnedResult({
             unavailable
           )}
         </Metric>
-        {leadMayIncludeShared && (
-          <Notice tone="info">
-            {displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)}
-          </Notice>
-        )}
       </div>
+      {leadMayIncludeShared && (
+        <Notice tone="info">
+          {displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text)}
+        </Notice>
+      )}
       <Coverage total={total} />
       <DetailDisclosure title={measurements}>
         <Readout
