@@ -1030,7 +1030,11 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             />
           ))}
         </div>
-        <OpenCard shapes={visible.map(({ shape }) => shape)} card={card} />
+        <OpenCard
+          shapes={visible.map(({ shape }) => shape)}
+          card={card}
+          area={svg.current}
+        />
       </div>
       {fallback.content}
     </section>
@@ -1041,9 +1045,11 @@ export function GeometryRenderer(props: GeometryRendererProps) {
 function OpenCard({
   shapes,
   card,
+  area,
 }: {
   shapes: readonly Shape[];
   card: ReturnType<typeof useShapeCard>;
+  area: Element | null;
 }) {
   const open = card.open;
   const shape = open
@@ -1060,6 +1066,7 @@ function OpenCard({
     <ShapeInfoCard
       card={{ title: shape.card.title, lines }}
       anchor={open.anchor}
+      area={area}
       onPointerEnter={card.enterCard}
       onPointerLeave={card.leaveCard}
     />

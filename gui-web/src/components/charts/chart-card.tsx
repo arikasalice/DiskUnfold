@@ -84,11 +84,14 @@ export function useShapeCard() {
 export function ShapeInfoCard({
   card,
   anchor,
+  area,
   onPointerEnter,
   onPointerLeave,
 }: {
   card: ShapeCard;
   anchor: HTMLElement;
+  /** The chart's drawing: the card stays inside it, off the controls around (README 49). */
+  area: Element | null;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
 }) {
@@ -101,8 +104,10 @@ export function ShapeInfoCard({
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
-    setPlace(cardPlace(anchor.getBoundingClientRect(), element));
-  }, [anchor, card]);
+    setPlace(
+      cardPlace(anchor.getBoundingClientRect(), element, visibleArea(area)),
+    );
+  }, [anchor, area, card]);
   return (
     <div
       ref={ref}
@@ -127,11 +132,33 @@ export function ShapeInfoCard({
   );
 }
 
-/** The first of the four places that fits the window, else the fixed place. */
+/** The chart's drawing as far as the window shows it; the window without one. */
+function visibleArea(area: Element | null) {
+  const view = {
+    left: 0,
+    top: 0,
+    right: window.innerWidth,
+    bottom: window.innerHeight,
+  };
+  if (!area) return view;
+  const box = area.getBoundingClientRect();
+  return {
+    left: Math.max(view.left, box.left),
+    top: Math.max(view.top, box.top),
+    right: Math.min(view.right, box.right),
+    bottom: Math.min(view.bottom, box.bottom),
+  };
+}
+
+/**
+ * The first of the four places that fits inside the chart's visible drawing,
+ * else the fixed place at its lower right (README 22, 49). Neighbouring shapes
+ * may be covered; the format buttons and status lines around the chart are not.
+ */
 export function cardPlace(
   shape: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
   card: Pick<HTMLElement, "offsetWidth" | "offsetHeight">,
-  view = { width: window.innerWidth, height: window.innerHeight },
+  area: { left: number; top: number; right: number; bottom: number },
 ) {
   const width = card.offsetWidth;
   const height = card.offsetHeight;
@@ -142,16 +169,16 @@ export function cardPlace(
     { left: shape.left - width - GAP, top: shape.bottom + GAP },
   ];
   const fits = ({ left, top }: { left: number; top: number }) =>
-    left >= GAP &&
-    top >= GAP &&
-    left + width <= view.width - GAP &&
-    top + height <= view.height - GAP;
+    left >= area.left + GAP &&
+    top >= area.top + GAP &&
+    left + width <= area.right - GAP &&
+    top + height <= area.bottom - GAP;
   const found = places.find(fits);
   return found
     ? { ...found, fixed: false }
     : {
-        left: Math.max(GAP, view.width - width - GAP),
-        top: Math.max(GAP, view.height - height - GAP),
+        left: Math.max(area.left + GAP, area.right - width - GAP),
+        top: Math.max(area.top + GAP, area.bottom - height - GAP),
         fixed: true,
       };
 }

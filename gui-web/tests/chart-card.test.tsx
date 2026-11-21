@@ -112,9 +112,9 @@ test("#323 README 47: a bar drawn shorter says so on the line under its value", 
   ]);
 });
 
-test("#323 README 22: the card sits above right, then above left, below right, below left, else in a fixed place", () => {
+test("#323 README 22, 49: inside the chart the card sits above right, then above left, below right, below left, else at its lower right", () => {
   const size = { offsetWidth: 200, offsetHeight: 80 };
-  const view = { width: 1000, height: 700 };
+  const view = { left: 0, top: 0, right: 1000, bottom: 700 };
   const box = (left: number, top: number, right: number, bottom: number) => ({
     left,
     top,
@@ -141,6 +141,14 @@ test("#323 README 22: the card sits above right, then above left, below right, b
     left: 792,
     top: 612,
     fixed: true,
+  });
+  // The format buttons above the chart are outside its area: a shape at the
+  // chart's top takes the card below, not over the buttons (README 49).
+  const chart = { left: 0, top: 150, right: 1000, bottom: 700 };
+  expect(cardPlace(box(100, 160, 300, 220), size, chart)).toMatchObject({
+    left: 308,
+    top: 228,
+    fixed: false,
   });
 });
 
