@@ -5,7 +5,52 @@ use du_core_contracts::{
     volume::{RootVolumeGroupObservation, SystemVolumeRole, VolumeGroupRole, VolumePort},
 };
 use du_platform_os::{macos_observation::MacScopeRoots, volume::MacVolumes};
-use std::fs;
+use std::{
+    ffi::OsStr,
+    fs,
+    io::{self, ErrorKind},
+    os::unix::ffi::OsStrExt,
+    path::Path,
+};
+
+fn directory_exists(path: &[u8]) -> io::Result<Option<()>> {
+    match fs::symlink_metadata(Path::new(OsStr::from_bytes(path))) {
+        Ok(metadata) if metadata.is_dir() => Ok(Some(())),
+        Ok(_) => Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "firmlink endpoint is not a directory",
+        )),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn both_sides_present_count(contents: &[u8], data_mount: &[u8]) -> io::Result<usize> {
+    let mut count = 0;
+    for raw_line in contents.split(|&byte| byte == b'\n') {
+        let line = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+        if line.is_empty() {
+            continue;
+        }
+        let separator = line
+            .iter()
+            .position(|&byte| byte == b'\t')
+            .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "malformed firmlink row"))?;
+        let source = &line[..separator];
+        let relative = &line[separator + 1..];
+        let target = [data_mount, b"/", relative].concat();
+        let source_exists = directory_exists(source)?;
+        let target_exists = directory_exists(&target)?;
+        if source_exists.is_some() != target_exists.is_some() {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "only one firmlink endpoint exists",
+            ));
+        }
+        count += usize::from(source_exists.is_some());
+    }
+    Ok(count)
+}
 
 #[test]
 fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,11 +61,9 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
         }
     };
     let firmlink_file = fs::read("/usr/share/firmlinks")?;
-    let line_count = firmlink_file
-        .split(|&byte| byte == b'\n')
-        .filter(|line| !line.is_empty() && *line != b"\r")
-        .count();
-    assert_eq!(group.firmlinks.len(), line_count);
+    let present_count = both_sides_present_count(&firmlink_file, &group.data_mount)?;
+    assert_eq!(present_count, 18);
+    assert_eq!(group.firmlinks.len(), present_count);
     assert!(
         group
             .firmlinks

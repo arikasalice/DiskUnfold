@@ -1,5 +1,8 @@
 use du_core_contracts::volume::{ConfirmedFirmlink, RootVolumeGroup, RootVolumeGroupObservation};
-use rustix::fs::{AtFlags, CWD, FileType, statat};
+use rustix::{
+    fs::{AtFlags, CWD, FileType, statat},
+    io::Errno,
+};
 use std::{ffi::CString, fs};
 
 pub(super) const MNT_EXT_ROOT_DATA_VOL: u32 = 0x0000_0001;
@@ -11,17 +14,10 @@ struct DataMount {
     inode: u64,
 }
 
-struct FirmlinkIdentity {
-    source: Vec<u8>,
-    target: Vec<u8>,
-    source_identity: Option<(u64, u64)>,
-    target_identity: Option<(u64, u64)>,
-}
-
 type FirmlinkRow = (Vec<u8>, Vec<u8>);
 
 pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
-    let Some(root) = directory_identity(b"/") else {
+    let Ok(Some(root)) = directory_identity(b"/") else {
         return RootVolumeGroupObservation::Unconfirmed;
     };
     let flagged: Vec<_> = entries
@@ -34,7 +30,7 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
     let Some(path) = field(&flagged[0].f_mntonname) else {
         return RootVolumeGroupObservation::Unconfirmed;
     };
-    let Some((device, inode)) = directory_identity(&path) else {
+    let Ok(Some((device, inode))) = directory_identity(&path) else {
         return RootVolumeGroupObservation::Unconfirmed;
     };
     let data_mounts = [DataMount {
@@ -49,19 +45,18 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
         return RootVolumeGroupObservation::Unconfirmed;
     };
     let data = &data_mounts[0];
-    let identities = rows
-        .into_iter()
-        .map(|(source, relative)| {
-            let target = [data.path.as_slice(), b"/", relative.as_slice()].concat();
-            FirmlinkIdentity {
-                source_identity: directory_identity(&source),
-                target_identity: directory_identity(&target),
-                source,
-                target,
-            }
-        })
-        .collect::<Vec<_>>();
-    evaluate(root.0, &data_mounts, identities)
+    let mut firmlinks = Vec::with_capacity(rows.len());
+    for (source, relative) in rows {
+        let target = [data.path.as_slice(), b"/", relative.as_slice()].concat();
+        let source_identity = directory_identity(&source);
+        let target_identity = directory_identity(&target);
+        match matching_firmlink(source, target, source_identity, target_identity) {
+            Ok(Some(firmlink)) => firmlinks.push(firmlink),
+            Ok(None) => {}
+            Err(()) => return RootVolumeGroupObservation::Unconfirmed,
+        }
+    }
+    evaluate(root.0, &data_mounts, firmlinks)
         .map(RootVolumeGroupObservation::Confirmed)
         .unwrap_or(RootVolumeGroupObservation::Unconfirmed)
 }
@@ -76,11 +71,37 @@ fn field(raw: &[libc::c_char]) -> Option<Vec<u8>> {
     )
 }
 
-fn directory_identity(path: &[u8]) -> Option<(u64, u64)> {
-    let path = CString::new(path).ok()?;
-    let stat = statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW).ok()?;
-    (FileType::from_raw_mode(stat.st_mode) == FileType::Directory)
-        .then_some((u64::from(stat.st_dev.cast_unsigned()), stat.st_ino))
+fn directory_identity(path: &[u8]) -> Result<Option<(u64, u64)>, ()> {
+    let path = CString::new(path).map_err(|_| ())?;
+    let stat = match statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::Directory => stat,
+        Ok(_) => return Err(()),
+        Err(Errno::NOENT) => return Ok(None),
+        Err(_) => return Err(()),
+    };
+    Ok(Some((u64::from(stat.st_dev.cast_unsigned()), stat.st_ino)))
+}
+
+fn matching_firmlink(
+    source: Vec<u8>,
+    target: Vec<u8>,
+    source_identity: Result<Option<(u64, u64)>, ()>,
+    target_identity: Result<Option<(u64, u64)>, ()>,
+) -> Result<Option<ConfirmedFirmlink>, ()> {
+    match (source_identity?, target_identity?) {
+        (None, None) => Ok(None),
+        (Some((device, inode)), Some((target_device, target_inode)))
+            if (device, inode) == (target_device, target_inode) =>
+        {
+            Ok(Some(ConfirmedFirmlink {
+                source,
+                target,
+                device,
+                inode,
+            }))
+        }
+        _ => Err(()),
+    }
 }
 
 fn parse_firmlinks(contents: &[u8]) -> Result<Vec<FirmlinkRow>, ()> {
@@ -119,24 +140,10 @@ fn parse_firmlinks(contents: &[u8]) -> Result<Vec<FirmlinkRow>, ()> {
 fn evaluate(
     root_device: u64,
     data_mounts: &[DataMount],
-    mut rows: Vec<FirmlinkIdentity>,
+    mut firmlinks: Vec<ConfirmedFirmlink>,
 ) -> Option<RootVolumeGroup> {
-    if data_mounts.len() != 1 || data_mounts[0].device != root_device || rows.is_empty() {
+    if data_mounts.len() != 1 || data_mounts[0].device != root_device || firmlinks.is_empty() {
         return None;
-    }
-    let mut firmlinks = Vec::with_capacity(rows.len());
-    for row in rows.drain(..) {
-        let (source_device, source_inode) = row.source_identity?;
-        let (target_device, target_inode) = row.target_identity?;
-        if (source_device, source_inode) != (target_device, target_inode) {
-            return None;
-        }
-        firmlinks.push(ConfirmedFirmlink {
-            source: row.source,
-            target: row.target,
-            device: source_device,
-            inode: source_inode,
-        });
     }
     firmlinks.sort_by(|left, right| left.source.cmp(&right.source));
     let data = &data_mounts[0];
@@ -160,12 +167,12 @@ mod tests {
         }
     }
 
-    fn row(source: &[u8], target: &[u8], left: (u64, u64), right: (u64, u64)) -> FirmlinkIdentity {
-        FirmlinkIdentity {
+    fn row(source: &[u8], target: &[u8], device: u64, inode: u64) -> ConfirmedFirmlink {
+        ConfirmedFirmlink {
             source: source.to_vec(),
             target: target.to_vec(),
-            source_identity: Some(left),
-            target_identity: Some(right),
+            device,
+            inode,
         }
     }
 
@@ -190,23 +197,49 @@ mod tests {
 
     #[test]
     fn confirms_only_one_matching_data_mount_and_equal_firmlink_identities() {
-        let rows = || vec![row(b"/Users", b"/Data/Users", (7, 11), (7, 11))];
+        let rows = || vec![row(b"/Users", b"/Data/Users", 7, 11)];
         assert!(evaluate(7, &[], rows()).is_none());
         assert!(evaluate(7, &[data(b"/Data", 7, 3), data(b"/Data2", 7, 4)], rows()).is_none());
         assert!(evaluate(7, &[data(b"/Data", 8, 3)], rows()).is_none());
-        assert!(
-            evaluate(
-                7,
-                &[data(b"/Data", 7, 3)],
-                vec![row(b"/Users", b"/Data/Users", (7, 11), (7, 12))],
-            )
-            .is_none()
-        );
         let confirmed = evaluate(7, &[data(b"/Data", 7, 3)], rows());
         assert_eq!(confirmed.as_ref().map(|group| group.data_inode), Some(3));
         assert_eq!(
             confirmed.map(|group| group.firmlinks[0].source.clone()),
             Some(b"/Users".to_vec())
+        );
+    }
+
+    #[test]
+    fn skips_only_firmlinks_missing_on_both_sides() {
+        assert_eq!(
+            matching_firmlink(
+                b"/Internal".to_vec(),
+                b"/Data/Internal".to_vec(),
+                Ok(None),
+                Ok(None)
+            ),
+            Ok(None)
+        );
+        assert!(evaluate(7, &[data(b"/Data", 7, 3)], Vec::new()).is_none());
+    }
+
+    #[test]
+    fn rejects_one_sided_missing_and_non_not_found_errors() {
+        let present = Ok(Some((7, 11)));
+        let missing = Ok(None);
+        let denied = Err(());
+        assert!(matching_firmlink(b"/A".to_vec(), b"/D/A".to_vec(), missing, present).is_err());
+        assert!(matching_firmlink(b"/A".to_vec(), b"/D/A".to_vec(), present, missing).is_err());
+        assert!(matching_firmlink(b"/A".to_vec(), b"/D/A".to_vec(), denied, Ok(None)).is_err());
+        assert!(matching_firmlink(b"/A".to_vec(), b"/D/A".to_vec(), Ok(None), denied).is_err());
+        assert!(
+            matching_firmlink(
+                b"/A".to_vec(),
+                b"/D/A".to_vec(),
+                Ok(Some((7, 11))),
+                Ok(Some((7, 12))),
+            )
+            .is_err()
         );
     }
 }
