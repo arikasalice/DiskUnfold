@@ -1206,6 +1206,7 @@ ui.analysis.drives_slow.unix
 ui.analysis.drives_unavailable
 ui.analysis.drives_unavailable.unix
 ui.analysis.choose_target_label
+ui.analysis.startup_disk
 ui.analysis.target_internal
 ui.analysis.target_external
 ui.analysis.target_network_mount

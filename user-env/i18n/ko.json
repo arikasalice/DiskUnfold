@@ -1223,6 +1223,7 @@
     ["ui.analysis.drives_unavailable","드라이브 목록을 사용할 수 없습니다. 폴더 경로를 입력할 수 있습니다.",[]],
     ["ui.analysis.drives_unavailable.unix","볼륨 목록을 사용할 수 없습니다. 폴더 경로를 입력할 수 있습니다.",[]],
     ["ui.analysis.choose_target_label","대상을 선택하세요",[]],
+    ["ui.analysis.startup_disk","시동 디스크",[]],
     ["ui.analysis.target_internal","내부",[]],
     ["ui.analysis.target_external","외부",[]],
     ["ui.analysis.target_network_mount","네트워크 마운트",[]],

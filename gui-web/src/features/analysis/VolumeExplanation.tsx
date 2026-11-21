@@ -22,6 +22,7 @@ import {
   amount,
   factorLabel,
   observationRows,
+  unavailableReasonText,
   unavailableValue,
   volumeBytes,
 } from "./volume-format";
@@ -294,6 +295,28 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
   const otherVolumesTotal = hasOtherVolumes
     ? otherVolumesTotalText(otherVolumes ?? [], display, text)
     : undefined;
+  const amounts = [
+    ...report.factors.map(({ value }) => value),
+    ...(otherVolumes ?? []).map(({ amount: value }) => value),
+    report.remainder,
+    ...(report.osCategories.state === "available"
+      ? report.osCategories.rows.map(({ value }) => value)
+      : []),
+  ];
+  const reasonNotes = [
+    ...new Set(
+      [
+        ...amounts.flatMap((value) =>
+          value.state === "unknown" ? [value.reasonKey] : [],
+        ),
+        ...(report.osCategories.state === "unavailable"
+          ? [report.osCategories.reasonKey]
+          : []),
+      ]
+        .map((key) => unavailableReasonText(key, text))
+        .filter((reason): reason is string => reason !== undefined),
+    ),
+  ];
   return (
     <>
       <Readout
@@ -345,14 +368,14 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
                   ...(otherVolumes ?? []).map(
                     ({ volumeName, role, amount: rowAmount }) => ({
                       label: otherVolumeLabel(volumeName, role, text),
-                      value: amount(rowAmount, display, text),
+                      value: amount(rowAmount, display, text, false),
                     }),
                   ),
                 ]
               : [
                   {
                     label: factorLabel(key, text),
-                    value: amount(value, display, text),
+                    value: amount(value, display, text, false),
                   },
                 ],
           ),
@@ -361,7 +384,7 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
               "ui.analysis.volume_unexplained_difference",
               "Unexplained difference",
             ),
-            value: amount(report.remainder, display, text),
+            value: amount(report.remainder, display, text, false),
           },
           {
             label: text(
@@ -370,19 +393,24 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             ),
             value:
               report.osCategories.state === "unavailable"
-                ? unavailableValue(report.osCategories.reasonKey, text)
+                ? text("ui.analysis.unavailable", "Unavailable")
                 : report.osCategories.rows.length === 0
                   ? text("ui.analysis.volume_none_reported", "None reported")
                   : report.osCategories.rows
                       .map(
                         // No category has a name yet, and a key is not shown.
                         ({ value }) =>
-                          `${text("ui.common.unknown", "Unknown")} · ${amount(value, display, text)}`,
+                          `${text("ui.common.unknown", "Unknown")} · ${amount(value, display, text, false)}`,
                       )
                       .join(", "),
           },
         ]}
       />
+      {reasonNotes.map((reason) => (
+        <Text key={reason} kind="muted">
+          {reason}
+        </Text>
+      ))}
     </>
   );
 }
@@ -393,7 +421,7 @@ function otherVolumesTotalText(
   text: ReturnType<typeof useLocaleText>,
 ) {
   const unknown = rows.find((row) => row.amount.state === "unknown");
-  if (unknown) return amount(unknown.amount, display, text);
+  if (unknown) return text("ui.analysis.unavailable", "Unavailable");
   return volumeBytes(
     rows
       .reduce((total, row) => {

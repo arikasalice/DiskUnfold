@@ -14,10 +14,11 @@ export function notCounted(
   value: FolderQueryRow["logicalSize"],
 ): boolean {
   const boundary = row.flags.boundary;
+  if (boundary?.state === "present" && boundary.value === "already_counted")
+    return true;
   return (
     boundary?.state === "present" &&
-    (boundary.value === "other_volume" ||
-      boundary.value === "already_counted") &&
+    boundary.value === "other_volume" &&
     value.state === "present" &&
     value.value.state === "exact" &&
     BigInt(value.value.bytes) === 0n

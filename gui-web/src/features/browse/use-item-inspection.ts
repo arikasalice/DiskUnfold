@@ -9,6 +9,7 @@ export type InspectedItem = {
   name: string;
   countedAt?: OsPath;
   countedAtItem?: ItemRef;
+  alreadyCounted?: boolean;
   groupVolumeRole?: string;
   focusCountedAtItem?: boolean;
   opener: HTMLElement | null;
@@ -68,11 +69,10 @@ export function useItemInspection(
       // modal captures its return target. Return to the navigable row, not
       // its nested button (which is deliberately outside the tab order).
       opener.focus({ preventScroll: true });
-      const countedAt =
+      const alreadyCounted =
         row.flags.boundary?.state === "present" &&
-        row.flags.boundary.value === "already_counted"
-          ? row.flags.countedAt
-          : undefined;
+        row.flags.boundary.value === "already_counted";
+      const countedAt = alreadyCounted ? row.flags.countedAt : undefined;
       setItem({
         item: row.item,
         kind: row.kind === "directory" ? "folder" : "file",
@@ -85,6 +85,7 @@ export function useItemInspection(
                 : {}),
             }
           : {}),
+        ...(alreadyCounted ? { alreadyCounted: true } : {}),
         ...(typeof row.flags.groupVolumeRole === "string"
           ? { groupVolumeRole: row.flags.groupVolumeRole }
           : {}),

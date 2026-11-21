@@ -497,6 +497,7 @@ function BrowseSurface({
           groupVolumeRole,
           navigateItem,
           focusCountedAtItem,
+          alreadyCounted,
         ) => (
           <FileInspection
             key={`${item.resultVersion}:${item.itemNo}`}
@@ -508,6 +509,7 @@ function BrowseSurface({
             {...(groupVolumeRole ? { groupVolumeRole } : {})}
             {...(navigateItem ? { navigateItem } : {})}
             {...(focusCountedAtItem ? { focusCountedAtItem } : {})}
+            {...(alreadyCounted ? { alreadyCounted } : {})}
             display={display}
           />
         )}

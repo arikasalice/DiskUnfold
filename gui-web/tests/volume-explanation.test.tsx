@@ -206,12 +206,11 @@ test("F03 FR9: changing volume display units keeps raw bytes and evidence on the
   );
   expect(observations.getByText("2,500 bytes")).toBeTruthy();
   expect(differences.getByText("2,500 bytes · Estimated")).toBeTruthy();
-  // A missing value says why when its reason has a text.
+  // Unknown values stay concise; the reason appears once below the table.
+  expect(differences.getByText("Unavailable")).toBeTruthy();
   expect(
-    differences.getByText(
-      "Unavailable · Some space data could not be verified",
-    ),
-  ).toBeTruthy();
+    screen.getAllByText("Some space data could not be verified"),
+  ).toHaveLength(1);
   expect(transport).toHaveBeenCalledTimes(1);
   expect(report.start.totalBytes).toBe("7500");
 });
@@ -329,4 +328,74 @@ test("F03 #263 leaves the out-of-scope label alone without otherVolumes", async 
   const differences = within(await screen.findByLabelText("Volume difference"));
   expect(differences.getByText("Outside the analysis scope")).toBeTruthy();
   expect(differences.queryByText("Other system volumes")).toBeNull();
+});
+
+test("F03 #333 shows an unknown grouped total and one shared reason beneath the rows", async () => {
+  const report = {
+    ...volumeReport("v3"),
+    factors: [
+      {
+        key: "gap.out_of_scope",
+        value: { state: "unknown", reasonKey: "space.data_insufficient" },
+      },
+      {
+        key: "gap.inaccessible",
+        value: { state: "unknown", reasonKey: "space.data_insufficient" },
+      },
+    ],
+    otherVolumes: [
+      {
+        volumeName: "VM Store",
+        role: "volume_role.vm",
+        amount: { state: "unknown", reasonKey: "space.data_insufficient" },
+      },
+      {
+        volumeName: "Recovery Volume",
+        role: "volume_role.recovery",
+        amount: { state: "unknown", reasonKey: "space.data_insufficient" },
+      },
+    ],
+  } satisfies VolumeGapResponse;
+  const client = createAnalysisClient(
+    async (_: string, { envelope }: { envelope: CallEnvelope }) => ({
+      ...envelope,
+      body: {
+        ...report,
+        requestSeq: (envelope.body as { requestSeq: number }).requestSeq,
+      },
+    }),
+  );
+  render(
+    <SummaryHarness
+      live={false}
+      client={client}
+      version={report.resultVersion}
+      roots={[windowsPath("/")]}
+      display={{ system: "iec", unit: "auto" }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Explain volume usage" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Observation and difference details",
+    }),
+  );
+  const differences = within(await screen.findByLabelText("Volume difference"));
+  expect(
+    differences.getByText("Other system volumes").nextSibling?.textContent,
+  ).toBe("Unavailable");
+  expect(
+    differences.getByText("Virtual memory (VM)").nextSibling?.textContent,
+  ).toBe("Unavailable");
+  expect(differences.getByText("Recovery").nextSibling?.textContent).toBe(
+    "Unavailable",
+  );
+  expect(
+    differences.queryByText(
+      /Unavailable · Some space data could not be verified/,
+    ),
+  ).toBeNull();
+  expect(
+    screen.getAllByText("Some space data could not be verified"),
+  ).toHaveLength(1);
 });

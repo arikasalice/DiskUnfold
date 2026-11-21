@@ -104,6 +104,7 @@ test.each(["data", "future.role"])(
             groupVolumeRole,
             navigateItem,
             focusCountedAtItem,
+            alreadyCounted,
           ) => (
             <FileInspection
               client={client}
@@ -116,6 +117,7 @@ test.each(["data", "future.role"])(
               {...(focusCountedAtItem !== undefined
                 ? { focusCountedAtItem }
                 : {})}
+              {...(alreadyCounted ? { alreadyCounted } : {})}
             />
           )}
         />
@@ -143,6 +145,7 @@ test.each(["data", "future.role"])(
       expect(
         within(dialog).queryByText(/data volume of Macintosh HD/),
       ).toBeNull();
+    expect(within(dialog).getAllByText("Not counted")).toHaveLength(2);
     expect(within(dialog).getByText("Counted at /Users")).toBeTruthy();
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Open folder" }),
@@ -268,6 +271,7 @@ function alreadyCountedScenario() {
           _groupVolumeRole,
           navigateItem,
           focusCountedAtItem,
+          alreadyCounted,
         ) => (
           <FileInspection
             client={client}
@@ -279,6 +283,7 @@ function alreadyCountedScenario() {
             {...(focusCountedAtItem !== undefined
               ? { focusCountedAtItem }
               : {})}
+            {...(alreadyCounted ? { alreadyCounted } : {})}
           />
         )}
       />
@@ -311,6 +316,9 @@ test("Previous restores the already-counted Users folder, details, and focus", a
   const previous = screen.getByRole("button", {
     name: "Back to previous folder",
   });
+  expect(previous.className).toContain("du-action--quiet");
+  expect(previous.querySelector(".lucide-arrow-left")).toBeTruthy();
+  expect(previous.parentElement?.firstElementChild).toBe(previous);
   await waitFor(() =>
     expect(previous.title).toBe("/System/Volumes/Data/Users"),
   );

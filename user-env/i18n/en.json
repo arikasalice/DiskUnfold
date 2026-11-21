@@ -1223,6 +1223,7 @@
     ["ui.analysis.drives_unavailable","Drive listing is unavailable. You can still enter a folder path.",[]],
     ["ui.analysis.drives_unavailable.unix","Volume listing is unavailable. You can still enter a folder path.",[]],
     ["ui.analysis.choose_target_label","Choose a target",[]],
+    ["ui.analysis.startup_disk","Startup disk",[]],
     ["ui.analysis.target_internal","internal",[]],
     ["ui.analysis.target_external","external",[]],
     ["ui.analysis.target_network_mount","network mount",[]],

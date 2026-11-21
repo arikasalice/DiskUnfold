@@ -144,9 +144,10 @@ function diagnosticReason(key: string, text: LocaleText): string {
 function diagnostics(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
+  alreadyCounted: boolean,
   text: LocaleText,
 ): string[] {
-  const fields = [
+  const fields: [string, BrowseValue<unknown>][] = [
     [
       itemKind === "file"
         ? text("ui.inspection.file_name", "File name")
@@ -155,15 +156,20 @@ function diagnostics(
     ],
     [text("ui.inspection.path", "Path"), detail.displayPath],
     [text("ui.inspection.kind", "Type"), detail.kind],
-    [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
-    [
-      text("ui.analysis.allocated_size", "Allocated size"),
-      detail.allocatedSize,
-    ],
+  ];
+  if (!alreadyCounted)
+    fields.push(
+      [text("ui.analysis.logical_size", "Logical size"), detail.logicalSize],
+      [
+        text("ui.analysis.allocated_size", "Allocated size"),
+        detail.allocatedSize,
+      ],
+    );
+  fields.push(
     [text("ui.inspection.modified", "Modified"), detail.modifiedAt],
     [text("ui.inspection.created", "Created"), detail.createdAt],
     [text("ui.inspection.published", "Result published"), detail.observedAt],
-  ] as const;
+  );
   return fields.flatMap(([label, field]) =>
     field.state === "unknown"
       ? [
@@ -181,7 +187,14 @@ function sizeRow(
   field: BrowseDetail["logicalSize"],
   display: SizeDisplay,
   text: LocaleText,
+  alreadyCounted: boolean,
 ) {
+  if (alreadyCounted)
+    return {
+      label,
+      emphasized: true,
+      value: text("ui.browse.not_counted", "Not counted"),
+    };
   if (field.state !== "present") {
     return {
       label,
@@ -216,6 +229,7 @@ type PathActions = {
 function attributes(
   detail: BrowseDetail,
   itemKind: "file" | "folder",
+  alreadyCounted: boolean,
   display: SizeDisplay,
   client: AnalysisClient,
   item: ItemRef,
@@ -244,12 +258,14 @@ function attributes(
       detail.logicalSize,
       display,
       text,
+      alreadyCounted,
     ),
     sizeRow(
       text("ui.analysis.allocated_size", "Allocated size"),
       detail.allocatedSize,
       display,
       text,
+      alreadyCounted,
     ),
     {
       label: text("ui.inspection.published", "Result published"),
@@ -296,6 +312,7 @@ export function FileInspection({
   client,
   item,
   itemKind = "file",
+  alreadyCounted = false,
   countedAt,
   countedAtItem,
   groupVolumeRole,
@@ -309,6 +326,7 @@ export function FileInspection({
   client: AnalysisClient;
   item: ItemRef;
   itemKind?: "file" | "folder";
+  alreadyCounted?: boolean;
   countedAt?: OsPath;
   countedAtItem?: ItemRef;
   groupVolumeRole?: string;
@@ -427,6 +445,7 @@ export function FileInspection({
                 rows={attributes(
                   detail,
                   itemKind,
+                  alreadyCounted,
                   display,
                   client,
                   item,
@@ -446,11 +465,13 @@ export function FileInspection({
                 )}
               />
             </div>
-            {diagnostics(detail, itemKind, text).length > 0 && (
+            {diagnostics(detail, itemKind, alreadyCounted, text).length > 0 && (
               <DetailDisclosure title={reasons}>
-                {diagnostics(detail, itemKind, text).map((line) => (
-                  <Text key={line}>{line}</Text>
-                ))}
+                {diagnostics(detail, itemKind, alreadyCounted, text).map(
+                  (line) => (
+                    <Text key={line}>{line}</Text>
+                  ),
+                )}
               </DetailDisclosure>
             )}
             <DetailDisclosure title={more}>

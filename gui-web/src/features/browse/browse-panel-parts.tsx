@@ -38,6 +38,7 @@ export type InspectItem = (
   groupVolumeRole?: string,
   navigateItem?: (item: ItemRef) => void,
   focusCountedAtItem?: boolean,
+  alreadyCounted?: boolean,
 ) => ReactNode;
 export function BrowseItemDialog({
   inspection,
@@ -60,7 +61,8 @@ export function BrowseItemDialog({
     <InspectionDialog title={title} onClose={close}>
       {inspection.countedAt ||
       inspection.countedAtItem ||
-      inspection.groupVolumeRole
+      inspection.groupVolumeRole ||
+      inspection.alreadyCounted
         ? inspectItem(
             inspection.item,
             inspection.kind,
@@ -69,6 +71,7 @@ export function BrowseItemDialog({
             inspection.groupVolumeRole,
             navigateItem,
             inspection.focusCountedAtItem,
+            inspection.alreadyCounted,
           )
         : inspectItem(inspection.item, inspection.kind)}
     </InspectionDialog>
