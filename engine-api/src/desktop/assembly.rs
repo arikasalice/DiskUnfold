@@ -135,9 +135,34 @@ pub struct DesktopServices {
     /// F36 group use cases; app-host registers them with its rule store.
     pub groups: crate::group::GroupAssembly,
     scan_events: Arc<scan_completion::ScanEvents>,
+    runtime: Arc<JobRuntime>,
 }
 
 impl DesktopServices {
+    /// Registers retention commands using this desktop runtime's clock.
+    ///
+    /// The host supplies its current policy source, owner saver, read-only
+    /// history adapter and session undo-info port. Retention remains GUI-only.
+    pub fn register_history_retention<R>(
+        &self,
+        builder: &mut EngineBuilder,
+        policy_source: crate::history::retention::HistoryRetentionPolicySource,
+        policy_saver: crate::history::retention::HistoryRetentionPolicySaver,
+        expiry_reader: R,
+        undo_info: Arc<dyn du_core_contracts::job::SessionUndoInfo>,
+    ) where
+        R: du_core_contracts::job::HistoryExpiryRead + 'static,
+    {
+        crate::history::retention::register(
+            builder,
+            self.runtime.clone(),
+            policy_source,
+            policy_saver,
+            expiry_reader,
+            undo_info,
+        );
+    }
+
     /// Binds the log that stores one observation of the scope totals per finished GUI scan.
     ///
     /// Bind it once, before the first scan starts. The log is written after the scan's
@@ -336,7 +361,7 @@ fn register_services_inner(
     let search = crate::browse::folder::commands::register(builder, sets, ids, workers, random)?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
-    jobs::register_with_scan_store(builder, runtime, store);
+    jobs::register_with_scan_store(builder, runtime.clone(), store);
     Ok(DesktopServices {
         events,
         path_copy,
@@ -346,6 +371,7 @@ fn register_services_inner(
         recent_scope_admissions,
         groups,
         scan_events,
+        runtime,
     })
 }
 
