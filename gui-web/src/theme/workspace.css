@@ -230,6 +230,24 @@ body {
   color: var(--du-muted);
 }
 
+@media (min-width: 75rem) {
+  .du-app[data-browse-open] > .du-app-header {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions,
+  .du-app[data-browse-open] .du-info-entry {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions .du-action {
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 18rem) {
   .du-app-header {
     align-items: flex-start;

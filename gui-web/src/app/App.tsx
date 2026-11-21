@@ -214,7 +214,6 @@ export function App({
     renderEntry: (count, onPress) => (
       <JobCenterEntry
         clientAvailable={client !== undefined}
-        historyOpen={history}
         count={count}
         expanded={tasksOpen}
         trigger={tasksTrigger}
@@ -377,6 +376,8 @@ export function App({
         <HistorySizeDisplay.Provider value={browseDisplay}>
           <HistoryPanel
             client={client}
+            tasksOpen={tasksOpen}
+            onOpenRetention={() => setTasksOpen(false)}
             onClose={() => {
               restoreFocus.current = true;
               setHistory(false);
