@@ -100,7 +100,9 @@ fn an_unread_entry_under_a_sibling_without_an_area_makes_the_share_a_lower_bound
 }
 
 #[test]
-fn an_entry_without_bytes_leaves_no_share_but_is_still_the_first_row() {
+fn an_unread_entry_is_a_zero_lower_bound_and_no_item_without_an_area() {
+    // Since F03 #344 an unread entry is a known lower bound of zero: it has no area
+    // and is not an item without a provable area, so it leaves no share and no row.
     let version = scan(
         &[
             Entry::Dir("a"),
@@ -111,15 +113,9 @@ fn an_entry_without_bytes_leaves_no_share_but_is_still_the_first_row() {
         &["locked"],
     );
     let model = project_at(&version, "", SizeBasis::Logical, 16).unwrap();
-    assert_eq!(model.detail.unknown_items, 1);
+    assert_eq!(model.detail.unknown_items, 0);
     assert_eq!(model.detail.unknown_share, UnknownShare::None);
-    assert_eq!(
-        model.detail.first_unknown_row,
-        model
-            .rows
-            .iter()
-            .position(|row| row.omission == Some(NoArea::Unknown))
-    );
+    assert_eq!(model.detail.first_unknown_row, None);
 }
 
 #[test]
