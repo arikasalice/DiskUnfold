@@ -201,12 +201,10 @@ fn assert_partial_page(page: &VizRows, version: &ResultVersion, count: u64, byte
     assert_eq!(&page.result_revision, version.version_id());
     assert_eq!(page.total_count, count);
     assert_eq!(page.completeness, ResultCompleteness::Partial);
+    let expected_denominator = version.space(0).map(|aggregate| aggregate.logical);
     for row in &page.rows {
         assert_eq!(row.ratio, None);
-        assert_eq!(
-            row.denominator.size.as_ref(),
-            version.space(0).map(|aggregate| aggregate.logical)
-        );
+        assert_eq!(row.denominator.size.as_ref(), expected_denominator.as_ref());
         assert!(
             matches!(row.denominator.value.amount(), VizAmount::LowerBound { value } if value.get() == bytes)
         );
