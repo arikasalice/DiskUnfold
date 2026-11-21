@@ -8,11 +8,13 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
+mod approval_check;
 mod group_rules;
 mod history_open;
 mod history_schema;
 mod job_history;
 pub mod migration;
+mod plan_version;
 mod publish;
 mod read_only;
 pub mod recent_scope;

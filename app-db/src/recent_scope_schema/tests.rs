@@ -5,7 +5,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[test]
 fn production_migration_preserves_existing_settings_and_reopens() -> TestResult {
-    use crate::{AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
+    use crate::{AppDb, HISTORY_DEFINITIONS, migration};
 
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("app.db");
@@ -61,8 +61,20 @@ fn production_migration_preserves_existing_settings_and_reopens() -> TestResult 
             &HISTORY_DEFINITIONS
         )
         .map_err(|e| format!("{e:?}"))?,
-        HISTORY_SCHEMA_VERSION
+        8
     );
+    for step in HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .filter(|step| step.number > 8)
+    {
+        migration::apply_next(
+            &path,
+            &dir.path().join(format!("before-{}.db", step.number)),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    }
     let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let result: (String, i64, i64) = db.connection.query_row(
         "SELECT (SELECT value_json FROM user_env_setting WHERE setting_key='scope.remember_recent'),

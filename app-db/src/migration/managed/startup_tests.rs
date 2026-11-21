@@ -46,7 +46,7 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
             .content_valid,
         3
     );
-    for (revision, previous) in [(5, 4), (6, 5), (7, 6), (8, 7)] {
+    for (revision, previous) in [(5, 4), (6, 5), (7, 6), (8, 7), (9, 8), (10, 9)] {
         let outcome =
             apply_next_managed(&path, &root, &HISTORY_DEFINITIONS).map_err(|e| format!("{e:?}"))?;
         assert_eq!(outcome.revision, revision);
@@ -56,9 +56,9 @@ fn startup_definitions_preserve_settings_and_report_four_backup_boundary()
     }
     drop(AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?);
     let report = inspect_retention(&root).map_err(|e| format!("{e:?}"))?;
-    assert_eq!(report.content_valid, 7);
+    assert_eq!(report.content_valid, 9);
     assert!(report.cleanup_unavailable);
-    for sequence in 1..=7 {
+    for sequence in 1..=9 {
         assert!(root.join(format!("backup-{sequence:020}")).is_dir());
     }
     Ok(())

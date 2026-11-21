@@ -60,8 +60,11 @@ fn startup_migrates_preserves_settings_and_keeps_lock_until_last_writer() -> Tes
     )?;
     assert_eq!(counts, (1, 1, 0));
     let backups = dir.path().join("db-backups");
-    // One backup per migration step from version 1 to 8.
-    assert_eq!(fs::read_dir(&backups)?.count(), 7);
+    // One backup per migration step from version 1 to the current schema.
+    assert_eq!(
+        fs::read_dir(&backups)?.count(),
+        (HISTORY_SCHEMA_VERSION - 1) as usize
+    );
     let original = Connection::open_with_flags(
         backups
             .join("backup-00000000000000000001")
@@ -292,8 +295,11 @@ fn startup_upgrades_v4_to_current_and_preserves_existing_settings() -> TestResul
     assert_eq!(settings.scan_limit_source()().entries(), 200_000);
     let reader = AppDb::open_read_only(&path).map_err(open_error)?;
     assert_eq!(reader.schema_version()?, HISTORY_SCHEMA_VERSION);
-    // Steps 5 to 8.
-    assert_eq!(fs::read_dir(dir.path().join("db-backups"))?.count(), 4);
+    // One backup per migration step from version 4 to the current schema.
+    assert_eq!(
+        fs::read_dir(dir.path().join("db-backups"))?.count(),
+        (HISTORY_SCHEMA_VERSION - 4) as usize
+    );
     assert!(
         reader
             .latest_ruleset()
