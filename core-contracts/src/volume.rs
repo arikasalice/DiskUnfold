@@ -158,16 +158,29 @@ pub struct RootVolumeGroup {
     pub data_mount: Vec<u8>,
     /// The device that `/` and the data volume both report.
     pub device: u64,
+    /// Inode of the data volume's root directory, as the mount point reports it.
+    pub data_inode: u64,
     /// Confirmed firmlinks, sorted by `source` bytes.
     pub firmlinks: Vec<ConfirmedFirmlink>,
 }
 
+/// One observation of the root volume group.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootVolumeGroupObservation {
+    /// The OS has no root volume groups (every adapter but macOS).
+    NotApplicable,
+    /// The OS has root volume groups, but this one could not be confirmed. The scope
+    /// covers the system volume only and the review says so.
+    Unconfirmed,
+    Confirmed(RootVolumeGroup),
+}
+
 pub trait VolumePort: Send + Sync {
     fn enumerate(&self) -> VolumeEnumeration;
-    /// Confirms the root volume group now; `None` when there is none or it cannot
-    /// be confirmed. Adapters without volume groups keep this default.
-    fn root_volume_group(&self) -> Option<RootVolumeGroup> {
-        None
+    /// Confirms the root volume group now, for one scope review or scan. Adapters
+    /// without volume groups keep this default.
+    fn root_volume_group(&self) -> RootVolumeGroupObservation {
+        RootVolumeGroupObservation::NotApplicable
     }
     /// Verify read and search access to a directory without listing its entries.
     fn path_access(&self, path: &[u8]) -> Result<(), PortError>;
