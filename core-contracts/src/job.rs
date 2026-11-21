@@ -61,6 +61,19 @@ pub enum HistoryMode {
     Summary,
     None,
 }
+
+/// File-change action stored on an immutable plan item (F10 FR4.HD1.app-host.DD1).
+///
+/// This plan action vocabulary is distinct from `ResourceClass::FileChange`,
+/// the job-scheduler resource class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeAction {
+    Trash,
+    Move,
+    Delete,
+}
 /// The unit in which a job kind counts its progress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]

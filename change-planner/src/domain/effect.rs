@@ -96,8 +96,10 @@ pub(crate) fn restore_restriction(
             Some(CapabilityState::Supported | CapabilityState::Partial) => {
                 RestoreRestriction::Supported
             }
-            Some(CapabilityState::Unsupported) => RestoreRestriction::Unsupported,
-            None => RestoreRestriction::Unconfirmed,
+            Some(CapabilityState::Unsupported | CapabilityState::NotApplicable) => {
+                RestoreRestriction::Unsupported
+            }
+            Some(CapabilityState::Unknown) | None => RestoreRestriction::Unconfirmed,
         },
     }
 }

@@ -1869,4 +1869,229 @@ export type GroupTotals = { classificationRef: Id, resultVersion: Id,
  * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
  */
 dataSource?: DataSource, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
+export type ChangeAction = "trash" | "move" | "delete";
+export type PlanSourceKind = "manual" | "goal_alternative" | "duplicate_keep" | "scenario";
+export type PlanOriginChannel = "gui" | "cli" | "mcp";
+export type PlanReadiness = "experience_plan" | "needs_confirmation" | "no_executable_items" | "approval_possible";
+export type PlanSection = "executable" | "held" | "needs_confirmation" | "absorbed";
+export type PlanItemDisposition = "included" | "held" | "rejected";
+export type PlanHash = string;
+export type PlanSourceCount = { source: PlanSourceKind, count: number, };
+export type PlanDraftSummary = { itemCount: number, bySource: Array<PlanSourceCount>, conversionHeldCount: number, };
+export type PlanDraftOpenRequest = { source: PlanSourceKind, itemRefs: Array<ItemRef>,
+/**
+ * Omitted or null means no alternative reference; the source determines
+ * whether `itemRefs` or this reference is required.
+ */
+alternativeRef?: Id, };
+export type PlanDraftOpenResponse = { draftRef: Id, editSeq: number, summary: PlanDraftSummary, };
+export type PlanDraftEdit = { "kind": "add_item", itemRef: ItemRef, } | { "kind": "remove_item", itemRef: ItemRef, } | { "kind": "set_action", itemRef: ItemRef, action: ChangeAction, } | { "kind": "set_destination", itemRef: ItemRef,
+/**
+ * Null or omitted clears the destination.
+ */
+destination?: OsPath, } | { "kind": "set_retention_condition", itemRef: ItemRef,
+/**
+ * Null or omitted clears the retention condition reference.
+ */
+retentionConditionRef?: Id, } | { "kind": "set_overwrite", itemRef: ItemRef, overwrite: boolean, };
+export type PlanDraftEditRequest = { draftRef: Id, editSeq: number, edit: PlanDraftEdit, };
+export type PlanDraftEditResponse = { draftRef: Id, editSeq: number, summary: PlanDraftSummary, };
+export type PlanDraftCancelRequest = { draftRef: Id, };
+export type PlanDraftCancelResponse = { discarded: boolean, buildCancelled: boolean, };
+export type PlanBuildRequest = { draftRef: Id, editSeq: number, };
+export type PlanBuildResponse = { jobRef: Id, };
+export type PlanGetRequest = { planVersionId: Id, section: PlanSection,
+/**
+ * Omitted or null means no protection-class filter.
+ */
+protectionFilter?: string,
+/**
+ * Omitted or null starts at the first page.
+ */
+cursor?: string, };
+export type PlanVersionHead = { planVersionId: Id, lineageId: Id,
+/**
+ * Null or omission means this is the first version in the lineage.
+ */
+parentPlanVersionId?: Id, planHash: PlanHash, hashFormat: string, readiness: PlanReadiness, protectionRulesetVersion: string, protectionClassTableVersion: string,
+/**
+ * The feature DLD defines this summary's meaning; nested fields remain
+ * opaque to consumers of the common plan head.
+ */
+effectSummary: unknown,
+/**
+ * The feature DLD defines this summary's meaning; nested fields remain
+ * opaque to consumers of the common plan head.
+ */
+restorationLimitSummary: unknown, originChannel: PlanOriginChannel, fixedAt: Timestamp, changeSummary: string, };
+export type PlanVersionItem = { itemNo: number, itemRef: ItemRef, action: ChangeAction,
+/**
+ * Omitted or null means the action has no destination.
+ */
+destination?: OsPath,
+/**
+ * Omitted or null means no retention condition is attached.
+ */
+retentionConditionRef?: Id, disposition: PlanItemDisposition,
+/**
+ * Whether an existing destination item is selected for overwrite.
+ */
+overwrite: boolean,
+/**
+ * Expected identity and baseline facts captured when the version was fixed.
+ */
+expectedIdentity: unknown,
+/**
+ * Protection evaluation details captured with this immutable item.
+ */
+protectionSummary: unknown,
+/**
+ * Omitted or null means the item has no single review reason.
+ */
+reasonKey?: string, selectionBasis: Array<string>,
+/**
+ * Omitted or null means this item does not represent absorbed items.
+ */
+absorbedBy?: ItemRef, };
+export type PlanGetResponse = { head: PlanVersionHead, items: Array<PlanVersionItem>,
+/**
+ * Omitted or null means there is no next page.
+ */
+nextCursor?: string, };
+export type PlanItemReasonRequest = { planVersionId: Id, itemNo: number, };
+export type PlanItemReasonResponse = { itemRef: ItemRef, selectionBasis: Array<string>, restrictions: Array<string>, disposition: PlanItemDisposition,
+/**
+ * Omitted or null means no review reason applies.
+ */
+reasonKey?: string, };
+export type PlanHistoryRequest = { lineageId: Id, };
+export type PlanHistoryEntry = { planVersionId: Id, fixedAt: Timestamp, changeSummary: string, };
+export type PlanHistoryResponse = { versions: Array<PlanHistoryEntry>, };
+export type PlanVersionFixed = { planVersionId: Id, lineageId: Id,
+/**
+ * Omitted or null means the version did not replace another version.
+ */
+replacedPlanVersionId?: Id, planHash: PlanHash, readiness: PlanReadiness, includedCount: number, heldCount: number, needsConfirmationCount: number, jobRef: Id, fixedAt: Timestamp, };
+export type RequestKind = "plan" | "restore" | "move_undo";
+export type ConfirmationKind = "release_default_protection" | "overwrite";
+export type ApprovalState = "in_review" | "granted" | "rejected" | "withdrawn" | "in_use" | "spent" | "invalidated";
+export type ApprovalEventState = "granted" | "consumed" | "revoked" | "rejected";
+export type ApprovalProtectionResult = { itemRef: ItemRef, disposition: PlanItemDisposition,
+/**
+ * Omitted or null means no protection reason was recorded.
+ */
+reasonKey?: string, };
+export type ApprovalProtectionSummary = { rulesetVersion: string, classTableVersion: string, unlockedClasses: Array<string>, unlockedItemCount: number, unlockedBytes: ByteSize, requiredBasicProtectionAck: boolean, };
+export type ApprovalOverwriteSummary = { overwriteItemCount: number, displacedBytes: ByteSize, requiredOverwriteAck: boolean, };
+export type ApprovalReviewSummary = { targetCount: number, targetSize: ByteSize, visibleSelectionCount: number, hiddenSelectionCount: number, hiddenDescendantCount: number, actions: Array<ChangeAction>,
+/**
+ * Omitted or null means the request has no destination.
+ */
+destination?: OsPath, retentionConditions: Array<Id>,
+/**
+ * Nested fields are owned by the corresponding feature summaries.
+ */
+effectSummary: unknown, protectionResults: Array<ApprovalProtectionResult>,
+/**
+ * Nested fields are owned by the corresponding feature summaries.
+ */
+restorationLimitSummary: unknown,
+/**
+ * Omitted or null means no basic-protection release applies.
+ */
+protectionSummary?: ApprovalProtectionSummary,
+/**
+ * Omitted or null means no overwrite confirmation applies.
+ */
+overwriteSummary?: ApprovalOverwriteSummary, };
+export type ApprovalReviewRequest = { requestVersionId: Id, requestKind: RequestKind, };
+export type ApprovalReviewResponse = { requestVersionId: Id, summary: ApprovalReviewSummary, planHash: PlanHash, approvalPossible: boolean,
+/**
+ * Omitted or null means there are no known blocking reasons.
+ */
+unavailableReasonKeys?: Array<string>,
+/**
+ * Omitted or null means the registry has no current state for this version.
+ */
+currentApprovalState?: ApprovalState, };
+export type ApprovalConfirmationProofs = {
+/**
+ * Omitted or null means false; required only for permanent-delete requests.
+ */
+permanentDeleteSelected?: boolean,
+/**
+ * Omitted or null means the target count was not confirmed.
+ */
+confirmedTargetCount?: number,
+/**
+ * Omitted or null means the target size was not confirmed.
+ */
+confirmedTargetSize?: ByteSize,
+/**
+ * Omitted or null means false; true is required only for permanent-delete requests.
+ */
+irreversibilityConfirmed?: boolean,
+/**
+ * Omitted or null means false; true is required when basic protection is released.
+ */
+basicProtectionUnlockConfirmed?: boolean,
+/**
+ * Omitted or null means false; true is required when overwrite is selected.
+ */
+overwriteConfirmed?: boolean,
+/**
+ * Omitted or null means no overwrite count was confirmed.
+ */
+confirmedOverwriteItemCount?: number,
+/**
+ * Omitted or null means no displaced size was confirmed.
+ */
+confirmedDisplacedBytes?: ByteSize, };
+export type ApprovalGrantRequest = { requestVersionId: Id, presentedPlanHash: PlanHash,
+/**
+ * Omitted or null means no additional proof was submitted.
+ */
+confirmations?: ApprovalConfirmationProofs, };
+export type ApprovalGrantResponse = { state: ApprovalState, };
+export type ApprovalStateChanged = { requestVersionId: Id, state: ApprovalEventState,
+/**
+ * Omitted or null means no state-change reason is attached.
+ */
+reasonKey?: string, sequence: number, occurredAt: Timestamp, };
+export type ChangeExecuteRequest = { requestVersionId: Id, };
+export type ChangeExecuteResponse = { jobRef: Id, approvalState: ApprovalState, };
+export type ChangeItemState = "completed" | "skipped" | "failed" | "unprocessed";
+export type ChangeItemResultFilter = "completed" | "failed" | "outcome_unknown" | "skipped" | "held" | "unprocessed";
+export type ChangeItemResultsRequest = { jobRef: Id,
+/**
+ * Omitted or null means all recorded result groups.
+ */
+resultFilter?: ChangeItemResultFilter,
+/**
+ * Omitted or null starts at the first result.
+ */
+cursor?: string, };
+export type ChangeItemCounts = { completed: number,
+/**
+ * The shared job summary includes this category; `change.trash` leaves it zero.
+ */
+overwritten: number, skipped: number, failed: number, unprocessed: number, };
+export type ChangeItemResult = { itemRef: ItemRef,
+/**
+ * F11 `change.trash` uses `state`; it does not emit an `overwritten` item state.
+ */
+state: ChangeItemState,
+/**
+ * Omitted or null means no item-specific reason was recorded.
+ */
+reasonKey?: string,
+/**
+ * Omitted or null means the size was not observed.
+ */
+observedSize?: ByteSize, reviewNeeded: boolean, held: boolean, outcomeUnknown: boolean, undoAvailable: boolean, };
+export type ChangeItemResultsResponse = { jobRef: Id, jobState: JobState, counts: ChangeItemCounts, itemRecording: HistoryItemRecording, items: Array<ChangeItemResult>,
+/**
+ * Omitted or null means there is no next page.
+ */
+nextCursor?: string, };
 export const SIZE_UNIT_RULES = {"decimalPlaces":1,"iec":{"base":1024,"symbols":["B","KiB","MiB","GiB","TiB","PiB"]},"revision":1,"si":{"base":1000,"symbols":["B","kB","MB","GB","TB","PB"]}} as const;
