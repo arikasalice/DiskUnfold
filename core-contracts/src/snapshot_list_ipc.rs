@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 
 /// Requests one page of active snapshots.
 ///
-/// Unknown fields are ignored for forward compatibility. A missing limit uses
-/// 200 rows; callers may reuse a cursor with a different limit.
+/// Unknown fields are rejected. A missing limit uses 200 rows; callers may
+/// reuse a cursor with a different limit.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SnapshotListRequest {
     /// Opaque continuation token returned by the previous page.
     #[serde(default)]
@@ -158,11 +158,20 @@ mod tests {
     const ID: &str = "018f0000-0000-7000-8000-000000000001";
 
     #[test]
-    fn request_and_response_accept_unknown_fields() -> Result<(), serde_json::Error> {
+    fn request_rejects_unknown_fields_and_response_accepts_them() -> Result<(), serde_json::Error> {
         let request: SnapshotListRequest = serde_json::from_value(json!({
-            "future": true
+            "cursor": "next",
+            "limit": 10
         }))?;
-        assert_eq!(request.limit, None);
+        assert_eq!(request.cursor.as_deref(), Some("next"));
+        assert_eq!(request.limit, Some(10));
+        assert!(
+            serde_json::from_value::<SnapshotListRequest>(json!({
+                "limit": 10,
+                "future": true
+            }))
+            .is_err()
+        );
 
         let response: SnapshotListResponse = serde_json::from_value(json!({
             "listSeq": 1,

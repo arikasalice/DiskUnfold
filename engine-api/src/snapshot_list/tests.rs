@@ -144,12 +144,16 @@ fn call(
 }
 
 #[test]
-fn defaults_to_two_hundred_and_accepts_unknown_request_fields()
+fn defaults_to_two_hundred_and_rejects_unknown_request_fields()
 -> Result<(), Box<dyn std::error::Error>> {
     let index = MemoryIndex::default();
-    let response = call(&index, true, json!({"future": true}))?;
+    let response = call(&index, true, json!({}))?;
     assert!(response["error"].is_null());
     assert_eq!(index.state().last_limit, Some(200));
+    let invalid = call(&index, true, json!({"future": true}))?;
+    assert_eq!(invalid["error"]["code"], "INVALID_ARGUMENT");
+    assert_eq!(invalid["error"]["reasonKey"], "command.body_invalid");
+    assert_eq!(index.state().calls, 1);
     Ok(())
 }
 
