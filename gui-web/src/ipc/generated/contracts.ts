@@ -1125,9 +1125,11 @@ export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: n
 export type VizSizeRange = { "kind": "known", min: SizeValue, max: SizeValue, } | { "kind": "unknown" };
 export type VizRows = { rows: Array<VizRow>, totalCount: number,
 /**
- * Size basis used to calculate this page's file rows.
+ * Size basis used to calculate this page's file rows. Omitted when the producer
+ * does not say; a screen pairs it with the requested basis and ignores it otherwise.
+ * `null` is rejected.
  */
-sizeBasis: SizeBasis, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
+sizeBasis?: SizeBasis, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type VizGroupRows = { rows: Array<VizRow>, totalCount: number, groupTotal: SizeValue, sizeRange: VizSizeRange, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type VizLocateRequest = {
 /**

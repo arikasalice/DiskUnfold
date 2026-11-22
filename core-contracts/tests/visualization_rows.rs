@@ -292,11 +292,17 @@ fn pages_check_ranges_and_revision_but_leave_model_membership_to_engine()
     let mut too_small = page.clone();
     too_small["totalCount"] = json!(0);
     assert!(serde_json::from_value::<VizRows>(too_small).is_err());
-    for field in ["observedAt", "completeness", "sizeBasis"] {
+    for field in ["observedAt", "completeness"] {
         let mut missing = page.clone();
         missing.as_object_mut().map(|o| o.remove(field));
         assert!(serde_json::from_value::<VizRows>(missing).is_err());
     }
+    let mut without_basis = page.clone();
+    without_basis.as_object_mut().map(|o| o.remove("sizeBasis"));
+    assert!(serde_json::from_value::<VizRows>(without_basis).is_ok());
+    let mut null_basis = page.clone();
+    null_basis["sizeBasis"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<VizRows>(null_basis).is_err());
     let mut known = page.clone();
     known["observedAt"] = json!("2026-11-10T00:00:00.000Z");
     assert_eq!(

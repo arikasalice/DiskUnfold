@@ -303,8 +303,12 @@ pub struct VizRows {
     pub rows: Vec<VizRow>,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub total_count: u64,
-    /// Size basis used to calculate this page's file rows.
-    pub size_basis: SizeBasis,
+    /// Size basis used to calculate this page's file rows. Omitted when the producer
+    /// does not say; a screen pairs it with the requested basis and ignores it otherwise.
+    /// `null` is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub size_basis: Option<SizeBasis>,
     pub result_revision: Id,
     pub observed_at: Option<Timestamp>,
     pub completeness: ResultCompleteness,
@@ -328,7 +332,8 @@ struct RowsWire {
     rows: Vec<VizRow>,
     #[serde(deserialize_with = "safe_count")]
     total_count: u64,
-    size_basis: SizeBasis,
+    #[serde(default, deserialize_with = "crate::folder_flags::non_null")]
+    size_basis: Option<SizeBasis>,
     result_revision: Id,
     #[serde(deserialize_with = "required_nullable")]
     observed_at: Option<Timestamp>,

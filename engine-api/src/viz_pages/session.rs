@@ -414,7 +414,7 @@ impl Session {
         Ok(VizRows {
             rows: rows[start..end].to_vec(),
             total_count: rows.len() as u64,
-            size_basis,
+            size_basis: Some(size_basis),
             result_revision: source.version_id().clone(),
             observed_at: source.observed_at().cloned(),
             completeness: source.completeness(),

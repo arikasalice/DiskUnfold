@@ -240,7 +240,7 @@ fn actual_pinned_projection_yields_matching_page_rows_and_geometry() -> Result<(
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.rows.len(), 3);
     assert_eq!(page.result_revision, *version.version_id());
-    assert_eq!(page.size_basis, SizeBasis::Logical);
+    assert_eq!(page.size_basis, Some(SizeBasis::Logical));
     for (row, source) in page.rows.iter().zip(&model.rows) {
         assert_eq!(row.item_ref.as_ref(), Some(&source.item));
         assert_eq!(row.size, source.size);
@@ -303,7 +303,7 @@ fn allocated_hardlinks_have_one_area_and_blank_non_counted_ratio() -> Result<(),
             parent_shape_ref: None,
         })
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(page.size_basis, SizeBasis::Allocated);
+    assert_eq!(page.size_basis, Some(SizeBasis::Allocated));
 
     let row = |name: &str| {
         page.rows
