@@ -506,6 +506,13 @@ test("keeps Tasks on history and switches between the right-side panels", async 
   fireEvent.click(tasksEntry);
   const tasksTitle = await screen.findByRole("heading", { name: "Tasks" });
   await waitFor(() => expect(document.activeElement).toBe(tasksTitle));
+  expect(tasksEntry.getAttribute("aria-expanded")).toBe("true");
+  expect(
+    document
+      .querySelector(".du-job-center-overlay")
+      ?.hasAttribute("data-panel-open"),
+  ).toBe(true);
+  expect(retentionEntry.getAttribute("aria-expanded")).toBe("false");
   expect(
     document
       .querySelector("#du-history-retention-panel")

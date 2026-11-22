@@ -160,6 +160,7 @@
   padding: 4px 10px;
   font-size: 12px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .du-history-shell .du-table-cell {
@@ -327,6 +328,23 @@
 .du-history-displaced:focus {
   outline: 2px solid var(--du-focus);
   outline-offset: -2px;
+}
+
+@media (min-width: 1024px) {
+  .du-history-content:has(> .du-history-retention[data-open]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .du-history-content:has(> .du-history-retention[data-open])
+    > .du-history-retention[data-open] {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    inset: auto;
+    inline-size: auto;
+  }
 }
 
 @media (max-width: 450px) {
