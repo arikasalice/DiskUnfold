@@ -180,17 +180,17 @@ export function ScanIssues({
             folderFilter ||
             (allStorageNotice && failuresOnly)) && (
             <div className="du-scan-issues__conditions">
-              {folderFilter && (
-                <ScanIssueFolderChip
-                  folder={folderFilter}
-                  onClear={clearFolder}
-                />
-              )}
               {storageFilter && (
                 <ScanIssueStorageChip
                   filter={storageFilter}
                   chipRef={storageChip}
                   onClear={clearStorage}
+                />
+              )}
+              {folderFilter && (
+                <ScanIssueFolderChip
+                  folder={folderFilter}
+                  onClear={clearFolder}
                 />
               )}
               {allStorageNotice && failuresOnly && (
