@@ -98,6 +98,11 @@ impl<'a> PlanBuilder<'a> {
             .analysis
             .data_source(&request.source_version_id)
             .map_err(|error| port_failure("analysis.data_source", error))?;
+        if readiness::readiness_first_row(Some(data_source))
+            == Some(readiness::PlanReadiness::SourceNotCurrent)
+        {
+            return Err(PlanError::SourceNotCurrent);
+        }
         let now = self.ports.clock.now().ok_or(PlanError::ClockUnavailable)?;
         let parent = self.read_parent(request.parent_version_id.as_ref())?;
         let version_id = self.ports.ids.next_id().map_err(PlanError::IdUnavailable)?;

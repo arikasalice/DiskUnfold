@@ -133,6 +133,8 @@ fn open_bytes(bytes: Vec<u8>) -> Result<(VerifiedSnapshot<Stage>, Arc<Mutex<Stag
     }
 }
 
+mod load_tests;
+
 fn open_error(bytes: Vec<u8>) -> Result<OpenError, String> {
     let (sink, state) = stage()?;
     let result = open(Sealed(Cursor::new(bytes)), sink, || false);

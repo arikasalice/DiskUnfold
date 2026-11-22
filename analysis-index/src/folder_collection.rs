@@ -5,8 +5,9 @@
 //! Applies to a directory item; any other item is [`FolderCollection::NotAFolder`].
 //! The rules are checked in this order and the first match answers.
 //!
-//! 1. The version is not a real scan (a sample): unenumerated is Unknown with
-//!    [`REASON_DATA_INSUFFICIENT`] and the boundary is [`FolderBoundary::NotProvided`].
+//! 1. A sample does not provide these facts. A snapshot provides only its stored gap or
+//!    boundary markers; absent markers are unknown with [`REASON_DATA_INSUFFICIENT`] and
+//!    [`FolderBoundary::NotProvided`].
 //! 2. The folder has an exact gap (a gap whose whole path is this item), in any
 //!    publication and any completeness: unenumerated is Yes with the reason of the first
 //!    recorded gap, and the boundary is unknown. A gap whose path
@@ -67,6 +68,7 @@ pub use lower_bound::{
 mod lower_bound;
 use du_core_contracts::{
     ItemRef,
+    data_source::DataSource,
     result::{ResultCompleteness, ResultItem, ResultItemKind},
 };
 
@@ -193,7 +195,7 @@ impl ResultVersion {
     ) -> Result<Option<ExcludedChildren>, QueryError> {
         let item = self.detail(item)?.item;
         ensure_directory(item.kind)?;
-        if !self.data_source.is_real() {
+        if self.data_source == DataSource::Sample {
             return Ok(None);
         }
         Ok(self
@@ -223,7 +225,7 @@ impl ResultVersion {
             unenumerated: Unenumerated::Unknown { reason_key },
             boundary: FolderBoundary::Unknown { reason_key },
         };
-        let (unenumerated, boundary) = if !self.data_source.is_real() {
+        let (unenumerated, boundary) = if self.data_source == DataSource::Sample {
             (
                 Unenumerated::Unknown {
                     reason_key: REASON_DATA_INSUFFICIENT,
@@ -239,6 +241,13 @@ impl ResultVersion {
             )
         } else if let Some(kind) = self.folder_marks.boundary(item.item_no) {
             (Unenumerated::No, boundary_of(kind))
+        } else if self.data_source == DataSource::Snapshot {
+            (
+                Unenumerated::Unknown {
+                    reason_key: REASON_DATA_INSUFFICIENT,
+                },
+                FolderBoundary::NotProvided,
+            )
         } else if self.entered(item) {
             (Unenumerated::No, FolderBoundary::NoBoundary)
         } else if !self.folder_marks.sealed() {
@@ -255,12 +264,14 @@ impl ResultVersion {
     /// Whether an unmarked folder of a real scan was entered and read (rule 5).
     fn entered(&self, item: &ResultItem) -> bool {
         let marks = self.folder_marks.unread_counts();
-        let complete_scan = self.origin == ResultOrigin::Scan
+        let complete_scan = self.data_source == DataSource::Real
+            && self.origin == ResultOrigin::Scan
             && self.folder_marks.sealed()
             && self.completeness == ResultCompleteness::Complete
             && marks.cancelled == 0
             && marks.disconnected == 0;
-        self.folder_marks.ended(item.item_no) || (complete_scan && !self.below_boundary(item))
+        (self.data_source == DataSource::Real && self.folder_marks.ended(item.item_no))
+            || (complete_scan && !self.below_boundary(item))
     }
 
     /// Whether an ancestor of the item is a boundary folder. O(depth) lookups.

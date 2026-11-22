@@ -52,6 +52,7 @@ pub use scope_observation::{
     ObservationSkip, ObservationStamp, SealedScanError, fingerprint_from_hex,
 };
 pub mod size_rule_registry;
+pub mod snapshot_load;
 pub mod source_registry;
 mod space;
 pub mod space_detail;
@@ -98,6 +99,7 @@ pub struct ResultVersion {
     version_id: Id,
     origin: ResultOrigin,
     data_source: du_core_contracts::data_source::DataSource,
+    snapshot_id: Option<Id>,
     base_version_id: Option<Id>,
     viz_models: Mutex<visualization::live_models::OwnedModels>,
     scope_version_id: Id,
@@ -212,6 +214,7 @@ impl IngestSink {
             reserved: true,
             origin: ResultOrigin::Scan,
             data_source: du_core_contracts::data_source::DataSource::Real,
+            snapshot_id: None,
             published: false,
             size_rule: BoundSizeRule::builtin_default(),
             shared_table_limit: physical::IDENTITY_LIMIT,
@@ -244,6 +247,7 @@ pub struct BuildHandle {
     reserved: bool,
     origin: ResultOrigin,
     data_source: du_core_contracts::data_source::DataSource,
+    snapshot_id: Option<Id>,
     published: bool,
     size_rule: BoundSizeRule,
     shared_table_limit: usize,
@@ -397,6 +401,7 @@ impl BuildHandle {
             version_id,
             origin: self.origin,
             data_source: self.data_source,
+            snapshot_id: self.snapshot_id.clone(),
             base_version_id: self.expected_base.clone(),
             viz_models: Mutex::default(),
             scope_version_id: self.scope_version_id.clone(),

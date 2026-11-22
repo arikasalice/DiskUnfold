@@ -14,6 +14,7 @@ pub(crate) fn plan_hash(plan: &PlanVersion) -> [u8; 32] {
     writer.byte(match plan.data_source {
         du_core_contracts::data_source::DataSource::Real => 0,
         du_core_contracts::data_source::DataSource::Sample => 1,
+        du_core_contracts::data_source::DataSource::Snapshot => 2,
     });
     writer.byte(match plan.source_kind {
         crate::ports::PlanSourceKind::UserSelection => 0,

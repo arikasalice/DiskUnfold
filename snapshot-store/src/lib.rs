@@ -3,6 +3,7 @@ pub mod catalog_status;
 pub mod comparison;
 pub mod comparison_ranking;
 pub mod envelope;
+pub mod load;
 mod open;
 mod record_framing;
 pub mod records;

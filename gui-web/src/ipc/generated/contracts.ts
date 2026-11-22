@@ -1140,7 +1140,7 @@ export type ResultEnvelope = { name: string, contractVersion: number, correlatio
 export type EventEnvelope = { topic: string, contractVersion: number, seq: number, correlationId?: Id, jobRef?: Id, resultVersion?: Id, occurredAt: Timestamp, body: unknown, };
 export type ResultVersionChange = "published" | "withdrawn";
 export type PublishedCompleteness = "complete" | "partial" | "unknown";
-export type DataSource = "real" | "sample";
+export type DataSource = "real" | "snapshot" | "sample";
 export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string,
 /**
  * Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
