@@ -14,6 +14,8 @@ fn flags(unread_inside: Option<BrowseValue<UnreadInside>>) -> FolderFlags {
         boundary: Some(BrowseValue::Absent),
         unread_inside,
         counted_at: None,
+        counted_at_item: None,
+        group_volume_role: None,
     }
 }
 

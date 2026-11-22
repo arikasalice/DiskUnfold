@@ -1,4 +1,4 @@
-use crate::macos_observation::MacScopeRoots;
+use crate::macos_observation::{MacScopeRoots, volume};
 use du_core_contracts::scan_observation::ScopeRootPort;
 use du_core_contracts::volume::{ConfirmedFirmlink, RootVolumeGroup, RootVolumeGroupObservation};
 use rustix::{
@@ -62,9 +62,23 @@ pub(super) fn observe(entries: &[libc::statfs]) -> RootVolumeGroupObservation {
             Err(()) => return RootVolumeGroupObservation::Unconfirmed,
         }
     }
-    evaluate(root.0, &data_mounts, firmlinks, listed)
-        .map(RootVolumeGroupObservation::Confirmed)
-        .unwrap_or(RootVolumeGroupObservation::Unconfirmed)
+    let Some(mut group) = evaluate(root.0, &data_mounts, firmlinks, listed) else {
+        return RootVolumeGroupObservation::Unconfirmed;
+    };
+    group.system_name = system_name(entries);
+    RootVolumeGroupObservation::Confirmed(group)
+}
+
+fn system_name(entries: &[libc::statfs]) -> Option<String> {
+    let mut roots = entries
+        .iter()
+        .filter(|entry| field(&entry.f_mntonname).is_some_and(|path| path == b"/"));
+    roots.next()?;
+    if roots.next().is_some() {
+        return None;
+    }
+    let path = CString::new(b"/".as_slice()).ok()?;
+    volume::mount_name(&path)
 }
 
 fn field(raw: &[libc::c_char]) -> Option<Vec<u8>> {
@@ -190,6 +204,7 @@ fn evaluate(
     let data = &data_mounts[0];
     Some(RootVolumeGroup {
         data_mount: data.path.clone(),
+        system_name: None,
         device: root_device,
         data_inode: data.inode,
         firmlinks,

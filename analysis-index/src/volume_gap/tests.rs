@@ -3,6 +3,7 @@ use super::*;
 fn confirmed() -> RootVolumeGroup {
     RootVolumeGroup {
         data_mount: b"/System/Volumes/Data".to_vec(),
+        system_name: None,
         device: 1,
         data_inode: 2,
         firmlinks: Vec::new(),

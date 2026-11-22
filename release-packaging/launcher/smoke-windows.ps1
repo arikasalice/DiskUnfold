@@ -1879,12 +1879,25 @@ function Show-FallbackTable($scope) {
   Save-SmokeCapture '02-fallback-table-collapsed'
   Send-SmokeClick $x $y
   $toggle = Wait-SmokeExpanded $title $true 'mouse'
-  $toggle.SetFocus()
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x0D # VK_RETURN
   $toggle = Wait-SmokeExpanded $title $false 'Enter'
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x20 # VK_SPACE
   $null = Wait-SmokeExpanded $title $true 'Space'
   "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# A key goes to whatever holds the focus, so the toggle must hold it first. The panel
+# re-renders after each toggle, so the button is found again rather than reused, and
+# focused again until UI Automation reports keyboard focus on it.
+function Wait-SmokeFocus($name) {
+  Wait-UI "$name focused" {
+    $item = Find-UI $name $button
+    if ($item) {
+      if (-not $item.Current.HasKeyboardFocus) { $item.SetFocus() }
+      if ($item.Current.HasKeyboardFocus) { $item }
+    }
+  }
 }
 # #149: NTFS without block cloning shares no extents between files, so the unique physical size
 # basis counts every file and the chart draws both folders instead of an unavailable notice.
@@ -2308,6 +2321,17 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   Save-SmokeCapture '05-browse-folders'
+  if ($WindowSize -match '^1280x') {
+    $browseTasksEntry = Wait-TasksEntry
+    $browseBackEntry = Wait-VisibleAction 'Back to analysis'
+    $headerTopDelta = [Math]::Abs(
+      $browseTasksEntry.Current.BoundingRectangle.Top - $browseBackEntry.Current.BoundingRectangle.Top
+    )
+    if ($headerTopDelta -gt 4) {
+      throw "Browse app header actions wrapped at 1280 ($headerTopDelta px between Tasks and Back to analysis)"
+    }
+    "F21 #354 browse header row: Tasks and Back to analysis aligned ($headerTopDelta px)"
+  }
   # #145: the location path breaks after its separators on screen; the names UI Automation reads
   # for it should still be the path itself, without spaces at the breaks.
   $leaf = '*\' + (Split-Path -Leaf $scanRoot)
@@ -2381,12 +2405,22 @@ function Test-CaptureHistory {
       Select-Object -First 1
   }
   Save-SmokeCapture '01-operation-history'
+  $historyTasksEntry = Wait-TasksEntry
+  "F21 #342 tasks entry on history: $($historyTasksEntry.Current.Name)"
   $retentionSettingsName = Get-UiName 'Retention'
   $retentionEntry = Wait-VisibleAction $retentionSettingsName
   Expand-UI $retentionEntry
   $retentionTitleName = Get-UiName 'History retention'
   $null = Wait-UI 'history retention panel title' {
     Find-UI $retentionTitleName $null
+  }
+  $backToAnalysisName = Get-UiName 'Back to analysis'
+  $backToAnalysis = Wait-UI 'Back to analysis remains visible and enabled with retention open' {
+    $item = Find-UI $backToAnalysisName $button
+    if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
+  }
+  if (-not $backToAnalysis.Current.IsEnabled -or $backToAnalysis.Current.IsOffscreen) {
+    throw 'Back to analysis was unavailable while retention settings were open'
   }
   Save-SmokeCapture '09-retention-panel'
   $autoCleanupName = Get-UiName 'Clean up automatically'
@@ -2444,6 +2478,60 @@ function Test-CaptureHistory {
   }
   if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
     throw 'Automatic cleanup remained on after cancelling the confirmation'
+  }
+  # #361 scene: opening the Job Center from the history screen closes the retention panel, and
+  # the Job Center panel starts below the header row.
+  Expand-UI (Wait-TasksEntry)
+  $jobCenterTitle = Get-UiName 'Tasks'
+  $null = Wait-UI 'job center panel with retention closed' {
+    (Find-UI (Get-UiName 'View all task history') $button) -and -not (Find-UI $retentionTitleName $null)
+  }
+  Save-SmokeCapture '11-job-center-over-history'
+  $tasksOnHistory = Wait-TasksEntry
+  $panelAction = Find-UI (Get-UiName 'View all task history') $button
+  if ($panelAction.Current.BoundingRectangle.Top -le $tasksOnHistory.Current.BoundingRectangle.Bottom) {
+    throw 'The Job Center panel covers the app header row on the history screen'
+  }
+  $scrollTargets = @()
+  $documentCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Document
+  )
+  $scrollTargets += @($window.FindAll($scopeTree, $documentCondition))
+  $paneCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Pane
+  )
+  $panes = @($window.FindAll($scopeTree, $paneCondition))
+  if ($panes.Count -gt 0) {
+    $mainPane = $panes |
+      Sort-Object { $_.Current.BoundingRectangle.Width * $_.Current.BoundingRectangle.Height } -Descending |
+      Select-Object -First 1
+    $scrollTargets += $mainPane
+  }
+  $scrollPatternFound = $false
+  foreach ($target in $scrollTargets) {
+    $scroll = $null
+    if (-not $target.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) {
+      continue
+    }
+    $scrollPatternFound = $true
+    if ($scroll.Current.HorizontallyScrollable -or $scroll.Current.VerticallyScrollable) {
+      throw "The history document or main pane scrolls with the Job Center open (horizontal=$($scroll.Current.HorizontallyScrollable), vertical=$($scroll.Current.VerticallyScrollable))"
+    }
+  }
+  if (-not $scrollPatternFound) {
+    'History document and main pane: UI Automation exposes no ScrollPattern'
+  } else {
+    'History document and main pane: no horizontal or vertical scrolling'
+  }
+  "F21 #361 job center over history: retention panel closed, panel below the header"
+  Send-SmokeKey 0x1B
+  # The closed panel stays in the tree (hidden); Escape returns focus to the Tasks entry instead.
+  $null = Wait-UI 'job center Escape focus restoration' {
+    $focused = $ae::FocusedElement
+    $taskName = Get-UiName 'Tasks'
+    if ($focused -and ($focused.Current.Name -eq $taskName -or $focused.Current.Name.StartsWith($taskName + ', '))) { $focused }
   }
   $filterDisclosure = Wait-UI 'date and type filters disclosure' {
     $item = Find-UI 'Date and type filters' $button

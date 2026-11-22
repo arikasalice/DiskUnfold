@@ -214,7 +214,6 @@ export function App({
     renderEntry: (count, onPress) => (
       <JobCenterEntry
         clientAvailable={client !== undefined}
-        historyOpen={history}
         count={count}
         expanded={tasksOpen}
         trigger={tasksTrigger}
@@ -377,6 +376,8 @@ export function App({
         <HistorySizeDisplay.Provider value={browseDisplay}>
           <HistoryPanel
             client={client}
+            tasksOpen={tasksOpen}
+            onOpenRetention={() => setTasksOpen(false)}
             onClose={() => {
               restoreFocus.current = true;
               setHistory(false);
@@ -489,13 +490,32 @@ function BrowseSurface({
         focusTitle
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}
-        inspectItem={(item, kind) => (
+        inspectItem={(
+          item,
+          kind,
+          countedAt,
+          countedAtItem,
+          groupVolumeRole,
+          navigateItem,
+          focusCountedAtItem,
+          alreadyCounted,
+          countedZero,
+          unreadNote,
+        ) => (
           <FileInspection
             key={`${item.resultVersion}:${item.itemNo}`}
             client={client}
             item={item}
             itemKind={kind}
+            {...(countedAt ? { countedAt } : {})}
+            {...(countedAtItem ? { countedAtItem } : {})}
+            {...(groupVolumeRole ? { groupVolumeRole } : {})}
+            {...(navigateItem ? { navigateItem } : {})}
+            {...(focusCountedAtItem ? { focusCountedAtItem } : {})}
+            {...(alreadyCounted ? { alreadyCounted } : {})}
             display={display}
+            countedZero={countedZero}
+            unreadNote={unreadNote}
           />
         )}
       />

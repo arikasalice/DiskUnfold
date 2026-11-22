@@ -323,6 +323,8 @@ ui.analysis.lanes_wait_backpressure
 ui.analysis.lanes_wait_device_cap
 ui.analysis.lanes_wait_io
 ui.analysis.lanes_wait_unconfirmed
+ui.analysis.lanes_view_failures count:count
+ui.analysis.lanes_view_failures_action
 ui.analysis.lanes_wait_unknown
 ui.analysis.result_heading
 ui.analysis.progress_heading
@@ -401,6 +403,10 @@ ui.analysis.scope_disconnected.unix
 ui.analysis.scope_unresolvable
 ui.analysis.scope_needs_review
 ui.analysis.scope_changed
+ui.analysis.volume_group_merged
+ui.analysis.volume_group_unverified
+ui.analysis.choose_folder
+ui.analysis.analyze_home_folder path:name
 ui.analysis.scope_unverified
 ui.analysis.reviewed_scope
 ui.analysis.scope_problem
@@ -456,6 +462,8 @@ ui.analysis.space_observed_allocated
 ui.analysis.space_unique_physical
 ui.analysis.space_exclusive
 ui.analysis.space_shared
+ui.analysis.shared_space_counted_per_file
+ui.analysis.allocated_may_include_shared
 ui.analysis.space_exclusive_confirmed
 ui.analysis.space_confirmed
 ui.analysis.space_not_confirmed
@@ -850,6 +858,11 @@ ui.browse.scan_status_unread_inside_count count:count
 ui.browse.scan_status_unread_inside_some
 ui.browse.scan_status_other_volume
 ui.browse.scan_status_already_counted
+ui.browse.counted_at
+ui.browse.counted_at_path path:name
+ui.browse.counted_at_open
+ui.browse.previous_location
+ui.browse.data_volume_description
 ui.browse.origin_scan
 ui.browse.origin_incremental
 ui.browse.keys.cell_next
@@ -1114,6 +1127,8 @@ ui.visualization.rowsNotRetrieved
 ui.visualization.rowsOnePage count:count
 ui.visualization.sameRevision
 ui.visualization.sankey
+ui.visualization.scopeMayExceedUsage
+ui.visualization.scopeMayExceedUsageTooltip
 ui.visualization.scopeTotal
 ui.visualization.scopeTotalBasisLine value:name basis:name
 ui.visualization.scopeTotalLine value:name
@@ -1139,6 +1154,9 @@ ui.visualization.stalenessUnwatched
 ui.visualization.storageVisualization
 ui.visualization.treemap
 ui.visualization.trend
+ui.visualization.typeSlicesMore count:count name:name
+ui.visualization.typeSlicesRest count:count size:name
+ui.visualization.typeSlicesUnsplit size:name
 ui.visualization.unavailable
 ui.visualization.unavailableBodyBasisNotCounted basis:name
 ui.visualization.unavailableBodyNegativeFlow
@@ -1163,6 +1181,12 @@ ui.visualization.undrawnShowInList
 ui.visualization.undrawnShowInListName summary:name
 ui.visualization.undrawnTooltip
 ui.visualization.unknownFormat
+ui.visualization.unreadFolders count:count
+ui.visualization.unreadFoldersAtLeast count:count
+ui.visualization.unreadInside count:count
+ui.visualization.unreadInsideSome
+ui.visualization.unreadItself
+ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
 ui.visualization.viewAsTreemap
@@ -1205,6 +1229,7 @@ ui.analysis.drives_slow.unix
 ui.analysis.drives_unavailable
 ui.analysis.drives_unavailable.unix
 ui.analysis.choose_target_label
+ui.analysis.startup_disk
 ui.analysis.target_internal
 ui.analysis.target_external
 ui.analysis.target_network_mount
@@ -1248,6 +1273,7 @@ ui.analysis.capacity_not_reported
 ui.analysis.capacity_combined_unverified
 ui.analysis.capacity_checked time:timestamp
 ui.analysis.issues_all
+ui.analysis.issues_unreadable_locations
 ui.analysis.issues_collection_failures
 ui.analysis.issues_unread_ranges
 ui.analysis.issues_uncertain_entries
@@ -1283,6 +1309,11 @@ ui.analysis.issue_unknown_reason
 ui.analysis.issues_retry
 ui.analysis.issues_load_more
 ui.analysis.issues_stale
+ui.analysis.issues_title
+ui.analysis.issues_filter_all_storages
+ui.analysis.issues_filter_paths_more count:count
+ui.analysis.issues_filter_storage
+ui.analysis.issues_filter_storage_name value:name
 ui.analysis.issues_not_found
 ui.analysis.issues_failed
 ui.analysis.issues_reopen_new
@@ -1309,6 +1340,11 @@ ui.analysis.scan_reason_shutting_down
 ui.analysis.scan_reason_queue_full
 ui.analysis.scan_reason_unknown
 ui.analysis.volume_factor_out_of_scope
+ui.analysis.volume_other_system_volumes
+ui.analysis.volume_role_vm
+ui.analysis.volume_role_preboot
+ui.analysis.volume_role_recovery
+ui.analysis.volume_role_update
 ui.analysis.volume_factor_excluded
 ui.analysis.volume_factor_inaccessible
 ui.analysis.volume_factor_dedup

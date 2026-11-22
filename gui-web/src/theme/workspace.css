@@ -230,6 +230,24 @@ body {
   color: var(--du-muted);
 }
 
+@media (min-width: 75rem) {
+  .du-app[data-browse-open] > .du-app-header {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions,
+  .du-app[data-browse-open] .du-info-entry {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions .du-action {
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 18rem) {
   .du-app-header {
     align-items: flex-start;
@@ -242,6 +260,17 @@ body {
 
 .du-action[data-disabled] {
   cursor: default;
+}
+
+.du-text-link {
+  color: var(--du-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.du-text-link:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
 }
 
 .du-action[data-focus-visible],
@@ -424,6 +453,11 @@ label.du-field > span {
   color: var(--du-info-text);
 }
 
+.du-notice--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
 .du-badge--good {
   background: var(--du-good-surface);
   color: var(--du-good-text);
@@ -580,6 +614,10 @@ label.du-field > span {
 }
 
 @media (forced-colors: active) {
+  .du-text-link {
+    color: LinkText;
+  }
+
   .du-action,
   .du-choice,
   .du-field :is(input, select),

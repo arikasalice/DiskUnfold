@@ -6,11 +6,14 @@ import type { RegionalFormat } from "../../i18n/regional-format";
 import type { LocaleText } from "../../i18n/presentation";
 
 import type { SizeDisplay } from "../../i18n/bytes";
+import { defaultSizeDisplay } from "../../state/size-display";
 export type { SizeDisplay } from "../../i18n/bytes";
 
-export const windowsSizeDisplay: SizeDisplay = { system: "iec", unit: "auto" };
+export const windowsSizeDisplay: SizeDisplay = defaultSizeDisplay("windows");
 
 export type SizeBasisFilter = SizeValue["basis"];
+export const ALLOCATED_MAY_INCLUDE_SHARED =
+  "space.allocated_may_include_shared";
 export const sizeLabels = {
   logical: "Logical size",
   allocated: "Allocated size",
@@ -90,6 +93,13 @@ const spaceReasonMessages = new Map<string, Message>([
 
 /** The message of each reason that only limits a measurement. */
 const measurementLimitMessages = new Map<string, Message>([
+  [
+    ALLOCATED_MAY_INCLUDE_SHARED,
+    [
+      "ui.analysis.allocated_may_include_shared",
+      "Cloned files share space, so this can be larger than the actual disk usage.",
+    ],
+  ],
   [
     "space.data_insufficient",
     [
@@ -343,7 +353,7 @@ export function formatSizeBytes(
 /** Preserves a lower bound or missing observation in the displayed size. */
 export function displaySize(
   size: SizeValue,
-  display: SizeDisplay = windowsSizeDisplay,
+  display: SizeDisplay,
   text?: LocaleText,
 ): string {
   if (size.state === "unknown")
@@ -351,6 +361,15 @@ export function displaySize(
   const lowerBound = size.state === "lower_bound";
   const formatted = formatSizeBytes(size.bytes, display, lowerBound);
   return lowerBound ? lowerBoundLabel(formatted, text) : formatted;
+}
+
+/**
+ * Whether a size is a lower bound of 0 bytes. Such a value stands for nothing
+ * read unless the opener knows that items were counted and are all empty
+ * (F02 README #201, F06 README 48.2).
+ */
+export function isZeroLowerBound(size: SizeValue): boolean {
+  return size.state === "lower_bound" && BigInt(size.bytes) === 0n;
 }
 
 /** Returns a separate raw count only when it adds information. */

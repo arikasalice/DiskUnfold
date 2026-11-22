@@ -93,6 +93,8 @@ pub struct VolumeMount {
     pub mount_path: Vec<u8>,
     /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: String,
+    /// Volume name reported by the operating system, when available.
+    pub name: Option<String>,
     pub filesystem: Vec<u8>,
     /// mountinfo source, which may be a device, network source, or non-path label.
     pub mount_source: Vec<u8>,
@@ -166,6 +168,8 @@ pub struct ConfirmedFirmlink {
 pub struct RootVolumeGroup {
     /// Mount path of the data volume, such as `/System/Volumes/Data`.
     pub data_mount: Vec<u8>,
+    /// Name reported for the system volume root, when available.
+    pub system_name: Option<String>,
     /// The device that `/` and the data volume both report.
     pub device: u64,
     /// Inode reported for the Data mount point entry by its parent directory's enumeration.

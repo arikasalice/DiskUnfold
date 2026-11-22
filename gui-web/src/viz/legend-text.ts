@@ -1,8 +1,28 @@
 import type { LegendEntry } from "../components";
-import type { VizModel, VizQuantity } from "../ipc";
+import type { VizModel, VizQuantity, VizRow } from "../ipc";
 import { FOLDER_CLASS, coloredByClass, legendLook } from "./legend-style";
 import { legendClassName } from "./model-text";
 import type { VizText } from "./model-text";
+import { folderTypes } from "./type-slices";
+
+/** What a folder row's type slices show in the table (F06 README 54.6), or null. */
+export function rowFolderTypes(
+  model: VizModel | undefined,
+  row: VizRow,
+  text: VizText,
+) {
+  return folderTypes(
+    row.typeSlices,
+    row.size,
+    model?.legend.map((entry) => entry.key) ?? [],
+    {
+      message: text.message,
+      quantity: text.quantity,
+      className: (key) =>
+        model ? legendClassName(model, key, text) : text.key(key),
+    },
+  );
+}
 
 /**
  * The class column of a row: the class name from the model's legend; empty for a
@@ -56,9 +76,11 @@ export function hasClosedFolders(model: VizModel) {
   const parents = new Set(
     model.shapes.flatMap((shape) => shape.parentShapeRef ?? []),
   );
+  // A closed folder with its type slices is coloured by them (README 54).
   return model.shapes.some(
     (shape) =>
       shape.legendClassKey === FOLDER_CLASS &&
+      shape.typeSlices === undefined &&
       !(shape.shapeRef && parents.has(shape.shapeRef)),
   );
 }

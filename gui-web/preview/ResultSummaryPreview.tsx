@@ -12,6 +12,7 @@ import {
   summaryClient,
   summaryRoots,
   summaryTotal,
+  sharedLimitSummaryTotal,
 } from "./result-summary-fixture";
 import type { ExclusionState } from "./result-summary-fixture";
 
@@ -36,9 +37,11 @@ function requestedState(): ExclusionState {
  * analysis screen gives it, in Korean. The select changes only the exclusion
  * rules of the scope the result was analyzed with.
  */
-export function ResultSummaryPreview() {
+export function ResultSummaryPreview({ scene }: { scene: string }) {
   const [state, setState] = useState(requestedState);
-  const summary = useSummaryBatch(summaryClient, summaryTotal, false, false);
+  const sharedLimitScene = scene === "shared-limit";
+  const total = sharedLimitScene ? sharedLimitSummaryTotal : summaryTotal;
+  const summary = useSummaryBatch(summaryClient, total, false, false);
   return (
     <LocaleTextContext.Provider value={koreanText}>
       <SelectField
@@ -62,14 +65,18 @@ export function ResultSummaryPreview() {
             >
               <PinnedResult
                 client={summaryClient}
-                total={summaryTotal}
-                latestVersion={summaryTotal.resultVersion}
+                total={total}
+                latestVersion={total.resultVersion}
                 volume={summary.volume}
                 scan={undefined}
                 wait={undefined}
                 roots={summaryRoots}
                 exclusions={exclusionStates[state]}
-                preferences={preferences}
+                preferences={
+                  sharedLimitScene
+                    ? { ...preferences, basis: "allocated" }
+                    : preferences
+                }
                 displayChoice={undefined}
                 onDisplayChoice={() => {}}
                 onReopenLatest={() => {}}

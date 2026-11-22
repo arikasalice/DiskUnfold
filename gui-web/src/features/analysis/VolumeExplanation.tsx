@@ -22,6 +22,7 @@ import {
   amount,
   factorLabel,
   observationRows,
+  unavailableReasonText,
   unavailableValue,
   volumeBytes,
 } from "./volume-format";
@@ -289,6 +290,33 @@ function ReportSummary({ report, wholeVolume, display }: ReportProps) {
 /** Volume observations and the difference behind the summary. */
 function ReportDetails({ report, wholeVolume, display }: ReportProps) {
   const text = useLocaleText();
+  const otherVolumes = report.otherVolumes;
+  const hasOtherVolumes = otherVolumes !== undefined;
+  const otherVolumesTotal = hasOtherVolumes
+    ? otherVolumesTotalText(otherVolumes ?? [], display, text)
+    : undefined;
+  const amounts = [
+    ...report.factors.map(({ value }) => value),
+    ...(otherVolumes ?? []).map(({ amount: value }) => value),
+    report.remainder,
+    ...(report.osCategories.state === "available"
+      ? report.osCategories.rows.map(({ value }) => value)
+      : []),
+  ];
+  const reasonNotes = [
+    ...new Set(
+      [
+        ...amounts.flatMap((value) =>
+          value.state === "unknown" ? [value.reasonKey] : [],
+        ),
+        ...(report.osCategories.state === "unavailable"
+          ? [report.osCategories.reasonKey]
+          : []),
+      ]
+        .map((key) => unavailableReasonText(key, text))
+        .filter((reason): reason is string => reason !== undefined),
+    ),
+  ];
   return (
     <>
       <Readout
@@ -327,16 +355,36 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             ),
             value: `${displaySizeWithBytes(report.uniquePhysical.size, display, text)} · ${displayMeasurement(report.uniquePhysical.size, report.uniquePhysical.completeness, text)}`,
           },
-          ...report.factors.map(({ key, value }) => ({
-            label: factorLabel(key, text),
-            value: amount(value, display, text),
-          })),
+          ...report.factors.flatMap(({ key, value }) =>
+            key === "gap.out_of_scope" && hasOtherVolumes
+              ? [
+                  {
+                    label: text(
+                      "ui.analysis.volume_other_system_volumes",
+                      "Other system volumes",
+                    ),
+                    value: otherVolumesTotal,
+                  },
+                  ...(otherVolumes ?? []).map(
+                    ({ volumeName, role, amount: rowAmount }) => ({
+                      label: otherVolumeLabel(volumeName, role, text),
+                      value: amount(rowAmount, display, text, false),
+                    }),
+                  ),
+                ]
+              : [
+                  {
+                    label: factorLabel(key, text),
+                    value: amount(value, display, text, false),
+                  },
+                ],
+          ),
           {
             label: text(
               "ui.analysis.volume_unexplained_difference",
               "Unexplained difference",
             ),
-            value: amount(report.remainder, display, text),
+            value: amount(report.remainder, display, text, false),
           },
           {
             label: text(
@@ -345,19 +393,65 @@ function ReportDetails({ report, wholeVolume, display }: ReportProps) {
             ),
             value:
               report.osCategories.state === "unavailable"
-                ? unavailableValue(report.osCategories.reasonKey, text)
+                ? text("ui.analysis.unavailable", "Unavailable")
                 : report.osCategories.rows.length === 0
                   ? text("ui.analysis.volume_none_reported", "None reported")
                   : report.osCategories.rows
                       .map(
                         // No category has a name yet, and a key is not shown.
                         ({ value }) =>
-                          `${text("ui.common.unknown", "Unknown")} · ${amount(value, display, text)}`,
+                          `${text("ui.common.unknown", "Unknown")} · ${amount(value, display, text, false)}`,
                       )
                       .join(", "),
           },
         ]}
       />
+      {reasonNotes.map((reason) => (
+        <Text key={reason} kind="muted">
+          {reason}
+        </Text>
+      ))}
     </>
   );
+}
+
+function otherVolumesTotalText(
+  rows: NonNullable<VolumeGapResponse["otherVolumes"]>,
+  display: SizeDisplay,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  const unknown = rows.find((row) => row.amount.state === "unknown");
+  if (unknown) return text("ui.analysis.unavailable", "Unavailable");
+  return volumeBytes(
+    rows
+      .reduce((total, row) => {
+        if (row.amount.state !== "exact") return total;
+        return total + BigInt(row.amount.bytes);
+      }, 0n)
+      .toString(),
+    display,
+    text,
+  );
+}
+
+function otherVolumeLabel(
+  volumeName: string,
+  role: string | undefined,
+  text: ReturnType<typeof useLocaleText>,
+) {
+  switch (role) {
+    case "volume_role.vm":
+      return text("ui.analysis.volume_role_vm", "Virtual memory (VM)");
+    case "volume_role.preboot":
+      return text(
+        "ui.analysis.volume_role_preboot",
+        "Startup preparation (Preboot)",
+      );
+    case "volume_role.recovery":
+      return text("ui.analysis.volume_role_recovery", "Recovery");
+    case "volume_role.update":
+      return text("ui.analysis.volume_role_update", "Update");
+    default:
+      return volumeName;
+  }
 }

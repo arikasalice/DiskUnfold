@@ -16,7 +16,7 @@ use super::totals::assert_within_scope;
 use super::{TestResult, rows_of};
 use crate::viz_production::policy;
 
-enum Entry {
+pub(super) enum Entry {
     Dir(&'static str),
     File(&'static str, u64),
     ByteFile(u8, u64),
@@ -24,7 +24,7 @@ enum Entry {
     Unread(&'static str),
 }
 
-fn publish(
+pub(super) fn publish(
     sink: &IngestSink,
     entries: &[Entry],
     completeness: ResultCompleteness,
@@ -91,7 +91,12 @@ fn publish(
     Ok(())
 }
 
-fn render_in(harness: &Harness, view: &Value, seq: u32, item: u64) -> Result<Value, String> {
+pub(super) fn render_in(
+    harness: &Harness,
+    view: &Value,
+    seq: u32,
+    item: u64,
+) -> Result<Value, String> {
     let mut body = render_body(view, seq, "treemap", 3);
     let scope = json!({"resultVersion": id(3), "itemNo": item});
     body["aggregateScopeRef"] = scope.clone();
@@ -111,14 +116,14 @@ fn total(model: &Value, name: &str) -> Result<(String, u64), String> {
     Ok((state, value))
 }
 
-fn count(model: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn count(model: &Value, name: &str) -> Result<u64, String> {
     model["summary"][name]["value"]
         .as_str()
         .and_then(|value| value.parse().ok())
         .ok_or_else(|| format!("no {name} count in {}", model["summary"]))
 }
 
-fn item_no(rows: &Value, name: &str) -> Result<u64, String> {
+pub(super) fn item_no(rows: &Value, name: &str) -> Result<u64, String> {
     rows["rows"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["displayName"] == name))

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { resultReadProblem } from "../ipc";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnalysisError, resultReadProblem } from "../ipc";
 import type {
   AnalysisClient,
   ResultReadProblem,
@@ -23,6 +23,8 @@ type ListState = ScanFailureList & {
   /** The result version and filter every shown row was read from. */
   readonly version: string;
   readonly kind: ScanFailureKind | null;
+  readonly rootIndexesKey: string | null;
+  readonly failuresOnly: boolean;
   /** The page to read again after a failure; undefined retries the first page. */
   readonly failedCursor?: string | undefined;
   /** Set when replacing the rows with a newer result failed. */
@@ -32,6 +34,8 @@ type ListState = ScanFailureList & {
 type RequestOwner = {
   version: string;
   kind: ScanFailureKind | null;
+  rootIndexesKey: string | null;
+  failuresOnly: boolean;
   request: number;
   inFlight: boolean;
 };
@@ -46,6 +50,8 @@ type Pages = {
 type ReadPlan = {
   version: string;
   kind: ScanFailureKind | null;
+  rootIndexes?: number[] | undefined;
+  failuresOnly: boolean;
   cursor: string | undefined;
   minimum: number;
   replace: boolean;
@@ -53,12 +59,36 @@ type ReadPlan = {
 
 class PageMismatch extends Error {}
 
-function emptyList(version: string, kind: ScanFailureKind | null): ListState {
-  return { version, kind, rows: [], pending: true };
+function emptyList(
+  version: string,
+  kind: ScanFailureKind | null,
+  rootIndexesKey: string | null,
+  failuresOnly: boolean,
+): ListState {
+  return {
+    version,
+    kind,
+    rootIndexesKey,
+    failuresOnly,
+    rows: [],
+    pending: true,
+  };
 }
 
-function owner(version: string, kind: ScanFailureKind | null): RequestOwner {
-  return { version, kind, request: 0, inFlight: false };
+function owner(
+  version: string,
+  kind: ScanFailureKind | null,
+  rootIndexesKey: string | null,
+  failuresOnly: boolean,
+): RequestOwner {
+  return {
+    version,
+    kind,
+    rootIndexesKey,
+    failuresOnly,
+    request: 0,
+    inFlight: false,
+  };
 }
 
 function pageMatches(
@@ -79,7 +109,7 @@ function pageMatches(
  */
 async function readPages(
   client: AnalysisClient,
-  { version, kind, cursor, minimum }: ReadPlan,
+  { version, kind, rootIndexes, failuresOnly, cursor, minimum }: ReadPlan,
   wanted: () => boolean,
 ): Promise<Pages | undefined> {
   const rows: ScanFailureRow[] = [];
@@ -88,6 +118,8 @@ async function readPages(
     const page = await client.call("scan.failures", {
       resultVersion: version,
       ...(kind && { kind }),
+      ...(rootIndexes && { rootIndexes }),
+      ...(failuresOnly && { failuresOnly: true }),
       ...(next && { cursor: next }),
     });
     if (!wanted()) return undefined;
@@ -124,6 +156,8 @@ function withPages(
   return {
     version: plan.version,
     kind: plan.kind,
+    rootIndexesKey: plan.rootIndexes?.join(",") ?? null,
+    failuresOnly: plan.failuresOnly,
     rows: appended ? [...previous.rows, ...pages.rows] : pages.rows,
     totalCount: pages.totalCount,
     nextCursor: pages.nextCursor,
@@ -143,9 +177,9 @@ function withProblem(
 }
 
 /**
- * Pages scan issues for the displayed result version and a kind filter.
+ * Pages scan issues for the displayed result version and active filters.
  *
- * Changing the filter discards the loaded rows and opens the first page.
+ * Changing a filter or refresh key discards the loaded rows and opens the first page.
  * When only the result version changes, the rows already shown stay until
  * the same number of rows has been read from the new version; then all of
  * them are replaced at once, so the list never empties and never mixes rows
@@ -166,13 +200,23 @@ export function useScanFailures(
   client: AnalysisClient,
   resultVersion: string,
   kind?: ScanFailureKind,
+  rootIndexes?: readonly number[],
+  failuresOnly = false,
+  refreshKey = 0,
 ) {
   const filter = kind ?? null;
+  const rootIndexesKey = rootIndexes?.join(",") ?? null;
+  const requestRoots = useMemo(
+    () => rootIndexesKey?.split(",").map(Number),
+    [rootIndexesKey],
+  );
   const [list, setList] = useState<ListState>(() =>
-    emptyList(resultVersion, filter),
+    emptyList(resultVersion, filter, rootIndexesKey, failuresOnly),
   );
   const shown = useRef(list);
-  const current = useRef<RequestOwner>(owner(resultVersion, filter));
+  const current = useRef<RequestOwner>(
+    owner(resultVersion, filter, rootIndexesKey, failuresOnly),
+  );
   /** "Load more" owed after the rows are replaced with the newer result. */
   const moreOwed = useRef(false);
   useEffect(() => {
@@ -182,7 +226,13 @@ export function useScanFailures(
   const read = useCallback(
     async (cursor: string | undefined, minimum: number, replace: boolean) => {
       const mine = current.current;
-      if (mine.version !== resultVersion || mine.kind !== filter) return;
+      if (
+        mine.version !== resultVersion ||
+        mine.kind !== filter ||
+        mine.rootIndexesKey !== rootIndexesKey ||
+        mine.failuresOnly !== failuresOnly
+      )
+        return;
       if (mine.inFlight) return;
       const request = ++mine.request;
       mine.inFlight = true;
@@ -190,6 +240,8 @@ export function useScanFailures(
       const plan: ReadPlan = {
         version: resultVersion,
         kind: filter,
+        rootIndexes: requestRoots,
+        failuresOnly,
         cursor,
         minimum,
         replace,
@@ -204,13 +256,27 @@ export function useScanFailures(
         }));
       let pages: Pages | undefined;
       let problem: ResultReadProblem | undefined;
+      let failure: unknown;
       try {
         pages = await readPages(client, plan, wanted);
-      } catch (failure) {
-        problem = problemOf(failure);
+      } catch (caught) {
+        failure = caught;
+        problem = problemOf(caught);
       }
       if (!wanted()) return;
       mine.inFlight = false;
+      if (cursor !== undefined && invalidCursor(failure)) {
+        moreOwed.current = false;
+        setList((previous) => ({
+          ...previous,
+          pending: true,
+          problem: undefined,
+          failedCursor: undefined,
+          replaceFailed: undefined,
+        }));
+        void read(undefined, Math.max(1, shown.current.rows.length), true);
+        return;
+      }
       if (!pages) {
         const failed = problem ?? "failed";
         if (failed !== "stale_version") moreOwed.current = false;
@@ -224,19 +290,26 @@ export function useScanFailures(
       if (loaded.nextCursor !== undefined)
         void read(loaded.nextCursor, 1, false);
     },
-    [client, filter, resultVersion],
+    [client, failuresOnly, filter, requestRoots, resultVersion, rootIndexesKey],
   );
 
   useEffect(() => {
     const previous = shown.current;
     const replace =
       previous.kind === filter &&
+      previous.rootIndexesKey === rootIndexesKey &&
+      previous.failuresOnly === failuresOnly &&
       previous.version !== resultVersion &&
       previous.rows.length > 0;
-    current.current = owner(resultVersion, filter);
+    current.current = owner(
+      resultVersion,
+      filter,
+      rootIndexesKey,
+      failuresOnly,
+    );
     if (!replace) {
       moreOwed.current = false;
-      setList(emptyList(resultVersion, filter));
+      setList(emptyList(resultVersion, filter, rootIndexesKey, failuresOnly));
     } else if (previous.pending) {
       // A page of the replaced result was being read; it is owed after this.
       moreOwed.current = true;
@@ -244,15 +317,18 @@ export function useScanFailures(
     void read(undefined, replace ? previous.rows.length : 1, replace);
     return () => {
       // Invalidate every request issued for this result and filter.
-      current.current = owner("", null);
+      current.current = owner("", null, null, false);
     };
-  }, [read, filter, resultVersion]);
+  }, [read, filter, resultVersion, rootIndexesKey, failuresOnly, refreshKey]);
 
   const replacing = list.version !== resultVersion;
   const view =
-    list.kind === filter && (!replacing || list.rows.length > 0)
+    list.kind === filter &&
+    list.rootIndexesKey === rootIndexesKey &&
+    list.failuresOnly === failuresOnly &&
+    (!replacing || list.rows.length > 0)
       ? list
-      : emptyList(resultVersion, filter);
+      : emptyList(resultVersion, filter, rootIndexesKey, failuresOnly);
   const problem =
     view.version === resultVersion || view.replaceFailed
       ? view.problem
@@ -263,6 +339,7 @@ export function useScanFailures(
     nextCursor: view.nextCursor,
     pending: view.pending,
     problem,
+    version: view.version,
     readMore: () => {
       if (!view.nextCursor || problem) return;
       if (!replacing) {
@@ -279,4 +356,13 @@ export function useScanFailures(
         ? void read(undefined, view.rows.length, true)
         : void read(view.failedCursor, 1, false),
   };
+}
+
+function invalidCursor(failure: unknown) {
+  return (
+    failure instanceof AnalysisError &&
+    (failure.code === "STALE_VERSION" ||
+      failure.reasonKey === "cursor.stale" ||
+      failure.reasonKey === "cursor.invalid")
+  );
 }

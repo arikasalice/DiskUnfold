@@ -17,8 +17,10 @@ import type {
   SpaceDetailSize,
 } from "../../ipc";
 import {
+  ALLOCATED_MAY_INCLUDE_SHARED,
   displayEvidence,
   displayMeasurementLimit,
+  isZeroLowerBound,
   displaySizeWithBytes,
   displaySpaceReason,
 } from "./space-format";
@@ -49,11 +51,19 @@ function sizeText(
   value: SpaceDetailSize,
   display: SizeDisplay,
   text: LocaleText,
+  countedZero: boolean,
 ): string {
+  if (isZeroLowerBound(value.size) && !countedZero)
+    return text(
+      "ui.inspection.unavailable_in_scan",
+      "Unavailable in this scan",
+    );
   return [
     displaySizeWithBytes(value.size, display, text),
     displayEvidence(value.size.evidence, text),
-    ...value.measurementLimits.map((key) => displayMeasurementLimit(key, text)),
+    ...value.measurementLimits
+      .filter((key) => key !== ALLOCATED_MAY_INCLUDE_SHARED)
+      .map((key) => displayMeasurementLimit(key, text)),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -64,9 +74,16 @@ function rows(
   display: SizeDisplay,
   text: LocaleText,
   timestamp: ReturnType<typeof useTimestampText>,
+  countedZero: boolean,
 ) {
   const decision = detail.exclusiveDecision;
-  const formatSize = (value: SpaceDetailSize) => sizeText(value, display, text);
+  const formatSize = (value: SpaceDetailSize) =>
+    sizeText(value, display, text, countedZero);
+  const allocatedMayIncludeShared =
+    detail.allocated.state === "present" &&
+    detail.allocated.value.measurementLimits.includes(
+      ALLOCATED_MAY_INCLUDE_SHARED,
+    );
   return [
     {
       label: text(
@@ -92,7 +109,16 @@ function rows(
     },
     {
       label: text("ui.analysis.space_shared", "Shared space"),
-      value: describe(detail.shared, formatSize, text),
+      value: allocatedMayIncludeShared
+        ? text("ui.analysis.shared_space_counted_per_file", "Counted per file")
+        : describe(detail.shared, formatSize, text),
+      ...(allocatedMayIncludeShared
+        ? {
+            notes: [
+              displayMeasurementLimit(ALLOCATED_MAY_INCLUDE_SHARED, text),
+            ],
+          }
+        : {}),
     },
     {
       label: text(
@@ -235,12 +261,14 @@ export function ItemSpaceDetails({
   item,
   display,
   onStale,
+  countedZero = false,
 }: {
   client: AnalysisClient;
   item: SpaceDetail["item"];
   display: SizeDisplay;
   /** Told when the read was refused because the item's result was replaced. */
   onStale?: ((resultVersion: string) => void) | undefined;
+  countedZero?: boolean | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -311,7 +339,7 @@ export function ItemSpaceDetails({
     >
       <Readout
         label={text("ui.analysis.observed_item_space", "Observed item space")}
-        rows={rows(detail, display, text, timestamp)}
+        rows={rows(detail, display, text, timestamp, countedZero)}
       />
     </DetailDisclosure>
   );

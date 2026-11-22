@@ -1,5 +1,5 @@
+use super::unread::{first_unknown_row, unknown_size};
 use super::*;
-use du_analysis_index::visualization::projection::{self, UnknownShare};
 use du_core_contracts::{
     SizeAmount, SizeValue,
     browse_page_ipc::{QueryStrategy, ResultOrigin},
@@ -147,6 +147,7 @@ pub(super) fn build_model(
             root_branch_ref: hierarchy.then(|| shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, row.item.item_no),
+            type_slices: None,
         });
     }
     for shape in &projection.descendants {
@@ -169,6 +170,7 @@ pub(super) fn build_model(
             root_branch_ref: Some(shape.meta.root_branch_ref.clone()),
             member_count: None,
             item_kind: kind_of(admitted, shape.item.item_no),
+            type_slices: None,
         });
     }
     for group in &projection.detail.groups {
@@ -183,6 +185,19 @@ pub(super) fn build_model(
         }
         display_flags.sort_unstable();
         display_flags.dedup();
+        let members: Vec<_> = group
+            .members
+            .iter()
+            .map(|member| member.item.clone())
+            .collect();
+        let type_slices = crate::viz_pages::type_slices::group_slices(
+            admitted.source.version(),
+            &members,
+            &request.size_basis,
+            other.type_slices && admitted.filter.is_none(),
+            cancelled,
+        )
+        .map_err(|_| internal())?;
         shapes.push(VizShape {
             item_ref: None,
             group_ref: Some(group.group_ref.clone()),
@@ -198,8 +213,10 @@ pub(super) fn build_model(
             root_branch_ref: Some(group.meta.root_branch_ref.clone()),
             member_count: Some(quantity("items", group.members.len() as u64)?),
             item_kind: None,
+            type_slices,
         });
     }
+    super::shape_slices::add(admitted, &mut shapes, cancelled)?;
     let classes = super::legend_totals::classes(admitted, projection, evidence, cancelled)?;
     let mut legend = Vec::with_capacity(classes.len());
     for (key, (count, total, lower)) in
@@ -240,6 +257,12 @@ pub(super) fn build_model(
         REMAINDER_UNKNOWN_REASON,
     )?;
     let grouped_items = grouped_items(&shapes)?;
+    // The folders the scope could not read (F06 README 48), on treemap models only.
+    let (unread_folders, first_unread_row) = if request.format == "treemap" {
+        super::unread::unread_folders(admitted.source.version(), projection)?
+    } else {
+        (None, None)
+    };
     let model = VizModel {
         model_ref: rendered.model_ref.clone(),
         condition_fingerprint: admitted.key.clone(),
@@ -271,6 +294,11 @@ pub(super) fn build_model(
             filtered_out,
             remainder: Some(remainder.total),
             remainder_reason_keys: remainder.reason_keys,
+            scope_measurement_limits: crate::space::item_limits(
+                admitted.source.version(),
+                request.aggregate_scope_ref.item_no,
+                &request.size_basis,
+            ),
         },
         shapes,
         relationships: projection.relationships.clone(),
@@ -298,6 +326,8 @@ pub(super) fn build_model(
             } else {
                 None
             },
+            unread_folders,
+            first_unread_row,
         },
         strategy: QueryStrategy {
             id: projection.strategy.strategy.id.clone(),
@@ -321,31 +351,6 @@ fn bytes(size: &SizeValue) -> Result<u64, EngineError> {
 }
 fn quantity(unit: &str, value: u64) -> Result<VizQuantity, EngineError> {
     VizQuantity::exact(unit, i128::from(value)).ok_or_else(internal)
-}
-/// The share of the scope no root item could take as area (F06 README 51.3), in bytes.
-/// Under a type condition the kept part of that share cannot be proven.
-fn unknown_size(share: UnknownShare) -> Option<Result<VizQuantity, EngineError>> {
-    let quantity = match share {
-        UnknownShare::None => return None,
-        UnknownShare::Exact(bytes) => VizQuantity::exact("bytes", i128::from(bytes)),
-        UnknownShare::LowerBound(bytes) => VizQuantity::lower_bound("bytes", bytes),
-        UnknownShare::Unknown => VizQuantity::unknown("bytes", REMAINDER_UNKNOWN_REASON.into()),
-    };
-    Some(quantity.ok_or_else(internal))
-}
-/// The table position of the first row without a provable area, or of the first
-/// expanded folder holding one; the table drops the root group's members.
-fn first_unknown_row(projection: &projection::Model) -> Result<Option<u32>, EngineError> {
-    projection
-        .detail
-        .first_unknown_row
-        .map(|row| {
-            projection
-                .table_position(row)
-                .and_then(|position| u32::try_from(position).ok())
-                .ok_or_else(internal)
-        })
-        .transpose()
 }
 /// The sum of the member counts of every group shape of the model, nested groups
 /// included: a lower bound as soon as one count is, and unknown when one count is.
@@ -446,6 +451,7 @@ mod tests {
             root_branch_ref: None,
             member_count: count,
             item_kind: None,
+            type_slices: None,
         })
     }
 

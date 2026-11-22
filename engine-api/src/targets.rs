@@ -9,7 +9,10 @@ use du_core_contracts::{
     analysis_ipc::{
         AnalysisTarget, IdentitySource, TargetAccess, TargetKind, TargetList, TargetListRequest,
     },
-    volume::{CapabilityState, VolumeEnumeration, VolumeMount, VolumePort, VolumeTargetKind},
+    volume::{
+        CapabilityState, RootVolumeGroupObservation, VolumeEnumeration, VolumeGroupRole,
+        VolumeMount, VolumePort, VolumeTargetKind,
+    },
 };
 use du_job_runtime::{JobClock, JobPriority, RuntimeError, Submission, SubmitResult};
 
@@ -125,17 +128,30 @@ impl UseCase for List {
                 match observation.mounts {
                     Ok(mounts) => {
                         let observed_mounts = !mounts.is_empty();
+                        let startup_group_confirmed = matches!(
+                            self.volumes.root_volume_group(),
+                            RootVolumeGroupObservation::Confirmed(_)
+                        );
                         let mut targets: Vec<_> = mounts
                             .into_iter()
                             .filter_map(|mount| {
                                 let listing = crate::target_probe::Listing::of(&mount);
-                                target(mount, identity_supported).map(|target| (target, listing))
+                                target(mount, identity_supported, startup_group_confirmed)
+                                    .map(|target| (target, listing))
                             })
                             .collect();
                         targets.sort_by_cached_key(|(target, _)| {
                             target.path.raw.bytes().unwrap_or_default()
                         });
                         targets.dedup_by(|a, b| a.0.path == b.0.path);
+                        if targets
+                            .iter()
+                            .filter(|(target, _)| target.is_startup_volume == Some(true))
+                            .count()
+                            > 1
+                        {
+                            return Err(EngineError::reason("support.internal_error"));
+                        }
                         let reason = (observed_mounts && targets.is_empty())
                             .then(|| "os.unsupported".to_owned());
                         (targets, reason)
@@ -203,7 +219,11 @@ fn unavailable_list(observed_at: Timestamp, reason: &str) -> TargetList {
     }
 }
 
-fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget> {
+fn target(
+    mount: VolumeMount,
+    identity_supported: bool,
+    startup_group_confirmed: bool,
+) -> Option<AnalysisTarget> {
     let kind = mount.target_kind.map(|kind| match kind {
         VolumeTargetKind::Internal => TargetKind::Internal,
         VolumeTargetKind::External => TargetKind::External,
@@ -230,6 +250,9 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
     // A mount without evidence is listed: showing a system mount costs less than
     // hiding a user's volume (F01 #263).
     let default_visible = Some(mount.browsable != Some(false));
+    let is_startup_volume = (startup_group_confirmed
+        && mount.group_role == Some(VolumeGroupRole::System))
+    .then_some(true);
     Some(AnalysisTarget {
         kind,
         path,
@@ -239,6 +262,8 @@ fn target(mount: VolumeMount, identity_supported: bool) -> Option<AnalysisTarget
         access: TargetAccess::Unknown,
         reason_key: None,
         default_visible,
+        is_startup_volume,
+        volume_name: mount.name,
     })
 }
 

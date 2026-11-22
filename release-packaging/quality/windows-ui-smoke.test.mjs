@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const list = JSON.parse(readFileSync(new URL('./windows-ui-smoke.json', import.meta.url), 'utf8'));
 const smoke = readFileSync(new URL('../launcher/smoke-windows.ps1', import.meta.url), 'utf8');
+const orchestrator = readFileSync(new URL('./windows-ui-smoke.ps1', import.meta.url), 'utf8');
 const declared = new Set([...smoke.matchAll(/\[switch\]\$(\w+)/g)].map((match) => match[1]));
 const folder = (s) =>
   `${s.name}-${s.locale ?? 'en'}-${s.theme ?? 'light'}-${s.windowSize ?? 'default'}` +
@@ -43,4 +44,22 @@ test('scenario language, theme and window size are values smoke-windows.ps1 acce
 test('smoke-windows.ps1 takes the capture folder and the keep-fixture switch', () => {
   assert.match(smoke, /\[string\]\$CaptureDirectory/);
   assert.ok(declared.has('KeepFixture'));
+});
+
+test('UI smoke shards declare bounded parameters and distribute filtered scenario indexes', () => {
+  assert.match(orchestrator, /\[ValidateRange\(1,\s*20\)\]\[int\]\$ShardCount\s*=\s*1/);
+  assert.match(orchestrator, /\[ValidateRange\(1,\s*20\)\]\[int\]\$Shard\s*=\s*1/);
+  assert.match(orchestrator, /\$index\s*%\s*\$ShardCount\)\s*-eq\s*\(\$Shard\s*-\s*1\)/);
+});
+
+test('three UI smoke shards assign every scenario once with balanced sizes', () => {
+  const shardCount = 3;
+  const shards = Array.from({ length: shardCount }, (_, shardIndex) =>
+    list.scenarios.filter((_, index) => index % shardCount === shardIndex),
+  );
+  for (const scenario of list.scenarios) {
+    assert.equal(shards.filter((shard) => shard.includes(scenario)).length, 1, scenario.name);
+  }
+  const sizes = shards.map((shard) => shard.length);
+  assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
 });

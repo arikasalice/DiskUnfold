@@ -10,7 +10,7 @@ import {
   createVerifiedBundleText,
 } from "../state/locale-text";
 import { makeLocaleReporter } from "../state/locale-missing";
-import { useLocale } from "../state/use-locale";
+import { LocaleOsFamilyContext, useLocale } from "../state/use-locale";
 import type { LocaleView } from "../state/use-locale";
 import { applyPresentation } from "../theme/presentation-settings";
 import "../theme/locale.css";
@@ -162,18 +162,20 @@ export function DesktopLocale({
       <LocaleEntryScreen locale={locale}>{children}</LocaleEntryScreen>
     ) : undefined;
   return (
-    <LocaleTextContext.Provider value={text}>
-      <RegionalFormatContext.Provider value={format}>
-        <ClosingGuard client={client}>
-          {hosted ??
-            (startupBanner ? (
-              <StartupGate client={client}>{shell}</StartupGate>
-            ) : (
-              shell
-            ))}
-        </ClosingGuard>
-      </RegionalFormatContext.Provider>
-    </LocaleTextContext.Provider>
+    <LocaleOsFamilyContext.Provider value={view.profile.osFamily}>
+      <LocaleTextContext.Provider value={text}>
+        <RegionalFormatContext.Provider value={format}>
+          <ClosingGuard client={client}>
+            {hosted ??
+              (startupBanner ? (
+                <StartupGate client={client}>{shell}</StartupGate>
+              ) : (
+                shell
+              ))}
+          </ClosingGuard>
+        </RegionalFormatContext.Provider>
+      </LocaleTextContext.Provider>
+    </LocaleOsFamilyContext.Provider>
   );
 }
 

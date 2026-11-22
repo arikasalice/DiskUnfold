@@ -6,10 +6,13 @@ mod lower_bound;
 mod measure;
 mod remainder;
 mod revisions;
+mod scope_limits;
 mod support;
 mod totals;
 mod type_filter;
 mod type_legend;
+mod type_slices;
+mod unread_folders;
 
 use std::sync::{Arc, atomic::Ordering};
 

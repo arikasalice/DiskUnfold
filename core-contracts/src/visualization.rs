@@ -12,7 +12,9 @@ mod ratio;
 pub mod render;
 pub mod request;
 pub mod response;
+pub mod row_unread;
 pub mod rows;
+pub mod type_slices;
 
 use serde::{Deserialize, Deserializer};
 

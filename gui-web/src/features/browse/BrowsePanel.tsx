@@ -1,4 +1,5 @@
 import type { SizeDisplay } from "../../i18n/bytes";
+import { defaultSizeDisplay } from "../../state/size-display";
 import { useLocaleText } from "../../i18n/presentation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -24,10 +25,12 @@ import type {
 } from "../../ipc";
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
+import { useLocaleOsFamily } from "../../state/use-locale";
 import { folderPath } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import { useBrowseDedupLimit } from "./use-browse-dedup-limit";
+import type { InspectedItem } from "./use-item-inspection";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -36,8 +39,14 @@ import {
   parentLocation,
   readOnlyBreadcrumbs,
 } from "./browse-panel-parts";
-import type { InspectItem, Opened } from "./browse-panel-parts";
+import type { InspectItem } from "./browse-panel-parts";
 import { useItemInspection } from "./use-item-inspection";
+import {
+  priorView,
+  PreviousFolderAction,
+  restorePrevious,
+} from "./browse-history";
+import type { View } from "./browse-history";
 
 /** Injected boundary for opening folders and paging through a pinned result. */
 export interface BrowsePort {
@@ -55,7 +64,6 @@ export type BrowseOpenLocation = Extract<
   { kind: "opened" }
 >;
 
-type View = { opened: Opened; pages: BrowsePages };
 /**
  * The control that held focus when a folder was opened; a pressed control
  * that is still usable afterwards keeps the focus.
@@ -69,7 +77,7 @@ export function BrowsePanel({
   inspectItem,
   onOpening,
   onOpened,
-  display = { system: "iec", unit: "auto" },
+  display,
   priority,
   rootLabel,
   actionsDisabledReason,
@@ -101,6 +109,8 @@ export function BrowsePanel({
    */
   focusTitle?: boolean;
 }) {
+  const osFamily = useLocaleOsFamily();
+  const effectiveDisplay = display ?? defaultSizeDisplay(osFamily);
   const text = useLocaleText();
   const [view, setView] = useState<View>();
   const [busy, setBusy] = useState(false);
@@ -137,6 +147,8 @@ export function BrowsePanel({
     pinned = resultVersion,
     retrying = false,
     pressed = false,
+    rememberCurrent = false,
+    inspectionToRestore?: InspectedItem,
   ) {
     if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
@@ -195,9 +207,18 @@ export function BrowsePanel({
             ? { origin: active, pressed }
             : undefined;
         setMessage(undefined);
+        const previous = priorView(
+          view,
+          response.page.resultVersion,
+          location,
+          retrying,
+          inspectionToRestore ?? inspection.selected,
+          rememberCurrent,
+        );
         setView({
           opened: { ...response, page: { ...response.page, rows: [] } },
           pages,
+          ...(previous ? { previous } : {}),
         });
       })
       .catch(() => {
@@ -346,6 +367,19 @@ export function BrowsePanel({
           <div className="du-browse-header">
             <PreviousResultNotice previous={previousResult} />
             <div className="du-browse-context">
+              <PreviousFolderAction
+                previous={view.previous}
+                text={text}
+                onPress={() =>
+                  restorePrevious(
+                    view,
+                    setView,
+                    inspection.restore,
+                    inspection.reset,
+                    busy,
+                  )
+                }
+              />
               <div className="du-card__actions">
                 <Action
                   ref={upAction}
@@ -380,7 +414,7 @@ export function BrowsePanel({
             pages={view.pages}
             incomplete={page.completeness !== "complete"}
             dedupCapacityLowerBound={dedupCapacityLowerBound}
-            display={display}
+            display={effectiveDisplay}
             initialCursor={page.nextCursor}
             readPage={(request) => port.page(request)}
             busy={busy || previousResult}
@@ -416,6 +450,20 @@ export function BrowsePanel({
         inspection={inspection.selected}
         inspectItem={inspectItem}
         close={inspection.close}
+        navigateItem={(item) => {
+          if (page && item.resultVersion === page.resultVersion) {
+            const inspectionToRestore = inspection.selected;
+            inspection.close();
+            navigate(
+              item,
+              page.resultVersion,
+              false,
+              false,
+              true,
+              inspectionToRestore,
+            );
+          }
+        }}
       />
     </section>
   );

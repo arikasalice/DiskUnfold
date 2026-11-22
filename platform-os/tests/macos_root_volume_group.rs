@@ -114,6 +114,12 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
             return Err(format!("root volume group was not confirmed: {observation:?}").into());
         }
     };
+    assert!(
+        group
+            .system_name
+            .as_deref()
+            .is_some_and(|name| !name.is_empty())
+    );
     let firmlink_file = fs::read("/usr/share/firmlinks")?;
     let present_count = both_sides_present_count(&firmlink_file, &group.data_mount)?;
     // The list differs between macOS releases; the group holds exactly the rows
@@ -138,6 +144,9 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
         .into_iter()
         .map(|mount| (mount.mount_path.clone(), mount))
         .collect::<std::collections::BTreeMap<_, _>>();
+    let system = &mounts[b"/".as_slice()];
+    assert!(system.name.as_deref().is_some_and(|name| !name.is_empty()));
+    assert_eq!(system.name, group.system_name);
     assert_eq!(
         mounts[b"/System/Volumes/Data".as_slice()].group_role,
         Some(VolumeGroupRole::Data)

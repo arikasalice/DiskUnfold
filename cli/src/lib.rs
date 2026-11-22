@@ -87,6 +87,33 @@ pub fn run_with_product_info_json(
 }
 
 #[cfg(test)]
+/// Stub startup capabilities for CLI unit tests so results do not depend on host macOS TCC/FDA state.
+struct TestAccess;
+
+#[cfg(test)]
+impl StartupCapabilitiesPort for TestAccess {
+    fn full_disk_access_status(&self) -> FullDiskAccessStatus {
+        FullDiskAccessStatus::NotApplicable
+    }
+
+    fn webview_availability(&self) -> du_platform_os::startup::WebViewAvailability {
+        du_platform_os::startup::WebViewAvailability::Unknown
+    }
+
+    fn open_privacy_settings(&self) -> du_platform_os::startup::PrivacySettingsOpenOutcome {
+        du_platform_os::startup::PrivacySettingsOpenOutcome::Unsupported
+    }
+
+    fn show_pre_window_error_dialog(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> du_platform_os::startup::StartupDialogOutcome {
+        du_platform_os::startup::StartupDialogOutcome::Unsupported
+    }
+}
+
+#[cfg(test)]
 fn run_with(
     arguments: impl Iterator<Item = OsString>,
     read_stored: impl FnOnce() -> Result<Option<String>, ()>,
@@ -96,7 +123,7 @@ fn run_with(
         arguments,
         default_product_info(),
         &SystemSupportEnvironment,
-        &SystemStartupCapabilities,
+        &TestAccess,
         read_stored,
         read_os,
     )
@@ -140,7 +167,7 @@ fn run_with_io<W: Write, E: Write>(
         default_product_info(),
         &OsPorts {
             environment: &SystemSupportEnvironment,
-            access: &SystemStartupCapabilities,
+            access: &TestAccess,
         },
         read_stored,
         read_os,

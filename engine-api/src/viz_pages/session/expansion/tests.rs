@@ -107,6 +107,7 @@ fn other() -> OtherPresentation {
         label_key: None,
         legend_class_key: "test".into(),
         display_flags: vec![],
+        type_slices: false,
     }
 }
 fn reference(source: &CurrentAnalysis, name: &[u8]) -> Result<ItemRef, String> {

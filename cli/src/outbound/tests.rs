@@ -37,7 +37,14 @@ fn a_review_keeps_its_fingerprint_and_drops_every_path() -> Result<(), String> {
 
 #[test]
 fn a_call_the_scan_command_does_not_make_is_refused() {
-    for name in ["browse.open", "history.list", "query.run", "space.total"] {
+    for name in [
+        "browse.open",
+        "folder.collection",
+        "history.list",
+        "query.run",
+        "space.total",
+        "target.list",
+    ] {
         assert!(
             CliOutbound.filter(name, &caller(), json!({})).is_err(),
             "{name}"

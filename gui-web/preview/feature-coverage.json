@@ -21,6 +21,7 @@
   {
     "feature": "F03",
     "title": "공간 사용량 집계",
+    "reviewScenes": ["summary:shared-limit"],
     "primarySurface": "workspace",
     "sourceDldRevision": 111,
     "sourceStatus": "published",

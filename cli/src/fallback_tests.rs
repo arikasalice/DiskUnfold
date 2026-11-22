@@ -2,9 +2,7 @@
 
 use std::{ffi::OsString, process::ExitCode};
 
-use du_platform_os::{
-    startup::SystemStartupCapabilities, support_environment::SystemSupportEnvironment,
-};
+use du_platform_os::support_environment::SystemSupportEnvironment;
 use du_user_env::i18n::{Registry, embedded};
 
 use crate::{
@@ -59,7 +57,7 @@ fn execute_with_stored(
         default_product_info(),
         &OsPorts {
             environment: &SystemSupportEnvironment,
-            access: &SystemStartupCapabilities,
+            access: &crate::TestAccess,
         },
         read_stored,
         || None,

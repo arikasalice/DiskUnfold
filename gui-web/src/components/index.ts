@@ -1,5 +1,6 @@
 export {
   Action,
+  ActionWithTooltip,
   Choice,
   ChoiceGroup,
   DateField,
@@ -8,7 +9,9 @@ export {
   PathField,
   SelectField,
   SwitchField,
+  TextLink,
 } from "./controls";
+export { LineChoice } from "./line-choice";
 export {
   BrandMark,
   CountPill,
@@ -80,6 +83,8 @@ export {
 export type { ChartPattern } from "./charts/chart-patterns";
 export { ChartLegend } from "./charts/chart-legend";
 export type { LegendEntry } from "./charts/chart-legend";
+export { StackedBar } from "./charts/stacked-bar";
+export type { StackedBarSlice } from "./charts/stacked-bar";
 export type {
   DisplayGeometry,
   DisplayPoint,

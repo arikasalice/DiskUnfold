@@ -1,5 +1,5 @@
 //! Handle-relative snapshot staging, registration, and capture on local NTFS.
-use crate::windows_observation::{WindowsDirectory, open_verified_stable};
+use crate::windows_observation::WindowsDirectory;
 use du_core_contracts::{
     Id,
     ports::PortError,
@@ -11,6 +11,7 @@ use std::{
     mem::{offset_of, size_of},
     os::windows::io::{AsRawHandle, FromRawHandle},
     path::Path,
+    sync::Arc,
 };
 use windows::{
     Wdk::{
@@ -34,16 +35,18 @@ use windows::{
 };
 
 /// A verified local NTFS directory retained for handle-relative operations.
-pub struct SnapshotDirectory(WindowsDirectory);
+pub struct SnapshotDirectory(Arc<WindowsDirectory>);
 impl SnapshotDirectory {
     /// Verifies every component of an existing local NTFS directory without following reparse points.
     pub fn open(path: &Path) -> Result<Self, PortError> {
-        open_verified_stable(path).map(Self)
+        super::windows_observation::open_verified_stable_for_snapshot_storage(path)
+            .map(|directory| Self(Arc::new(directory)))
     }
     /// Exclusively creates and locks an identifier-derived temporary file in this directory.
-    pub fn create(&self, temporary_id: &Id) -> io::Result<TemporarySnapshot<'_>> {
+    pub fn create(&self, temporary_id: &Id) -> io::Result<TemporarySnapshot> {
+        let directory = Arc::clone(&self.0);
         let temporary = TemporarySnapshot {
-            _directory: self,
+            _directory: directory,
             file: self.create_file(temporary_id, NTCREATEFILE_CREATE_OPTIONS(0))?,
             registered: false,
         };
@@ -111,15 +114,20 @@ impl SnapshotDirectory {
         // SAFETY: successful creation transfers ownership of a valid handle.
         Ok(unsafe { File::from_raw_handle(handle.0) })
     }
+
+    /// Flushes namespace metadata for files registered in this directory.
+    pub(crate) fn sync_folder(&self) -> io::Result<()> {
+        self.0.storage_handle().sync_all()
+    }
 }
 
 /// A temporary file held exclusively until registration or cleanup.
-pub struct TemporarySnapshot<'a> {
-    _directory: &'a SnapshotDirectory,
+pub struct TemporarySnapshot {
+    _directory: Arc<WindowsDirectory>,
     file: File,
     registered: bool,
 }
-impl TemporarySnapshot<'_> {
+impl TemporarySnapshot {
     /// Flushes and synchronizes staged bytes without registering a final filename.
     pub fn sync(&mut self) -> io::Result<()> {
         self.file.flush()?;
@@ -131,6 +139,10 @@ impl TemporarySnapshot<'_> {
     /// open until the native rename completes. The operation uses the staged handle.
     pub fn register(mut self, snapshot_id: &Id) -> io::Result<()> {
         self.sync()?;
+        self.register_after_sync(snapshot_id)
+    }
+
+    pub(crate) fn register_after_sync(&mut self, snapshot_id: &Id) -> io::Result<()> {
         let name: Vec<u16> = format!("{}.dusnap", snapshot_id.as_str())
             .encode_utf16()
             .collect();
@@ -194,17 +206,17 @@ impl TemporarySnapshot<'_> {
         };
     }
 }
-impl Read for TemporarySnapshot<'_> {
+impl Read for TemporarySnapshot {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         self.file.read(bytes)
     }
 }
-impl Seek for TemporarySnapshot<'_> {
+impl Seek for TemporarySnapshot {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
         self.file.seek(position)
     }
 }
-impl Write for TemporarySnapshot<'_> {
+impl Write for TemporarySnapshot {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.file.write(bytes)
     }
@@ -212,7 +224,7 @@ impl Write for TemporarySnapshot<'_> {
         self.file.flush()
     }
 }
-impl Drop for TemporarySnapshot<'_> {
+impl Drop for TemporarySnapshot {
     fn drop(&mut self) {
         if !self.registered {
             self.remove_on_close();

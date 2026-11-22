@@ -927,7 +927,17 @@ remainder?: VizTotal,
  * says why). Valid only with `remainder`; keys are not empty, sorted and without
  * duplicates, and an unregistered key is preserved. Omitted rather than null.
  */
-remainderReasonKeys?: Array<string>, };
+remainderReasonKeys?: Array<string>,
+/**
+ * The F03 measurement limits of `scope` (#351): the `measurementLimits` that
+ * `space.total` gives the same item in the model's size basis, from the same
+ * function, so the two always agree. A model that does not measure size has none.
+ *
+ * Only the scope total has them: the other totals are sums F06 makes, which do
+ * not inherit F03's limits. Omitted when there is none, never empty or null; keys
+ * are not empty or repeated, keep F03's order, and an unknown key is preserved.
+ */
+scopeMeasurementLimits?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy,
 /**
  * Revision of the type classification table, present when the model's
@@ -951,7 +961,12 @@ memberCount?: VizQuantity,
  * Kind of the referenced item, on item shapes only; omitted when unknown. See
  * [`VizItemKind`].
  */
-itemKind?: VizItemKind, };
+itemKind?: VizItemKind,
+/**
+ * The files by legend class of a folder whose children are not drawn, or of the
+ * Other group by its members; the same list as its row's. See [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
 export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>,
 /**
@@ -965,7 +980,20 @@ unknownSize?: VizQuantity,
  * first row without a provable area, or else of the first expanded folder whose
  * level has one. Treemap only; omitted when no table row is such a row.
  */
-firstUnknownRow?: number, };
+firstUnknownRow?: number,
+/**
+ * Folders below the model's scope whose listing failed (F06 README 48, #346): a
+ * recorded scan gap, or a folder a cancellation or disconnection left unread. Exact
+ * from the recorded gaps; a lower bound while the scan runs or when such marks make
+ * the count incomplete. Omitted when there are none, never an exact zero. These
+ * folders are not in `unknownItems`.
+ */
+unreadFolders?: VizQuantity,
+/**
+ * Position in the navigation root's table of the first row that is such a folder
+ * or holds one. Omitted with `unreadFolders`, or when no table row holds one.
+ */
+firstUnreadRow?: number, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
@@ -1048,7 +1076,27 @@ itemKind?: VizItemKind,
  * the size basis has no size predicate (unique physical size). Omitted rather
  * than null.
  */
-condition?: QueryCondition, };
+condition?: QueryCondition,
+/**
+ * Whether this folder could not be read (F06 README 53): item rows of folders
+ * only. See [`VizUnread`].
+ */
+unread?: VizUnread,
+/**
+ * The files by legend class (F06 README 54) of a folder row, or of the Other
+ * group row by its members together, under the type color criterion, unfiltered,
+ * in a real scan. Omitted where it does not apply, including a folder whose own
+ * listing failed; empty when every file was counted and there is none. See
+ * [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
+export type VizUnread = { "kind": "itself" } | { "kind": "inside",
+/**
+ * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
+ * when a cancellation or disconnection left folders below it uncounted.
+ */
+count?: string, } | { "kind": "unknown" };
+export type VizTypeSlice = { classKey: string, itemCount: VizQuantity, total: VizQuantity, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.
@@ -1152,7 +1200,16 @@ export type AnalysisTarget = { kind: TargetKind | null, path: OsPath, connected:
  * Whether the target belongs in the default list (F01 #263). The engine always
  * sets it; absent means listed. It only arranges the list and never limits a scope.
  */
-defaultVisible?: boolean, };
+defaultVisible?: boolean,
+/**
+ * The OS-confirmed system volume of a confirmed root volume group.
+ * Omitted when the group or system role is not confirmed. GUI channel only.
+ */
+isStartupVolume?: boolean,
+/**
+ * Volume name reported by the operating system, when available. GUI channel only.
+ */
+volumeName?: string, };
 export type TargetList = { targets: Array<AnalysisTarget>, probeJobRef: Id | null, observedAt: Timestamp, unavailableReason: string | null, };
 export type TargetStatusChanged = { target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
 export type TargetProbeEvent = { sequence: number, target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
@@ -1244,7 +1301,23 @@ export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, p
  * Human-readable display text; never reopen or compare a path from it.
  */
 displayPath?: string, };
-export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
+export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind,
+/**
+ * Restricts rows to these zero-based root indexes. Omission selects all roots.
+ * The list must contain 1 to 64 strictly ascending indexes, all below the
+ * pinned result's root count; `null`, empty, duplicate, descending, and
+ * oversized lists are invalid.
+ */
+rootIndexes?: Array<number>,
+/**
+ * Selects exactly issues counted as lane failures: every `collection_failed` row;
+ * `unread_range` rows at `open_directory` or `enumerate`; and traverse-stage unread
+ * rows with reason `scan.boundary_unverifiable` or the worker failure reason
+ * `scan.unclassified`. Omission is false. Known other-volume and revisit ranges,
+ * `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
+ * both filters apply.
+ */
+failuresOnly?: boolean, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
 /**
@@ -1563,6 +1636,19 @@ boundary?: BrowseValue<FolderBoundary>,
  */
 countedAt?: OsPath,
 /**
+ * The item that `counted_at` names in the same result version, for moving there
+ * (#263). Present only with `counted_at` and only when that folder is in the
+ * result; never used for sizes. `null` is rejected. GUI channel only.
+ */
+countedAtItem?: ItemRef,
+/**
+ * The folder's place in the result's confirmed root volume group (#263), an
+ * open set: [`FolderFlags::GROUP_ROLE_DATA`] marks the data mount itself.
+ * Omitted for every other folder and an unknown value means no mark; the
+ * screen never compares paths for it. `null` is rejected. GUI channel only.
+ */
+groupVolumeRole?: string,
+/**
  * Unread ranges inside a folder that was itself read (#226).
  *
  * Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
@@ -1616,7 +1702,11 @@ export type BrowseBreadcrumb = { item: ItemRef,
 /**
  * Human-readable display text; never reopen or compare a path from it.
  */
-displayName: BrowseValue<string>, };
+displayName: BrowseValue<string>,
+/**
+ * The root item of a confirmed macOS startup volume group. GUI channel only.
+ */
+isStartupVolume?: boolean, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
 export type BrowseContext = { origin: ResultOrigin,
 /**

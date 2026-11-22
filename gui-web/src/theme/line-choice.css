@@ -1,0 +1,57 @@
+/* The volumes beyond the default cards are one bordered group of lines divided by
+   hairlines, with the corner radius of a card (F02 #350). */
+.du-choices__more {
+  display: grid;
+  grid-column: 1 / -1;
+  margin-block-start: 4px;
+  border: 1px solid var(--du-control-border);
+  border-radius: var(--du-radius);
+}
+
+.du-choice.du-line-choice {
+  grid-template-columns: 16px 18px minmax(0, 1fr) auto;
+  gap: 0 8px;
+  padding-block: 4px;
+  border: 0;
+  border-radius: 0;
+  color: var(--du-muted);
+}
+
+.du-line-choice + .du-line-choice {
+  border-block-start: 1px solid var(--du-border);
+}
+
+.du-line-choice:first-child {
+  border-start-start-radius: calc(var(--du-radius) - 1px);
+  border-start-end-radius: calc(var(--du-radius) - 1px);
+}
+
+.du-line-choice:last-child {
+  border-end-start-radius: calc(var(--du-radius) - 1px);
+  border-end-end-radius: calc(var(--du-radius) - 1px);
+}
+
+/* The group leaves no room outside for a focus ring, so it sits inside the line. */
+.du-choice.du-line-choice[data-focus-visible] {
+  outline-offset: -2px;
+}
+
+.du-line-choice__label {
+  grid-area: 1 / 3;
+  min-inline-size: 0;
+  font-size: 13px;
+}
+
+.du-line-choice__description {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.du-choice.du-line-choice[data-selected]:not([data-disabled])
+  .du-line-choice__label {
+  color: var(--du-selected-text);
+}

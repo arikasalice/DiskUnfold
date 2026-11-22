@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { parseDate } from "@internationalized/date";
 import {
@@ -18,6 +18,7 @@ import {
   Input,
   I18nProvider,
   Label,
+  Link as AriaLink,
   Popover,
   Radio,
   RadioGroup,
@@ -32,6 +33,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ButtonProps } from "react-aria-components";
 import { Icon, StatusBadge } from "./presentation";
 import type { IconName } from "./presentation";
+import type { StatusShape } from "./status-table";
 import { isImeProcessingKey, useImeComposition } from "./ime-composition";
 import { useLocaleText } from "../i18n/presentation";
 import {
@@ -54,6 +56,8 @@ type ActionProps = Pick<
   | "aria-disabled"
   | "aria-describedby"
 > & {
+  slot?: Exclude<ButtonProps["slot"], undefined>;
+  title?: string;
   variant?: "primary" | "secondary" | "quiet" | "danger";
   compact?: boolean;
   ref?: Ref<HTMLButtonElement>;
@@ -82,6 +86,37 @@ export function Action({
         children
       )}
     </Button>
+  );
+}
+
+/** An in-place navigation link that keeps React Aria's link keyboard behavior. */
+export function TextLink({
+  children,
+  onPress,
+  title,
+  "aria-label": ariaLabel,
+  ...props
+}: {
+  children: ReactNode;
+  onPress: () => void;
+  title?: string | undefined;
+  "aria-label"?: string | undefined;
+}) {
+  const titleProps = title ? { title } : {};
+  return (
+    <AriaLink
+      href="#"
+      {...(ariaLabel !== undefined && { "aria-label": ariaLabel })}
+      {...props}
+      {...titleProps}
+      className="du-text-link"
+      onClick={(event) => {
+        event.preventDefault();
+        onPress();
+      }}
+    >
+      {children}
+    </AriaLink>
   );
 }
 
@@ -157,6 +192,18 @@ export function SwitchField({
       <span className="du-switch__indicator" aria-hidden="true" />
     </AriaSwitch>
   );
+}
+
+/** An action whose native tooltip gives its full destination. */
+export function ActionWithTooltip({
+  tooltip,
+  ...action
+}: ActionProps & { tooltip: string }) {
+  const button = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    button.current?.setAttribute("title", tooltip);
+  }, [tooltip]);
+  return <Action ref={button} {...action} />;
 }
 
 /**
@@ -505,6 +552,8 @@ export function ChoiceGroup({
 export function Choice({
   value,
   label,
+  accessibleName,
+  title,
   description,
   summary,
   availablePercent,
@@ -514,10 +563,16 @@ export function Choice({
 }: {
   value: string;
   label: string;
+  accessibleName?: string | undefined;
+  title?: string | undefined;
   description: string;
   summary?: string | undefined;
   availablePercent?: number | undefined;
-  status: { text: string; tone: "neutral" | "good" };
+  status: {
+    text: string;
+    tone: "neutral" | "good";
+    shape?: StatusShape | undefined;
+  };
   icon: IconName;
   /** Reads in the secondary text colour, as a target outside the default list does. */
   secondary?: boolean | undefined;
@@ -527,7 +582,7 @@ export function Choice({
   return (
     <Radio
       value={value}
-      aria-label={label}
+      aria-label={accessibleName ?? label}
       aria-describedby={`${descriptionId} ${statusId}`}
       className="du-choice"
       data-compact={summary !== undefined || undefined}
@@ -536,6 +591,7 @@ export function Choice({
       <Icon name={icon} />
       <span
         className={`du-choice__label du-text--path${secondary ? " du-text--muted" : ""}`}
+        title={title}
       >
         {label}
       </span>
@@ -556,7 +612,9 @@ export function Choice({
         </span>
       )}
       <span className="du-choice__status" id={statusId}>
-        <StatusBadge tone={status.tone}>{status.text}</StatusBadge>
+        <StatusBadge tone={status.tone} shape={status.shape}>
+          {status.text}
+        </StatusBadge>
       </span>
     </Radio>
   );
