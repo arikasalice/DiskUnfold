@@ -108,6 +108,7 @@ pub(super) fn make_group(request: GroupRequest<'_>) -> Result<(VizRow, GroupRows
             crate::viz_pages::type_slices::SlicesError::Cancelled => Error::Cancelled,
             crate::viz_pages::type_slices::SlicesError::Invalid => Error::InvalidModel,
         })?,
+        links: None,
     };
     Ok((
         row,

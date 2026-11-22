@@ -3,6 +3,7 @@ use super::item_kind::{VizItemKind, optional_known};
 use super::quantity::VizQuantity;
 pub use super::ratio::VizRatio;
 pub use super::row_unread::VizUnread;
+use super::sankey::VizLink;
 use super::type_slices::VizTypeSlice;
 use crate::{
     Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp,
@@ -137,6 +138,12 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub type_slices: Option<Vec<VizTypeSlice>>,
+    /// The links leaving a Sankey node row (#296), in legend order: the row each
+    /// reaches and its exact bytes, so the table reaches every link. Sankey node rows
+    /// only; omitted elsewhere, never null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub links: Option<Vec<VizLink>>,
 }
 impl VizRow {
     /// Checks local invariants. The caller must resolve group references in the pinned model.
@@ -202,7 +209,8 @@ impl VizRow {
         if self.unread.is_some() && self.item_ref.is_none() {
             return Err("unread state on a group row");
         }
-        self.validate_type_slices()
+        self.validate_type_slices()?;
+        self.validate_links()
     }
     /// Checks the item revision only; group membership requires the pinned model.
     pub fn validate_revision(&self, revision: &Id) -> Result<(), &'static str> {

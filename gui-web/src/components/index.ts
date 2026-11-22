@@ -75,6 +75,7 @@ export { createChartRenderers } from "./charts/chart-renderers";
 export { GeometryRenderer } from "./charts/geometry-renderer";
 export { ChartFallbackContext } from "./charts/geometry-renderer";
 export { BarRenderer, HistogramRenderer } from "./charts/ranked-renderers";
+export { SankeyRenderer } from "./charts/sankey-renderer";
 export {
   ChartPatternDefs,
   PLACE_PATTERNS,

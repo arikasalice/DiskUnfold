@@ -25,6 +25,7 @@ enum Layout {
     Treemap,
     Bar,
     Histogram,
+    Sankey,
     Unsupported,
 }
 fn layout_for(format: &str) -> Layout {
@@ -32,6 +33,7 @@ fn layout_for(format: &str) -> Layout {
         "treemap" => Layout::Treemap,
         "bar" => Layout::Bar,
         "histogram" => Layout::Histogram,
+        "sankey" => Layout::Sankey,
         _ => Layout::Unsupported,
     }
 }
@@ -42,12 +44,11 @@ pub(super) struct Compute {
     pub work: Arc<Work>,
     pub candidate: Arc<CandidateSlot>,
 }
-impl JobBody for Compute {
-    fn kind_id(&self) -> &str {
-        "viz.compute"
-    }
-    fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
-        let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
+impl Compute {
+    /// Runs every path that does not end in the treemap projection.
+    ///
+    /// Returns `None` only when the treemap layout should continue.
+    fn run_other_layout(&self, cancelled: &mut dyn FnMut() -> bool) -> Option<JobOutcome> {
         if matches!(
             self.admitted
                 .required_data
@@ -55,19 +56,31 @@ impl JobBody for Compute {
                 .map(|value| value.evaluation),
             Some(crate::required_data::Evaluation::Unavailable(_))
         ) {
-            return missing_data_fallback(self, &mut cancelled);
+            return Some(missing_data_fallback(self, cancelled));
         }
         match layout_for(&self.admitted.request.format) {
             Layout::Histogram if self.admitted.histogram.is_some() => {
-                return super::histogram::run(self, &mut cancelled);
+                Some(super::histogram::run(self, cancelled))
             }
-            Layout::Bar => return super::ranked_bar::run(self, &mut cancelled),
-            Layout::Treemap => {}
+            Layout::Bar => Some(super::ranked_bar::run(self, cancelled)),
+            Layout::Sankey => Some(super::sankey::run(self, cancelled)),
+            Layout::Treemap => None,
             // Required data was reported present for a format with no layout path:
             // a composition error, closed here rather than drawn as a treemap.
             Layout::Histogram | Layout::Unsupported => {
-                return outcome(false, Some("support.internal_error"));
+                Some(outcome(false, Some("support.internal_error")))
             }
+        }
+    }
+}
+impl JobBody for Compute {
+    fn kind_id(&self) -> &str {
+        "viz.compute"
+    }
+    fn run(&self, context: Arc<dyn JobContext>) -> JobOutcome {
+        let mut cancelled = || context.checkpoint() != Checkpoint::Continue;
+        if let Some(done) = self.run_other_layout(&mut cancelled) {
+            return done;
         }
         let request = &self.admitted.request;
         let hierarchy = request.format == "treemap"
@@ -204,7 +217,10 @@ impl JobBody for Compute {
     }
 }
 
-fn missing_data_fallback(work: &Compute, cancelled: &mut dyn FnMut() -> bool) -> JobOutcome {
+pub(super) fn missing_data_fallback(
+    work: &Compute,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> JobOutcome {
     let admitted = &work.admitted;
     let request = &admitted.request;
     let folder = match du_analysis_index::browse::open(
@@ -329,6 +345,24 @@ pub(super) fn commit(
                 },
                 group_ref,
                 row_index,
+            }
+        }
+        // A Sankey publishes its node rows and answers with its prepared model, as a
+        // histogram with geometry does.
+        Candidate::Sankey(candidate) => {
+            let model_ref = session
+                .commit_sankey(candidate, &mut || false)
+                .map_err(|_| "support.internal_error")?;
+            let revision = computed
+                .histogram_revision
+                .clone()
+                .ok_or("support.internal_error")?;
+            RuntimeCommitted::Histogram {
+                fallback: du_core_contracts::visualization::render::VizFallback {
+                    model_ref,
+                    result_revision: revision,
+                },
+                no_attribution: false,
             }
         }
     };

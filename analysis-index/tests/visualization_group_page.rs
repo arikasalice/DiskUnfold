@@ -50,6 +50,7 @@ fn row(version: &Id, name: &str) -> Result<VizRow, String> {
         shared_counted_item: None,
         unread: None,
         type_slices: None,
+        links: None,
     })
 }
 

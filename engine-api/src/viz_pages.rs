@@ -13,6 +13,7 @@ mod locate;
 pub mod production;
 pub mod ranked_group;
 pub mod render;
+pub mod sankey;
 pub mod session;
 pub(crate) mod type_slices;
 use du_analysis_index::{

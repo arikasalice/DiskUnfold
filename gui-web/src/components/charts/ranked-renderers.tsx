@@ -55,12 +55,12 @@ function advance(part: string) {
 }
 
 /** The approximate drawn width of a text in the chart's 12 px font. */
-function textWidth(text: string) {
+export function textWidth(text: string) {
   return graphemes(text).reduce((sum, part) => sum + advance(part), 0);
 }
 
 /** Keeps the start and the end of a name that is too wide, as names are shortened elsewhere. */
-function shorten(text: string, room: number) {
+export function shorten(text: string, room: number) {
   const parts = graphemes(text);
   if (textWidth(text) <= room) return text;
   const budget = Math.max(2 * CHAR, room - CHAR);

@@ -8,6 +8,7 @@ use super::{
     render::{VizColorMode, VizLabelMode},
     required_nullable,
     rows::{VizDenominator, VizDenominatorBasis},
+    sankey::VizColumn,
     type_slices::VizTypeSlice,
 };
 use crate::{
@@ -50,6 +51,14 @@ pub struct VizRelationship {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub geometry: Option<Geometry>,
+    /// A Sankey link's exact bytes (#296); Sankey models only.
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub quantity: Option<VizQuantity>,
 }
 
 /// A pinned visualization model and the evidence used to construct it.
@@ -243,6 +252,14 @@ pub struct VizShape {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub type_slices: Option<Vec<VizTypeSlice>>,
+    /// The column of a Sankey node (#296); on every shape of a Sankey model only.
+    #[serde(
+        default,
+        deserialize_with = "optional_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub column: Option<VizColumn>,
 }
 
 /// A legend class with its original item and quantity evidence.
@@ -375,6 +392,7 @@ impl VizModel {
             }
         }
         self.validate_parent_links(&refs)?;
+        self.validate_sankey(&refs)?;
         if self.relationships.iter().any(|r| {
             r.kind.is_empty()
                 || !refs.contains_key(r.from_shape_ref.as_str())
@@ -416,6 +434,7 @@ impl VizModel {
     }
 }
 
+mod sankey;
 mod shape;
 mod summary;
 pub use summary::VizSummary;

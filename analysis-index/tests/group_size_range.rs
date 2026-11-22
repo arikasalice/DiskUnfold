@@ -52,6 +52,7 @@ fn row(value: SizeValue) -> Result<VizRow, String> {
         shared_counted_item: None,
         unread: None,
         type_slices: None,
+        links: None,
     })
 }
 

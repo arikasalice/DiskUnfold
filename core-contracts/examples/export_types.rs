@@ -17,9 +17,7 @@ use du_core_contracts::product_support::{
 use du_core_contracts::query_page_ipc::*;
 use du_core_contracts::query_region_ipc::*;
 use du_core_contracts::query_run_ipc::*;
-use du_core_contracts::result_events::{
-    PublishedCompleteness, ResultVersionChange, ResultVersionChanged,
-};
+use du_core_contracts::result_events::*;
 use du_core_contracts::result_freshness::{
     FreshnessChanged, FreshnessCounts, FreshnessRange, FreshnessState, FreshnessSummary,
     ResultFreshnessChanged,
@@ -63,7 +61,7 @@ use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow,
     VizRows, VizRowsRequest, VizSizeRange, VizUnread,
 };
-use du_core_contracts::visualization::type_slices::VizTypeSlice;
+use du_core_contracts::visualization::{sankey::*, type_slices::VizTypeSlice};
 use du_core_contracts::volume_gap_ipc::*;
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
@@ -251,6 +249,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRow::decl(&config),
         VizUnread::decl(&config),
         VizTypeSlice::decl(&config),
+        VizColumn::decl(&config),
+        VizLink::decl(&config),
         VizRowsRequest::decl(&config),
         VizGroupRowsRequest::decl(&config),
         VizSizeRange::decl(&config),

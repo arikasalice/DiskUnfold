@@ -208,6 +208,7 @@ mod tests {
             shared_counted_item: None,
             unread: None,
             type_slices: None,
+            links: None,
         };
         let groups = HashMap::from([(
             "g".into(),

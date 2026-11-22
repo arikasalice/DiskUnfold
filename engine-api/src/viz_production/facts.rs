@@ -128,9 +128,32 @@ pub(super) fn scope_facts(
         trend_observations: Evidence::Absent,
         comparison: Evidence::Absent,
         histogram_bins: Evidence::Known(()),
-        attribution: Evidence::Absent,
+        attribution: attribution(version, scope, basis),
         basis_not_counted,
     })
+}
+
+/// #296: the scope's space can be followed to folders and types (Sankey) when the
+/// result is a real scan whose scope total is exact on the basis; sizes are never
+/// negative, so no flow is. A sample or an inexact total has no attribution.
+fn attribution(
+    version: &du_analysis_index::ResultVersion,
+    scope: &ItemRef,
+    basis: &SizeBasis,
+) -> Evidence<crate::required_data::Attribution> {
+    use du_core_contracts::result::ResultVersionRead;
+    let exact = matches!(
+        version.item_size(scope.item_no, basis.clone()),
+        Some(size) if size.evidence != du_core_contracts::SizeEvidence::Unknown
+            && matches!(size.amount, du_core_contracts::SizeAmount::Exact { .. })
+    );
+    if version.data_source().is_real() && exact {
+        Evidence::Known(crate::required_data::Attribution {
+            has_negative_flow: false,
+        })
+    } else {
+        Evidence::Absent
+    }
 }
 
 /// #149: the folder has no unique physical size only because sharing evidence

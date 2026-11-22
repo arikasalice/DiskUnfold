@@ -27,6 +27,7 @@ fn accepts_an_omitted_ancestor_and_an_open_relationship_kind()
         from_shape_ref: "root".into(),
         to_shape_ref: "leaf".into(),
         geometry: None,
+        quantity: None,
     };
     assert_eq!(
         validate_model_links(&revision, &[child, shape("root", None, 0)], &[relation]),
@@ -72,6 +73,7 @@ fn rejects_broken_hierarchy_and_references_before_model_publication()
         from_shape_ref: "root".into(),
         to_shape_ref: "other-model".into(),
         geometry: None,
+        quantity: None,
     };
     assert_eq!(
         validate_model_links(&revision, &[shape("root", None, 0)], &[unrelated]),

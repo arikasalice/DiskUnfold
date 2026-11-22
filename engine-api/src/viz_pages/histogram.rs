@@ -193,6 +193,7 @@ fn assemble(
                 shared_counted_item: None,
                 unread: None,
                 type_slices: None,
+                links: None,
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -249,6 +250,7 @@ fn assemble(
             shared_counted_item: None,
             unread: None,
             type_slices: None,
+            links: None,
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;
