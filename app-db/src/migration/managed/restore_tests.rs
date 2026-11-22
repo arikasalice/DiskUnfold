@@ -112,7 +112,13 @@ fn upgrade_from_older_data_keeps_rows_and_leaves_no_journal() -> TestResult {
     let f = fixture()?;
     let outcome = apply_managed_run(&f.path, &f.root, &HISTORY_DEFINITIONS, 1)
         .map_err(|failure| format!("{failure:?}"))?;
-    assert_eq!((outcome.revision, outcome.applied_steps), (8, 7));
+    assert_eq!(
+        (outcome.revision, outcome.applied_steps),
+        (
+            HISTORY_SCHEMA_VERSION,
+            (HISTORY_SCHEMA_VERSION - 1) as usize
+        )
+    );
     assert_eq!(version(&f.path)?, HISTORY_SCHEMA_VERSION);
     assert!(!journal_file(&f.root).exists());
     let db = Connection::open_with_flags(&f.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;

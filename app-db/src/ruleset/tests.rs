@@ -1,5 +1,5 @@
 use super::{RulesetError, RulesetRow};
-use crate::{AppDb, HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION, migration};
+use crate::{AppDb, HISTORY_DEFINITIONS, migration};
 use du_core_contracts::ruleset::{RulesetRead, RulesetReadError};
 use std::sync::{Arc, Barrier};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -190,8 +190,20 @@ fn version_four_data_survives_migration_five() -> TestResult {
     assert_eq!(
         migration::apply_next(&path, &dir.path().join("8.bak"), &HISTORY_DEFINITIONS)
             .map_err(|e| format!("{e:?}"))?,
-        HISTORY_SCHEMA_VERSION
+        8
     );
+    for step in HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .filter(|step| step.number > 8)
+    {
+        migration::apply_next(
+            &path,
+            &dir.path().join(format!("{}.bak", step.number)),
+            &HISTORY_DEFINITIONS,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    }
     let db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     let saved: String = db.connection.query_row(
         "SELECT value_json FROM user_env_setting WHERE setting_key='example'",
