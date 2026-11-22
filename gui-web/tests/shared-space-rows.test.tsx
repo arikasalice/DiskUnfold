@@ -1,11 +1,17 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { modelFixture } from "../preview/model-fixture";
 import { sharedSpaceRows } from "../src/features/analysis/shared-space-rows";
-import type { SpaceDetail } from "../src/ipc";
 import { ModelRows } from "../src/features/visualization/ModelRows";
 import { createProductionVizText, visualizationMessage } from "../src/viz";
 import type { VizText } from "../src/viz";
+import type { AnalysisClient, SpaceDetail } from "../src/ipc";
 
 afterEach(cleanup);
 
@@ -44,35 +50,68 @@ function shown(sizeBasis: "allocated" | "logical" | undefined) {
   );
 }
 
-const fallbackText = ((_key: string, fallback: string) => fallback) as never;
+const fallbackText = ((
+  _key: string,
+  fallback: string,
+  values?: Record<string, string>,
+) =>
+  Object.entries(values ?? {}).reduce(
+    (message, [name, value]) => message.replace(`{${name}}`, value),
+    fallback,
+  )) as never;
 const detailWith = (group: object | undefined) =>
   ({
-    linkGroup: group ? { state: "present", value: group } : { state: "absent" },
+    linkGroup: group
+      ? { state: "present", value: group }
+      : { state: "absent" },
   }) as unknown as SpaceDetail;
 const counted = { resultVersion: "r1", itemNo: 4 };
+const folder = { resultVersion: "r1", itemNo: 2 };
+const client = {
+  call: vi.fn().mockResolvedValue({
+    displayPath: { state: "present", value: "/Users/a/clip.mp4" },
+  }),
+} as unknown as AnalysisClient;
 
-test("F03 #359: only the path that is not counted can open the counted path", () => {
+test("F03 #359: a path that is not counted says where it is counted and opens that folder", async () => {
   const navigate = vi.fn();
   const rows = sharedSpaceRows(
-    detailWith({ sharesSpace: true, countedItem: counted }),
+    detailWith({
+      sharesSpace: true,
+      countedItem: counted,
+      countedFolder: folder,
+    }),
+    client,
     navigate,
     fallbackText,
   );
-  expect(rows.map((row) => row.label)).toEqual([
-    "Shared allocation",
-    "Counted at another path",
+  expect(rows.map((row) => row.label)).toEqual(["Counted at"]);
+  expect(rows[0]!.notes).toEqual([
+    "The same file is at more than one path, so it is counted at one of them.",
   ]);
-  render(<div>{rows[1]!.value}</div>);
+  render(<div>{rows[0]!.value}</div>);
+  await waitFor(() =>
+    expect(screen.getByText("Counted at /Users/a/clip.mp4")).toBeTruthy(),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
-  expect(navigate).toHaveBeenCalledWith(counted);
-  // The counted path has nothing to follow, and an unmarked file shows nothing.
-  expect(
-    sharedSpaceRows(detailWith({ sharesSpace: true }), navigate, fallbackText),
-  ).toHaveLength(1);
-  expect(sharedSpaceRows(detailWith({}), navigate, fallbackText)).toEqual([]);
-  expect(
-    sharedSpaceRows(detailWith(undefined), navigate, fallbackText),
-  ).toEqual([]);
+  expect(navigate).toHaveBeenCalledWith(folder);
+});
+
+test("F03 #359: the counted path says so without a button, and an unmarked file shows nothing", () => {
+  const navigate = vi.fn();
+  const [row] = sharedSpaceRows(
+    detailWith({ sharesSpace: true }),
+    client,
+    navigate,
+    fallbackText,
+  );
+  render(<div>{row!.value}</div>);
+  expect(screen.getByText("This path")).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
+  for (const group of [{}, undefined])
+    expect(
+      sharedSpaceRows(detailWith(group), client, navigate, fallbackText),
+    ).toEqual([]);
 });
 
 test("F03 #359: a path that shares allocated space says so, and so does the counted one", () => {

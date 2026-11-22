@@ -1888,7 +1888,12 @@ sharesSpace?: boolean,
 /**
  * The in-scope path whose allocation is counted when multiple paths share identity.
  */
-countedItem?: ItemRef, hasOutsideLinks: boolean | null, };
+countedItem?: ItemRef,
+/**
+ * The folder that holds `counted_item`, for opening it. Present only with
+ * `counted_item`, in the same result version; `null` is rejected.
+ */
+countedFolder?: ItemRef, hasOutsideLinks: boolean | null, };
 export type SpaceExclusiveDecision = { confirmed: boolean, reasonKey: string | null, };
 export type SpacePlaceholderState = "none" | "partial" | "full";
 export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };

@@ -1,50 +1,82 @@
-import { Action } from "../../components";
-import type { ItemRef, SpaceDetail } from "../../ipc";
+import { useEffect, useState } from "react";
+import { Action, NameText } from "../../components";
+import type { AnalysisClient, ItemRef, SpaceDetail } from "../../ipc";
 import type { useLocaleText } from "../../i18n/presentation";
 
 type LocaleText = ReturnType<typeof useLocaleText>;
 
+/** The counted path of a shared file, read as the display path of that item. */
+function CountedPath({
+  client,
+  counted,
+  text,
+}: {
+  client: AnalysisClient;
+  counted: ItemRef;
+  text: LocaleText;
+}) {
+  const [path, setPath] = useState<string>();
+  const { resultVersion, itemNo } = counted;
+  useEffect(() => {
+    let active = true;
+    void client
+      .call("browse.detail", { resultVersion, item: { resultVersion, itemNo } })
+      .then((detail) => {
+        if (active && detail.displayPath.state === "present")
+          setPath(detail.displayPath.value);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [client, resultVersion, itemNo]);
+  return path === undefined ? (
+    text("ui.browse.counted_at", "Counted at")
+  ) : (
+    <NameText
+      path
+      name={text("ui.browse.counted_at_path", "Counted at {path}", { path })}
+    />
+  );
+}
+
 /**
- * The extra readout rows of a file whose allocated space is counted once for several
- * paths (F03 #359). The path that is not the counted one points to it and can open the
- * folder of the counted path only; the counted path has no reference to follow.
+ * The "Counted at" row of a file whose allocated space is counted once for several
+ * paths (F03 #359). A path that is not the counted one shows where it is counted and
+ * can open the folder of that path; the counted path says "This path" and has no
+ * button.
  */
 export function sharedSpaceRows(
   detail: SpaceDetail,
+  client: AnalysisClient,
   navigateItem: ((item: ItemRef) => void) | undefined,
   text: LocaleText,
 ) {
   const group =
     detail.linkGroup.state === "present" ? detail.linkGroup.value : undefined;
   if (group?.sharesSpace !== true) return [];
-  const counted = group.countedItem;
+  const { countedItem, countedFolder } = group;
   return [
     {
-      label: text("ui.analysis.space_shared_allocation", "Shared allocation"),
-      value: counted
-        ? text(
-            "ui.analysis.space_shares_with_other_path",
-            "Shares space with another path",
-          )
-        : text(
-            "ui.analysis.space_counted_here",
-            "Counted here, shared with another path",
-          ),
+      label: text("ui.analysis.space_counted_at", "Counted at"),
+      value: countedItem ? (
+        <>
+          <CountedPath client={client} counted={countedItem} text={text} />
+          {countedFolder && navigateItem ? (
+            <Action variant="quiet" onPress={() => navigateItem(countedFolder)}>
+              {text("ui.browse.counted_at_open", "Open folder")}
+            </Action>
+          ) : null}
+        </>
+      ) : (
+        text("ui.analysis.space_counted_this_path", "This path")
+      ),
+      notes: [
+        text(
+          "ui.analysis.space_counted_once_note",
+          "The same file is at more than one path, so it is counted at one of them.",
+        ),
+      ],
     },
-    ...(counted && navigateItem
-      ? [
-          {
-            label: text(
-              "ui.analysis.space_counted_elsewhere",
-              "Counted at another path",
-            ),
-            value: (
-              <Action variant="quiet" onPress={() => navigateItem(counted)}>
-                {text("ui.browse.counted_at_open", "Open folder")}
-              </Action>
-            ),
-          },
-        ]
-      : []),
   ];
 }

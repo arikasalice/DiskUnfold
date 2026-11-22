@@ -4,9 +4,9 @@ use du_analysis_index::{
     space_detail::{ExclusiveDecision, HardlinkSummary, SharedSpace, SpaceDetail as ItemEvidence},
 };
 use du_core_contracts::{
-    SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     browse_ipc::BrowseValue,
-    result::SpaceAggregate,
+    result::{ResultVersionRead, SpaceAggregate},
     space_detail_ipc::{
         SpaceDetail, SpaceDetailRequest, SpaceDetailSize, SpaceExclusiveDecision, SpaceLinkGroup,
     },
@@ -75,6 +75,7 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> Result<SpaceDetail, 
         }
     };
     let folder_flags = crate::browse::folder::collection::detail_flags(version, &facts.item)?;
+    let link_group = link_group(version, &facts.item, facts.links);
     Ok(SpaceDetail {
         item: facts.item,
         logical: size(facts.logical, aggregate.as_ref()),
@@ -82,7 +83,7 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> Result<SpaceDetail, 
         unique_physical: physical(facts.unique_physical, aggregate.as_ref()),
         exclusive,
         shared,
-        link_group: link_group(facts.links),
+        link_group,
         placeholder_local_state: placeholder_unknown.then(|| unknown(PLACEHOLDER_LOCAL_UNKNOWN)),
         auxiliary: unknown("space.aux_not_included"),
         exclusive_decision,
@@ -150,7 +151,11 @@ fn size(
     }
 }
 
-fn link_group(links: Option<HardlinkSummary>) -> BrowseValue<SpaceLinkGroup> {
+fn link_group(
+    version: &ResultVersion,
+    item: &ItemRef,
+    links: Option<HardlinkSummary>,
+) -> BrowseValue<SpaceLinkGroup> {
     let Some(links) = links else {
         return BrowseValue::Absent;
     };
@@ -161,12 +166,23 @@ fn link_group(links: Option<HardlinkSummary>) -> BrowseValue<SpaceLinkGroup> {
                 .unwrap_or("space.identity_unsupported"),
         );
     };
+    // The counted path's own group names no other path to follow.
+    let shares_space = links.counted.as_ref().map(|_| true);
+    let counted_item = links.counted.filter(|counted| counted != item);
+    let counted_folder = counted_item.as_ref().and_then(|counted| {
+        let parent = version.items().get(counted.item_no as usize)?.parent?;
+        Some(ItemRef {
+            result_version: counted.result_version.clone(),
+            item_no: parent,
+        })
+    });
     BrowseValue::Present {
         value: SpaceLinkGroup {
             reported_link_count: links.observed_link_count.map(|count| count.to_string()),
             in_scope_paths: paths,
-            shares_space: links.counted.as_ref().map(|_| true),
-            counted_item: links.counted,
+            shares_space,
+            counted_item,
+            counted_folder,
             has_outside_links: links.outside_scope,
         },
     }

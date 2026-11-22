@@ -350,7 +350,7 @@ export function ItemSpaceDetails({
             timestamp,
             countedZeroOf(detail.folderFlags),
           ),
-          ...sharedSpaceRows(detail, navigateItem, text),
+          ...sharedSpaceRows(detail, client, navigateItem, text),
         ]}
       />
     </DetailDisclosure>
