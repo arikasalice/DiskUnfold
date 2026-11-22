@@ -277,6 +277,7 @@ dependencies = [
 name = "du-engine-api"
 version = "0.0.1"
 dependencies = [
+ "base64",
  "blake3",
  "du-analysis-index",
  "du-change-planner",

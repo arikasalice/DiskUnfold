@@ -1898,6 +1898,80 @@ jobId: Id,
  */
 pinApplied: SnapshotPinApplied, };
 export type SnapshotSaveExistingOutcome = "existing";
+export type SnapshotListRequest = {
+/**
+ * Opaque continuation token returned by the previous page.
+ */
+cursor?: string,
+/**
+ * Requested page size; zero and negative values are invalid.
+ */
+limit?: number, };
+export type SnapshotListResponse = {
+/**
+ * Snapshot-index sequence read with these rows.
+ */
+listSeq: number,
+/**
+ * Active snapshot summaries in observation-time order.
+ */
+items: Array<SnapshotSummary>,
+/**
+ * Opaque continuation token, omitted when this is the final page.
+ */
+nextCursor?: string, };
+export type SnapshotSummary = {
+/**
+ * Snapshot identity.
+ */
+snapshotId: Id,
+/**
+ * Observation time, when known.
+ */
+observedAt?: Timestamp,
+/**
+ * Lowercase hexadecimal scope marker; omitted when the marker is empty.
+ */
+scopeLabel?: string,
+/**
+ * Stored condition-summary JSON text.
+ */
+conditionSummary: string,
+/**
+ * Completeness recorded in the snapshot, when known.
+ */
+completeness?: SnapshotListCompleteness,
+/**
+ * Snapshot format version.
+ */
+formatVersion: number,
+/**
+ * Sealed snapshot body size in bytes.
+ */
+bodySize: number,
+/**
+ * Whether this snapshot is the current baseline.
+ */
+pinned: boolean,
+/**
+ * Whether this snapshot was captured locally or imported.
+ */
+sourceKind: SnapshotListSourceKind,
+/**
+ * Volume identities stored with the snapshot, for GUI use only.
+ */
+volumes: Array<SnapshotListVolume>, };
+export type SnapshotListCompleteness = "complete" | "partial" | "missing";
+export type SnapshotListSourceKind = "local" | "imported";
+export type SnapshotListVolume = {
+/**
+ * Zero-based position in the snapshot.
+ */
+volumeIndex: number,
+/**
+ * Lowercase hexadecimal observed identity, when known.
+ */
+observedVolumeId?: string, };
 export type SnapshotChange = "saved" | "imported" | "pinned" | "unpinned" | "deleted" | "swept";
 export type SnapshotChangedBody = {
 /**

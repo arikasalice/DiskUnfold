@@ -10,6 +10,7 @@ license.workspace = true
 shutdown-test-support = []
 
 [dependencies]
+base64.workspace = true
 blake3 = "=1.8.3"
 du-analysis-index = { version = "0.0.1", path = "../analysis-index" }
 du-change-planner = { version = "0.0.1", path = "../change-planner" }

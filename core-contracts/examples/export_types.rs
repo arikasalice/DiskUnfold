@@ -433,6 +433,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SnapshotSaveExistingSnapshot::decl(&config),
         SnapshotSaveExistingJob::decl(&config),
         SnapshotSaveExistingOutcome::decl(&config),
+    ]
+    .into_iter()
+    .chain(feature_contracts::snapshot_list_declarations(&config))
+    .chain([
         SnapshotChange::decl(&config),
         SnapshotChangedBody::decl(&config),
         GroupRuleReview::decl(&config),
@@ -468,8 +472,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GroupTotalRow::decl(&config),
         GroupRatio::decl(&config),
         GroupTotals::decl(&config),
-    ]
-    .into_iter()
+    ])
     .chain(feature_contracts::declarations(&config));
     let output = declarations
         .into_iter()

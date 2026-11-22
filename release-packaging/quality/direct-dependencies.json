@@ -299,6 +299,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-engine-api",
+    "name": "base64",
+    "version": "0.23.1",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "opaque snapshot list cursor encoding"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-engine-api",
     "name": "blake3",
     "version": "1.8.3",
     "source": "registry+https://github.com/rust-lang/crates.io-index",
