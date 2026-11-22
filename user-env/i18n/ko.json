@@ -1086,6 +1086,8 @@
     ["ui.visualization.unreadFoldersAtLeast",{"kind":"plural","parameter":"count","variants":{"other":"읽지 못한 폴더 {count}개 이상"}},[["count","count"]]],
     ["ui.visualization.unreadTooltip","접근이 거부되었거나 스캔이 중간에 멈춰 끝까지 읽지 못한 폴더입니다. 크기는 읽은 만큼만 셉니다.",[]],
     ["ui.visualization.unreadItself","안을 읽지 못함",[]],
+    ["ui.visualization.sharesSpace","공간을 다른 경로와 공유함",[]],
+    ["ui.visualization.sharesSpaceCountedHere","여기서 집계됨, 다른 경로와 공유함",[]],
     ["ui.visualization.unreadInside",{"kind":"plural","parameter":"count","variants":{"other":"하위 {count}곳을 읽지 못함"}},[["count","count"]]],
     ["ui.visualization.unreadInsideSome","하위 일부를 읽지 못함",[]],
     ["ui.visualization.typeSlicesMore",{"kind":"plural","parameter":"count","variants":{"other":"{name} 외 {count}개"}},[["count","count"],["name","name"]]],

@@ -1086,6 +1086,8 @@
     ["ui.visualization.unreadFoldersAtLeast",{"kind":"plural","parameter":"count","variants":{"one":"Unreadable folders: {count}+","other":"Unreadable folders: {count}+"}},[["count","count"]]],
     ["ui.visualization.unreadTooltip","These folders couldn't be read completely because access was denied or the scan stopped. Sizes include only what was read.",[]],
     ["ui.visualization.unreadItself","Couldn't read inside",[]],
+    ["ui.visualization.sharesSpace","Shares space with another path",[]],
+    ["ui.visualization.sharesSpaceCountedHere","Counted here, shared with another path",[]],
     ["ui.visualization.unreadInside",{"kind":"plural","parameter":"count","variants":{"one":"{count} subfolder unreadable","other":"{count} subfolders unreadable"}},[["count","count"]]],
     ["ui.visualization.unreadInsideSome","Some subfolders unreadable",[]],
     ["ui.visualization.typeSlicesMore",{"kind":"plural","parameter":"count","variants":{"one":"{name} + {count} more","other":"{name} + {count} more"}},[["count","count"],["name","name"]]],

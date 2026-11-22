@@ -1198,6 +1198,8 @@ ui.visualization.unreadFoldersAtLeast count:count
 ui.visualization.unreadInside count:count
 ui.visualization.unreadInsideSome
 ui.visualization.unreadItself
+ui.visualization.sharesSpace
+ui.visualization.sharesSpaceCountedHere
 ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
