@@ -166,7 +166,12 @@ fn run_app(
         capabilities.as_ref(),
         &settings,
         &database,
-        Some((expiry_reader, undo_info, retention_policy_changed)),
+        Some((
+            expiry_reader,
+            undo_info.clone() as Arc<dyn du_core_contracts::job::SessionUndoInfo>,
+            undo_info.clone() as Arc<dyn du_core_contracts::platform_os_change::SessionUndoStore>,
+            retention_policy_changed,
+        )),
         #[cfg(windows)]
         recent,
     )?;

@@ -127,6 +127,18 @@ impl JobRuntime {
         self.submit_inner(submission, None, None, |_| Ok(()))
     }
 
+    /// Submits a job and commits caller-owned in-memory state before the queued job is visible.
+    ///
+    /// The admission callback runs under the job-table lock after queue validation and before
+    /// insertion. Keep it short and do not call back into this runtime from the callback.
+    pub fn submit_with_admission(
+        &self,
+        submission: Submission,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(submission, None, None, admit)
+    }
+
     /// Submits a job with a result binding stored for the job entry lifetime.
     pub fn submit_with_result_binding(
         &self,

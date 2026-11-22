@@ -17,6 +17,8 @@ use du_core_contracts::{
     approval_ipc::ApprovalConfirmationProofs,
 };
 
+pub mod trash;
+
 /// Appends the stage-one result before the approved job is admitted.
 ///
 /// The supplied facts carry the exact closed result returned by the comparison.

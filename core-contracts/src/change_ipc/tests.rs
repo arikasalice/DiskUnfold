@@ -130,6 +130,10 @@ fn change_result_types_round_trip_normal_and_boundary_values()
         ),
         (CHANGE_ITEM_OUTCOME_UNKNOWN, "change.item.outcome_unknown"),
         (CHANGE_ITEM_CANCELLED, "change.item.cancelled"),
+        (
+            CHANGE_ITEM_ALREADY_PROCESSED,
+            "change.item.already_processed",
+        ),
     ] {
         assert_eq!(reason, key);
     }

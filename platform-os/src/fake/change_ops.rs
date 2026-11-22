@@ -10,7 +10,8 @@ use du_core_contracts::{
 };
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, mpsc},
+    time::Duration,
 };
 
 /// The fake records adapter calls without exposing paths or identity bytes.
@@ -30,6 +31,33 @@ struct State {
     query_outcome: Option<TrashOutcomeQuery>,
     calls: Vec<FakeChangeCall>,
     simulated_change_calls: usize,
+    lookup_gate: Option<Arc<LookupGate>>,
+}
+
+struct LookupGate {
+    entered: mpsc::SyncSender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+
+/// One-shot barrier for deterministic cancellation tests while a lookup is in flight.
+pub struct FakeChangeLookupGate {
+    entered: Mutex<mpsc::Receiver<()>>,
+    release: mpsc::SyncSender<()>,
+}
+
+impl FakeChangeLookupGate {
+    /// Waits until the fake adapter reaches its next lookup.
+    pub fn wait_until_entered(&self, timeout: Duration) -> Result<(), mpsc::RecvTimeoutError> {
+        self.entered
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recv_timeout(timeout)
+    }
+
+    /// Releases the blocked lookup.
+    pub fn release(&self) {
+        let _ = self.release.send(());
+    }
 }
 
 /// In-memory `ChangeOpsPort` for development and tests using the `fake` feature.
@@ -56,6 +84,7 @@ impl FakeChangeOps {
                 query_outcome: None,
                 calls: Vec::new(),
                 simulated_change_calls: 0,
+                lookup_gate: None,
             }),
         })
     }
@@ -73,6 +102,20 @@ impl FakeChangeOps {
     /// Sets a deterministic read-only result for the next outcome query.
     pub fn set_query_outcome(&self, outcome: TrashOutcomeQuery) {
         self.state().query_outcome = Some(outcome);
+    }
+
+    /// Blocks the next lookup until the returned test gate is released.
+    pub fn hold_next_lookup(&self) -> FakeChangeLookupGate {
+        let (entered_tx, entered_rx) = mpsc::sync_channel(0);
+        let (release_tx, release_rx) = mpsc::sync_channel(0);
+        self.state().lookup_gate = Some(Arc::new(LookupGate {
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        }));
+        FakeChangeLookupGate {
+            entered: Mutex::new(entered_rx),
+            release: release_tx,
+        }
     }
 
     /// Replaces or inserts an item, for example to inject a race after lookup.
@@ -110,8 +153,18 @@ impl FakeChangeOps {
 
 impl ItemIdentityPort for FakeChangeOps {
     fn lookup_no_follow(&self, path: &OsPath) -> Result<ChangeItemObservation, PortError> {
-        let mut state = self.state();
-        state.calls.push(FakeChangeCall::Lookup);
+        let gate = {
+            let mut state = self.state();
+            state.calls.push(FakeChangeCall::Lookup);
+            state.lookup_gate.take()
+        };
+        if let Some(gate) = gate {
+            let _ = gate.entered.send(());
+            if let Ok(release) = gate.release.lock() {
+                let _ = release.recv();
+            }
+        }
+        let state = self.state();
         state
             .items
             .get(&path_key(path)?)

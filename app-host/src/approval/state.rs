@@ -59,6 +59,7 @@ impl Runtime {
 
     pub(super) fn observe_event(&self, event: EventEnvelope) {
         match event.topic.as_str() {
+            "job.finished" => self.observe_change_finished(&event),
             "plan.version_fixed" => {
                 if let Some(id) = event
                     .body
@@ -166,6 +167,97 @@ impl Runtime {
             registry.states.clear();
             registry.session_id = None;
         }
+        if let Some(change) = &self.change {
+            change
+                .executions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+            change
+                .cursor_key
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .fill(0);
+            let _ = change.undo.clear();
+        }
+    }
+
+    pub(super) fn mark_approval_spent(&self, request: &Id) {
+        if let Ok(mut registry) = self.registry.lock()
+            && let Some(entry) = registry.entries.get_mut(request)
+            && entry.record.state == ApprovalRecordState::Consumed
+        {
+            entry.state = ApprovalState::Spent;
+            registry
+                .states
+                .insert(request.clone(), ApprovalState::Spent);
+        }
+    }
+
+    fn observe_change_finished(&self, event: &EventEnvelope) {
+        let Some(change) = &self.change else {
+            return;
+        };
+        let (Some(job_ref), Some(end_state)) = (
+            event.job_ref.as_ref(),
+            event.body.get("state").and_then(serde_json::Value::as_str),
+        ) else {
+            return;
+        };
+        let audit = {
+            let mut executions = change
+                .executions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(execution) = executions.get_mut(job_ref) else {
+                return;
+            };
+            if execution.audit_finished {
+                return;
+            }
+            execution.audit_finished = true;
+            Some((
+                execution.request_version_id.clone(),
+                execution.audit_facts.clone(),
+            ))
+        };
+        let Some((request_id, facts)) = audit else {
+            return;
+        };
+        let mut finish_facts = facts;
+        if let Some(check_id) = super::new_id(self.random.as_ref()) {
+            finish_facts.check_id = check_id;
+            if let Ok(mut recorder) = change.recorder.lock() {
+                let _ = du_change_executor::record_check_finish(
+                    &mut *recorder,
+                    &finish_facts,
+                    end_state,
+                );
+            }
+        }
+        let sequence = {
+            let Ok(_transition) = self.transition_lock.lock() else {
+                return;
+            };
+            let Ok(mut registry) = self.registry.lock() else {
+                return;
+            };
+            let Some(entry) = registry.entries.get_mut(&request_id) else {
+                return;
+            };
+            if entry.record.state != ApprovalRecordState::Consumed
+                || entry.state != ApprovalState::InUse
+            {
+                return;
+            }
+            entry.state = ApprovalState::Spent;
+            registry
+                .states
+                .insert(request_id.clone(), ApprovalState::Spent);
+            registry.sequence = registry.sequence.saturating_add(1);
+            registry.sequence
+        };
+        self.publish(&request_id, ApprovalEventState::Consumed, None, sequence);
     }
 
     pub(super) fn publish(
