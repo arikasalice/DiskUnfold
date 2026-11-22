@@ -315,7 +315,8 @@ function rowValue(row: VizRow, text: VizText, sharedShown: boolean) {
     : row.size.state === "lower_bound" && row.size.bytes === "0"
       ? text.message("unavailableValue")
       : text.size(row.size);
-  const reason = unreadReason(row, text) ?? sharedReason(row, text, sharedShown);
+  const reason =
+    unreadReason(row, text) ?? sharedReason(row, text, sharedShown);
   return reason ? (
     <div>
       <Text>{value}</Text>

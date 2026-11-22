@@ -47,9 +47,7 @@ function shown(sizeBasis: "allocated" | "logical" | undefined) {
 const fallbackText = ((_key: string, fallback: string) => fallback) as never;
 const detailWith = (group: object | undefined) =>
   ({
-    linkGroup: group
-      ? { state: "present", value: group }
-      : { state: "absent" },
+    linkGroup: group ? { state: "present", value: group } : { state: "absent" },
   }) as unknown as SpaceDetail;
 const counted = { resultVersion: "r1", itemNo: 4 };
 
@@ -72,9 +70,9 @@ test("F03 #359: only the path that is not counted can open the counted path", ()
     sharedSpaceRows(detailWith({ sharesSpace: true }), navigate, fallbackText),
   ).toHaveLength(1);
   expect(sharedSpaceRows(detailWith({}), navigate, fallbackText)).toEqual([]);
-  expect(sharedSpaceRows(detailWith(undefined), navigate, fallbackText)).toEqual(
-    [],
-  );
+  expect(
+    sharedSpaceRows(detailWith(undefined), navigate, fallbackText),
+  ).toEqual([]);
 });
 
 test("F03 #359: a path that shares allocated space says so, and so does the counted one", () => {
