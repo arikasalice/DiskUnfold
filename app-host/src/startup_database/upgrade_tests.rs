@@ -21,6 +21,7 @@ const BLOCKERS: [&str; (HISTORY_SCHEMA_VERSION - 1) as usize] = [
     "job_runtime_job_scope_root",
     "change_planner_plan_version",
     "job_runtime_approval_check",
+    "snapshot_store_snapshot",
 ];
 const SETTING: &str = "200000";
 const SCOPE: &str = "metadata: 1 root";

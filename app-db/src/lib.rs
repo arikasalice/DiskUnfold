@@ -22,6 +22,8 @@ mod recent_scope_schema;
 pub mod ruleset;
 pub mod scope_observation;
 mod settings;
+pub mod snapshot_index;
+mod snapshot_index_schema;
 
 pub use history_open::{HistoryOpenError, HistoryOpenRefusal};
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};
