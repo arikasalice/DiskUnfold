@@ -95,8 +95,16 @@ impl Rows<'_> {
         let (_, root) = version
             .observed_root_for(&reference)
             .map_err(|_| internal())?;
-        let display_name =
-            display_path::name(&root.path.encoding, &item.name).ok_or_else(internal)?;
+        // A root has no name of its own and is shown by its complete path, as in Browse.
+        let display_name = if item.parent.is_none() {
+            display_path::path(
+                &root.path.encoding,
+                &root.path.raw.bytes().map_err(|_| internal())?,
+            )
+        } else {
+            display_path::name(&root.path.encoding, &item.name)
+        }
+        .ok_or_else(internal)?;
         let quantity = bytes(value)?;
         Ok(VizRow {
             item_ref: Some(reference),

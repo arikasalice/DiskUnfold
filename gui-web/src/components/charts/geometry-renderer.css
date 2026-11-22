@@ -68,6 +68,110 @@
   stroke: var(--du-muted);
 }
 
+/* Sankey links (F06 README 12.1): a band from the scope to a folder in the
+   muted text colour at 30%, a band from a folder to a type in the type's
+   palette place at 45%. While a node or link is pointed at or focused, the
+   links it does not touch fall to 35%. */
+.du-geometry[data-variant="sankey"] .du-geometry-relation {
+  fill: var(--du-muted);
+  fill-opacity: 0.3;
+  stroke: none;
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-band="type"] {
+  fill-opacity: 0.45;
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="1"] {
+  fill: var(--du-chart-1);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="2"] {
+  fill: var(--du-chart-2);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="3"] {
+  fill: var(--du-chart-3);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="4"] {
+  fill: var(--du-chart-4);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="5"] {
+  fill: var(--du-chart-5);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="6"] {
+  fill: var(--du-chart-6);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="7"] {
+  fill: var(--du-chart-7);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="8"] {
+  fill: var(--du-chart-8);
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone="neutral"] {
+  fill: var(--du-chart-neutral);
+}
+.du-geometry[data-variant="sankey"]
+  .du-geometry-relation[data-tone="neutral-2"] {
+  fill: var(--du-chart-neutral-2);
+}
+.du-geometry[data-variant="sankey"]
+  .du-geometry-relation
+  > .du-geometry-pattern {
+  fill-opacity: 1;
+}
+.du-geometry[data-variant="sankey"] .du-geometry-relation[data-faded] {
+  opacity: 0.35;
+}
+
+/* Sankey scope and folder nodes take the muted text colour: a category colour
+   would read as a type (README 12.1, 194). */
+.du-geometry[data-variant="sankey"] .du-geometry-shape[data-tone="folder"] {
+  fill: var(--du-muted);
+}
+.du-geometry[data-variant="sankey"]
+  .du-geometry-shape[data-tone="folder"]
+  > rect:first-child {
+  stroke: none;
+}
+
+/* A node's name, value and share beside it, over the links: a halo of the
+   surface keeps it readable where a band runs under it. */
+.du-geometry-sankey-label {
+  fill: var(--du-text);
+  stroke: var(--du-surface);
+  stroke-width: 3px;
+  paint-order: stroke;
+  font-size: 12px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+/* Only the nodes take the pointer above the links, so a link can be pointed at. */
+.du-geometry-frame[data-variant="sankey"] .du-geometry-targets {
+  pointer-events: none;
+}
+.du-geometry-frame[data-variant="sankey"] .du-geometry-target {
+  pointer-events: auto;
+}
+
+@media (forced-colors: active) {
+  /* Links are told apart by their edge and pattern, not their fill (README 4.9). */
+  .du-geometry[data-variant="sankey"] .du-geometry-relation {
+    fill: Canvas;
+    fill-opacity: 1;
+    stroke: CanvasText;
+    stroke-width: 1;
+  }
+  .du-geometry[data-variant="sankey"] .du-geometry-relation[data-faded] {
+    opacity: 1;
+    stroke: GrayText;
+  }
+  .du-geometry[data-variant="sankey"] .du-geometry-shape[data-tone="folder"] {
+    fill: CanvasText;
+  }
+  .du-geometry-sankey-label {
+    fill: CanvasText;
+    stroke: Canvas;
+  }
+}
+
 /* Each shape is an option of the chart's list, laid over its drawing (README 34). */
 .du-geometry-frame {
   position: relative;

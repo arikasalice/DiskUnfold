@@ -40,6 +40,7 @@ const keyMessages: Readonly<Record<string, VisualizationMessageKey>> = {
   "viz.flag.other_group": "flagOtherGroup",
   unclassified: "legend.unclassified",
   "ui.visualization.group.other": "group.other",
+  "ui.visualization.sankey.unattributed": "sankey.unattributed",
   "ui.visualization.legend.unclassified": "legend.unclassified",
   "ui.visualization.legend.type.document": "legend.type.document",
   "ui.visualization.legend.type.audio": "legend.type.audio",

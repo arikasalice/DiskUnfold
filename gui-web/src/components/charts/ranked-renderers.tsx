@@ -60,7 +60,7 @@ function textWidth(text: string) {
 }
 
 /** Keeps the start and the end of a name that is too wide, as names are shortened elsewhere. */
-function shorten(text: string, room: number) {
+export function shorten(text: string, room: number) {
   const parts = graphemes(text);
   if (textWidth(text) <= room) return text;
   const budget = Math.max(2 * CHAR, room - CHAR);

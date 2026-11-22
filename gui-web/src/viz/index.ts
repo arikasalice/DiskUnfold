@@ -15,11 +15,13 @@ export type {
   VizSelection,
 } from "./model-adapter";
 export {
+  legendClassName,
   rawSourceSize,
   rowRatioText,
   shapeLabels,
   vizMessage,
 } from "./model-text";
+export { sankeyLinkTarget } from "./sankey-text";
 export { plainRowName, rowName } from "./row-text";
 export { histogramRanges } from "./histogram-ranges";
 export {

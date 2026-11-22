@@ -1127,6 +1127,9 @@ ui.visualization.rowsNotRetrieved
 ui.visualization.rowsOnePage count:count
 ui.visualization.sameRevision
 ui.visualization.sankey
+ui.visualization.sankey.unattributed
+ui.visualization.sankeyLink from:name to:name value:name
+ui.visualization.linkedItems
 ui.visualization.scopeMayExceedUsage
 ui.visualization.scopeMayExceedUsageTooltip
 ui.visualization.scopeTotal

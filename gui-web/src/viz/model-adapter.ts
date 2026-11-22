@@ -96,6 +96,7 @@ export function adaptVizModel(
     legendClass?: string;
     slices?: readonly StackedBarSlice[];
     slicesTotal?: number;
+    displayShare?: string;
     card?: { title: string; lines: readonly string[] };
   },
   folderRows: readonly VizRow[] = [],
@@ -169,6 +170,10 @@ export function adaptVizModel(
         shapeRef,
         rowRef: key ?? "",
         geometry: shape.geometry,
+        // A Sankey node's column decides its arrow keys (README 12.1).
+        ...(shape.column && shape.column !== "unknown"
+          ? { column: shape.column }
+          : {}),
         ...describe(
           shape,
           key ? rowByTarget.get(key) : undefined,

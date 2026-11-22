@@ -12,10 +12,12 @@ import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
 import {
   RowName,
   classCell,
+  legendClassName,
   plainRowName,
   rowName,
   rowRatioText,
   rowFolderTypes,
+  sankeyLinkTarget,
   vizMessage,
 } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
@@ -186,6 +188,7 @@ export function ModelRows({
           },
         ]
       : []),
+    ...linkColumns(rows, model, text),
   ];
   return (
     <div
@@ -327,6 +330,39 @@ function rowHeight(rows: readonly VizRow[]) {
   )
     ? TWO_LINE_ROW_HEIGHT
     : ROW_HEIGHT;
+}
+
+/**
+ * The "Linked items" column when a Sankey node row sends space on, so the table
+ * reaches every link a reader cannot Tab to in the chart (README 12.1).
+ */
+function linkColumns(
+  rows: readonly VizRow[],
+  model: VizModel | undefined,
+  text: VizText,
+): Column[] {
+  if (!rows.some((row) => (row.links?.length ?? 0) > 0)) return [];
+  return [
+    {
+      header: text.message("linkedItems"),
+      cell: (row) => linkCell(model, row, text),
+    },
+  ];
+}
+
+/** "Video 80 GiB · Documents 3 GiB": where a Sankey node row sends its space. */
+function linkCell(model: VizModel | undefined, row: VizRow, text: VizText) {
+  const words = {
+    ...text,
+    className: (key: string) =>
+      model ? legendClassName(model, key, text) : text.key(key),
+  };
+  return (row.links ?? [])
+    .map(
+      (link) =>
+        `${sankeyLinkTarget(model, link.toRowRef, words)} ${text.quantity(link.quantity)}`,
+    )
+    .join(" · ");
 }
 
 /**

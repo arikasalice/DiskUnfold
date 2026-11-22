@@ -1,4 +1,5 @@
 import {
+  cloneElement,
   createContext,
   useEffect,
   useId,
@@ -19,6 +20,8 @@ import type { DeviceGrid } from "./device-grid";
 import { measuredWidth } from "./text-measure";
 import { SliceStack } from "./slice-stack";
 import type { StackedBarSlice } from "./stacked-bar";
+import { columnStep, keptLinks } from "./sankey-links";
+import type { LinkFocus } from "./sankey-links";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -85,11 +88,26 @@ type Shape = {
   slicesTotal?: number;
   /** The slice of the class chosen in the legend; the others are drawn faded. */
   chosenSlice?: string;
+  /**
+   * A Sankey node's column ("scope", "folder", "type", README 12.1): the arrow
+   * keys move between and within columns instead of across the screen.
+   */
+  column?: string;
+  /** A Sankey node's share of the scope, drawn after its value (README 12.1). */
+  displayShare?: string;
 };
 type Relation = {
   fromShapeRef: string;
   toShapeRef: string;
   geometry?: DisplayGeometry | null;
+  /**
+   * A Sankey link's look (README 12.1): "type" bands take the palette place of
+   * their type at 45%, "scope" bands the muted text colour at 30%.
+   */
+  band?: "scope" | "type";
+  tone?: string;
+  pattern?: ChartPattern | null;
+  patternAlways?: boolean;
 };
 type Viewport = { left: number; top: number; right: number; bottom: number };
 type Fallback = {
@@ -139,8 +157,11 @@ export type GeometryRendererProps = {
   /**
    * "ranked" fills shapes with the first chart colour and leaves their inner labels
    * out; the caller draws names and values beside them (bar chart, histogram).
+   * "sankey" leaves the labels to the caller too, draws links in their bands'
+   * colours, keeps only the links of the node or link pointed at or focused, and
+   * moves the arrow keys by column (README 12.1).
    */
-  variant?: "ranked";
+  variant?: "ranked" | "sankey";
   /** Draw the patterns of palette places 1-8 too ("Use patterns", README 4.1). */
   patterns?: boolean | undefined;
   /**
@@ -465,6 +486,48 @@ function placeOf(shape: Shape, box: Box): Box {
     ? { ...box, bottom: Math.min(box.bottom, box.top + HEADER_PLACE) }
     : box;
 }
+
+/**
+ * The target an arrow key moves to: by column in a Sankey (README 12.1), else
+ * the nearest shape on screen in that direction (README 10).
+ */
+function arrowStep(
+  targets: readonly { shape: Shape; box: Box }[],
+  index: number,
+  key: string,
+  sankey: boolean,
+  previous: string | null,
+) {
+  if (sankey && targets[index]?.shape.column)
+    return columnStep(
+      targets.map(({ shape, box }) => ({ column: shape.column, box })),
+      index,
+      key,
+    );
+  return nearestInDirection(
+    targets.map(({ shape, box }) => placeOf(shape, box)),
+    index,
+    key,
+    targets.findIndex(({ shape }) => shape.shapeRef === previous),
+  );
+}
+
+/**
+ * The links a Sankey keeps in full view: those of the node or link under the
+ * pointer, else of the focused node. Null for any other chart.
+ */
+function keptFor(
+  sankey: boolean,
+  relations: readonly Relation[],
+  pointed: LinkFocus,
+  focusedNode: string | null,
+) {
+  if (!sankey) return null;
+  return keptLinks(
+    relations,
+    pointed ?? (focusedNode ? { shapeRef: focusedNode } : null),
+  );
+}
 /** The 20 px header band less the inset of the shapes under it. */
 const HEADER_PLACE = 18;
 
@@ -762,13 +825,15 @@ function patternOverlay(
     return null;
   const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
   // The size rule counts the shape before its gap, so a 24 px bar takes its
-  // pattern (#201).
+  // pattern (#201). A Sankey node is 12 px wide and always takes its pattern,
+  // so the two neutral types stay apart (README 12.1).
   const inset = insetOf(shape, at.grid);
   const gap = inset.start + inset.end;
+  const least = shape.column ? 0 : PATTERN_MIN;
   if (
     !edges ||
-    edges.right - edges.left + gap < PATTERN_MIN ||
-    edges.bottom - edges.top + gap < PATTERN_MIN
+    edges.right - edges.left + gap < least ||
+    edges.bottom - edges.top + gap < least
   )
     return null;
   return (
@@ -801,6 +866,11 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const order = useRef<string[]>([]);
   // The shape that holds the chart's one Tab stop: the last focused one (README 10).
   const [tabStop, setTabStop] = useState<string | null>(null);
+  // The Sankey node or link under the pointer and the focused node: only their
+  // links stay in full view (README 12.1).
+  const [pointed, setPointed] = useState<LinkFocus>(null);
+  const [focusedNode, setFocusedNode] = useState<string | null>(null);
+  const sankey = props.variant === "sankey";
   const { shapes, relations, viewport, fallback, modelRef, resultRevision } =
     props;
   const fallbackMatches =
@@ -902,6 +972,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   const stop = targets.some(({ shape }) => shape.shapeRef === tabStop)
     ? tabStop
     : (targets[0]?.shape.shapeRef ?? null);
+  const kept = keptFor(sankey, relations, pointed, focusedNode);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (isImeProcessingKey(event.nativeEvent)) return;
     const index = targets.findIndex(
@@ -916,13 +987,12 @@ export function GeometryRenderer(props: GeometryRendererProps) {
       case "ArrowRight":
       case "ArrowUp":
       case "ArrowDown":
-        next = nearestInDirection(
-          targets.map(({ shape, box }) => placeOf(shape, box)),
+        next = arrowStep(
+          targets,
           index,
           event.key,
-          targets.findIndex(
-            ({ shape }) => shape.shapeRef === previousFocus.current,
-          ),
+          sankey,
+          previousFocus.current,
         );
         break;
       case "Home":
@@ -960,7 +1030,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   };
   return (
     <section aria-label={props.label}>
-      <div className="du-geometry-frame">
+      <div className="du-geometry-frame" data-variant={props.variant}>
         <svg
           ref={svg}
           className="du-geometry"
@@ -986,17 +1056,47 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                 : undefined
             }
           >
-            {relations
-              .filter(
-                (relation) =>
-                  relation.geometry != null &&
-                  intersects(relation.geometry, viewport),
+            {relations.map((relation, index) => {
+              if (
+                relation.geometry == null ||
+                !intersects(relation.geometry, viewport)
               )
-              .map((relation, index) => (
-                <g className="du-geometry-relation" key={`relation-${index}`}>
-                  {primitive(relation.geometry!, viewport, width, height, grid)}
+                return null;
+              const drawing = primitive(
+                relation.geometry,
+                viewport,
+                width,
+                height,
+                grid,
+              );
+              const pattern =
+                drawing &&
+                relation.pattern &&
+                (props.patterns || relation.patternAlways)
+                  ? cloneElement(drawing, {
+                      className: "du-geometry-pattern",
+                      fill: `url(#${patternId(clip, relation.pattern)})`,
+                    })
+                  : null;
+              return (
+                <g
+                  className="du-geometry-relation"
+                  key={`relation-${index}`}
+                  data-band={relation.band}
+                  data-tone={relation.tone}
+                  data-faded={kept && !kept.has(index) ? "true" : undefined}
+                  {...(sankey
+                    ? {
+                        onPointerEnter: () => setPointed({ link: index }),
+                        onPointerLeave: () => setPointed(null),
+                      }
+                    : {})}
+                >
+                  {drawing}
+                  {pattern}
                 </g>
-              ))}
+              );
+            })}
             {visible.map(({ shape, drawing }) => {
               const selected = shape.rowRef === props.selectedRowRef;
               const overlay = patternOverlay(shape, props.patterns, clip, {
@@ -1028,7 +1128,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
-                  {props.variant !== "ranked" &&
+                  {props.variant === undefined &&
                     rectangleLabel(
                       shape,
                       viewport,
@@ -1090,6 +1190,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   currentFocus.current = shape.shapeRef;
                 }
                 setTabStop(shape.shapeRef);
+                if (sankey) setFocusedNode(shape.shapeRef);
                 props.onShapeFocus?.(
                   shape.rowRef,
                   shape.shapeRef,
@@ -1099,12 +1200,17 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               }}
               onBlur={() => {
                 restoreFocus.current = false;
+                if (sankey) setFocusedNode(null);
                 card.blur();
               }}
-              onPointerEnter={({ currentTarget }) =>
-                card.hover(shape.shapeRef, currentTarget)
-              }
-              onPointerLeave={card.leave}
+              onPointerEnter={({ currentTarget }) => {
+                if (sankey) setPointed({ shapeRef: shape.shapeRef });
+                card.hover(shape.shapeRef, currentTarget);
+              }}
+              onPointerLeave={() => {
+                if (sankey) setPointed(null);
+                card.leave();
+              }}
               onClick={({ currentTarget }) => {
                 currentTarget.focus({ preventScroll: true });
                 props.onSelect(shape.rowRef, shape.shapeRef);

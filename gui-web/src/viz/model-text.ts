@@ -3,6 +3,7 @@ import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import { FOLDER_CLASS, coloredByClass, legendLook } from "./legend-style";
 import { folderTypes } from "./type-slices";
+import { sankeyLinkWords } from "./sankey-text";
 import type {
   SizeValue,
   VizModel,
@@ -190,6 +191,7 @@ export function shapeLabels(
   const interval = intervalWords(binCount, row, text);
   const types = closedFolderTypes(model, shape, place, text);
   const said = [...look.said, ...types.said];
+  const node = sankeyNode(model, row, name, ratio, text);
   const accessibleLabel = [
     binCount
       ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
@@ -210,12 +212,13 @@ export function shapeLabels(
             denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
           })
         : null,
-    said: [...said, ...interval.card],
+    said: [...said, ...interval.card, ...node.links],
     binCount,
   });
   return {
     accessibleLabel,
     card,
+    ...node.drawn,
     ...look.drawn,
     ...types.drawn,
     ...(place.childCount ? { container: true } : {}),
@@ -271,6 +274,30 @@ function closedFolderTypes(
       slices: types.bar,
       ...(types.total === undefined ? {} : { slicesTotal: types.total }),
     },
+  };
+}
+
+/**
+ * What a Sankey node adds (README 12.1): its links under a "Linked items" line
+ * in its card, as the table lists them, and its share of the scope drawn after
+ * its value. Nothing for any other chart or a node whose row has not arrived.
+ */
+function sankeyNode(
+  model: VizModel,
+  row: VizRow | undefined,
+  name: string,
+  ratio: string,
+  text: VizText,
+) {
+  if (model.representation.format !== "sankey" || !row)
+    return { links: [] as string[], drawn: {} };
+  const words = sankeyLinkWords(model, row, name, {
+    ...text,
+    className: (key) => legendClassName(model, key, text),
+  });
+  return {
+    links: words.length ? [text.message("linkedItems"), ...words] : [],
+    drawn: row.ratio ? { displayShare: ratio } : {},
   };
 }
 

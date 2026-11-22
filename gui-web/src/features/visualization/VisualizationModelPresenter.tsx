@@ -6,6 +6,7 @@ import {
   HistogramRenderer,
   Notice,
   Progress,
+  SankeyRenderer,
   Text,
 } from "../../components";
 import type {
@@ -44,6 +45,7 @@ import type { LegendControls, TypeNarrowing } from "./ModelLegend";
 const defaultChartRenderer = createChartRenderers([
   ["bar", BarRenderer],
   ["histogram", HistogramRenderer],
+  ["sankey", SankeyRenderer],
 ]);
 type ModelViewProps = {
   resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;

@@ -7,6 +7,8 @@ type MessageText = {
     key: VisualizationMessageKey,
     values?: Readonly<Record<string, string | bigint>>,
   ) => string;
+  /** Names a label key the screen knows; optional for callers without one. */
+  key?: (key: string) => string;
 };
 
 /** A key such as "ui.visualization.group.other": dotted words without spaces. */
@@ -55,6 +57,16 @@ export function rowName(
     return row.memberCount === undefined
       ? otherGroupName(row.groupRef, model, text)
       : countedName(row.memberCount, text);
+  // A group named by a key the screen knows, such as a Sankey type node by its
+  // type's label (#296); an unknown key still gets the general phrase.
+  if (
+    row.labelKey?.startsWith("ui.visualization.") &&
+    row.groupRef !== null &&
+    text.key
+  ) {
+    const named = text.key(row.labelKey);
+    if (named !== text.message("unrecognizedValue")) return named;
+  }
   return text.message("group.other_unknown");
 }
 
