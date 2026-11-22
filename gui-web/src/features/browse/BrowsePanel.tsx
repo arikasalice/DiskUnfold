@@ -80,6 +80,7 @@ export function BrowsePanel({
   display,
   priority,
   rootLabel,
+  viewUnread,
   actionsDisabledReason,
   titleBadge,
   focusTitle = false,
@@ -92,6 +93,8 @@ export function BrowsePanel({
   display?: SizeDisplay;
   /** "Analyze first" for a running scan's current partial result, when available. */
   priority?: ScanPriority;
+  /** Opens the unreadable locations below a folder in the analysis view (F02 #358). */
+  viewUnread?: (item: ItemRef, name: string) => void;
   /** Names the top of the folder path instead of "Scope roots", e.g. for the sample root. */
   rootLabel?: string;
   /**
@@ -436,6 +439,7 @@ export function BrowsePanel({
             }
             copyDisabledReason={actionsDisabledReason}
             priority={priority}
+            viewUnread={viewUnread}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,

@@ -8,6 +8,7 @@ use du_core_contracts::{
 };
 mod admission;
 mod filters;
+mod under_item;
 
 struct TestRandom(bool);
 

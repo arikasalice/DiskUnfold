@@ -4,6 +4,7 @@ use du_core_contracts::{
     Timestamp,
     scan_failures::{ScanFailureKind, ScanIssue},
 };
+use std::cmp::Ordering;
 
 /// A pinned, root-partitioned index used to page classified issues without rescanning them.
 #[derive(Debug)]
@@ -86,11 +87,17 @@ impl ResultVersion {
 
     /// Returns the matching row count and one page in deterministic issue order.
     ///
+    /// `under` keeps only the rows of one root whose path starts with the given
+    /// components (F02 #358): the rows of a folder and everything below it. Issues are
+    /// ordered by root and path, so those rows are one run of each list, found by
+    /// bisection; components are compared whole, so `b` is not above `bc`.
+    ///
     /// The first call builds a pinned index in O(n) time and O(n) additional
     /// storage. Later pages visit at most the selected roots and returned rows.
     pub fn scan_issues_page(
         &self,
         root_indexes: Option<&[u32]>,
+        under: Option<(u32, &[&[u8]])>,
         kind: Option<ScanFailureKind>,
         failures_only: bool,
         offset: usize,
@@ -105,17 +112,36 @@ impl ResultVersion {
                 None => Box::new(0..u32::try_from(index.roots.len()).unwrap_or(u32::MAX)),
             }
         };
-        let total: usize = roots()
-            .filter_map(|root| index.roots.get(root as usize))
-            .map(|root| root.rows(kind, failures_only).len())
-            .sum();
+        let rows_of = |root_index: u32| -> &[usize] {
+            let Some(root) = index.roots.get(root_index as usize) else {
+                return &[];
+            };
+            let rows = root.rows(kind, failures_only);
+            match under {
+                None => rows,
+                Some((under_root, _)) if under_root != root_index => &[],
+                Some((_, prefix)) => {
+                    let below = |issue_index: &usize, wanted: Ordering| {
+                        self.issues.get(*issue_index).is_some_and(|issue| {
+                            let order = against(&issue.relative, prefix);
+                            if wanted == Ordering::Less {
+                                order == Ordering::Less
+                            } else {
+                                order != Ordering::Greater
+                            }
+                        })
+                    };
+                    let start = rows.partition_point(|i| below(i, Ordering::Less));
+                    let end = start + rows[start..].partition_point(|i| below(i, Ordering::Equal));
+                    &rows[start..end]
+                }
+            }
+        };
+        let total: usize = roots().map(|root| rows_of(root).len()).sum();
         let mut rows = Vec::with_capacity(limit.min(total.saturating_sub(offset)));
         let mut skip = offset;
         for root_index in roots() {
-            let Some(root) = index.roots.get(root_index as usize) else {
-                continue;
-            };
-            let matching = root.rows(kind, failures_only);
+            let matching = rows_of(root_index);
             if skip >= matching.len() {
                 skip -= matching.len();
                 continue;
@@ -142,6 +168,23 @@ fn kind_index(kind: ScanFailureKind) -> usize {
         ScanFailureKind::UnreadRange => 1,
         ScanFailureKind::Uncertain => 2,
         ScanFailureKind::UntraversedLink => 3,
+    }
+}
+
+/// Where a path stands against a folder's components in the issue order: `Less` before
+/// the folder's run, `Equal` within it (the folder itself or anything below it), `Greater`
+/// after it. An ancestor of the folder is before it, not within it.
+fn against(relative: &[Vec<u8>], prefix: &[&[u8]]) -> Ordering {
+    for (part, wanted) in relative.iter().zip(prefix) {
+        match part.as_slice().cmp(wanted) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+    }
+    if relative.len() < prefix.len() {
+        Ordering::Less
+    } else {
+        Ordering::Equal
     }
 }
 

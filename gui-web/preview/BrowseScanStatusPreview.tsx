@@ -41,6 +41,7 @@ export function BrowseScanStatusPreview() {
               lowerBounds ? browseVersion : scanStatusBrowseVersion
             }
             display={{ system: "iec", unit: "auto", regional }}
+            viewUnread={() => undefined}
           />
         </div>
       </RegionalFormatContext.Provider>

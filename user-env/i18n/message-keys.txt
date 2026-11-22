@@ -1314,6 +1314,10 @@ ui.analysis.issues_filter_all_storages
 ui.analysis.issues_filter_paths_more count:count
 ui.analysis.issues_filter_storage
 ui.analysis.issues_filter_storage_name value:name
+ui.analysis.issues_filter_folder
+ui.analysis.issues_filter_folder_below
+ui.analysis.issues_filter_folder_name folder:name
+ui.browse.view_unread_locations
 ui.analysis.issues_not_found
 ui.analysis.issues_failed
 ui.analysis.issues_reopen_new

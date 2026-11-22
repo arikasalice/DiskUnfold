@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -21,6 +21,7 @@ import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 import type {
   ScanIssueLaneRequest,
   ScanIssueLaneSelection,
+  ScanIssueFolderRequest,
 } from "./scan-issue-filter";
 import "../../theme/analysis-results.css";
 
@@ -52,6 +53,7 @@ export function ScanOutput({
   groupUnverified,
   actions,
   priorityArea,
+  folderRequest,
 }: {
   client: AnalysisClient;
   preferences: AnalysisDisplayPreferences;
@@ -71,6 +73,8 @@ export function ScanOutput({
   groupUnverified: boolean;
   /** The folder name retained by this GUI for its priority request. */
   priorityArea?: ScanPriorityArea | undefined;
+  /** Browse asked for the unreadable locations below one folder (F02 #358). */
+  folderRequest?: ScanIssueFolderRequest | undefined;
   actions: ReactNode;
 }) {
   const text = useLocaleText();
@@ -96,6 +100,23 @@ export function ScanOutput({
       requestId: ++issueRequestSequence.current,
     });
   };
+  const folderSeen = useRef(0);
+  useEffect(() => {
+    if (!folderRequest || folderSeen.current === folderRequest.requestId)
+      return;
+    folderSeen.current = folderRequest.requestId;
+    setIssueLaneRequest({
+      storageLabel: "",
+      storagePaths: [],
+      allStorages: false,
+      folder: {
+        item: folderRequest.item,
+        label: folderRequest.label,
+        path: folderRequest.path,
+      },
+      requestId: ++issueRequestSequence.current,
+    });
+  }, [folderRequest]);
   return (
     <>
       <ScanOutputHeader

@@ -22,6 +22,7 @@ import type {
 import type { BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
+import { unreadLocationActions } from "./unread-locations";
 import {
   browseNotice,
   copyDisabled,
@@ -98,6 +99,7 @@ export function BrowseResults({
   copyDisabledReason,
   reopen,
   priority,
+  viewUnread,
 }: {
   pages: BrowsePages;
   incomplete: boolean;
@@ -132,6 +134,8 @@ export function BrowseResults({
   copyDisabledReason: string | undefined;
   reopen: () => void;
   priority?: ScanPriority | undefined;
+  /** Opens the unreadable locations below a folder in the analysis view (F02 #358). */
+  viewUnread?: ((item: ItemRef, name: string) => void) | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampParts();
@@ -406,6 +410,7 @@ export function BrowseResults({
                   ]
                 : []),
               ...analyzeFirstActions(row, priority, readOnly, text),
+              ...unreadLocationActions(row, viewUnread, text),
               {
                 id: "copy",
                 label: text("ui.browse.copy_path", "Copy path"),
