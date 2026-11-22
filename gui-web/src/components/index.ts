@@ -84,6 +84,7 @@ export type { ChartPattern } from "./charts/chart-patterns";
 export { ChartLegend } from "./charts/chart-legend";
 export type { LegendEntry } from "./charts/chart-legend";
 export { StackedBar } from "./charts/stacked-bar";
+export { PatternSwatch, PatternSwatchDefs } from "./charts/pattern-swatch";
 export type { StackedBarSlice } from "./charts/stacked-bar";
 export type {
   DisplayGeometry,

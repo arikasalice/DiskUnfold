@@ -3,6 +3,12 @@
   gap: 6px;
 }
 
+.du-type-summary__defs {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+}
+
 /* The items under the bar are told apart by their colour square and a wide gap; the
    words of one item are separated by spaces only (F02 README #300). */
 .du-type-summary__list {
@@ -24,46 +30,44 @@
 
 .du-type-summary__swatch {
   flex: none;
-  inline-size: 10px;
-  block-size: 10px;
-  border-radius: 2px;
 }
 
-.du-type-summary__swatch[data-tone="1"] {
-  background: var(--du-chart-1);
+.du-type-summary__swatch[data-tone="1"] > rect:first-child {
+  fill: var(--du-chart-1);
 }
-.du-type-summary__swatch[data-tone="2"] {
-  background: var(--du-chart-2);
+.du-type-summary__swatch[data-tone="2"] > rect:first-child {
+  fill: var(--du-chart-2);
 }
-.du-type-summary__swatch[data-tone="3"] {
-  background: var(--du-chart-3);
+.du-type-summary__swatch[data-tone="3"] > rect:first-child {
+  fill: var(--du-chart-3);
 }
-.du-type-summary__swatch[data-tone="4"] {
-  background: var(--du-chart-4);
+.du-type-summary__swatch[data-tone="4"] > rect:first-child {
+  fill: var(--du-chart-4);
 }
-.du-type-summary__swatch[data-tone="5"] {
-  background: var(--du-chart-5);
+.du-type-summary__swatch[data-tone="5"] > rect:first-child {
+  fill: var(--du-chart-5);
 }
-.du-type-summary__swatch[data-tone="6"] {
-  background: var(--du-chart-6);
+.du-type-summary__swatch[data-tone="6"] > rect:first-child {
+  fill: var(--du-chart-6);
 }
-.du-type-summary__swatch[data-tone="7"] {
-  background: var(--du-chart-7);
+.du-type-summary__swatch[data-tone="7"] > rect:first-child {
+  fill: var(--du-chart-7);
 }
-.du-type-summary__swatch[data-tone="8"] {
-  background: var(--du-chart-8);
+.du-type-summary__swatch[data-tone="8"] > rect:first-child {
+  fill: var(--du-chart-8);
 }
-.du-type-summary__swatch[data-tone="neutral"] {
-  background: var(--du-chart-neutral);
+.du-type-summary__swatch[data-tone="neutral"] > rect:first-child {
+  fill: var(--du-chart-neutral);
 }
-.du-type-summary__swatch[data-tone="neutral-2"] {
-  background: var(--du-chart-neutral-2);
+.du-type-summary__swatch[data-tone="neutral-2"] > rect:first-child {
+  fill: var(--du-chart-neutral-2);
 }
 
 /* The part no type holds is not painted: an empty cell of the bar, an outline here. */
-.du-type-summary__swatch[data-tone="unsplit"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--du-muted);
+.du-type-summary__swatch[data-tone="unsplit"] > rect:first-child {
+  fill: transparent;
+  stroke: var(--du-muted);
+  stroke-width: 1;
 }
 
 .du-type-summary .du-stacked-bar__rest {
@@ -72,15 +76,17 @@
 }
 
 @media (forced-colors: active) {
-  .du-type-summary__swatch[data-tone] {
-    background: Canvas;
-    box-shadow: inset 0 0 0 2px CanvasText;
+  /* The types take the patterns of the chart; only the part no type holds is an
+     empty outline. The rest of the types is GrayText. */
+  .du-type-summary__swatch[data-tone] > rect:first-child {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-width: 1;
   }
 
-  /* The rest of the types is GrayText, the empty part an outline of CanvasText. */
-  .du-type-summary__swatch[data-tone="neutral"] {
-    background: GrayText;
-    box-shadow: none;
+  .du-type-summary__swatch[data-tone="neutral"] > rect:first-child {
+    fill: GrayText;
+    stroke: none;
   }
 
   .du-type-summary .du-stacked-bar__slice[data-key="other"] > rect:first-child {
@@ -91,7 +97,13 @@
   .du-type-summary .du-stacked-bar__rest {
     background: transparent;
     box-shadow: none;
-    outline: 1px solid CanvasText;
+    outline: 1px dashed CanvasText;
     outline-offset: -1px;
+  }
+
+  /* The plain pattern of the first type is also an outline, so the part no type holds
+     is dashed, in the square and in the bar. */
+  .du-type-summary__swatch[data-tone="unsplit"] > rect:first-child {
+    stroke-dasharray: 2 2;
   }
 }

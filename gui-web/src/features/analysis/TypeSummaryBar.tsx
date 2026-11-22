@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
-import { StackedBar, Text } from "../../components";
-import type { StackedBarSlice } from "../../components";
+import { useEffect, useId, useState } from "react";
+import {
+  PatternSwatch,
+  PatternSwatchDefs,
+  StackedBar,
+  Text,
+} from "../../components";
+import type { ChartPattern, StackedBarSlice } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type {
   AnalysisClient,
@@ -13,6 +18,7 @@ import { legendLook } from "../../viz/legend-style";
 import { NAMED_TYPES } from "../../viz/type-slices";
 import { useProductionVizText } from "../../viz/production-text";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
+import { useAutoPatterns } from "./use-auto-patterns";
 import "../../theme/type-summary.css";
 
 /** The class the legend names "type unavailable"; the key text names it otherwise. */
@@ -29,6 +35,10 @@ type Item = {
   key: string;
   /** A slice tone, or "unsplit" for the part of the whole that no type holds. */
   tone: string;
+  /** The pattern of the type, as the chart legend gives it; none for the rest. */
+  pattern: ChartPattern | null;
+  /** Drawn even when patterns are off. */
+  patternAlways: boolean;
   words: string;
 };
 
@@ -71,6 +81,8 @@ export function TypeSummaryBar({
 }) {
   const text = useLocaleText();
   const viz = useProductionVizText(display);
+  const autoPatterns = useAutoPatterns();
+  const patternPrefix = useId();
   const [answer, setAnswer] = useState<Answer>({ state: "pending" });
   useEffect(() => {
     // Unique physical size is not counted by type, so there is nothing to ask.
@@ -136,6 +148,8 @@ export function TypeSummaryBar({
     ...looks.map(({ slice, look }) => ({
       key: slice.classKey,
       tone: look.tone,
+      pattern: look.pattern,
+      patternAlways: look.patternAlways,
       words: `${className(slice.classKey)} ${viz.quantity(slice.total)}`,
     })),
     ...(rest.length > 0
@@ -143,6 +157,8 @@ export function TypeSummaryBar({
           {
             key: OTHER,
             tone: "neutral",
+            pattern: null,
+            patternAlways: false,
             words: text(
               "ui.analysis.type_summary_rest",
               "{count} more types {size}",
@@ -159,6 +175,8 @@ export function TypeSummaryBar({
           {
             key: "unsplit",
             tone: "unsplit",
+            pattern: null,
+            patternAlways: false,
             words: text(
               "ui.analysis.type_summary_unsplit",
               "Not split by type {size}",
@@ -192,15 +210,22 @@ export function TypeSummaryBar({
       <StackedBar
         slices={slices}
         height={12}
+        patterns={autoPatterns}
         {...(wholeBytes === undefined ? {} : { total: wholeBytes })}
+      />
+      <PatternSwatchDefs
+        className="du-type-summary__defs"
+        prefix={patternPrefix}
       />
       <div className="du-type-summary__list" role="list">
         {items.map((item) => (
           <div key={item.key} role="listitem">
-            <div
+            <PatternSwatch
               className="du-type-summary__swatch"
-              data-tone={item.tone}
-              aria-hidden="true"
+              tone={item.tone}
+              pattern={item.pattern}
+              drawPattern={autoPatterns || item.patternAlways}
+              prefix={patternPrefix}
             />
             {item.words}
           </div>
