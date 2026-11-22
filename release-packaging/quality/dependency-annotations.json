@@ -526,5 +526,11 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Compute canonical du.plan.hash.v1 plan-version digests"
+  },
+  "cargo:du-change-planner:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Serialize and verify immutable plan-version records"
   }
 }

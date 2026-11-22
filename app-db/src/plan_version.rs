@@ -3,19 +3,14 @@ use du_core_contracts::{
     Id,
     data_source::DataSource,
     plan_version_store::{
-        PlanOriginChannel, PlanReadiness, PlanVersionHead, PlanVersionRecord, PlanVersionStore,
+        PLAN_BODY_MAX_BYTES, PlanOriginChannel, PlanReadiness, PlanVersionHead, PlanVersionRecord,
+        PlanVersionStore,
     },
     ports::{PortError, PortErrorKind},
 };
 use rusqlite::{OptionalExtension, Row, TransactionBehavior, params, types::Type};
 use std::io::{Error as IoError, ErrorKind};
 
-/// Maximum serialized plan body accepted by the storage adapter.
-///
-/// The plan builder allows at most 100,000 items. Budgeting 1.25 KiB per item,
-/// including a path of up to about 1 KiB, gives about 122.1 MiB; this rounds up
-/// to 128 MiB for the stored body.
-const MAX_PLAN_BODY_BYTES: usize = 128 * 1024 * 1024;
 const COLUMNS: &str = "plan_version_id, lineage_id, parent_plan_version_id,
  version_hash, hash_format, ruleset_version, readiness, origin_channel, body, created_at_ms";
 const HEAD_COLUMNS: &str = "plan_version_id, lineage_id, parent_plan_version_id,
@@ -139,7 +134,7 @@ fn validate(version: &PlanVersionRecord) -> Result<(), PortError> {
     if version.ruleset_version == 0
         || i64::try_from(version.ruleset_version).is_err()
         || version.hash_format.is_empty()
-        || version.body.len() > MAX_PLAN_BODY_BYTES
+        || version.body.len() > PLAN_BODY_MAX_BYTES
     {
         return Err(input_error());
     }
@@ -217,7 +212,7 @@ fn head_from_row(row: &Row<'_>, created_at_index: usize) -> rusqlite::Result<Pla
 
 fn body_from_row(row: &Row<'_>, index: usize) -> rusqlite::Result<String> {
     let body: String = row.get(index)?;
-    if body.len() > MAX_PLAN_BODY_BYTES {
+    if body.len() > PLAN_BODY_MAX_BYTES {
         return Err(rusqlite::Error::FromSqlConversionFailure(
             index,
             Type::Text,

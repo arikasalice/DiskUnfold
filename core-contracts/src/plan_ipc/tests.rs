@@ -61,6 +61,7 @@ fn plan_source_and_readiness_values_are_snake_case() {
     }
     for (value, wire) in [
         (PlanReadiness::ExperiencePlan, "experience_plan"),
+        (PlanReadiness::SourceNotCurrent, "source_not_current"),
         (PlanReadiness::NeedsConfirmation, "needs_confirmation"),
         (PlanReadiness::NoExecutableItems, "no_executable_items"),
         (PlanReadiness::ApprovalPossible, "approval_possible"),

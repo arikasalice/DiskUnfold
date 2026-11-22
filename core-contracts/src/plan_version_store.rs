@@ -1,6 +1,9 @@
 use crate::{Id, data_source::DataSource, ports::PortError};
 use std::fmt;
 
+/// Maximum UTF-8 byte length of a serialized immutable plan body.
+pub const PLAN_BODY_MAX_BYTES: usize = 128 * 1024 * 1024;
+
 /// Preparation state persisted with a real-source plan version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanReadiness {
@@ -46,7 +49,7 @@ pub struct PlanVersionRecord {
     pub readiness: PlanReadiness,
     /// Application channel that fixed the plan; excluded from its digest.
     pub origin_channel: PlanOriginChannel,
-    /// Validated JSON containing the remaining plan header and item values (maximum 128 MiB).
+    /// Validated JSON containing the remaining plan header and item values (maximum [`PLAN_BODY_MAX_BYTES`]).
     pub body: String,
     /// Time the version was fixed, in milliseconds since the Unix epoch.
     pub created_at_ms: i64,

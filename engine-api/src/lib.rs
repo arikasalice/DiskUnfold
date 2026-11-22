@@ -14,6 +14,7 @@ pub mod group;
 pub mod history;
 pub mod jobs;
 mod pipeline;
+pub mod plan;
 mod query_region;
 mod recent_scope;
 mod refresh_scope;
