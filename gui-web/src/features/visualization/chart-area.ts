@@ -11,17 +11,30 @@ export const CHART_BOTTOM_MARGIN = 16;
  * this margin; the chart is requested that much narrower.
  */
 export const CHART_FOCUS_ROOM = 3;
+/**
+ * Room kept above the chart from the first request: the status line and one
+ * line of notes under it (undrawn items, unread folders), 94 CSS px at 100%.
+ * Those lines arrive with the first model; were the chart sized without them,
+ * their arrival would ask for the whole chart again, which on a large result
+ * keeps "Calculating the chart" over a drawn chart for as long as the first
+ * calculation took (#365).
+ */
+export const CHART_OFFSET_RESERVE = 94;
 
 /**
  * The height of the chart box: the visible height of the scroll area, less what
- * sits above the chart inside it (the status line and its gaps) and the bottom
- * margin, never below the minimum.
+ * sits above the chart inside it (the status line and its gaps, at least
+ * CHART_OFFSET_RESERVE) and the bottom margin, never below the minimum.
  * The aspect ratio is not fixed; the box takes whatever the window leaves.
  */
 export function chartHeight(areaHeight: number, offsetAboveChart: number) {
   return Math.max(
     MIN_CHART_HEIGHT,
-    Math.floor(areaHeight - offsetAboveChart - CHART_BOTTOM_MARGIN),
+    Math.floor(
+      areaHeight -
+        Math.max(offsetAboveChart, CHART_OFFSET_RESERVE) -
+        CHART_BOTTOM_MARGIN,
+    ),
   );
 }
 

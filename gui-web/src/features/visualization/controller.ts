@@ -67,6 +67,17 @@ export type VisualizationSnapshot = {
 function pageFor(frame: ModelResponse | null, page: ModelRowsPage | null) {
   return !!frame && !!page && matchingRowsPage(frame, page);
 }
+
+/** Whether two chart requests ask for the same chart at another height only. */
+function sameExceptHeight(a: VizRenderRequest, b: VizRenderRequest) {
+  const plain = (request: VizRenderRequest) =>
+    JSON.stringify({
+      ...request,
+      requestSeq: 0,
+      viewport: { ...request.viewport, height: 0 },
+    });
+  return a.viewport.height !== b.viewport.height && plain(a) === plain(b);
+}
 function visibleFrames(
   graph: ModelResponse | undefined,
   table: ModelResponse | null,
@@ -189,6 +200,8 @@ export class VisualizationController {
     error: null,
   };
   private selectedEvidence: SelectionEvidence | null = null;
+  /** The request whose model the chart draws now. */
+  private graphRequest: VizRenderRequest | null = null;
   private readonly loader: VizModelLoader<
     readonly Reconciled[],
     Partial<VisualizationSnapshot>
@@ -218,6 +231,22 @@ export class VisualizationController {
     );
   }
   getSnapshot = () => this.state;
+  /**
+   * True while the request being answered differs from the drawn chart's only
+   * in its height, such as when the lines above the chart wrap (#365). The
+   * drawn chart stays and is replaced quietly when the new model arrives; no
+   * loading or computing notice covers it.
+   */
+  refitting() {
+    const pending = this.loader.latestRequest();
+    return (
+      (this.state.phase === "loading" || this.state.phase === "job") &&
+      this.state.graph !== null &&
+      pending !== null &&
+      this.graphRequest !== null &&
+      sameExceptHeight(pending, this.graphRequest)
+    );
+  }
   nextRequestSequence() {
     return this.loader.nextRequestSequence();
   }
@@ -399,6 +428,7 @@ export class VisualizationController {
           },
         }
       : this.state.graph;
+    if (canDisplay) this.graphRequest = request;
     this.rowsSeq++;
     this.rowsOwner++;
     if (canDisplay)

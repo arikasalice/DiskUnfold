@@ -2104,7 +2104,7 @@ test("F06: explicit catalog-backed assembly opens from the pinned Browse locatio
     sizeBasis: "allocated",
     // The chart box is the measured area less what starts above it (40 px) until
     // it is reported, and 16 px; 3 px on each side stay free for focus lines.
-    viewport: { width: 634, height: 344, scale: 1.25 },
+    viewport: { width: 634, height: 290, scale: 1.25 },
     visibleWindow: { left: 0, top: 0, right: 700, bottom: 500 },
   });
   expect(activeObserver?.disconnected).toBe(false);

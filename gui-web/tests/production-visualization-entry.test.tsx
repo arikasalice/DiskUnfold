@@ -321,6 +321,9 @@ function desktop(
   return { client, calls };
 }
 
+/** The size of the chart's scroll area that the layout mock reports. */
+let viewportSize = { width: 640, height: 400 };
+
 test.each(["success", "failure"] as const)(
   "F06 #109: prior ordinary row %s leaves the fallback auto-read pending",
   async (ordinaryOutcome) => {
@@ -379,6 +382,12 @@ test.each(["success", "failure"] as const)(
       }),
     );
     await screen.findByRole("listbox", { name: "Space distribution" });
+    // A taller window asks for the chart again; that answer is unavailable with
+    // a fallback table, whose rows read while the first model's rows are pending.
+    act(() => {
+      viewportSize = { width: 640, height: 460 };
+      window.dispatchEvent(new Event("resize"));
+    });
     const ordinaryRequests = () =>
       calls
         .filter(({ name }) => name === "viz.rows")
@@ -481,6 +490,7 @@ test.each(["success", "failure"] as const)(
 );
 
 beforeEach(() => {
+  viewportSize = { width: 640, height: 400 };
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -493,7 +503,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
       return this.matches(".du-visualization-viewport")
-        ? new DOMRect(0, 0, 640, 400)
+        ? new DOMRect(0, 0, viewportSize.width, viewportSize.height)
         : original.call(this);
     },
   );
@@ -780,7 +790,7 @@ describe.each(["en", "ko"] as const)("the product shell (%s)", (language) => {
       colorCriterion: "none",
       denominatorBasis: "scope",
       depthLimit: 2,
-      viewport: { width: 634, height: 344, scale: 1 },
+      viewport: { width: 634, height: 290, scale: 1 },
     });
     expect(request?.body).not.toHaveProperty("strategy");
     expect(request?.body).not.toHaveProperty("focusItemRef");

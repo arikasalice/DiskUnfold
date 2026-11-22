@@ -25,6 +25,7 @@ import { VisualizationSession } from "../features/visualization/VisualizationSes
 import {
   ChartAreaContext,
   CHART_FOCUS_ROOM,
+  CHART_OFFSET_RESERVE,
   chartHeight,
   usableSize,
 } from "../features/visualization/chart-area";
@@ -69,7 +70,7 @@ export type BrowseVisualizationProvider = (
 ) => BrowseVisualizationAssembly | null;
 
 /** Where the chart is assumed to start in the scroll area until it reports its place. */
-const DEFAULT_CHART_OFFSET = 40;
+const DEFAULT_CHART_OFFSET = CHART_OFFSET_RESERVE;
 
 /**
  * A `viz.catalog` request that failed for the current folder, kept apart from
