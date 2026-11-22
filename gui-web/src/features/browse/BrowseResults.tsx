@@ -24,6 +24,12 @@ import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { unreadLocationActions } from "./unread-locations";
 import {
+  rememberSelection,
+  resumedKeys,
+  useResumedScroll,
+} from "./browse-resume";
+import type { BrowseResumeRef } from "./browse-resume";
+import {
   browseNotice,
   copyDisabled,
   notCounted,
@@ -100,6 +106,7 @@ export function BrowseResults({
   reopen,
   priority,
   viewUnread,
+  resume,
 }: {
   pages: BrowsePages;
   incomplete: boolean;
@@ -136,6 +143,8 @@ export function BrowseResults({
   priority?: ScanPriority | undefined;
   /** Opens the unreadable locations below a folder in the analysis view (F02 #358). */
   viewUnread?: ((item: ItemRef, name: string) => void) | undefined;
+  /** The host's saved position; this list restores it and keeps it up to date (#406). */
+  resume?: BrowseResumeRef | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampParts();
@@ -153,12 +162,15 @@ export function BrowseResults({
       : []),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
+  useResumedScroll(resume, scrollRoot);
   // A row is named by its name and its badge only; the controls beside them
   // keep their own names.
   const labels = useId();
   const nameId = (row: FolderQueryRow) => `${labels}name-${rowKey(row.item)}`;
   const badgeId = (row: FolderQueryRow) => `${labels}badge-${rowKey(row.item)}`;
-  const [selection, setSelection] = useState<Selection>(() => new Set());
+  const [selection, setSelection] = useState<Selection>(
+    () => new Set(resumedKeys(resume)),
+  );
   const [rowFocus, setRowFocus] = useState<BrowseGridFocus>();
   const copy = useBrowseCopy(
     copyPath,
@@ -271,6 +283,36 @@ export function BrowseResults({
       return active === null || active === document.body || active === origin;
     });
   }
+  // A list opened at a saved position puts the focus on the first restored selected
+  // row, else on its first row, once (#406). The title's focus is the only one it may
+  // take over.
+  useLayoutEffect(() => {
+    const saved = resume?.current;
+    if (!saved?.focusRestored) return;
+    saved.focusRestored = false;
+    if (pages.count === 0) {
+      focusEmpty();
+      return;
+    }
+    const keys = new Set(saved.selected);
+    let first = 0;
+    for (let index = 0; index < pages.count; index += 1) {
+      const row = pages.row(index);
+      if (row && keys.has(rowKey(row.item))) {
+        first = index;
+        break;
+      }
+    }
+    requestRow(first, () => {
+      const active = document.activeElement;
+      return (
+        active === null ||
+        active === document.body ||
+        /^H[1-6]$/.test(active.tagName)
+      );
+    });
+    // Reads the saved position once, when the list mounts.
+  }, []);
   useLayoutEffect(() => {
     listEntry.current = focusEntry;
     listRow.current = (index) => {
@@ -383,7 +425,11 @@ export function BrowseResults({
             ? `${nameId(row)} ${badgeId(row)}`
             : nameId(row)
         }
-        onSelectionChange={setSelection}
+        defaultSelectedKeys={resumedKeys(resume)}
+        onSelectionChange={(next) => {
+          setSelection(next);
+          rememberSelection(resume, next);
+        }}
         renderCells={(row) => [
           <ItemActions
             rowScope

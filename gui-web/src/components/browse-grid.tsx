@@ -84,6 +84,8 @@ type GridProps<Item> = {
   rowLabelledBy?: (item: Item) => string | undefined;
   /** Receives the selected row keys, or "all" after select all. */
   onSelectionChange?: (keys: "all" | ReadonlySet<string>) => void;
+  /** The rows selected when the grid mounts, for a list restored at a saved position. */
+  defaultSelectedKeys?: Iterable<string> | undefined;
 };
 
 function rowIndex(target: Element | null): number | undefined {
@@ -164,6 +166,7 @@ export function BrowseGrid<Item>({
   renderCells,
   rowLabelledBy,
   onSelectionChange,
+  defaultSelectedKeys,
 }: GridProps<Item>) {
   const ownRoot = useRef<HTMLDivElement>(null);
   const root = scrollRoot ?? ownRoot;
@@ -236,6 +239,7 @@ export function BrowseGrid<Item>({
           className="du-browse-grid"
           selectionMode="multiple"
           selectionBehavior="toggle"
+          {...(defaultSelectedKeys ? { defaultSelectedKeys } : {})}
           onSelectionChange={(keys) =>
             onSelectionChange?.(
               keys === "all" ? "all" : new Set([...keys].map(String)),
