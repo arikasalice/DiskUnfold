@@ -102,6 +102,11 @@ export class VizModelLoader<TEvidence, TExtra extends object> {
     return this.seq + 1;
   }
 
+  /** The latest request this loader accepted, answered or not. */
+  latestRequest(): VizRenderRequest | null {
+    return this.lastRequest;
+  }
+
   private emit(patch: Partial<VizLoadState>, extra?: TExtra) {
     if (patch.phase !== undefined) this.phase = patch.phase;
     if (patch.job !== undefined) this.job = patch.job;

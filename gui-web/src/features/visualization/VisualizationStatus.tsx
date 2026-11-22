@@ -23,16 +23,21 @@ export function VisualizationStatus({
 }) {
   // Set when the reader asks for the newer result, so its arrival is announced.
   const applying = useRef(false);
+  // A chart asked again at another height only keeps the drawn chart without
+  // a notice over it; the new model replaces it quietly (#365).
+  const quiet = controller.refitting();
   return (
     <>
-      {state.phase === "loading" && (
+      {state.phase === "loading" && !quiet && (
         // Laid over the top of the view, so it moves nothing below it: the chart
         // keeps its place and its requested height (#163).
         <div className="du-viz-loading">
           <Progress label={text.message("loading")} />
         </div>
       )}
-      {state.phase === "job" && <Notice>{text.message("working")}</Notice>}
+      {state.phase === "job" && !quiet && (
+        <Notice>{text.message("working")}</Notice>
+      )}
       {state.phase === "cancelled" && (
         <Notice>{text.message("cancelled")}</Notice>
       )}

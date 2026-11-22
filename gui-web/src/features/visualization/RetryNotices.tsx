@@ -16,6 +16,7 @@ import type { VizText } from "../../viz";
 function useUpdateAnnouncement(
   state: VisualizationSnapshot,
   applying: RefObject<boolean>,
+  quiet: boolean,
 ) {
   const sawWorking = useRef(false);
   const previous = useRef(state.phase);
@@ -23,12 +24,13 @@ function useUpdateAnnouncement(
   useLayoutEffect(() => {
     if (state.phase === previous.current) return;
     previous.current = state.phase;
-    if (state.phase === "job") sawWorking.current = true;
+    // A quiet refit at another height said nothing, so its model is not announced (#365).
+    if (state.phase === "job" && !quiet) sawWorking.current = true;
     if (state.phase !== "model") return setAnnounce(false);
     setAnnounce(sawWorking.current || applying.current === true);
     sawWorking.current = false;
     applying.current = false;
-  }, [state.phase, applying]);
+  }, [state.phase, applying, quiet]);
   return announce;
 }
 
@@ -48,7 +50,8 @@ export function RenderRetry({
   const busy = useRef(false);
   const [retained, setRetained] = useState(false);
   const [settled, setSettled] = useState(false);
-  const announce = useUpdateAnnouncement(state, applying);
+  const quiet = controller.refitting();
+  const announce = useUpdateAnnouncement(state, applying, quiet);
   useLayoutEffect(() => {
     if (!settled) return;
     const phase = controller.getSnapshot().phase;
@@ -95,7 +98,7 @@ export function RenderRetry({
             : state.phase === "unavailable"
               ? // The notice announces itself; saying it here too would show it twice.
                 ""
-              : state.phase === "job"
+              : state.phase === "job" && !quiet
                 ? text.message("working")
                 : state.phase === "cancelled"
                   ? text.message("cancelled")
