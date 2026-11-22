@@ -44,7 +44,6 @@ export type InspectItem = (
   navigateItem: ((item: ItemRef) => void) | undefined,
   focusCountedAtItem: boolean | undefined,
   alreadyCounted: boolean | undefined,
-  countedZero: boolean,
   unreadNote: string | undefined,
 ) => ReactNode;
 export function BrowseItemDialog({
@@ -75,7 +74,6 @@ export function BrowseItemDialog({
         navigateItem,
         inspection.focusCountedAtItem,
         inspection.alreadyCounted,
-        inspection.countedZero,
         inspection.unreadNote,
       )}
     </InspectionDialog>

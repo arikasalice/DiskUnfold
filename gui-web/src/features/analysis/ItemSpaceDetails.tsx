@@ -8,7 +8,7 @@ import {
 } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import { useTimestampText } from "../../i18n/regional-format";
-import { AnalysisError } from "../../ipc";
+import { AnalysisError, countedZeroOf } from "../../ipc";
 import { isSampleSource } from "../../state/sample-session";
 import type {
   AnalysisClient,
@@ -261,14 +261,12 @@ export function ItemSpaceDetails({
   item,
   display,
   onStale,
-  countedZero = false,
 }: {
   client: AnalysisClient;
   item: SpaceDetail["item"];
   display: SizeDisplay;
   /** Told when the read was refused because the item's result was replaced. */
   onStale?: ((resultVersion: string) => void) | undefined;
-  countedZero?: boolean | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -339,7 +337,13 @@ export function ItemSpaceDetails({
     >
       <Readout
         label={text("ui.analysis.observed_item_space", "Observed item space")}
-        rows={rows(detail, display, text, timestamp, countedZero)}
+        rows={rows(
+          detail,
+          display,
+          text,
+          timestamp,
+          countedZeroOf(detail.folderFlags),
+        )}
       />
     </DetailDisclosure>
   );

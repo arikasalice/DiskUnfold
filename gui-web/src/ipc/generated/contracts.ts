@@ -1750,7 +1750,14 @@ displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
  */
-dataSource?: DataSource, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+dataSource?: DataSource, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean,
+/**
+ * The scan state of a folder, the same value its row carries in a folder page
+ * (F02 #347): whether it or a place inside it was not read, so a lower bound of 0
+ * can be told from a lower bound where every counted item is empty. Omitted for a
+ * file and for a sample. `null` is rejected.
+ */
+folderFlags?: FolderFlags, };
 export type BrowseCopyPathRequest = { resultVersion: Id, items: Array<ItemRef>, };
 export type BrowseCopyPathRefusal = "path.unrepresentable" | "path.multiline" | "clipboard.unsupported" | "clipboard.failed";
 export type BrowseCopyPathOutcome = { "outcome": "copied", count: number, } | { "outcome": "refused", reasonKey: BrowseCopyPathRefusal, };
@@ -1825,7 +1832,12 @@ export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>
 /**
  * Data source of the pinned version; absent means a sample (F32 FR9.HD1).
  */
-dataSource?: DataSource, };
+dataSource?: DataSource,
+/**
+ * The scan state of a folder, the same value its row carries in a folder page
+ * (F02 #347). Omitted for a file and for a sample. `null` is rejected.
+ */
+folderFlags?: FolderFlags, };
 export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
 export type SampleEventState = "inactive" | "loading" | "active" | "failed";
 export type SampleOpenRequest = Record<symbol, never>;

@@ -499,7 +499,6 @@ function BrowseSurface({
           navigateItem,
           focusCountedAtItem,
           alreadyCounted,
-          countedZero,
           unreadNote,
         ) => (
           <FileInspection
@@ -514,7 +513,6 @@ function BrowseSurface({
             {...(focusCountedAtItem ? { focusCountedAtItem } : {})}
             {...(alreadyCounted ? { alreadyCounted } : {})}
             display={display}
-            countedZero={countedZero}
             unreadNote={unreadNote}
           />
         )}

@@ -349,7 +349,6 @@ test.each(["row keyboard", "nested button", "accessibility activation"])(
       expect.any(Function),
       undefined,
       undefined,
-      true,
       undefined,
     );
     expect(port.open).toHaveBeenCalledTimes(1);
@@ -1618,7 +1617,6 @@ test("folder row inspection uses its pinned reference without navigating", async
     expect.any(Function),
     undefined,
     undefined,
-    true,
     undefined,
   );
   expect(open).toHaveBeenCalledTimes(1);

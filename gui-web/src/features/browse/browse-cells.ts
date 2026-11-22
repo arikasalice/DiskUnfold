@@ -1,5 +1,5 @@
 import type { FolderQueryRow, SpaceTotal } from "../../ipc";
-import { SIZE_UNIT_RULES } from "../../ipc";
+import { SIZE_UNIT_RULES, hasUnreadFlags } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { LocaleText } from "../../i18n/presentation";
@@ -46,11 +46,7 @@ function unreadZeroBound(
 
 /** Whether the folder itself or a location inside it was not read. */
 export function hasUnreadPart(row: FolderQueryRow): boolean {
-  const { unenumerated, unreadInside } = row.flags;
-  return (
-    (unenumerated.state === "present" && unenumerated.value) ||
-    unreadInside?.state === "present"
-  );
+  return hasUnreadFlags(row.flags);
 }
 
 /**

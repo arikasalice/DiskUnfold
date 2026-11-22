@@ -1,5 +1,5 @@
 //! F03 item-space observations from one pinned analysis result.
-use crate::{Id, ItemRef, SizeValue, Timestamp, browse_ipc::BrowseValue};
+use crate::{Id, ItemRef, SizeValue, Timestamp, browse_value::BrowseValue};
 use serde::{Deserialize, Serialize};
 
 /// Requests space evidence for an item in one pinned result version.
@@ -99,6 +99,10 @@ pub struct SpaceDetailCapability {
 }
 
 /// Space values and their provenance; absent or unknown values carry no bytes.
+///
+/// GUI channel only: `space.detail` is registered for the GUI, so `folder_flags`, which
+/// holds GUI-only fields of `FolderFlags`, is never sent to another channel. A channel
+/// that would expose this response must drop `folder_flags` first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -121,4 +125,13 @@ pub struct SpaceDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub data_source: Option<crate::data_source::DataSource>,
+    /// The scan state of a folder, the same value its row carries in a folder page
+    /// (F02 #347). Omitted for a file and for a sample. `null` is rejected.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::folder_flags::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub folder_flags: Option<crate::folder_flags::FolderFlags>,
 }

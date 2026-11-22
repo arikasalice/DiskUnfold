@@ -6,6 +6,8 @@ use du_core_contracts::{
 };
 use serde_json::{Value, json};
 
+mod folder_flags;
+
 fn id(n: u8) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }

@@ -13,7 +13,7 @@ use du_core_contracts::{
     browse_ipc::BrowseValue,
     browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal, UnreadInside},
     data_source::DataSource,
-    result::ResultVersionRead,
+    result::{ResultItemKind, ResultVersionRead},
 };
 
 use super::{Error, folder_error};
@@ -41,6 +41,29 @@ pub(super) fn page_flags(
             Ok(flags(collection, inside, group))
         })
         .collect()
+}
+
+/// The flags of one folder for a detail read (F02 #347), computed as the page rows are so
+/// that a row and its details never disagree. `None` for a sample and for an item that is
+/// not a folder, where the facts do not apply; the kind is read from the item itself.
+///
+/// # Errors
+/// `support.internal_error` when the item's folder facts cannot be read although the item
+/// was found: that is a fault, never the answer "not a folder".
+pub(crate) fn detail_flags(
+    version: &ResultVersion,
+    item: &ItemRef,
+) -> Result<Option<FolderFlags>, crate::error::EngineError> {
+    let fault = || crate::error::EngineError::reason("support.internal_error");
+    if version.data_source() == DataSource::Sample {
+        return Ok(None);
+    }
+    let kind = version.detail(item).map_err(|_| fault())?.item.kind;
+    if kind != ResultItemKind::Directory {
+        return Ok(None);
+    }
+    let flags = page_flags(version, std::slice::from_ref(item)).map_err(|_| fault())?;
+    Ok(flags.into_iter().next())
 }
 
 /// Entries an exclusion rule left out directly under the opened folder.
