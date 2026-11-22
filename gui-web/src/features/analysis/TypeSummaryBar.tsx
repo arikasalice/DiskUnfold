@@ -211,7 +211,11 @@ export function TypeSummaryBar({
       : []),
   ];
   return (
-    <section className="du-type-summary" aria-label={title}>
+    <section
+      className="du-type-summary"
+      aria-label={title}
+      data-lower-bound={lowerBound || undefined}
+    >
       <Text kind="muted">{title}</Text>
       <StackedBar
         slices={slices}

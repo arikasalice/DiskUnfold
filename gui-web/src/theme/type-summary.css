@@ -75,6 +75,20 @@
   box-shadow: inset 0 0 0 1px var(--du-border);
 }
 
+/* A dashed outline is an undecided value in the app (F06 README 4.6): when the answer
+   is a lower bound, the part no type holds says "at least" as its words do. */
+.du-type-summary[data-lower-bound] .du-stacked-bar__rest {
+  box-shadow: none;
+  border: 1px dashed var(--du-muted);
+  box-sizing: border-box;
+}
+
+.du-type-summary[data-lower-bound]
+  .du-type-summary__swatch[data-tone="unsplit"]
+  > rect:first-child {
+  stroke-dasharray: 2 2;
+}
+
 @media (forced-colors: active) {
   /* The types take the patterns of the chart; only the part no type holds is an
      empty outline. The rest of the types is GrayText. */

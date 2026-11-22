@@ -203,3 +203,35 @@ test("F02 #300: an answer for another basis than the one asked is not drawn", as
   await Promise.resolve();
   expect(container.querySelector(".du-type-summary")).toBeNull();
 });
+
+test("F02 #300: a lower bound answer marks the card so the empty part of the bar is dashed", async () => {
+  const bound = answering({
+    resultVersion: version,
+    basis: "allocated",
+    slices: [slice("type.video", 400, true)],
+    legendOrder: legend,
+    lowerBound: true,
+  });
+  const { container } = show(bound.client, "allocated", exact(1200));
+  await screen.findByRole("region", { name: "이 범위는 무엇으로 차 있나" });
+  expect(
+    container
+      .querySelector(".du-type-summary")
+      ?.hasAttribute("data-lower-bound"),
+  ).toBe(true);
+  const exactAnswer = answering({
+    resultVersion: version,
+    basis: "allocated",
+    slices: [slice("type.video", 400)],
+    legendOrder: legend,
+    lowerBound: false,
+  });
+  cleanup();
+  const second = show(exactAnswer.client, "allocated", exact(1200));
+  await screen.findByRole("region", { name: "이 범위는 무엇으로 차 있나" });
+  expect(
+    second.container
+      .querySelector(".du-type-summary")
+      ?.hasAttribute("data-lower-bound"),
+  ).toBe(false);
+});
