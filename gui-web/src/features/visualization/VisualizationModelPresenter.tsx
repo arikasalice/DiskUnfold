@@ -222,6 +222,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
             selectedText={text.message("selected")}
             fallbackNotice={text.message("graphFallback")}
             drawnShorterNote={text.message("barDrawnShorter")}
+            columnNames={sankeyColumns(text)}
             notToScaleMark={text.message("barNotToScale")}
             missingFallbackNotice={text.message("graphRowsUnavailable")}
             width={view.viewport.width}
@@ -306,6 +307,15 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
 /** Patterns are drawn when the reader turned them on or the system asks for them. */
 function patternsOn(legend: LegendControls | undefined, auto: boolean) {
   return auto || (legend?.patterns ?? false);
+}
+
+/** A Sankey's column names (F06 README 12.1); other charts ignore them. */
+function sankeyColumns(text: VizText) {
+  return {
+    scope: text.message("sankeyColumnScope"),
+    folder: text.message("sankeyColumnFolder"),
+    type: text.message("sankeyColumnType"),
+  };
 }
 
 /**

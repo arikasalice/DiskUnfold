@@ -8,27 +8,33 @@ const LIMIT = 1_000_000;
 /** Node width (F06 README 12): 12 CSS px. */
 const NODE = 12;
 /** Room right of the type column for "name · value · %", at most this or 30% of the width. */
-const LABEL_ROOM = 200;
+const LABEL_ROOM = 240;
 const LABEL_SHARE = 0.3;
 /** Between a node and its label, and the label's line within the node's top. */
 const LABEL_GAP = 6;
 const LABEL_LINE = 16;
+/** The band above the nodes for the column names (design, 2026-11-23). */
+const HEADING = 20;
 
 type Shape = GeometryRendererProps["shapes"][number];
 type Relation = GeometryRendererProps["relations"][number];
 type Geometry = Shape["geometry"];
 type Span = { left: number; right: number };
 type Column = (typeof SANKEY_COLUMNS)[number];
+type Spans = { scope?: Span; folder: Span; type: Span };
 
 const fullView = { left: 0, top: 0, right: LIMIT, bottom: LIMIT };
 
 /**
- * A Sankey drawn by the rules of F06 README 12 and 12.1: the scope, its
- * folders and their types in three columns of 12 px nodes, the type nodes in
- * their legend colours, the scope and folder nodes muted, and the links between
- * them. The engine lays the nodes and links out across the whole width; this
- * moves the columns apart so the type column leaves room on its right for the
- * labels, stretching the links between them and keeping their heights.
+ * A Sankey drawn by the rules of F06 README 12 and 12.1: folders and their
+ * types in columns of 12 px nodes, the type nodes in their legend colours, the
+ * folder nodes muted, and the links between them, under the names of the
+ * columns. A single scope root carries nothing the folder column does not (its
+ * path and total are in the title and status line), so it is left out and its
+ * width goes to the links; several roots keep their own column. The engine lays
+ * the nodes and links out across the whole width; this moves the columns apart
+ * so the type column leaves room on its right for the labels, stretching the
+ * links between them and keeping their heights.
  */
 export function SankeyRenderer(props: GeometryRendererProps) {
   const width = Math.round(props.width);
@@ -38,34 +44,43 @@ export function SankeyRenderer(props: GeometryRendererProps) {
     x: ((x - view.left) * width) / (view.right - view.left),
     y: ((y - view.top) * height) / (view.bottom - view.top),
   });
-  const spans = columnSpans(props.shapes, toPx);
+  const { shapes: shown, relations: links } = withoutLoneScope(props);
+  const spans = columnSpans(shown, toPx);
   const room = Math.min(LABEL_ROOM, Math.floor(width * LABEL_SHARE));
   const mapX = spans ? stretch(spans, width - room) : null;
   if (!spans || !mapX || view.right <= view.left || view.bottom <= view.top)
     return <GeometryRenderer {...props} variant="sankey" />;
+  const top = props.columnNames ? HEADING : 0;
   const place = (geometry: Geometry): Geometry => ({
     primitive: geometry.primitive,
     points: geometry.points.map((point) => {
       const at = toPx(point.x, point.y);
-      return { x: unit(mapX(at.x), width), y: unit(at.y, height) };
+      return {
+        x: unit(mapX(at.x), width),
+        y: unit(top + (at.y * (height - top)) / height, height),
+      };
     }),
   });
-  const byRef = new Map(props.shapes.map((shape) => [shape.shapeRef, shape]));
-  const shapes = props.shapes.map((shape) => {
+  const byRef = new Map(shown.map((shape) => [shape.shapeRef, shape]));
+  const shapes = shown.map((shape) => {
     const placed: Shape = { ...shape, geometry: place(shape.geometry) };
     // A node is one bar of a column; the group border of "Other" or of a type
     // would read as a second edge on a 12 px node.
     delete placed.dashed;
     return placed;
   });
-  const relations = props.relations.map((relation) =>
-    linkLook(relation, byRef, place),
+  const relations = links.map((relation) => linkLook(relation, byRef, place));
+  const labelEnd = {
+    scope: mapX(spans.folder.left) - LABEL_GAP,
+    folder: mapX(spans.type.left) - LABEL_GAP,
+    type: width,
+  };
+  const decorations = (
+    <>
+      {headings(spans, mapX, props.columnNames)}
+      {labels(shapes, { width, height, labelEnd })}
+    </>
   );
-  const labelEnd = { scope: 0, folder: 0, type: width };
-  const columnLeft = (column: Column) => mapX(spans[column].left);
-  labelEnd.scope = columnLeft("folder") - LABEL_GAP;
-  labelEnd.folder = columnLeft("type") - LABEL_GAP;
-  const decorations = labels(shapes, { width, height, labelEnd });
   return (
     <GeometryRenderer
       {...props}
@@ -78,11 +93,51 @@ export function SankeyRenderer(props: GeometryRendererProps) {
   );
 }
 
-/** The left and right edges of each column in chart pixels, or null without all three. */
+/** The shapes and links without the scope node when it is the only one. */
+function withoutLoneScope(props: GeometryRendererProps) {
+  const scopes = props.shapes.filter((shape) => shape.column === "scope");
+  const lone = scopes.length === 1 ? scopes[0]!.shapeRef : null;
+  if (lone === null) return props;
+  return {
+    shapes: props.shapes.filter((shape) => shape.shapeRef !== lone),
+    relations: props.relations.filter(
+      (relation) =>
+        relation.fromShapeRef !== lone && relation.toShapeRef !== lone,
+    ),
+  };
+}
+
+/** The column names above the nodes, in the muted text colour. */
+function headings(
+  spans: Spans,
+  mapX: (x: number) => number,
+  names: GeometryRendererProps["columnNames"],
+) {
+  if (!names) return null;
+  return SANKEY_COLUMNS.map((column) => {
+    const span = spans[column];
+    const name = names[column];
+    return span && name ? (
+      <text
+        key={column}
+        className="du-geometry-sankey-heading"
+        x={mapX(span.left)}
+        y={HEADING / 2}
+      >
+        {name}
+      </text>
+    ) : null;
+  });
+}
+
+/**
+ * The left and right edges of each column in chart pixels, or null without a
+ * folder and a type column in order.
+ */
 function columnSpans(
   shapes: readonly Shape[],
   toPx: (x: number, y: number) => { x: number; y: number },
-): Record<Column, Span> | null {
+): Spans | null {
   const spans: Partial<Record<Column, Span>> = {};
   for (const shape of shapes) {
     const column = SANKEY_COLUMNS.find((name) => name === shape.column);
@@ -97,25 +152,31 @@ function columnSpans(
       : { left, right };
   }
   const { scope, folder, type } = spans;
-  if (!scope || !folder || !type) return null;
-  if (!(scope.right <= folder.left && folder.right <= type.left)) return null;
-  return { scope, folder, type };
+  if (!folder || !type || folder.right > type.left) return null;
+  if (scope && scope.right > folder.left) return null;
+  return scope ? { scope, folder, type } : { folder, type };
 }
 
 /**
  * Maps the engine's x to the drawn x, piece by piece: each column becomes a
- * 12 px node, the scope at the left, the type column ending at `typeRight` and
- * the folder column halfway between; the links between columns stretch to fit.
+ * 12 px node, the first column at the left, the type column ending at
+ * `typeRight` and a folder column between two others halfway; the links
+ * between columns stretch to fit.
  */
-function stretch(spans: Record<Column, Span>, typeRight: number) {
-  const scopeLeft = 0;
+function stretch(spans: Spans, typeRight: number) {
   const typeLeft = typeRight - NODE;
-  const folderLeft = Math.round((scopeLeft + NODE + typeLeft) / 2 - NODE / 2);
-  if (folderLeft <= scopeLeft + NODE || folderLeft + NODE >= typeLeft)
-    return null;
+  const folderLeft = spans.scope
+    ? Math.round((NODE + typeLeft) / 2 - NODE / 2)
+    : 0;
+  if (folderLeft + NODE >= typeLeft) return null;
+  if (spans.scope && folderLeft <= NODE) return null;
   const stops: [number, number][] = [
-    [spans.scope.left, scopeLeft],
-    [spans.scope.right, scopeLeft + NODE],
+    ...(spans.scope
+      ? ([
+          [spans.scope.left, 0],
+          [spans.scope.right, NODE],
+        ] as [number, number][])
+      : []),
     [spans.folder.left, folderLeft],
     [spans.folder.right, folderLeft + NODE],
     [spans.type.left, typeLeft],
@@ -184,7 +245,8 @@ function labels(
   return drawn.map(({ shape, box }) => {
     const column = SANKEY_COLUMNS.find((name) => name === shape.column);
     if (!column || !box || box.bottom - box.top < LABEL_LINE / 2) return null;
-    const y = box.top + LABEL_LINE / 2;
+    // A small node at the bottom keeps its label inside the chart.
+    const y = Math.min(box.top + LABEL_LINE / 2, at.height - LABEL_LINE / 2);
     const previous = lastLine[column];
     if (previous !== undefined && y - previous < LABEL_LINE) return null;
     const words = labelWords(shape, column);

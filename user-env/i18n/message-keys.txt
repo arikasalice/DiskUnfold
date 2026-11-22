@@ -1130,6 +1130,11 @@ ui.visualization.sankey
 ui.visualization.sankey.unattributed
 ui.visualization.sankeyLink from:name to:name value:name
 ui.visualization.linkedItems
+ui.visualization.sankeyLinkFrom from:name value:name
+ui.visualization.sankeyLinkRest count:count size:name
+ui.visualization.sankeyColumnScope
+ui.visualization.sankeyColumnFolder
+ui.visualization.sankeyColumnType
 ui.visualization.scopeMayExceedUsage
 ui.visualization.scopeMayExceedUsageTooltip
 ui.visualization.scopeTotal

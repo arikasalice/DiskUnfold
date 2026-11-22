@@ -16,6 +16,8 @@ const KEY_SHAPE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
 const WHOLE_NUMBER = /^[0-9]+$/;
 /** Label keys of engine-made groups that the bundle names. */
 const OTHER_GROUP_LABEL = "ui.visualization.group.other";
+/** Label keys of the visualization bundle; other kinds of keys never name a row. */
+const VISUALIZATION_KEY = /^ui\.visualization\.[A-Za-z0-9_.]+$/;
 
 type NamedRow = Pick<
   VizRow,
@@ -60,7 +62,8 @@ export function rowName(
   // A group named by a key the screen knows, such as a Sankey type node by its
   // type's label (#296); an unknown key still gets the general phrase.
   if (
-    row.labelKey?.startsWith("ui.visualization.") &&
+    row.labelKey !== undefined &&
+    VISUALIZATION_KEY.test(row.labelKey) &&
     row.groupRef !== null &&
     text.key
   ) {

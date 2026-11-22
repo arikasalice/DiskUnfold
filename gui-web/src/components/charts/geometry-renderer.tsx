@@ -162,6 +162,8 @@ export type GeometryRendererProps = {
    * moves the arrow keys by column (README 12.1).
    */
   variant?: "ranked" | "sankey";
+  /** A Sankey's column names, drawn above its columns (F06 README 12.1). */
+  columnNames?: Partial<Record<"scope" | "folder" | "type", string>>;
   /** Draw the patterns of palette places 1-8 too ("Use patterns", README 4.1). */
   patterns?: boolean | undefined;
   /**
@@ -1085,6 +1087,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   data-band={relation.band}
                   data-tone={relation.tone}
                   data-faded={kept && !kept.has(index) ? "true" : undefined}
+                  data-kept={kept?.has(index) ? "true" : undefined}
                   {...(sankey
                     ? {
                         onPointerEnter: () => setPointed({ link: index }),

@@ -143,6 +143,15 @@
   pointer-events: none;
 }
 
+/* The column names above a Sankey's nodes: "Folder", "Type". */
+.du-geometry-sankey-heading {
+  fill: var(--du-muted);
+  stroke: none;
+  font-size: 12px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
 /* Only the nodes take the pointer above the links, so a link can be pointed at. */
 .du-geometry-frame[data-variant="sankey"] .du-geometry-targets {
   pointer-events: none;
@@ -153,15 +162,23 @@
 
 @media (forced-colors: active) {
   /* Links are told apart by their edge and pattern, not their fill (README 4.9). */
-  .du-geometry[data-variant="sankey"] .du-geometry-relation {
+  .du-geometry[data-variant="sankey"] .du-geometry-relation,
+  .du-geometry[data-variant="sankey"] .du-geometry-relation[data-tone] {
     fill: Canvas;
     fill-opacity: 1;
     stroke: CanvasText;
     stroke-width: 1;
   }
+  /* While a node or link is pointed at or focused, its bands take a 2 px
+     Highlight edge and the others a 1 px GrayText edge (as #387). */
   .du-geometry[data-variant="sankey"] .du-geometry-relation[data-faded] {
     opacity: 1;
     stroke: GrayText;
+    stroke-width: 1;
+  }
+  .du-geometry[data-variant="sankey"] .du-geometry-relation[data-kept] {
+    stroke: Highlight;
+    stroke-width: 2;
   }
   .du-geometry[data-variant="sankey"] .du-geometry-shape[data-tone="folder"] {
     fill: CanvasText;
@@ -169,6 +186,9 @@
   .du-geometry-sankey-label {
     fill: CanvasText;
     stroke: Canvas;
+  }
+  .du-geometry-sankey-heading {
+    fill: GrayText;
   }
 }
 

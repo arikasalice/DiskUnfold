@@ -15,7 +15,8 @@ import { sankeyLinkWords, withParticle } from "../src/viz/sankey-text";
 
 afterEach(cleanup);
 
-// F06 README 12, 12.1 (#296): scope → folders → types in three columns.
+// F06 README 12, 12.1 (#296): folders → types, with a volume column only for
+// several scope roots, under the names of the columns.
 
 const LIMIT = 1_000_000;
 const rect = (left: number, top: number, right: number, bottom: number) => ({
@@ -24,45 +25,6 @@ const rect = (left: number, top: number, right: number, bottom: number) => ({
     { x: left, y: top },
     { x: right, y: bottom },
   ],
-});
-
-test("the table lists where each Sankey node row sends its space", () => {
-  const input = modelFixture();
-  input.frame.model.legend = [
-    {
-      ...input.frame.model.legend[0]!,
-      key: "type.video",
-      labelKey: "ui.visualization.legend.type.video",
-    },
-  ];
-  const [first, ...rest] = input.page.response.rows;
-  input.page.response.rows = [
-    {
-      ...first!,
-      links: [
-        {
-          toRowRef: "group:viz.sankey.type.type.video",
-          quantity: { unit: "bytes", state: "exact", value: "1024" },
-        },
-      ],
-    },
-    ...rest,
-  ];
-  render(
-    <ModelRows
-      page={input.page}
-      model={input.frame.model}
-      text={fixtureText}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
-  const table = screen.getByRole("table", { name: "Items in this folder" });
-  expect(
-    within(table).getByRole("columnheader", { name: "Linked items" }),
-  ).toBeTruthy();
-  const cells = within(table).getAllByRole("row")[1]!.querySelectorAll("td");
-  // The fixture text words the amount; the cell names the target and its amount.
-  expect(cells[cells.length - 1]!.textContent).toMatch(/ 1024 byt/);
 });
 const band = (x1: number, y1: number, x2: number, y2: number, h: number) => ({
   primitive: "polygon",
@@ -91,7 +53,23 @@ const node = (
   ...extra,
 });
 
-function props(): GeometryRendererProps {
+/** One scope root C:, or two roots C: (to Projects) and D: (to Media). */
+function props(roots: 1 | 2 = 1): GeometryRendererProps {
+  const scopes =
+    roots === 1
+      ? [
+          node("c", "scope", "C:", rect(0, 0, 12_000, LIMIT), {
+            tone: "folder",
+          }),
+        ]
+      : [
+          node("c", "scope", "C:", rect(0, 0, 12_000, 600_000), {
+            tone: "folder",
+          }),
+          node("d", "scope", "D:", rect(0, 620_000, 12_000, LIMIT), {
+            tone: "folder",
+          }),
+        ];
   return {
     modelRef: "model-1",
     resultRevision: "revision-1",
@@ -109,10 +87,9 @@ function props(): GeometryRendererProps {
       resultRevision: "revision-1",
       content: null,
     },
+    columnNames: { scope: "Volume", folder: "Folder", type: "Type" },
     shapes: [
-      node("scope", "scope", "C:", rect(0, 0, 12_000, LIMIT), {
-        tone: "folder",
-      }),
+      ...scopes,
       node("a", "folder", "Projects", rect(494_000, 0, 506_000, 600_000), {
         tone: "folder",
       }),
@@ -127,23 +104,19 @@ function props(): GeometryRendererProps {
         "type",
         "No extension",
         rect(988_000, 520_000, LIMIT, LIMIT),
-        {
-          tone: "neutral-2",
-          pattern: "sparse-dots",
-          patternAlways: true,
-        },
+        { tone: "neutral-2", pattern: "sparse-dots", patternAlways: true },
       ),
     ],
     relations: [
       {
-        fromShapeRef: "scope",
+        fromShapeRef: "c",
         toShapeRef: "a",
         geometry: band(12_000, 0, 494_000, 0, 600_000),
       },
       {
-        fromShapeRef: "scope",
+        fromShapeRef: roots === 1 ? "c" : "d",
         toShapeRef: "b",
-        geometry: band(12_000, 600_000, 494_000, 620_000, 380_000),
+        geometry: band(12_000, 620_000, 494_000, 620_000, 380_000),
       },
       {
         fromShapeRef: "a",
@@ -167,19 +140,38 @@ function props(): GeometryRendererProps {
 const option = (name: string) => screen.getByRole("option", { name });
 const links = (container: HTMLElement) =>
   Array.from(container.querySelectorAll(".du-geometry-relation"));
+const texts = (container: HTMLElement, selector: string) =>
+  Array.from(container.querySelectorAll(selector)).map(
+    (element) => element.textContent,
+  );
 
-test("nodes are labelled beside them: the scope by name, a folder with its value, a type with its value and share", () => {
+test("a lone scope root is left out: two named columns, folders labelled with their value, types with value and share", () => {
   const { container } = render(<SankeyRenderer {...props()} />);
-  const labels = Array.from(
-    container.querySelectorAll(".du-geometry-sankey-label"),
-  ).map((label) => label.textContent);
-  expect(labels).toContain("C:");
+  expect(screen.queryByRole("option", { name: "C:" })).toBeNull();
+  expect(links(container)).toHaveLength(3);
+  expect(texts(container, ".du-geometry-sankey-heading")).toEqual([
+    "Folder",
+    "Type",
+  ]);
+  const labels = texts(container, ".du-geometry-sankey-label");
   expect(labels).toContain("Projects · 1 GiB");
   expect(labels).toContain("Video · 1 GiB · 10%");
 });
 
+test("several scope roots keep the volume column and its name", () => {
+  const { container } = render(<SankeyRenderer {...props(2)} />);
+  expect(option("C:")).toBeTruthy();
+  expect(option("D:")).toBeTruthy();
+  expect(links(container)).toHaveLength(5);
+  expect(texts(container, ".du-geometry-sankey-heading")).toEqual([
+    "Volume",
+    "Folder",
+    "Type",
+  ]);
+});
+
 test("a band into a type takes the type's colour and pattern, a band into a folder the muted band", () => {
-  const { container } = render(<SankeyRenderer {...props()} />);
+  const { container } = render(<SankeyRenderer {...props(2)} />);
   const [toA, , toVideo, toNone] = links(container);
   expect(toA!.getAttribute("data-band")).toBe("scope");
   expect(toA!.getAttribute("data-tone")).toBeNull();
@@ -190,24 +182,30 @@ test("a band into a type takes the type's colour and pattern, a band into a fold
   expect(toNone!.querySelector(".du-geometry-pattern")).not.toBeNull();
 });
 
-test("pointing at a node keeps only its links in full view", () => {
+test("pointing at a node keeps only its links: the others fade, its own are marked kept", () => {
   const { container } = render(<SankeyRenderer {...props()} />);
   fireEvent.pointerEnter(option("Projects"));
   expect(
     links(container).map((link) => link.hasAttribute("data-faded")),
-  ).toEqual([false, true, false, false, true]);
+  ).toEqual([false, false, true]);
+  expect(
+    links(container).map((link) => link.hasAttribute("data-kept")),
+  ).toEqual([true, true, false]);
   fireEvent.pointerLeave(option("Projects"));
-  expect(links(container).some((link) => link.hasAttribute("data-faded"))).toBe(
-    false,
-  );
+  expect(
+    links(container).some(
+      (link) =>
+        link.hasAttribute("data-faded") || link.hasAttribute("data-kept"),
+    ),
+  ).toBe(false);
 });
 
 test("left and right move between columns, up and down within one", () => {
   render(<SankeyRenderer {...props()} />);
-  option("C:").focus();
+  option("Projects").focus();
   const press = (key: string) =>
     fireEvent.keyDown(document.activeElement!, { key });
-  press("ArrowRight");
+  press("ArrowLeft");
   expect(document.activeElement).toBe(option("Projects"));
   press("ArrowRight");
   expect(document.activeElement).toBe(option("Video"));
@@ -286,4 +284,43 @@ test("a link is named from, to and its amount, with the Korean particle after th
     "민서에서 영상으로, 80 B",
     "민서에서 나눌 수 없는 공간으로, 2 B",
   ]);
+});
+
+test("the table lists where each Sankey node row sends its space", () => {
+  const input = modelFixture();
+  input.frame.model.legend = [
+    {
+      ...input.frame.model.legend[0]!,
+      key: "type.video",
+      labelKey: "ui.visualization.legend.type.video",
+    },
+  ];
+  const [first, ...rest] = input.page.response.rows;
+  input.page.response.rows = [
+    {
+      ...first!,
+      links: [
+        {
+          toRowRef: "group:viz.sankey.type.type.video",
+          quantity: { unit: "bytes", state: "exact", value: "1024" },
+        },
+      ],
+    },
+    ...rest,
+  ];
+  render(
+    <ModelRows
+      page={input.page}
+      model={input.frame.model}
+      text={fixtureText}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Items in this folder" }));
+  const table = screen.getByRole("table", { name: "Items in this folder" });
+  expect(
+    within(table).getByRole("columnheader", { name: "Linked items" }),
+  ).toBeTruthy();
+  const cells = within(table).getAllByRole("row")[1]!.querySelectorAll("td");
+  // The fixture text words the amount; the cell names the target and its amount.
+  expect(cells[cells.length - 1]!.textContent).toMatch(/ 1024 byt/);
 });

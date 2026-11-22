@@ -146,6 +146,8 @@ export type ShapePlace = {
   childCount?: number;
   parentRow?: VizRow | undefined;
   inFolder?: boolean;
+  /** The bands into a Sankey type node: the row they come from and their bytes. */
+  incoming?: readonly { row: VizRow | undefined; quantity: VizQuantity }[];
 };
 
 export function shapeLabels(
@@ -190,8 +192,11 @@ export function shapeLabels(
   const look = classLook(model, shape, place, text);
   const interval = intervalWords(binCount, row, text);
   const types = closedFolderTypes(model, shape, place, text);
-  const said = [...look.said, ...types.said];
-  const node = sankeyNode(model, row, name, ratio, text);
+  const node = sankeyNode(
+    { model, shape, row, name, ratio, place, classSaid: look.said },
+    text,
+  );
+  const said = [...node.classSaid, ...types.said];
   const accessibleLabel = [
     binCount
       ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
@@ -283,22 +288,81 @@ function closedFolderTypes(
  * its value. Nothing for any other chart or a node whose row has not arrived.
  */
 function sankeyNode(
-  model: VizModel,
-  row: VizRow | undefined,
-  name: string,
-  ratio: string,
+  node: {
+    model: VizModel;
+    shape: VizShape;
+    row: VizRow | undefined;
+    name: string;
+    ratio: string;
+    place: ShapePlace;
+    classSaid: string[];
+  },
   text: VizText,
-) {
+): { links: string[]; drawn: { displayShare?: string }; classSaid: string[] } {
+  const { model, row, name, ratio, classSaid } = node;
   if (model.representation.format !== "sankey" || !row)
-    return { links: [] as string[], drawn: {} };
+    return { links: [], drawn: {}, classSaid };
+  const drawn = row.ratio ? { displayShare: ratio } : {};
+  // A type node is its class: it names the folders that send to it instead of
+  // repeating its class (design, 2026-11-23).
+  if (node.shape.column === "type")
+    return {
+      links: incomingWords(model, node.place.incoming ?? [], text),
+      drawn,
+      classSaid: [],
+    };
   const words = sankeyLinkWords(model, row, name, {
     ...text,
     className: (key) => legendClassName(model, key, text),
   });
   return {
     links: words.length ? [text.message("linkedItems"), ...words] : [],
-    drawn: row.ratio ? { displayShare: ratio } : {},
+    drawn,
+    classSaid,
   };
+}
+
+/** Folders that send to a type node shown at once; the rest are summed. */
+const INCOMING_SHOWN = 5;
+
+/**
+ * "Media에서, 96 MiB" for the five largest folders sending to a type node, then
+ * "나머지 폴더 3개 · 4 MiB" for the rest; nothing without any.
+ */
+function incomingWords(
+  model: VizModel,
+  incoming: NonNullable<ShapePlace["incoming"]>,
+  text: VizText,
+): string[] {
+  const amount = (value: VizQuantity) =>
+    "value" in value ? BigInt(value.value) : 0n;
+  const sorted = [...incoming].sort((a, b) => {
+    const difference = amount(b.quantity) - amount(a.quantity);
+    return difference > 0n ? 1 : difference < 0n ? -1 : 0;
+  });
+  if (sorted.length === 0) return [];
+  const shown = sorted.slice(0, INCOMING_SHOWN).map(({ row, quantity }) =>
+    vizMessage(text, "sankeyLinkFrom", {
+      from: row ? rowName(row, model, text) : text.message("itemNamePending"),
+      value: text.quantity(quantity),
+    }),
+  );
+  const rest = sorted.slice(INCOMING_SHOWN);
+  const restWords = rest.length
+    ? [
+        vizMessage(text, "sankeyLinkRest", {
+          count: BigInt(rest.length),
+          size: text.quantity({
+            unit: "bytes",
+            state: "exact",
+            value: String(
+              rest.reduce((sum, { quantity }) => sum + amount(quantity), 0n),
+            ),
+          }),
+        }),
+      ]
+    : [];
+  return [text.message("linkedItems"), ...shown, ...restWords];
 }
 
 /**
