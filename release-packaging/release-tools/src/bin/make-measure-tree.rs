@@ -203,7 +203,7 @@ fn write_marker(marker: &Path, root: &Path) -> Result<(), String> {
         .create_new(true)
         .open(marker)
         .map_err(|error| error.to_string())?;
-    write!(file, "{MARKER_CONTENT}{}\n", root.display()).map_err(|error| error.to_string())
+    writeln!(file, "{MARKER_CONTENT}{}", root.display()).map_err(|error| error.to_string())
 }
 
 fn remove(root: &Path) -> Result<(), String> {
@@ -234,16 +234,14 @@ mod tests {
     use super::TreeSpec;
 
     #[test]
-    fn counts_a_fixed_width_tree() {
+    fn counts_a_fixed_width_tree() -> Result<(), String> {
         let spec = TreeSpec {
             width: 10,
             depth: 5,
             files_per_directory: 17,
             name_length: 8,
         };
-        assert_eq!(
-            spec.validate().expect("valid dimensions"),
-            (111_111, 1_888_887)
-        );
+        assert_eq!(spec.validate()?, (111_111, 1_888_887));
+        Ok(())
     }
 }
