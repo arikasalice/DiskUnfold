@@ -127,11 +127,8 @@ impl UseCase for ChangeExecute {
             destination_summary: None,
             keep_summary: None,
             check_result: result,
-            mismatch_fields: check
-                .as_ref()
-                .err()
-                .map(|failure| format!("[\"{}\"]", failure.as_str()))
-                .unwrap_or_else(|| "[]".into()),
+            // The stage-one result has no per-field mismatch details.
+            mismatch_fields: "[]".into(),
             approved_at_ms: now,
             created_at_ms: now,
             correlation_id: caller.correlation_id.clone(),
