@@ -1,4 +1,6 @@
-use du_core_contracts::{approval_ipc::*, change_ipc::*, job::ChangeAction, plan_ipc::*};
+use du_core_contracts::{
+    approval_ipc::*, change_ipc::*, job::ChangeAction, plan_ipc::*, snapshot_list_ipc::*,
+};
 use ts_rs::TS;
 
 pub(crate) fn declarations(config: &ts_rs::Config) -> Vec<String> {
@@ -53,5 +55,16 @@ pub(crate) fn declarations(config: &ts_rs::Config) -> Vec<String> {
         ChangeItemCounts::decl(config),
         ChangeItemResult::decl(config),
         ChangeItemResultsResponse::decl(config),
+    ]
+}
+
+pub(crate) fn snapshot_list_declarations(config: &ts_rs::Config) -> [String; 6] {
+    [
+        SnapshotListRequest::decl(config),
+        SnapshotListResponse::decl(config),
+        SnapshotSummary::decl(config),
+        SnapshotListCompleteness::decl(config),
+        SnapshotListSourceKind::decl(config),
+        SnapshotListVolume::decl(config),
     ]
 }
