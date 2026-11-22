@@ -16,7 +16,7 @@ mod linux {
     use du_core_contracts::protection_facts::{
         ObservedFileIdentity, ProtectionGuardFact, VolumeRoleFact,
     };
-    use rustix::fs::{AtFlags, StatxFlags, fstatvfs, major, minor};
+    use rustix::fs::{fstatvfs, major, minor};
 
     pub(super) fn identity(path: &Path) -> Option<ObservedFileIdentity> {
         let metadata = fs::symlink_metadata(path).ok()?;
@@ -106,7 +106,7 @@ mod linux {
 
     fn parse_mount(line: &[u8]) -> Option<MountInfo> {
         let fields = line.split(|byte| *byte == b' ').collect::<Vec<_>>();
-        let id = std::str::from_utf8(*fields.first()?).ok()?.parse().ok()?;
+        let id = std::str::from_utf8(fields.first()?).ok()?.parse().ok()?;
         let mount_point = decode_mount_path(fields.get(4)?)?;
         let separator = fields.iter().position(|field| *field == b"-")?;
         Some(MountInfo {
@@ -150,7 +150,9 @@ mod linux {
 mod macos {
     use std::{ffi::CString, os::fd::AsFd, os::unix::ffi::OsStrExt, path::Path};
 
-    use du_core_contracts::protection_facts::{ObservedFileIdentity, VolumeRoleFact};
+    use du_core_contracts::protection_facts::{
+        ObservedFileIdentity, ProtectionGuardFact, VolumeRoleFact,
+    };
     use rustix::fs::{Mode, OFlags, fstat, open};
 
     pub(super) fn identity(path: &Path) -> Option<ObservedFileIdentity> {
@@ -287,17 +289,23 @@ pub(super) fn permission(
     operation: ProtectionOperation,
 ) -> Option<ProtectionGuardFact> {
     #[cfg(target_os = "linux")]
-    return linux::permission(path, operation);
+    {
+        linux::permission(path, operation)
+    }
     #[cfg(target_os = "macos")]
-    return macos::permission(path, operation);
+    {
+        macos::permission(path, operation)
+    }
 }
 
 pub(super) fn disk_backed(path: &Path) -> Option<ProtectionGuardFact> {
     #[cfg(target_os = "linux")]
-    return linux::disk_backed(path);
+    {
+        linux::disk_backed(path)
+    }
     #[cfg(target_os = "macos")]
     {
-        return macos::disk_backed(path);
+        macos::disk_backed(path)
     }
 }
 

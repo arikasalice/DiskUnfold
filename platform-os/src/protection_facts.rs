@@ -1,10 +1,6 @@
 //! Native read-only protection facts used while building plans (F29).
 
-use std::{
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::PathBuf};
 
 use du_core_contracts::{
     PathEncoding,
@@ -132,7 +128,7 @@ impl ProtectionFactsPort for SystemProtectionFacts {
             let Some(modified_at) = item.modified_at.as_ref() else {
                 return ProtectionFact::Unknown(AGE_UNKNOWN);
             };
-            let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+            let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
                 return ProtectionFact::Unknown(AGE_UNKNOWN);
             };
             let now_ms = i128::from(now.as_millis().min(i128::MAX as u128) as i64);
