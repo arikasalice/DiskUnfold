@@ -1850,6 +1850,72 @@ observations: Array<SampleObservationRef>,
 plans: Array<Id>, unavailableReason?: string, realAnalysisAction?: string, };
 export type SampleClosed = { sessionRef: Id, state: SampleSessionState, releasedVersions: number, };
 export type SampleStateChanged = { sessionRef: Id, state: SampleEventState, previousState: SampleEventState, reasonKey?: string, jobRef?: Id, sequence: number, observedAt: Timestamp, };
+export type SnapshotSaveRequest = {
+/**
+ * Result version to capture.
+ */
+resultVersionId: Id,
+/**
+ * Whether the new snapshot should become the baseline.
+ */
+pin: boolean, };
+export type SnapshotSaveResponse = SnapshotSaveAccepted | SnapshotSaveExistingSnapshot | SnapshotSaveExistingJob;
+export type SnapshotSaveAccepted = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveAcceptedOutcome,
+/**
+ * Admitted background job.
+ */
+jobId: Id, };
+export type SnapshotSaveAcceptedOutcome = "accepted";
+export type SnapshotPinApplied = false;
+export type SnapshotSaveExistingSnapshot = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveExistingOutcome,
+/**
+ * Existing snapshot identity.
+ */
+snapshotId: Id,
+/**
+ * Existing snapshots are not pinned by a save request.
+ */
+pinApplied: SnapshotPinApplied, };
+export type SnapshotSaveExistingJob = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveExistingOutcome,
+/**
+ * Active save job identity.
+ */
+jobId: Id,
+/**
+ * A duplicate save does not alter pin state.
+ */
+pinApplied: SnapshotPinApplied, };
+export type SnapshotSaveExistingOutcome = "existing";
+export type SnapshotChange = "saved" | "imported" | "pinned" | "unpinned" | "deleted" | "swept";
+export type SnapshotChangedBody = {
+/**
+ * Committed snapshot-index list sequence.
+ */
+listSeq: number,
+/**
+ * Mutation represented by this event.
+ */
+change: SnapshotChange,
+/**
+ * Snapshot identities affected by the mutation.
+ */
+snapshotIds: Array<Id>,
+/**
+ * Time at which the mutation was observed, when available.
+ */
+observedAt?: Timestamp | null, };
 export type GroupRuleReview = "ok" | "converted" | "predicate_unregistered";
 export type GroupRule = { groupId: Id, displayName: string, displayOrder: number, condition: QueryCondition, conditionModelVersion: number, predicates: Array<QueryStrategy>, review: GroupRuleReview, };
 export type GroupRuleDraft = { groupId?: Id, displayName: string, condition: QueryCondition, };

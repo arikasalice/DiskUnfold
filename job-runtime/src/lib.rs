@@ -230,6 +230,27 @@ impl JobRuntime {
         self.read_entry(id, Entry::snapshot)
     }
 
+    /// Finds an active job with the exact kind and deduplication key.
+    ///
+    /// The table lock is shared with submission, so callers can return an
+    /// already admitted job before performing expensive admission checks. The
+    /// job may finish after this lookup and before the response is observed;
+    /// submission still deduplicates a concurrent admission attempt.
+    pub fn find_active_deduplicated(
+        &self,
+        kind_id: &str,
+        key: &DeduplicationKey,
+    ) -> Result<Option<Id>, RuntimeError> {
+        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        expire(&mut table, self.clock.now_ms());
+        Ok(table.jobs.iter().find_map(|(id, job)| {
+            (!job.state.is_terminal()
+                && job.submission.kind_id == kind_id
+                && job.submission.deduplication_key.as_ref() == Some(key))
+            .then(|| id.clone())
+        }))
+    }
+
     fn read_entry<T>(&self, id: &Id, read: impl FnOnce(&Entry) -> T) -> Result<T, RuntimeError> {
         let now = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;

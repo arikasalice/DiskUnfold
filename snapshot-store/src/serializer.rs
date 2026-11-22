@@ -99,6 +99,25 @@ pub struct SourceMetadata {
     pub algorithms: Vec<AlgorithmVersion>,
 }
 
+/// Facts copied from the sealed v1 bytes and their completed footer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotWriteReport {
+    /// Total registered file size, including the footer digest.
+    pub body_size: u64,
+    /// BLAKE3 digest stored as the v1 footer.
+    pub body_hash: [u8; 32],
+    /// Exact JSON text serialized for `source.conditionSummary`.
+    pub condition_summary_json: String,
+    /// Canonical 32-byte scope marker, or empty when absent.
+    pub scope_marker: Vec<u8>,
+    /// Completeness value serialized in the metadata.
+    pub completeness: du_core_contracts::snapshot_index::SnapshotIndexCompleteness,
+    /// DUSNAP format version serialized in the header and metadata.
+    pub format_version: u16,
+    /// Volume identifiers serialized in the `Volume` record order.
+    pub volume_ids: Vec<Vec<u8>>,
+}
+
 /// A serializer failure. The caller must discard any output already written on error.
 #[derive(Debug)]
 pub enum Error {
@@ -143,19 +162,28 @@ impl std::error::Error for Error {
 
 /// Writes a complete, sealed v1 snapshot for one immutable result version.
 ///
-/// Result facts are read from `ResultVersion`; conditions, path rules, algorithm
-/// identities, and snapshot identity are supplied by the caller. Names, roots,
-/// completeness, gaps, and volume observations are copied without display-path
-/// conversion or completeness recomputation.
-/// Canonical scope fingerprints are preserved; noncanonical values are omitted.
-/// A cancelled result is rejected before
-/// the writer is touched. On any other error, the caller must discard partial output.
+/// Result facts are read from `ResultVersion`; the caller supplies condition, path,
+/// algorithm, and identity metadata. The caller must discard partial output on error.
 pub fn write_v1<W: Write>(
     version: &ResultVersion,
     identity: SnapshotIdentity<'_>,
     source: &SourceMetadata,
     output: &mut W,
 ) -> Result<(), Error> {
+    write_v1_cancellable(version, identity, source, output, || false).map(|_| ())
+}
+
+/// Writes a sealed v1 snapshot and checks cancellation between complete records.
+///
+/// The caller must discard partial output on any error. A successful report is
+/// derived from the same metadata and body records that were written.
+pub fn write_v1_cancellable<W: Write>(
+    version: &ResultVersion,
+    identity: SnapshotIdentity<'_>,
+    source: &SourceMetadata,
+    output: &mut W,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<SnapshotWriteReport, Error> {
     if version.completeness() == ResultCompleteness::Cancelled {
         return Err(Error::Cancelled);
     }
@@ -169,6 +197,11 @@ pub fn write_v1<W: Write>(
     validate_source(&identity, source, roots, encoding)?;
     let root_items = root_items(items, roots.len())?;
     let root_links_and_volumes = volume_records(version, roots, &root_items)?;
+    let volume_ids = root_links_and_volumes
+        .volumes
+        .iter()
+        .map(|volume| volume.id.to_vec())
+        .collect();
     let volume_body = root_links_and_volumes
         .encode()
         .map_err(|_| Error::InvalidRecord)?;
@@ -206,11 +239,19 @@ pub fn write_v1<W: Write>(
         &mut decoded_length,
         1,
         &volume_body,
+        &mut cancelled,
     )?;
     for item_source in items {
         let record = item_record(version, item_source, roots)?;
         let body = record.encode(encoding).map_err(|_| Error::InvalidRecord)?;
-        write_record(&mut encoder, &mut framing, &mut decoded_length, 2, &body)?;
+        write_record(
+            &mut encoder,
+            &mut framing,
+            &mut decoded_length,
+            2,
+            &body,
+            &mut cancelled,
+        )?;
     }
     for gap_source in version.scope_gaps() {
         let root_index =
@@ -227,9 +268,23 @@ pub fn write_v1<W: Write>(
         }
         .encode(encoding, roots.len())
         .map_err(|_| Error::InvalidRecord)?;
-        write_record(&mut encoder, &mut framing, &mut decoded_length, 3, &body)?;
+        write_record(
+            &mut encoder,
+            &mut framing,
+            &mut decoded_length,
+            3,
+            &body,
+            &mut cancelled,
+        )?;
     }
-    write_record(&mut encoder, &mut framing, &mut decoded_length, 0x7f, &[])?;
+    write_record(
+        &mut encoder,
+        &mut framing,
+        &mut decoded_length,
+        0x7f,
+        &[],
+        &mut cancelled,
+    )?;
     framing.finish().map_err(|()| Error::InvalidRecord)?;
 
     let mut digest_writer = encoder.finish().map_err(Error::Io)?;
@@ -242,10 +297,60 @@ pub fn write_v1<W: Write>(
     footer.extend(record_count.to_le_bytes());
     footer.extend(decoded_length.to_le_bytes());
     digest_writer.write_all(&footer).map_err(Error::Io)?;
-    let DigestWriter { inner, hasher, .. } = digest_writer;
-    inner
-        .write_all(hasher.finalize().as_bytes())
-        .map_err(Error::Io)
+    let DigestWriter {
+        inner,
+        hasher,
+        written,
+    } = digest_writer;
+    let body_hash = *hasher.finalize().as_bytes();
+    inner.write_all(&body_hash).map_err(Error::Io)?;
+    let condition_summary_json = match &source.condition_summary {
+        ConditionSummary::Known(entries) => {
+            serde_json::to_string(&json!({"state": "known", "entries": entries}))
+        }
+        ConditionSummary::Unknown => serde_json::to_string(&json!({"state": "unknown"})),
+    }
+    .map_err(|_| Error::InvalidMetadata)?;
+    let scope_marker = version
+        .scope_fingerprint()
+        .filter(|fingerprint| {
+            fingerprint.len() == 64
+                && fingerprint
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+        .and_then(|fingerprint| {
+            let (pairs, _) = fingerprint.as_bytes().as_chunks::<2>();
+            pairs
+                .iter()
+                .map(|pair| {
+                    let digits = std::str::from_utf8(pair).map_err(|_| Error::InvalidMetadata)?;
+                    u8::from_str_radix(digits, 16).map_err(|_| Error::InvalidMetadata)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .ok()
+        })
+        .unwrap_or_default();
+    Ok(SnapshotWriteReport {
+        body_size: written.checked_add(32).ok_or(Error::Limit)?,
+        body_hash,
+        condition_summary_json,
+        scope_marker,
+        completeness: match version.completeness() {
+            ResultCompleteness::Complete => {
+                du_core_contracts::snapshot_index::SnapshotIndexCompleteness::Complete
+            }
+            ResultCompleteness::Partial => {
+                du_core_contracts::snapshot_index::SnapshotIndexCompleteness::Partial
+            }
+            ResultCompleteness::Missing => {
+                du_core_contracts::snapshot_index::SnapshotIndexCompleteness::Missing
+            }
+            ResultCompleteness::Cancelled => return Err(Error::Cancelled),
+        },
+        format_version: envelope::DUSNAP_FORMAT_VERSION,
+        volume_ids,
+    })
 }
 
 fn metadata_bytes(
@@ -335,7 +440,11 @@ fn write_record<W: Write>(
     decoded_length: &mut u64,
     kind: u8,
     body: &[u8],
+    cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), Error> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     let length =
         u32::try_from(body.len().checked_add(1).ok_or(Error::Limit)?).map_err(|_| Error::Limit)?;
     let mut frame = Vec::with_capacity(body.len().saturating_add(5));

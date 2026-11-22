@@ -136,6 +136,8 @@ pub(super) fn register_desktop(
         recent_capacity,
     )
     .map_err(|error| report_pre_window_error(capabilities, error))?;
+    crate::snapshot_save::register(&services, builder, database)
+        .map_err(|error| report_pre_window_error(capabilities, error))?;
     let history_prune_trigger = if let Some((expiry_reader, undo_info, policy_changed)) = retention
     {
         Some(
