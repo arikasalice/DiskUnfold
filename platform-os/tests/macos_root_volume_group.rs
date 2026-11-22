@@ -69,6 +69,43 @@ fn find_entry(
     }
 }
 
+/// #351: the volumes of one APFS container report their own usage, not the container's,
+/// and the sealed system volume names the container of its disk.
+#[test]
+fn each_volume_of_the_container_reports_its_own_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let mounts = MacVolumes
+        .enumerate()
+        .mounts
+        .map_err(|error| format!("mount enumeration failed: {error:?}"))?;
+    let find = |path: &[u8]| {
+        mounts
+            .iter()
+            .find(|mount| mount.mount_path == path)
+            .ok_or("mount not listed")
+    };
+    let (system, data) = (find(b"/")?, find(b"/System/Volumes/Data")?);
+    assert!(system.container.is_some());
+    assert_eq!(system.container, data.container);
+    let total = data
+        .listed_capacity
+        .as_ref()
+        .ok_or("no listed capacity")?
+        .total_bytes;
+    let (system_used, data_used) = (
+        system.used_bytes.ok_or("no system usage")?,
+        data.used_bytes.ok_or("no data usage")?,
+    );
+    // Two volumes of one container use less than the container; the container's own
+    // used blocks would be reported twice and could not.
+    assert_ne!(system_used, data_used);
+    assert!(
+        system_used
+            .checked_add(data_used)
+            .is_some_and(|sum| sum < total)
+    );
+    Ok(())
+}
+
 #[test]
 fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::error::Error>> {
     let group = match MacVolumes.root_volume_group() {
@@ -77,6 +114,12 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
             return Err(format!("root volume group was not confirmed: {observation:?}").into());
         }
     };
+    assert!(
+        group
+            .system_name
+            .as_deref()
+            .is_some_and(|name| !name.is_empty())
+    );
     let firmlink_file = fs::read("/usr/share/firmlinks")?;
     let present_count = both_sides_present_count(&firmlink_file, &group.data_mount)?;
     // The list differs between macOS releases; the group holds exactly the rows
@@ -101,6 +144,9 @@ fn confirms_root_group_firmlinks_and_mount_roles() -> Result<(), Box<dyn std::er
         .into_iter()
         .map(|mount| (mount.mount_path.clone(), mount))
         .collect::<std::collections::BTreeMap<_, _>>();
+    let system = &mounts[b"/".as_slice()];
+    assert!(system.name.as_deref().is_some_and(|name| !name.is_empty()));
+    assert_eq!(system.name, group.system_name);
     assert_eq!(
         mounts[b"/System/Volumes/Data".as_slice()].group_role,
         Some(VolumeGroupRole::Data)

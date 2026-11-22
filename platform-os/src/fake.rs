@@ -6,6 +6,9 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
+mod change_ops;
+pub use change_ops::{FakeChangeCall, FakeChangeLookupGate, FakeChangeOps};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Directory,

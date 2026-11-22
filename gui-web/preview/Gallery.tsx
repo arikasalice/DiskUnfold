@@ -40,6 +40,11 @@ import { BrowseScanStatusPreview } from "./BrowseScanStatusPreview";
 import { ScanLanesPreview } from "./ScanLanesPreview";
 import { DatePickerPreview } from "./DatePickerPreview";
 import { JobCenterPreview } from "./JobCenterPreview";
+import { HistoryRetentionPreview } from "./HistoryRetentionPreview";
+import { SpaceUndrawnPreview } from "./SpaceUndrawnPreview";
+import { HistogramListPreview } from "./HistogramListPreview";
+import { TargetPickerPreview } from "./TargetPickerPreview";
+import { TypeSlicesPreview } from "./TypeSlicesPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -75,16 +80,34 @@ const stateOptions: { value: SurfaceState; label: string }[] = [
   { value: "unavailable", label: "사용 불가" },
 ];
 
+type GallerySurface =
+  | SurfaceId
+  | "history-retention"
+  | "space-undrawn"
+  | "histogram-list"
+  | "target-picker"
+  | "type-slices";
+
 /** The surface and theme named in the address, for a capture that opens on them. */
-function requested() {
+function requested(): {
+  surface: GallerySurface;
+  theme: "light" | "dark" | "system";
+  scene: string;
+} {
   const query = new URLSearchParams(window.location.search);
   const surface = query.get("surface");
   const theme = query.get("theme");
   return {
     surface:
-      surface !== null && Object.hasOwn(fixtures, surface)
-        ? (surface as SurfaceId)
-        : "workspace",
+      surface === "history-retention" ||
+      surface === "space-undrawn" ||
+      surface === "histogram-list" ||
+      surface === "target-picker" ||
+      surface === "type-slices"
+        ? surface
+        : surface !== null && Object.hasOwn(fixtures, surface)
+          ? (surface as SurfaceId)
+          : "workspace",
     theme: theme === "light" || theme === "dark" ? theme : "system",
     scene: query.get("scene") ?? "main",
   };
@@ -97,7 +120,9 @@ function applyTheme(value: string) {
 
 /** Development entry only: all data, mutations and recovery are synthetic. */
 export function Gallery() {
-  const [surface, setSurface] = useState<SurfaceId>(() => requested().surface);
+  const [surface, setSurface] = useState<GallerySurface>(
+    () => requested().surface,
+  );
   const [scene] = useState(() => requested().scene);
   const [state, setState] = useState<SurfaceState>("ready");
   const [theme, setTheme] = useState(() => {
@@ -111,7 +136,7 @@ export function Gallery() {
   const [checked, setChecked] = useState(false);
   const [draft, setDraft] = useState("");
   const [feedback, setFeedback] = useState("");
-  const fixture = fixtures[surface];
+
   const selectSurface = (value: SurfaceId) => {
     setSurface(value);
     setQuery("");
@@ -121,9 +146,25 @@ export function Gallery() {
     setDraft("");
     setFeedback("");
   };
+  if (surface === "history-retention") {
+    return <HistoryRetentionPreview scene={scene} />;
+  }
+  if (surface === "space-undrawn") {
+    return <SpaceUndrawnPreview scene={scene} />;
+  }
+  if (surface === "histogram-list") {
+    return <HistogramListPreview />;
+  }
+  if (surface === "target-picker") {
+    return <TargetPickerPreview />;
+  }
+  if (surface === "type-slices") {
+    return <TypeSlicesPreview scene={scene} />;
+  }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;
   }
+  const fixture = fixtures[surface];
   const context = (
     <>
       <StatusBadge>UI 검토용 샘플</StatusBadge>
@@ -260,7 +301,7 @@ export function Gallery() {
           context={context}
         >
           {surface === "summary" ? (
-            <ResultSummaryPreview />
+            <ResultSummaryPreview scene={scene} />
           ) : surface === "browse" ? (
             <BrowseScanStatusPreview />
           ) : surface === "history" ? (

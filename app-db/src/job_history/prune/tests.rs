@@ -2,6 +2,8 @@ use super::*;
 use rusqlite::params;
 use std::{collections::BTreeSet, time::Instant};
 
+mod approval_retention;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn writer(path: &std::path::Path) -> Result<AppDb, std::io::Error> {
@@ -143,6 +145,23 @@ fn delete_commits_all_job_rows_and_increments_generation_once() -> TestResult {
     let other = id(4);
     insert_history(&mut db, &target, 10, 1, 2)?;
     insert_history(&mut db, &other, 20, 2, 1)?;
+    db.connection.execute(
+        "INSERT INTO job_runtime_approval_check
+         (check_id, job_id, request_version_id, request_kind, version_hash,
+          hash_format, operation_kind, record_kind, check_result, approved_at_ms,
+          created_at_ms, correlation_id)
+         VALUES (?1, ?2, ?3, 'plan', zeroblob(32), 'du.plan.hash.v1', 'trash',
+                 'start', 'valid', 10, 101, ?4)",
+        params![
+            id(21).v7_bytes().ok_or("invalid check id")?.as_slice(),
+            target.v7_bytes().ok_or("invalid target")?.as_slice(),
+            id(22)
+                .v7_bytes()
+                .ok_or("invalid request version")?
+                .as_slice(),
+            id(23).v7_bytes().ok_or("invalid correlation")?.as_slice(),
+        ],
+    )?;
     let selected = candidates(&mut db, 10)?;
     let candidate = selected
         .iter()
@@ -157,7 +176,7 @@ fn delete_commits_all_job_rows_and_increments_generation_once() -> TestResult {
         receipt.deleted_job_ids.as_slice(),
         std::slice::from_ref(&target)
     );
-    assert_eq!(receipt.deleted_row_count, 5);
+    assert_eq!(receipt.deleted_row_count, 6);
     assert_eq!(receipt.revision.delete_generation, 1);
     for table in JOB_ID_TABLES {
         let remaining: i64 = db.connection.query_row(

@@ -4,16 +4,26 @@ use crate::{
     ports::{PortError, PortErrorKind},
 };
 
+/// Result of one optional OS capability lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapabilityState {
+    /// The requested operation is available.
     Supported,
+    /// The requested operation is available with limitations.
     Partial,
+    /// The requested operation is not available.
     Unsupported,
+    /// The capability does not apply to this volume or platform (F11 FR2.HD1.app-host.DD2).
+    NotApplicable,
+    /// The platform could not establish whether the capability is available (F11 FR2.HD1.app-host.DD2).
+    Unknown,
 }
 
+/// A capability value with an optional stable explanation key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capability {
     pub state: CapabilityState,
+    /// None means there is no additional explanation key.
     pub reason_key: Option<&'static str>,
 }
 
@@ -83,6 +93,8 @@ pub struct VolumeMount {
     pub mount_path: Vec<u8>,
     /// Human-readable display text; never reopen or compare a path from it.
     pub display_path: String,
+    /// Volume name reported by the operating system, when available.
+    pub name: Option<String>,
     pub filesystem: Vec<u8>,
     /// mountinfo source, which may be a device, network source, or non-path label.
     pub mount_source: Vec<u8>,
@@ -156,6 +168,8 @@ pub struct ConfirmedFirmlink {
 pub struct RootVolumeGroup {
     /// Mount path of the data volume, such as `/System/Volumes/Data`.
     pub data_mount: Vec<u8>,
+    /// Name reported for the system volume root, when available.
+    pub system_name: Option<String>,
     /// The device that `/` and the data volume both report.
     pub device: u64,
     /// Inode reported for the Data mount point entry by its parent directory's enumeration.

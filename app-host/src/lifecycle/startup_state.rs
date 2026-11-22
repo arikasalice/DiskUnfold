@@ -36,6 +36,12 @@ pub(super) fn open(
     let first_run = opened.first_run;
     startup_observed.push(crate::startup_checks::data_format_and_open_observation());
     let database = opened.database;
+    let initial_ruleset =
+        du_engine_api::plan::built_in_protection_ruleset_row(crate::settings::current_time_ms())
+            .map_err(|_| report(io::Error::other("protect.ruleset_unavailable")))?;
+    database
+        .initialize_builtin_ruleset_if_empty(&initial_ruleset)
+        .map_err(|_| report(io::Error::other("protect.ruleset_unavailable")))?;
     let settings = StartupSettings::load(&database, &configured).map_err(report)?;
     let stored = settings.stored_language().map_err(report)?;
     let locale = Arc::new(crate::locale::initialize(bundles, stored.as_deref()).map_err(report)?);

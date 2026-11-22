@@ -1,0 +1,31 @@
+/* The info card of a chart shape (F06 README 8, 22): no motion, nothing to press. */
+.du-chart-card {
+  position: fixed;
+  z-index: 20;
+  max-inline-size: min(320px, calc(100vw - 16px));
+  padding: 8px 12px;
+  border: 1px solid var(--du-border);
+  border-radius: var(--du-radius);
+  background: var(--du-surface);
+  box-shadow: var(--du-shadow);
+  color: var(--du-text);
+  pointer-events: auto;
+}
+
+.du-chart-card__title {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.du-chart-card__line {
+  margin: 2px 0 0;
+  color: var(--du-muted);
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  .du-chart-card {
+    border-color: CanvasText;
+  }
+}

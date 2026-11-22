@@ -104,6 +104,24 @@ export const summaryTotal: SpaceTotal = {
   untraversedLinks: "0",
 };
 
+export const sharedLimitSummaryTotal: SpaceTotal = {
+  ...summaryTotal,
+  completeness: "missing",
+  sizes: summaryTotal.sizes.map((entry) =>
+    entry.size.basis === "allocated"
+      ? {
+          ...entry,
+          size: { ...entry.size, state: "lower_bound", bytes: "2090000000000" },
+          completeness: "missing",
+          measurementLimits: [
+            ...entry.measurementLimits,
+            "space.allocated_may_include_shared",
+          ],
+        }
+      : entry,
+  ),
+};
+
 const folder: BrowseDetail = {
   item: { resultVersion: version, itemNo: 0 },
   displayPath: { state: "present", value: root.display },

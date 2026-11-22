@@ -48,11 +48,11 @@ impl UseCase for Query {
         let facts = version
             .space_detail(&request.item)
             .map_err(super::query_error)?;
-        Ok(project(&version, facts))
+        project(&version, facts)
     }
 }
 
-fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
+fn project(version: &ResultVersion, facts: ItemEvidence) -> Result<SpaceDetail, EngineError> {
     let aggregate = version.space(facts.item.item_no);
     let observed_at = version.item_observed_at(facts.item.item_no).map_or_else(
         || unknown(UNAVAILABLE),
@@ -74,7 +74,8 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
             size(value, aggregate)
         }
     };
-    SpaceDetail {
+    let folder_flags = crate::browse::folder::collection::detail_flags(version, &facts.item)?;
+    Ok(SpaceDetail {
         item: facts.item,
         logical: size(facts.logical, aggregate.as_ref()),
         allocated: physical(facts.allocated, aggregate.as_ref()),
@@ -90,7 +91,8 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         data_source: Some(du_core_contracts::result::ResultVersionRead::data_source(
             version,
         )),
-    }
+        folder_flags,
+    })
 }
 
 fn exclusive_parts(

@@ -385,8 +385,23 @@ fn version_five_database_upgrades_to_six_and_keeps_existing_data() -> TestResult
             &HISTORY_DEFINITIONS
         )
         .map_err(|e| format!("{e:?}"))?,
-        HISTORY_SCHEMA_VERSION
+        8
     );
+    for step in HISTORY_DEFINITIONS
+        .steps
+        .iter()
+        .filter(|step| step.number > 8)
+    {
+        assert_eq!(
+            migration::apply_next(
+                &path,
+                &dir.path().join(format!("before-{}.db", step.number)),
+                &HISTORY_DEFINITIONS
+            )
+            .map_err(|e| format!("{e:?}"))?,
+            step.number
+        );
+    }
     let mut db = AppDb::open_gui_with_history(&path).map_err(|e| format!("{e:?}"))?;
     assert_eq!(db.schema_version()?, HISTORY_SCHEMA_VERSION);
     let kept: (String, i64, i64) = db.connection.query_row(

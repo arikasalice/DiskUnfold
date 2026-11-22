@@ -36,16 +36,31 @@ use worker_loop::worker_loop;
 /// Sends observation events through the lane wait meter.
 trait SendMetered {
     fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>>;
+    fn try_send(&self, event: Event) -> Result<(), mpsc::TrySendError<Event>>;
 }
 
 impl SendMetered for SyncSender<Event> {
     /// Counts a failure on the bound lane and sends; a full channel counts as
     /// the lane's backpressure while it blocks.
     fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
-        if matches!(event, Event::Failure { .. }) {
+        if event.counts_as_lane_failure() {
             lane_meter::failed();
         }
         lane_meter::send(self, event)
+    }
+
+    fn try_send(&self, event: Event) -> Result<(), mpsc::TrySendError<Event>> {
+        SyncSender::try_send(self, event)
+    }
+}
+
+impl SendMetered for EventSender {
+    fn send_metered(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
+        EventSender::send_metered(self, event)
+    }
+
+    fn try_send(&self, event: Event) -> Result<(), mpsc::TrySendError<Event>> {
+        EventSender::try_send(self, event)
     }
 }
 
@@ -58,6 +73,7 @@ pub(super) fn worker(
 ) {
     if let Some(seat) = SeatGuard::register(shared) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let sender = EventSender::new(sender, shared.observation_metrics.clone());
             worker_loop(shared, seat.index, &sender, context, policy, &*flow)
         }));
         drop(seat);
@@ -128,7 +144,7 @@ struct Claim<'a> {
 fn process(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     turn: &mut Turn<'_>,
@@ -163,7 +179,7 @@ fn process(
 fn process_remaining(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     started: bool,
@@ -226,7 +242,7 @@ fn process_remaining(
 fn open_turn(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
     policy: Policy<'_>,
     turn: &mut Turn<'_>,
@@ -258,7 +274,7 @@ enum Observed {
 fn observe_once(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
 ) -> Observed {
     if frame.case_observed {
@@ -287,7 +303,7 @@ fn observe_once(
 }
 
 /// Reports names withheld by an undecidable exclusion as unread ranges.
-fn send_undecided(frame: &Frame, names: Vec<Vec<u8>>, sender: &SyncSender<Event>) -> bool {
+fn send_undecided(frame: &Frame, names: Vec<Vec<u8>>, sender: &dyn SendMetered) -> bool {
     names.into_iter().all(|name| {
         let mut path = frame.path.clone();
         path.push(name);
@@ -300,7 +316,7 @@ fn send_undecided(frame: &Frame, names: Vec<Vec<u8>>, sender: &SyncSender<Event>
 fn process_batch(
     mut frame: Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     (context, policy): (&dyn JobContext, Policy<'_>),
     turn: &mut Turn<'_>,
     outcome: Result<Option<Vec<TimedObservedEntry>>, ReadFailure>,
@@ -365,7 +381,7 @@ fn process_batch(
 
 fn finish_directory(
     frame: &Frame,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     shared: &Shared,
     context: &dyn JobContext,
 ) -> bool {
@@ -381,7 +397,7 @@ fn finish_directory(
 
 /// Reports the entries excluded directly below `frame` once, when its
 /// listing ended (`complete`) or stopped; nothing is sent for none.
-fn send_excluded(frame: &Frame, complete: bool, sender: &SyncSender<Event>) -> bool {
+fn send_excluded(frame: &Frame, complete: bool, sender: &dyn SendMetered) -> bool {
     let Some((count, complete)) = record::excluded_children(frame.excluded, complete) else {
         return true;
     };
@@ -397,7 +413,7 @@ fn send_excluded(frame: &Frame, complete: bool, sender: &SyncSender<Event>) -> b
 
 fn publish_first_batch(
     frame: &mut Frame,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
 ) -> bool {
     if frame.root && frame.first_batch {
@@ -410,7 +426,7 @@ fn publish_first_batch(
     true
 }
 
-fn send_root_batch(frame: &Frame, sender: &SyncSender<Event>, context: &dyn JobContext) -> bool {
+fn send_root_batch(frame: &Frame, sender: &dyn SendMetered, context: &dyn JobContext) -> bool {
     if context.checkpoint() == Checkpoint::Cancel {
         return true;
     }

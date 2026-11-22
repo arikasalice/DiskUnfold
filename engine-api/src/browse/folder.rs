@@ -2,7 +2,7 @@
 //!
 //! The desktop adapter shares this registry between folder opens and pages.
 mod admission;
-mod collection;
+pub(crate) mod collection;
 pub(crate) mod commands;
 pub mod cursor;
 pub mod job;
@@ -64,6 +64,7 @@ pub struct Breadcrumb {
     pub name: Vec<u8>,
     /// Uses the observed absolute path for a real scope root.
     pub display_name: Option<String>,
+    pub is_startup_volume: bool,
 }
 
 /// A returned observation and its independently observed size states.
@@ -433,15 +434,24 @@ fn open_location(
         result_version: version.version_id().clone(),
         item_no,
     };
+    let startup_root = cursor::context::startup_volume_root(version);
     let breadcrumbs = view
         .breadcrumbs
         .into_iter()
         .map(|item| {
             let item_ref = reference(item.item_no);
+            let is_startup_volume = startup_root
+                .as_ref()
+                .is_some_and(|root| root.item_no == item.item_no);
             Breadcrumb {
-                display_name: super::item_display_name(version, &item_ref, item),
+                display_name: startup_root
+                    .as_ref()
+                    .filter(|root| root.item_no == item.item_no)
+                    .and_then(|root| root.name.clone())
+                    .or_else(|| super::item_display_name(version, &item_ref, item)),
                 item: item_ref,
                 name: item.name.clone(),
+                is_startup_volume,
             }
         })
         .collect();

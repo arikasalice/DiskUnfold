@@ -3,13 +3,14 @@ import type { ReactNode, Ref, RefObject } from "react";
 import {
   Action,
   LiveStatus,
+  MiddleEllipsisText,
   Notice,
   Progress,
   Readout,
   Text,
 } from "../../components";
 import { scopeNoticeText } from "../../ipc";
-import type { JobState, ScopeDraft, ScopeReview } from "../../ipc";
+import type { JobState, OsPath, ScopeDraft, ScopeReview } from "../../ipc";
 import type { ScanControl } from "../../state/analysis-scan";
 import { useLocaleText } from "../../i18n/presentation";
 import type { LocaleText } from "../../i18n/presentation";
@@ -43,12 +44,16 @@ function ReviewNotices({
       </Notice>
     );
   if (ready)
-    return review.notices.map((notice) => (
-      <Notice key={notice}>{scopeNoticeText(notice, text)}</Notice>
-    ));
+    return review.notices
+      .filter((notice) => !isVolumeGroupNotice(notice))
+      .map((notice) => (
+        <Notice key={notice}>{scopeNoticeText(notice, text)}</Notice>
+      ));
 
   const messages = new Set(
-    review.notices.map((notice) => scopeNoticeText(notice, text)),
+    review.notices
+      .filter((notice) => !isVolumeGroupNotice(notice))
+      .map((notice) => scopeNoticeText(notice, text)),
   );
   for (const target of review.targets) {
     if (target.access !== "accessible" && target.reasonKey)
@@ -61,11 +66,92 @@ function ReviewNotices({
         "One or more selected paths could not be verified. Review all paths before starting.",
       ),
     );
+  const lines = [...messages];
   return (
     <Notice tone="error" id={problemId}>
-      {[...messages].map((message) => (
+      {lines.map((message) => (
         <Text key={message}>{message}</Text>
       ))}
+    </Notice>
+  );
+}
+
+function isVolumeGroupNotice(notice: string) {
+  return (
+    notice === "scope.volume_group_merged" ||
+    notice === "scope.volume_group_unverified"
+  );
+}
+
+/** Selects the supported recovery action from the reviewed notice and suggestion. */
+function chooseFolderAction(
+  review: ScopeReview,
+  onChooseFolder: (suggestedInclude?: OsPath) => void,
+  text: LocaleText,
+) {
+  const suggestedInclude = review.suggestedInclude;
+  if (
+    suggestedInclude &&
+    review.notices.includes("scope.volume_group_unverified")
+  ) {
+    const marker = "\uE000path\uE001";
+    const label = text(
+      "ui.analysis.analyze_home_folder",
+      "Analyze home folder ({path})",
+      { path: marker },
+    );
+    const [prefix, suffix = ""] = label.split(marker);
+    return (
+      <Action onPress={() => onChooseFolder(suggestedInclude)}>
+        {prefix}
+        <MiddleEllipsisText text={suggestedInclude.display} />
+        {suffix}
+      </Action>
+    );
+  }
+  return (
+    <Action onPress={() => onChooseFolder()}>
+      {text("ui.analysis.choose_folder", "Choose a folder")}
+    </Action>
+  );
+}
+
+function VolumeGroupNotice({
+  review,
+  onChooseFolder,
+}: {
+  review: ScopeReview;
+  onChooseFolder: (suggestedInclude?: OsPath) => void;
+}) {
+  const text = useLocaleText();
+  const merged = review.notices.includes("scope.volume_group_merged");
+  const unverified = review.notices.includes("scope.volume_group_unverified");
+  if (!merged && !unverified) return null;
+  return (
+    <Notice tone={unverified ? "warning" : "info"}>
+      {unverified
+        ? text(
+            "ui.analysis.volume_group_unverified",
+            "The data volume couldn't be confirmed, so only the system volume is analyzed. User files aren't included.",
+          )
+        : text(
+            "ui.analysis.volume_group_merged",
+            "The system and data volumes are analyzed together. Each file is counted once.",
+          )}
+      {unverified && chooseFolderAction(review, onChooseFolder, text)}
+    </Notice>
+  );
+}
+
+export function ResultGroupNotice({ unverified }: { unverified: boolean }) {
+  const text = useLocaleText();
+  if (!unverified) return null;
+  return (
+    <Notice tone="warning">
+      {text(
+        "ui.analysis.volume_group_unverified",
+        "The data volume couldn't be confirmed, so only the system volume is analyzed. User files aren't included.",
+      )}
     </Notice>
   );
 }
@@ -77,6 +163,7 @@ export function ScopeReviewFeedback({
   latestAccepted,
   problem,
   problemId,
+  onChooseFolder,
 }: {
   review: ScopeReview | undefined;
   ready: boolean;
@@ -84,6 +171,7 @@ export function ScopeReviewFeedback({
   latestAccepted: boolean;
   problem: string | undefined;
   problemId: string;
+  onChooseFolder: (suggestedInclude?: OsPath) => void;
 }) {
   const text = useLocaleText();
   if (!review && !problem) return null;
@@ -120,6 +208,9 @@ export function ScopeReviewFeedback({
           }
           rows={reviewRows(review.scope, text)}
         />
+      )}
+      {review && current && (
+        <VolumeGroupNotice review={review} onChooseFolder={onChooseFolder} />
       )}
     </section>
   );

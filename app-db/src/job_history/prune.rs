@@ -18,7 +18,11 @@ const JOB_ID_TABLES: &[&str] = &[
     "job_runtime_job_link",
     "job_runtime_job_record",
     "job_runtime_job_scope_root",
+    "job_runtime_approval_check",
 ];
+
+/// F28 retains approval rows without a live job-history link for a fixed 90 days.
+const UNLINKED_APPROVAL_RETENTION_DAYS: u32 = 90;
 
 impl AppDb {
     /// Reads one keyset page of expired jobs and their attached row counts.
@@ -100,6 +104,7 @@ impl AppDb {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_delete_error)?;
         let cutoff_ms = cutoff(days, reference_ms);
+        let unlinked_approval_cutoff_ms = cutoff(UNLINKED_APPROVAL_RETENTION_DAYS, reference_ms);
         let mut eligible = Vec::new();
         for candidate in candidates {
             let bytes = candidate
@@ -141,7 +146,32 @@ impl AppDb {
             }
         }
 
-        if eligible.is_empty() {
+        let has_expired_unlinked_approval_check: bool = tx
+            .query_row(
+                "SELECT EXISTS (
+                    SELECT 1
+                    FROM job_runtime_approval_check AS approval
+                    WHERE approval.created_at_ms <= ?1
+                      AND (
+                          approval.job_id IS NULL
+                          OR (
+                              NOT EXISTS (
+                                  SELECT 1 FROM job_runtime_job_record AS record
+                                  WHERE record.job_id = approval.job_id
+                              )
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM job_runtime_job_interrupt AS interrupted
+                                  WHERE interrupted.job_id = approval.job_id
+                              )
+                          )
+                      )
+                )",
+                [unlinked_approval_cutoff_ms],
+                |row| row.get(0),
+            )
+            .map_err(map_delete_error)?;
+
+        if eligible.is_empty() && !has_expired_unlinked_approval_check {
             let revision = read_revision(&tx).map_err(map_delete_error)?;
             tx.commit().map_err(map_delete_error)?;
             return Ok(HistoryPruneDeleteReceipt {
@@ -172,23 +202,52 @@ impl AppDb {
             .collect::<Vec<_>>();
         let mut deleted_row_count = 0_u64;
         let mut deleted_job_ids = Vec::new();
-        for table in JOB_ID_TABLES {
-            let sql = format!("DELETE FROM {table} WHERE job_id IN ({placeholders})");
-            let deleted = tx
-                .execute(&sql, rusqlite::params_from_iter(sql_params.iter()))
-                .map_err(map_delete_error)?;
-            deleted_row_count = deleted_row_count
-                .checked_add(
-                    u64::try_from(deleted).map_err(|_| HistoryPruneDeleteError::Unavailable)?,
-                )
-                .ok_or(HistoryPruneDeleteError::Unavailable)?;
-            if *table == "job_runtime_job_link" {
-                if deleted != eligible.len() {
-                    return Err(HistoryPruneDeleteError::Unavailable);
+        if !eligible.is_empty() {
+            for table in JOB_ID_TABLES {
+                let sql = format!("DELETE FROM {table} WHERE job_id IN ({placeholders})");
+                let deleted = tx
+                    .execute(&sql, rusqlite::params_from_iter(sql_params.iter()))
+                    .map_err(map_delete_error)?;
+                deleted_row_count = deleted_row_count
+                    .checked_add(
+                        u64::try_from(deleted).map_err(|_| HistoryPruneDeleteError::Unavailable)?,
+                    )
+                    .ok_or(HistoryPruneDeleteError::Unavailable)?;
+                if *table == "job_runtime_job_link" {
+                    if deleted != eligible.len() {
+                        return Err(HistoryPruneDeleteError::Unavailable);
+                    }
+                    deleted_job_ids = eligible.iter().copied().map(Id::from_v7_bytes).collect();
                 }
-                deleted_job_ids = eligible.iter().copied().map(Id::from_v7_bytes).collect();
             }
         }
+
+        let deleted_unlinked_approvals = tx
+            .execute(
+                "DELETE FROM job_runtime_approval_check AS approval
+                 WHERE approval.created_at_ms <= ?1
+                   AND (
+                       approval.job_id IS NULL
+                       OR (
+                           NOT EXISTS (
+                               SELECT 1 FROM job_runtime_job_record AS record
+                               WHERE record.job_id = approval.job_id
+                           )
+                           AND NOT EXISTS (
+                               SELECT 1 FROM job_runtime_job_interrupt AS interrupted
+                               WHERE interrupted.job_id = approval.job_id
+                           )
+                       )
+                   )",
+                [unlinked_approval_cutoff_ms],
+            )
+            .map_err(map_delete_error)?;
+        deleted_row_count = deleted_row_count
+            .checked_add(
+                u64::try_from(deleted_unlinked_approvals)
+                    .map_err(|_| HistoryPruneDeleteError::Unavailable)?,
+            )
+            .ok_or(HistoryPruneDeleteError::Unavailable)?;
 
         if deleted_row_count > 0 {
             let updated = tx

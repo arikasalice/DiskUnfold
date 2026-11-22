@@ -31,7 +31,8 @@ pub(crate) enum Exposure {
 /// Returns the exposure of a result of `source` on `channel`.
 pub(crate) fn exposure(source: DataSource, channel: Channel) -> Exposure {
     match (channel, source) {
-        (Channel::Gui, _) | (Channel::Mcp | Channel::Cli, DataSource::Real) => Exposure::Allow,
+        (Channel::Gui, _)
+        | (Channel::Mcp | Channel::Cli, DataSource::Real | DataSource::Snapshot) => Exposure::Allow,
         (Channel::Mcp | Channel::Cli, DataSource::Sample) => Exposure::Hide,
     }
 }
@@ -161,7 +162,7 @@ mod tests {
     #[test]
     fn exposure_table_hides_samples_only_from_external_channels() {
         use Channel::{Cli, Gui, Mcp};
-        use DataSource::{Real, Sample};
+        use DataSource::{Real, Sample, Snapshot};
         use Exposure::{Allow, Hide};
         let rows = [
             (Real, Gui, Allow),
@@ -169,6 +170,9 @@ mod tests {
             (Real, Mcp, Allow),
             (Sample, Mcp, Hide),
             (Real, Cli, Allow),
+            (Snapshot, Gui, Allow),
+            (Snapshot, Mcp, Allow),
+            (Snapshot, Cli, Allow),
             (Sample, Cli, Hide),
         ];
         for (source, channel, expected) in rows {
@@ -181,15 +185,30 @@ mod tests {
     }
 
     #[test]
+    fn external_snapshot_source_wire_value_is_kind_only() -> Result<(), String> {
+        let wire = serde_json::to_value(DataSource::Snapshot).map_err(|error| error.to_string())?;
+        assert_eq!(wire, serde_json::json!("snapshot"));
+        assert!(wire.get("snapshotId").is_none());
+        assert!(wire.get("snapshot_id").is_none());
+        for channel in [Channel::Mcp, Channel::Cli] {
+            assert_eq!(exposure(DataSource::Snapshot, channel), Exposure::Allow);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn hidden_sources_fail_as_unavailable_references() -> Result<(), String> {
         use Channel::{Cli, Gui, Mcp};
-        use DataSource::{Real, Sample};
+        use DataSource::{Real, Sample, Snapshot};
         let rows = [
             (Real, Gui, true),
             (Sample, Gui, true),
             (Real, Mcp, true),
             (Sample, Mcp, false),
             (Real, Cli, true),
+            (Snapshot, Gui, true),
+            (Snapshot, Mcp, true),
+            (Snapshot, Cli, true),
             (Sample, Cli, false),
         ];
         for (source, channel, allowed) in rows {
@@ -215,6 +234,8 @@ mod tests {
             (DataSource::Sample, Channel::Cli, false),
             (DataSource::Sample, Channel::Gui, true),
             (DataSource::Real, Channel::Mcp, true),
+            (DataSource::Snapshot, Channel::Mcp, true),
+            (DataSource::Snapshot, Channel::Cli, true),
         ];
         for (source, channel, allowed) in rows {
             let version = Version(id.clone(), source);

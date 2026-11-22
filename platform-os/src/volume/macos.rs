@@ -119,8 +119,13 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
     };
     let system_role = system_role(&mount_path, flags);
     let container = container(&mount_source);
+    let used = used_bytes(entry, &mount_path);
+    let name = CString::new(mount_path.as_slice())
+        .ok()
+        .and_then(|path| volume::mount_name(&path));
     Ok(VolumeMount {
         display_path: String::from_utf8_lossy(&mount_path).into_owned(),
+        name,
         volume_id: identity(entry, &mount_path),
         role: role(&filesystem),
         mount_path,
@@ -135,10 +140,21 @@ fn mount(entry: &libc::statfs) -> Result<VolumeMount, PortError> {
         group_role,
         system_role,
         container,
-        used_bytes: entry
+        used_bytes: used,
+    })
+}
+
+/// The volume's own usage when it reports one; otherwise the listing's used blocks,
+/// which on APFS describe the whole container (#351).
+fn used_bytes(entry: &libc::statfs, mount_path: &[u8]) -> Option<u64> {
+    let own = CString::new(mount_path)
+        .ok()
+        .and_then(|path| volume::mount_used_bytes(&path, volume::fsid(entry)));
+    own.or_else(|| {
+        entry
             .f_blocks
             .checked_sub(entry.f_bfree)
-            .and_then(|blocks| blocks.checked_mul(u64::from(entry.f_bsize))),
+            .and_then(|blocks| blocks.checked_mul(u64::from(entry.f_bsize)))
     })
 }
 
@@ -162,6 +178,11 @@ fn system_role(path: &[u8], flags: u32) -> Option<SystemVolumeRole> {
 }
 
 fn container(source: &[u8]) -> Option<Vec<u8>> {
+    // A sealed system volume is mounted from its snapshot: `<snapshot>@/dev/diskNsM`.
+    let source = source
+        .iter()
+        .rposition(|&byte| byte == b'@')
+        .map_or(source, |at| &source[at + 1..]);
     let name = source.strip_prefix(b"/dev/")?;
     let rest = name.strip_prefix(b"disk")?;
     let separator = rest.iter().position(|&byte| byte == b's')?;
@@ -170,7 +191,9 @@ fn container(source: &[u8]) -> Option<Vec<u8>> {
     if number.is_empty()
         || slice.is_empty()
         || !number.iter().all(u8::is_ascii_digit)
-        || !slice.iter().all(u8::is_ascii_digit)
+        // `3`, or `3s1` for a volume mounted from a snapshot of its own.
+        || !slice.iter().all(|byte| byte.is_ascii_digit() || *byte == b's')
+        || !slice.last().is_some_and(u8::is_ascii_digit)
     {
         return None;
     }
@@ -309,6 +332,18 @@ impl VolumePort for MacVolumes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #351: a sealed system volume is mounted from its snapshot, and still shares
+    /// the container of its disk.
+    #[test]
+    fn a_snapshot_mounted_volume_names_the_container_of_its_disk() {
+        assert_eq!(
+            container(b"com.apple.os.update-ABCDEF@/dev/disk3s3s1"),
+            Some(b"disk3".to_vec())
+        );
+        assert_eq!(container(b"/dev/disk3s6"), Some(b"disk3".to_vec()));
+        assert_eq!(container(b"map auto_home"), None);
+    }
 
     /// A record with the given mount path and file system names.
     fn entry(mount_path: &[u8], filesystem: &[u8]) -> libc::statfs {

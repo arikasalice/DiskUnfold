@@ -235,7 +235,7 @@ function Get-UiName([string]$name) {
 }
 # The settings database exists only after a first start: start the app once, close it, then store the
 # display language in it with python's sqlite3 and let the real start read it.
-function Initialize-SmokeLocale([string]$language, [string]$scale = '100') {
+function Initialize-SmokeLocale([string]$language, [string]$scale = '100', [switch]$SeedHistory) {
   $python = Get-Command python -ErrorAction SilentlyContinue
   if (-not $python) { throw 'python is needed to store the display language in the isolated profile' }
   $database = Join-Path $profile 'DiskUnfold\diskunfold.db'
@@ -256,17 +256,60 @@ function Initialize-SmokeLocale([string]$language, [string]$scale = '100') {
       if (-not $first.WaitForExit(15000)) { Stop-Process -Id $first.Id -Force; $first.WaitForExit() }
     }
   }
+  # History captures seed one old completed record using a different kind than the fresh scan.
   $seed = @'
-import sqlite3, sys
+import os, sqlite3, sys
+
+def uuid7(ms):
+    # The app reads job and correlation IDs as UUIDv7; a v4 ID would not read back.
+    raw = bytearray(ms.to_bytes(6, "big") + os.urandom(10))
+    raw[6] = (raw[6] & 0x0F) | 0x70
+    raw[8] = (raw[8] & 0x3F) | 0x80
+    return bytes(raw)
+
 connection = sqlite3.connect(sys.argv[1])
 connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('locale.display_language', ?, 'owner', 0, 0, 1)", ('"' + sys.argv[2] + '"',))
 if sys.argv[3] != "100":
     connection.execute("INSERT OR REPLACE INTO user_env_setting (setting_key, value_json, modified_source, created_at_ms, updated_at_ms, row_version) VALUES ('a11y.app_scale', ?, 'owner', 0, 0, 1)", (sys.argv[3],))
 connection.execute("UPDATE user_env_setting_version SET settings_version = settings_version + 1, updated_at_ms = 0 WHERE version_key = 'settings'")
+if sys.argv[4] == "1":
+    old_ms = 1577836800000
+    job_id = uuid7(old_ms)
+    record_seq = connection.execute("SELECT last_record_seq + 1 FROM job_runtime_history_state WHERE state_key = 'history'").fetchone()[0]
+    # duplicate.check keeps a terminal summary only, so it has no start record.
+    connection.execute(
+        """
+        INSERT INTO job_runtime_job_record
+            (job_id, kind_id, kind_version, scope_summary, final_state,
+             completed_count, overwritten_count, failed_count, skipped_count,
+             unprocessed_count, started_at_ms, finished_at_ms, correlation_id,
+             created_at_ms)
+        VALUES (?, 'duplicate.check', 1, 'Old history retention fixture',
+                'done', 0, 0, 0, 0, 0, ?, ?, ?, ?)
+        """,
+        (job_id, old_ms, old_ms, uuid7(old_ms), old_ms),
+    )
+    connection.execute(
+        """
+        INSERT INTO job_runtime_job_link
+            (job_id, record_origin, reckon_at_ms, record_seq, created_at_ms)
+        VALUES (?, 'this_app', ?, ?, ?)
+        """,
+        (job_id, old_ms, record_seq, old_ms),
+    )
+    connection.execute(
+        """
+        UPDATE job_runtime_history_state
+        SET last_record_seq = ?, row_version = row_version + 1, updated_at_ms = ?
+        WHERE state_key = 'history'
+        """,
+        (record_seq, old_ms),
+    )
 connection.commit()
 connection.close()
 '@
-  $seed | & $python.Source - $database $language $scale
+  $seedHistoryValue = if ($SeedHistory) { '1' } else { '0' }
+  $seed | & $python.Source - $database $language $scale $seedHistoryValue
   if ($LASTEXITCODE -ne 0) { throw "Could not store the display language and app scale (python exit code $LASTEXITCODE)" }
 }
 Add-Type -TypeDefinition @'
@@ -310,7 +353,10 @@ if ($Locale -ne 'en') { Initialize-UiNames $Locale }
 $profile = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $profile | Out-Null
 $appEnvironment = @{ LOCALAPPDATA = $profile; DISKUNFOLD_DATA_DIR = (Join-Path $profile 'DiskUnfold') }
-if ($Locale -ne 'en' -or $AppScale -ne '100') { Initialize-SmokeLocale $Locale $AppScale }
+$seedHistory = $CaptureHistory -or $VerifyOperationHistory
+if ($Locale -ne 'en' -or $AppScale -ne '100' -or $seedHistory) {
+  Initialize-SmokeLocale $Locale $AppScale -SeedHistory:$seedHistory
+}
 # The WebView reports prefers-color-scheme from the Windows app color mode, which the app follows. Set
 # it for this run only and put it back in the final block below.
 $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
@@ -1684,6 +1730,7 @@ function Test-CaptureTreemapLink {
     if (Get-UINames | Where-Object { $_ -like 'redirect, *' }) { throw 'The junction was given an area' }
     # #175: the folder items table fits the window without scrolling sideways.
     # The scroll area's name fills a template with the table's own (translated) name.
+    Open-FolderRows
     $tableName = Get-UiName 'Items in this folder'
     $areaName = (Get-UiName 'Items in this folder scroll area').Replace('Items in this folder', $tableName)
     $tableArea = Wait-UI 'folder items table' { Find-UI $areaName $null } 30
@@ -1758,6 +1805,17 @@ function Wait-SmokeExpanded($title, [bool]$expanded, $how) {
     if ($toggle -and (Get-SmokeExpanded $toggle) -eq $expanded) { $toggle }
   }
 }
+# Under a chart the folder's rows open folded, since each shape has its info card (F06 README 22).
+# A histogram's rows are named by size range.
+function Open-FolderRows([string]$english = 'Items in this folder') {
+  $title = Get-UiName $english
+  $toggle = Wait-UI 'the folder rows toggle' { Find-UI $title $button }
+  if (-not (Get-SmokeExpanded $toggle)) {
+    # The disclosure exposes expand and collapse, not invoke.
+    $toggle.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $null = Wait-SmokeExpanded $title $true 'opening'
+  }
+}
 # Chooses the unique physical size basis in the display options of a finished scan.
 function Select-UniquePhysicalBasis {
   Wait-Details 'Display options' 'Size basis'
@@ -1821,12 +1879,25 @@ function Show-FallbackTable($scope) {
   Save-SmokeCapture '02-fallback-table-collapsed'
   Send-SmokeClick $x $y
   $toggle = Wait-SmokeExpanded $title $true 'mouse'
-  $toggle.SetFocus()
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x0D # VK_RETURN
   $toggle = Wait-SmokeExpanded $title $false 'Enter'
+  $null = Wait-SmokeFocus $title
   Send-SmokeKey 0x20 # VK_SPACE
   $null = Wait-SmokeExpanded $title $true 'Space'
   "Fallback table: $heading; $title folds and unfolds by mouse, Enter and Space (aria-expanded); $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
+}
+# A key goes to whatever holds the focus, so the toggle must hold it first. The panel
+# re-renders after each toggle, so the button is found again rather than reused, and
+# focused again until UI Automation reports keyboard focus on it.
+function Wait-SmokeFocus($name) {
+  Wait-UI "$name focused" {
+    $item = Find-UI $name $button
+    if ($item) {
+      if (-not $item.Current.HasKeyboardFocus) { $item.SetFocus() }
+      if ($item.Current.HasKeyboardFocus) { $item }
+    }
+  }
 }
 # #149: NTFS without block cloning shares no extents between files, so the unique physical size
 # basis counts every file and the chart draws both folders instead of an unavailable notice.
@@ -1913,6 +1984,8 @@ function Test-CaptureTypeNarrowing([switch]$Short, [switch]$List) {
   Save-SmokeCapture '01-narrowed-treemap' -Prepare { $null = Show-InWindow $clear }
   if ($Short) { return }
   # The table under the chart lists the same shapes: docs and clip.mp4 by their video bytes (46.10).
+  $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
+  Open-FolderRows
   $docs = @($window.FindAll($scopeTree, [Windows.Automation.PropertyCondition]::new($ae::NameProperty, 'docs')))
   Save-SmokeCapture '02-narrowed-table' -Prepare { if ($docs.Count -gt 0) { $null = Show-InWindow $docs[-1] } }
   # The bar chart narrows too: clip.mp4 and docs by their video bytes (#301).
@@ -2159,6 +2232,7 @@ function Test-CaptureHistogramGaps {
   # as a range. The last interval's button brings the rows into the window.
   $buttonType = [Windows.Automation.ControlType]::Button
   $buttonCondition = [Windows.Automation.PropertyCondition]::new($ae::ControlTypeProperty, $buttonType)
+  Open-FolderRows 'Items by size range'
   $openButton = { param($range) @($window.FindAll($scopeTree, $buttonCondition) | Where-Object { $_.Current.Name -like "*$range*" }) | Select-Object -First 1 }
   $openLast = Wait-UI 'the open button of the 1 GiB interval' { & $openButton '1 GiB*1 TiB' }
   $openEmpty = & $openButton '1 MiB*1 GiB'
@@ -2179,6 +2253,8 @@ function Test-CaptureHistogramGaps {
   $empty = Wait-UI 'the empty interval on the size axis' $emptyName 30
   "Empty interval on the size axis: '$($empty.Current.Name)'"
   Save-SmokeCapture '02-histogram-gaps-size'
+  # A new model opens its rows folded again.
+  Open-FolderRows 'Items by size range'
   $openLast = Wait-UI 'the open button on the size axis' { & $openButton '1 GiB*1 TiB' }
   Save-SmokeCapture '04-histogram-gaps-size-table' -Prepare { $null = Show-InWindow $openLast }
   "Histogram gaps capture: $Locale, $Theme, window $(if ($WindowSize) { $WindowSize } else { 'default' })"
@@ -2245,6 +2321,17 @@ function Test-CaptureTour {
   Invoke-UI (Wait-Enabled 'Browse folders' $true)
   $null = Wait-UI 'root.bin' { Find-UI 'root.bin' $null }
   Save-SmokeCapture '05-browse-folders'
+  if ($WindowSize -match '^1280x') {
+    $browseTasksEntry = Wait-TasksEntry
+    $browseBackEntry = Wait-VisibleAction 'Back to analysis'
+    $headerTopDelta = [Math]::Abs(
+      $browseTasksEntry.Current.BoundingRectangle.Top - $browseBackEntry.Current.BoundingRectangle.Top
+    )
+    if ($headerTopDelta -gt 4) {
+      throw "Browse app header actions wrapped at 1280 ($headerTopDelta px between Tasks and Back to analysis)"
+    }
+    "F21 #354 browse header row: Tasks and Back to analysis aligned ($headerTopDelta px)"
+  }
   # #145: the location path breaks after its separators on screen; the names UI Automation reads
   # for it should still be the path itself, without spaces at the breaks.
   $leaf = '*\' + (Split-Path -Leaf $scanRoot)
@@ -2318,6 +2405,139 @@ function Test-CaptureHistory {
       Select-Object -First 1
   }
   Save-SmokeCapture '01-operation-history'
+  $historyTasksEntry = Wait-TasksEntry
+  "F21 #342 tasks entry on history: $($historyTasksEntry.Current.Name)"
+  $retentionSettingsName = Get-UiName 'Retention'
+  $retentionEntry = Wait-VisibleAction $retentionSettingsName
+  Expand-UI $retentionEntry
+  $retentionTitleName = Get-UiName 'History retention'
+  $null = Wait-UI 'history retention panel title' {
+    Find-UI $retentionTitleName $null
+  }
+  $backToAnalysisName = Get-UiName 'Back to analysis'
+  $backToAnalysis = Wait-UI 'Back to analysis remains visible and enabled with retention open' {
+    $item = Find-UI $backToAnalysisName $button
+    if ($item -and $item.Current.IsEnabled -and -not $item.Current.IsOffscreen) { $item }
+  }
+  if (-not $backToAnalysis.Current.IsEnabled -or $backToAnalysis.Current.IsOffscreen) {
+    throw 'Back to analysis was unavailable while retention settings were open'
+  }
+  Save-SmokeCapture '09-retention-panel'
+  $autoCleanupName = Get-UiName 'Clean up automatically'
+  $findAutoCleanup = {
+    $nameCondition = [Windows.Automation.PropertyCondition]::new($ae::NameProperty, $autoCleanupName)
+    $matches = $window.FindAll($scopeTree, $nameCondition)
+    foreach ($item in $matches) {
+      $pattern = $null
+      if ($item.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) { return $item }
+    }
+    foreach ($item in $matches) {
+      $pattern = $null
+      if ($item.TryGetCurrentPattern([Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { return $item }
+    }
+  }
+  $autoCleanup = Wait-UI 'automatic cleanup switch' {
+    & $findAutoCleanup
+  }
+  $togglePattern = $null
+  if ($autoCleanup.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$togglePattern)) {
+    if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
+      throw 'Automatic cleanup was already on before the retention review'
+    }
+    $togglePattern.Toggle()
+  } else {
+    Invoke-UI $autoCleanup
+  }
+  $confirmationName = Get-UiName 'Turn on automatic cleanup?'
+  $null = Wait-UI 'automatic cleanup confirmation dialog' {
+    Find-UI $confirmationName $null
+  }
+  Save-SmokeCapture '10-retention-enable-confirmation'
+  $cancelName = Get-UiName 'Cancel'
+  $focusDeadline = [DateTime]::UtcNow.AddSeconds(3)
+  do {
+    $focused = $ae::FocusedElement
+    $focusedName = if ($focused) { $focused.Current.Name } else { '' }
+    if ($focusedName -eq $cancelName) { break }
+    Start-Sleep -Milliseconds 80
+  } while ([DateTime]::UtcNow -lt $focusDeadline)
+  "F21 #316 retention confirm focus: $focusedName"
+  if ($focusedName -ne $cancelName) {
+    throw "Retention confirmation focused '$focusedName' instead of '$cancelName'"
+  }
+  Send-SmokeKey 0x1B
+  $null = Wait-UI 'retention confirmation dismissed' {
+    -not (Find-UI $confirmationName $null)
+  }
+  $autoCleanup = Wait-UI 'automatic cleanup switch after cancellation' {
+    & $findAutoCleanup
+  }
+  $togglePattern = $null
+  if (-not $autoCleanup.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$togglePattern)) {
+    throw 'Automatic cleanup did not expose TogglePattern to verify it remained off'
+  }
+  if ($togglePattern.Current.ToggleState -ne [Windows.Automation.ToggleState]::Off) {
+    throw 'Automatic cleanup remained on after cancelling the confirmation'
+  }
+  # #362 scene: opening the Job Center from the history screen closes the retention panel and
+  # uses the width-specific panel layout.
+  Expand-UI (Wait-TasksEntry)
+  $jobCenterTitle = Get-UiName 'Tasks'
+  $null = Wait-UI 'job center panel with retention closed' {
+    (Find-UI (Get-UiName 'View all task history') $button) -and -not (Find-UI $retentionTitleName $null)
+  }
+  Save-SmokeCapture '11-job-center-over-history'
+  if ($WindowSize -match '^1280x') {
+    $null = Wait-VisibleAction $retentionSettingsName
+    $null = Wait-VisibleAction $backToAnalysisName
+    'F21 #362 history header actions remain available with the Job Center open at 1280px'
+  }
+  $tasksOnHistory = Wait-TasksEntry
+  $panelAction = Find-UI (Get-UiName 'View all task history') $button
+  if ($panelAction.Current.BoundingRectangle.Top -le $tasksOnHistory.Current.BoundingRectangle.Bottom) {
+    throw 'The Job Center panel covers the app header row on the history screen'
+  }
+  $scrollTargets = @()
+  $documentCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Document
+  )
+  $scrollTargets += @($window.FindAll($scopeTree, $documentCondition))
+  $paneCondition = [Windows.Automation.PropertyCondition]::new(
+    $ae::ControlTypeProperty,
+    [Windows.Automation.ControlType]::Pane
+  )
+  $panes = @($window.FindAll($scopeTree, $paneCondition))
+  if ($panes.Count -gt 0) {
+    $mainPane = $panes |
+      Sort-Object { $_.Current.BoundingRectangle.Width * $_.Current.BoundingRectangle.Height } -Descending |
+      Select-Object -First 1
+    $scrollTargets += $mainPane
+  }
+  $scrollPatternFound = $false
+  foreach ($target in $scrollTargets) {
+    $scroll = $null
+    if (-not $target.TryGetCurrentPattern([Windows.Automation.ScrollPattern]::Pattern, [ref]$scroll)) {
+      continue
+    }
+    $scrollPatternFound = $true
+    if ($scroll.Current.HorizontallyScrollable -or $scroll.Current.VerticallyScrollable) {
+      throw "The history document or main pane scrolls with the Job Center open (horizontal=$($scroll.Current.HorizontallyScrollable), vertical=$($scroll.Current.VerticallyScrollable))"
+    }
+  }
+  if (-not $scrollPatternFound) {
+    'History document and main pane: UI Automation exposes no ScrollPattern'
+  } else {
+    'History document and main pane: no horizontal or vertical scrolling'
+  }
+  "F21 #362 job center over history: retention panel closed, width-specific panel layout"
+  Send-SmokeKey 0x1B
+  # The closed panel stays in the tree (hidden); Escape returns focus to the Tasks entry instead.
+  $null = Wait-UI 'job center Escape focus restoration' {
+    $focused = $ae::FocusedElement
+    $taskName = Get-UiName 'Tasks'
+    if ($focused -and ($focused.Current.Name -eq $taskName -or $focused.Current.Name.StartsWith($taskName + ', '))) { $focused }
+  }
   $filterDisclosure = Wait-UI 'date and type filters disclosure' {
     $item = Find-UI 'Date and type filters' $button
     if ($item -and $item.Current.IsEnabled) { $item }

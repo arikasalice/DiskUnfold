@@ -107,7 +107,10 @@ fn multi_root_file_projection_uses_pinned_item_and_keeps_missing_evidence_unknow
         &old,
         old.space_detail(&reference(&old_id, 1))
             .map_err(|e| format!("{e:?}"))?,
-    );
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    // A folder carries its scan state, as its row does (F02 #347); a file has none.
+    assert!(folder.folder_flags.is_some());
     assert!(
         matches!(folder.logical, BrowseValue::Present { value } if matches!(value.size.amount, SizeAmount::LowerBound { .. }))
     );
@@ -159,7 +162,9 @@ fn assert_unknown_file_values(
         let projected = project(
             version,
             version.space_detail(item).map_err(|e| format!("{e:?}"))?,
-        );
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        assert!(projected.folder_flags.is_none());
         assert!(
             matches!(projected.logical, BrowseValue::Present { value } if value.size == logical(bytes))
         );
@@ -222,7 +227,8 @@ fn a_dataless_placeholder_reports_why_its_allocation_is_unknown() -> Result<(), 
     let detail = project(
         &version,
         version.space_detail(&item).map_err(|e| format!("{e:?}"))?,
-    );
+    )
+    .map_err(|e| format!("{e:?}"))?;
     let cause = BrowseValue::Unknown {
         reason_key: PLACEHOLDER_LOCAL_UNKNOWN.to_owned(),
     };

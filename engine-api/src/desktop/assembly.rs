@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use du_analysis_index::IngestSink;
 use du_core_contracts::{
     Id,
     job::{HistoryChanged, HistoryPruneDelete, JobHistory, SessionUndoInfo},
@@ -25,6 +26,12 @@ use super::{
 };
 use crate::size_rule::SizeRules;
 use crate::{api::EngineBuilder, jobs, scan, scope, targets, workers::Workers};
+
+pub use du_job_runtime::{
+    DeduplicationKey as DesktopDeduplicationKey, JobPriority as DesktopJobPriority,
+    JobSnapshot as DesktopJobSnapshot, RuntimeError as DesktopJobError,
+    Submission as DesktopSubmission, SubmitResult as DesktopSubmitResult,
+};
 
 // Provisional until the target probe deadline is measured across supported devices.
 const TARGET_PROBE_DEADLINE: Duration = Duration::from_secs(2);
@@ -134,12 +141,77 @@ pub struct DesktopServices {
     pub recent_scope_admissions: Option<RecentScopeAdmissions>,
     /// F36 group use cases; app-host registers them with its rule store.
     pub groups: crate::group::GroupAssembly,
+    /// Shared immutable result source used by snapshot admission.
+    pub(crate) store: IngestSink,
     scan_events: Arc<scan_completion::ScanEvents>,
+    pub(crate) runtime: Arc<JobRuntime>,
+    pub(crate) workers: Arc<Workers>,
+    analysis_index: du_analysis_index::IngestSink,
+    identity: Arc<dyn JobIdentity>,
+    clock: Arc<dyn JobClock>,
+}
+
+/// Narrow app-host handle for registering and submitting desktop-owned jobs.
+#[derive(Clone)]
+pub struct DesktopJobQueue {
     runtime: Arc<JobRuntime>,
     workers: Arc<Workers>,
 }
 
+impl DesktopJobQueue {
+    /// Registers one job kind in the desktop runtime.
+    pub fn register(
+        &self,
+        descriptor: du_core_contracts::job::JobDescriptor,
+    ) -> Result<(), DesktopJobError> {
+        self.runtime.register(descriptor)
+    }
+
+    /// Submits a job and stores its caller-owned state before workers can observe it.
+    pub fn submit(
+        &self,
+        submission: DesktopSubmission,
+        admit: impl FnOnce(&Id) -> Result<(), DesktopJobError>,
+    ) -> Result<DesktopSubmitResult, DesktopJobError> {
+        let result = self.runtime.submit_with_admission(submission, admit)?;
+        if matches!(&result, DesktopSubmitResult::Created(_)) {
+            self.workers.notify();
+        }
+        Ok(result)
+    }
+
+    /// Reads the authoritative state of a desktop job.
+    pub fn snapshot(&self, job_ref: &Id) -> Result<DesktopJobSnapshot, DesktopJobError> {
+        self.runtime.snapshot(job_ref)
+    }
+}
+
 impl DesktopServices {
+    /// Returns the desktop runtime through its app-host composition boundary.
+    pub fn jobs(&self) -> DesktopJobQueue {
+        DesktopJobQueue {
+            runtime: self.runtime.clone(),
+            workers: self.workers.clone(),
+        }
+    }
+
+    /// Registers F10 plan drafting and the `plan.build` job with host-owned storage.
+    pub fn register_plans(
+        &self,
+        builder: &mut EngineBuilder,
+        sources: crate::plan::PlanSources,
+    ) -> Result<crate::plan::ApprovalPrepareService, du_job_runtime::RuntimeError> {
+        crate::plan::register(
+            builder,
+            self.runtime.clone(),
+            self.workers.clone(),
+            self.events.clone(),
+            self.analysis_index.clone(),
+            crate::plan::PlanJobPorts::new(self.identity.clone(), self.clock.clone()),
+            sources,
+        )
+    }
+
     /// Registers retention commands using this desktop runtime's clock.
     ///
     /// The host supplies its current policy source, owner saver, read-only
@@ -329,7 +401,7 @@ fn register_services_inner(
     targets::register_with_probe(
         builder,
         volumes.clone(),
-        clock,
+        clock.clone(),
         workers.clone(),
         targets::Deadlines {
             enumeration: TARGET_ENUMERATION_DEADLINE,
@@ -359,6 +431,7 @@ fn register_services_inner(
         },
     )?;
     let store = sets.source();
+    let analysis_index = store.clone();
     let groups = crate::group::compose(&store, &runtime, &workers, ids.clone());
     let completed_scans = scan_events.bind(store.clone())?;
     super::sample_sink::bind(
@@ -370,11 +443,16 @@ fn register_services_inner(
         &events,
     )?;
     let visualization = VisualizationServices::new(store.clone(), ids.clone(), workers.clone());
-    let search =
-        crate::browse::folder::commands::register(builder, sets, ids, workers.clone(), random)?;
+    let search = crate::browse::folder::commands::register(
+        builder,
+        sets,
+        ids.clone(),
+        workers.clone(),
+        random,
+    )?;
     crate::scan_failures::register(builder, store.clone(), random);
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
-    jobs::register_with_scan_store(builder, runtime.clone(), store);
+    jobs::register_with_scan_store(builder, runtime.clone(), store.clone());
     Ok(DesktopServices {
         events,
         path_copy,
@@ -383,9 +461,13 @@ fn register_services_inner(
         completed_scans,
         recent_scope_admissions,
         groups,
+        store,
         scan_events,
         runtime,
         workers,
+        analysis_index,
+        identity: ids,
+        clock,
     })
 }
 

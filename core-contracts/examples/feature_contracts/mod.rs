@@ -1,0 +1,72 @@
+use du_core_contracts::{
+    approval_ipc::*, change_ipc::*, job::ChangeAction, plan_ipc::*, snapshot_list_ipc::*,
+};
+use ts_rs::TS;
+
+pub(crate) fn declarations(config: &ts_rs::Config) -> Vec<String> {
+    vec![
+        ChangeAction::decl(config),
+        PlanSourceKind::decl(config),
+        PlanOriginChannel::decl(config),
+        PlanReadiness::decl(config),
+        PlanSection::decl(config),
+        PlanItemDisposition::decl(config),
+        PlanHash::decl(config),
+        PlanSourceCount::decl(config),
+        PlanDraftSummary::decl(config),
+        PlanDraftOpenRequest::decl(config),
+        PlanDraftOpenResponse::decl(config),
+        PlanDraftEdit::decl(config),
+        PlanDraftEditRequest::decl(config),
+        PlanDraftEditResponse::decl(config),
+        PlanDraftCancelRequest::decl(config),
+        PlanDraftCancelResponse::decl(config),
+        PlanBuildRequest::decl(config),
+        PlanBuildResponse::decl(config),
+        PlanGetRequest::decl(config),
+        PlanVersionHead::decl(config),
+        PlanVersionItem::decl(config),
+        PlanGetResponse::decl(config),
+        PlanItemReasonRequest::decl(config),
+        PlanItemReasonResponse::decl(config),
+        PlanHistoryRequest::decl(config),
+        PlanHistoryEntry::decl(config),
+        PlanHistoryResponse::decl(config),
+        PlanVersionFixed::decl(config),
+        RequestKind::decl(config),
+        ConfirmationKind::decl(config),
+        ApprovalState::decl(config),
+        ApprovalEventState::decl(config),
+        ApprovalProtectionResult::decl(config),
+        ApprovalProtectionSummary::decl(config),
+        ApprovalOverwriteSummary::decl(config),
+        ApprovalReviewSummary::decl(config),
+        ApprovalReviewRequest::decl(config),
+        ApprovalReviewResponse::decl(config),
+        ApprovalConfirmationProofs::decl(config),
+        ApprovalGrantRequest::decl(config),
+        ApprovalGrantResponse::decl(config),
+        ApprovalRevokeRequest::decl(config),
+        ApprovalRevokeResponse::decl(config),
+        ApprovalStateChanged::decl(config),
+        ChangeExecuteRequest::decl(config),
+        ChangeExecuteResponse::decl(config),
+        ChangeItemState::decl(config),
+        ChangeItemResultFilter::decl(config),
+        ChangeItemResultsRequest::decl(config),
+        ChangeItemCounts::decl(config),
+        ChangeItemResult::decl(config),
+        ChangeItemResultsResponse::decl(config),
+    ]
+}
+
+pub(crate) fn snapshot_list_declarations(config: &ts_rs::Config) -> [String; 6] {
+    [
+        SnapshotListRequest::decl(config),
+        SnapshotListResponse::decl(config),
+        SnapshotSummary::decl(config),
+        SnapshotListCompleteness::decl(config),
+        SnapshotListSourceKind::decl(config),
+        SnapshotListVolume::decl(config),
+    ]
+}

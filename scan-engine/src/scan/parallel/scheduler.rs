@@ -54,7 +54,14 @@ pub(super) fn create_with_budget(
         track_peak: diagnostics.is_some(),
         track_paths: control.is_some_and(ScanControlSession::tracks_priority),
     };
-    let queue = queue_for(roots, &boundaries, &devices, lane_devices, options)?;
+    let queue = queue_for(
+        roots,
+        &boundaries,
+        &devices,
+        lane_devices,
+        options,
+        diagnostics,
+    )?;
     let meters = lane_meter::LaneMeters::new(queue.lanes.lanes.len());
     let shared = Shared {
         queue: Arc::new(Mutex::new(queue)),
@@ -64,6 +71,8 @@ pub(super) fn create_with_budget(
         track_priority_paths: control.is_some(),
         visited,
         correlated_budget,
+        frame_metrics: diagnostics.map(|scan| scan.frame_metrics()),
+        observation_metrics: diagnostics.map(|scan| scan.observation_metrics()),
         meters,
     };
     if let Some(control) = control {
@@ -109,6 +118,7 @@ pub(super) fn queue_for(
     devices: &DevicePlan,
     lane_devices: Option<Vec<queue::LaneDevice>>,
     options: LaneOptions,
+    diagnostics: Option<&crate::scan_diagnostics::ScanDiagnostics>,
 ) -> Result<Queue, BuildError> {
     let root_count = roots.len();
     let lane_count = devices
@@ -146,6 +156,7 @@ pub(super) fn queue_for(
             .collect(),
         started: false,
     };
+    let frame_metrics = diagnostics.map(|scan| scan.frame_metrics());
     for (index, (root, boundary)) in roots.into_iter().zip(boundaries).enumerate() {
         let Some(boundary) = *boundary else {
             continue;
@@ -156,7 +167,9 @@ pub(super) fn queue_for(
         {
             return Err(BuildError::Unavailable);
         }
-        if !queue.push_root(Frame::root(index, root, boundary)) {
+        let mut frame = Frame::root(index, root, boundary);
+        frame.track(frame_metrics.as_ref());
+        if !queue.push_root(frame) {
             return Err(BuildError::Unavailable);
         }
     }
@@ -209,6 +222,8 @@ impl Shared {
             track_priority_paths,
             visited: Visited::default(),
             correlated_budget: correlated_budget::CorrelatedBudget::new(),
+            frame_metrics: None,
+            observation_metrics: None,
             meters,
         }
     }

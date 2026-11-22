@@ -136,6 +136,14 @@
   color: var(--du-disabled-text);
   border-color: var(--du-disabled-border);
 }
+/* "Items not drawn: 3 · at least 1.2 GiB · View in list" (F06 README 51.3),
+   kept together when the status line wraps. */
+.du-undrawn-line {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 /* In the chart's place when the folder holds no file of the chosen type (46.1). */
 .du-type-absent {
   display: grid;

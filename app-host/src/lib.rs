@@ -1,5 +1,10 @@
 //! Assemble the GUI and own its lifecycle.
 
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod approval;
 #[cfg(feature = "gui")]
 pub mod approval_source;
 #[cfg(all(feature = "gui", windows))]
@@ -11,6 +16,7 @@ mod clipboard;
 mod group_rules_store;
 #[cfg(all(feature = "gui", windows))]
 mod history;
+#[cfg(feature = "gui")]
 mod history_prune_timer;
 #[cfg(all(
     feature = "gui",
@@ -63,6 +69,11 @@ mod settings;
 mod shared_database;
 #[cfg(feature = "gui")]
 mod shutdown;
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod snapshot_save;
 #[cfg(feature = "gui")]
 mod startup_checks;
 #[cfg(all(

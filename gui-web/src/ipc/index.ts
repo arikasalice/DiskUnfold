@@ -132,6 +132,8 @@ import type {
   SampleOpenRequest,
   SampleSession,
   SampleSessionRequest,
+  SnapshotListRequest,
+  SnapshotListResponse,
 } from "./generated/contracts";
 
 export { SIZE_UNIT_RULES } from "./generated/contracts";
@@ -156,6 +158,7 @@ export type {
   BrowseOpenResponse,
   FolderQueryPage,
   FolderQueryRow,
+  FolderFlags,
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
@@ -184,6 +187,15 @@ export type {
   HistoryListFilter,
   HistoryListRequest,
   HistoryListResponse,
+  HistoryRetentionChangeKind,
+  HistoryRetentionGetRequest,
+  HistoryRetentionPolicy,
+  HistoryRetentionReviewRequest,
+  HistoryRetentionReview,
+  HistoryRetentionApplyRequest,
+  HistoryRetentionApplyResponse,
+  HistoryRetentionCancelRequest,
+  HistoryRetentionCancelResponse,
   HistoryListRevision,
   HistoryListRow,
   HistoryListSummary,
@@ -338,6 +350,7 @@ export type {
   VizRows,
   VizRowsRequest,
   VizSizeRange,
+  VizTypeSlice,
   VizShape,
   VizSourceRef,
   VizViewChannel,
@@ -351,6 +364,12 @@ export type {
   SampleOpenRequest,
   SampleSession,
   SampleSessionRequest,
+  SnapshotListRequest,
+  SnapshotListResponse,
+  SnapshotSummary,
+  SnapshotListCompleteness,
+  SnapshotListSourceKind,
+  SnapshotListVolume,
 } from "./generated/contracts";
 
 type Commands = {
@@ -424,6 +443,7 @@ type Commands = {
   "sample.status": [SampleSessionRequest, SampleSession];
   "sample.reset": [SampleSessionRequest, SampleSession];
   "sample.close": [SampleSessionRequest, SampleClosed];
+  "snapshot.list": [SnapshotListRequest, SnapshotListResponse];
   "group.rules.get": [GroupRulesGetRequest, GroupRuleset];
   "group.rules.save": [GroupRulesSaveRequest, GroupRulesSaveResponse];
   "group.classify": [GroupClassifyRequest, GroupClassifyResponse];
@@ -451,6 +471,7 @@ export type FolderDrop = { seq: number } & (
 );
 
 export { AnalysisError };
+export { countedZeroOf, hasUnreadFlags } from "./folder-flags";
 export {
   rejectedScopeReviewText,
   resultReadProblem,
@@ -513,6 +534,79 @@ type Transport = (
   args: { envelope: CallEnvelope },
 ) => Promise<ResultEnvelope>;
 
+function hasUnverifiedHomeSuggestion(body: unknown): boolean {
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return false;
+  const response = body as Record<string, unknown>;
+  return (
+    Object.hasOwn(response, "suggestedInclude") &&
+    (!Array.isArray(response.notices) ||
+      !response.notices.includes("scope.volume_group_unverified"))
+  );
+}
+
+function sanitizeFolderRows(rows: unknown, resultVersion: unknown): unknown {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    if (typeof row !== "object" || row === null || Array.isArray(row))
+      return row;
+    const source = row as Record<string, unknown>;
+    const flags = source.flags;
+    if (typeof flags !== "object" || flags === null || Array.isArray(flags))
+      return row;
+    const clean = { ...(flags as Record<string, unknown>) };
+    const countedAtItem = clean.countedAtItem;
+    if (
+      Object.hasOwn(clean, "countedAtItem") &&
+      (clean.countedAt === undefined ||
+        clean.countedAt === null ||
+        typeof countedAtItem !== "object" ||
+        countedAtItem === null ||
+        Array.isArray(countedAtItem) ||
+        typeof (countedAtItem as Record<string, unknown>).itemNo !== "number" ||
+        (countedAtItem as Record<string, unknown>).resultVersion !==
+          resultVersion)
+    )
+      delete clean.countedAtItem;
+    if (
+      Object.hasOwn(clean, "groupVolumeRole") &&
+      typeof clean.groupVolumeRole !== "string"
+    )
+      delete clean.groupVolumeRole;
+    return { ...source, flags: clean };
+  });
+}
+
+function sanitizeBrowseResponse(name: string, body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return body;
+  const response = body as Record<string, unknown>;
+  if (name === "browse.open") {
+    const page = response.page;
+    if (
+      response.kind !== "opened" ||
+      typeof page !== "object" ||
+      page === null ||
+      Array.isArray(page)
+    )
+      return body;
+    const pageValue = page as Record<string, unknown>;
+    return {
+      ...response,
+      page: {
+        ...pageValue,
+        rows: sanitizeFolderRows(pageValue.rows, pageValue.resultVersion),
+      },
+    };
+  }
+  if (name === "query.page")
+    return {
+      ...response,
+      rows: sanitizeFolderRows(response.rows, response.resultVersion),
+    };
+  return body;
+}
+
 /** Connects analysis commands and events through the versioned desktop transport. */
 export function createAnalysisClient(
   transport: Transport = invokeNative,
@@ -543,6 +637,10 @@ export function createAnalysisClient(
           result.error.reasonKey,
           result.error.retryable,
         );
+      if (name === "scope.review" && hasUnverifiedHomeSuggestion(result.body))
+        throw new Error(
+          "DiskUnfold IPC returned a home folder suggestion without an unverified volume group notice",
+        );
       if (
         requestedRevision !== undefined &&
         (typeof result.body !== "object" ||
@@ -552,7 +650,7 @@ export function createAnalysisClient(
       ) {
         throw new Error("DiskUnfold IPC returned a mismatched result revision");
       }
-      return result.body as Commands[K][1];
+      return sanitizeBrowseResponse(name, result.body) as Commands[K][1];
     },
     subscribe: subscribeNative,
     subscribeFolderDrop: (listener) =>

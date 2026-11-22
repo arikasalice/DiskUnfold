@@ -424,6 +424,7 @@ fn shared_over_with_devices(
         &DevicePlan { groups, limit },
         lane_devices,
         options,
+        None,
     )
     .map_err(|error| format!("{error:?}"))?;
     let meters = super::super::lane_meter::LaneMeters::new(queue.lanes.lanes.len());
@@ -435,6 +436,8 @@ fn shared_over_with_devices(
         track_priority_paths: false,
         visited,
         correlated_budget: super::super::correlated_budget::CorrelatedBudget::new(),
+        frame_metrics: None,
+        observation_metrics: None,
         meters,
     })
 }

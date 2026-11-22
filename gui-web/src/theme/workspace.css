@@ -203,6 +203,10 @@ body {
   color: var(--du-accent-text);
 }
 
+.du-action--danger {
+  color: var(--du-danger-text);
+}
+
 .du-action[data-hovered]:not([data-disabled]) {
   border-color: var(
     --du-action-hover,
@@ -211,7 +215,10 @@ body {
   background: var(--du-action-hover, var(--du-hover-surface));
 }
 
-.du-action[data-pressed]:not([data-disabled]) {
+.du-action[data-pressed]:not([data-disabled]),
+.du-app-header .du-action[aria-expanded="true"]:not([data-disabled]),
+.du-history-header__actions
+  .du-action[aria-expanded="true"]:not([data-disabled]) {
   border-color: var(
     --du-action-pressed,
     var(--du-action-interaction-border, var(--du-control-border))
@@ -221,6 +228,24 @@ body {
 
 .du-app-header .du-action--quiet {
   color: var(--du-muted);
+}
+
+@media (min-width: 75rem) {
+  .du-app[data-browse-open] > .du-app-header {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions,
+  .du-app[data-browse-open] .du-info-entry {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .du-app[data-browse-open] .du-app-header__actions .du-action {
+    padding-inline: 6px;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 18rem) {
@@ -235,6 +260,17 @@ body {
 
 .du-action[data-disabled] {
   cursor: default;
+}
+
+.du-text-link {
+  color: var(--du-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.du-text-link:focus-visible {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
 }
 
 .du-action[data-focus-visible],
@@ -271,6 +307,77 @@ label.du-field > span {
   background: var(--du-subtle);
   color: var(--du-text);
   font: inherit;
+}
+
+.du-integer-field__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.du-integer-field__control input {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.du-integer-field__control > span {
+  color: var(--du-muted);
+}
+
+.du-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-block-size: 44px;
+  color: var(--du-text);
+  cursor: pointer;
+}
+
+.du-switch[data-disabled] {
+  color: var(--du-disabled-text);
+  cursor: default;
+}
+
+.du-switch__indicator {
+  position: relative;
+  flex: none;
+  inline-size: 42px;
+  block-size: 24px;
+  border: 1px solid var(--du-control-border);
+  border-radius: 999px;
+  background: var(--du-subtle);
+  transition:
+    background-color var(--du-state-duration) ease,
+    border-color var(--du-state-duration) ease;
+}
+
+.du-switch__indicator::after {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  inline-size: 16px;
+  block-size: 16px;
+  border-radius: 50%;
+  background: var(--du-muted);
+  content: "";
+  transition: transform var(--du-state-duration) ease;
+}
+
+.du-switch[data-selected] .du-switch__indicator {
+  border-color: var(--du-accent);
+  background: var(--du-accent);
+}
+
+.du-switch[data-selected] .du-switch__indicator::after {
+  background: var(--du-accent-text);
+  transform: translateX(18px);
+}
+
+.du-switch[data-focus-visible] .du-switch__indicator,
+.du-switch:focus-visible .du-switch__indicator {
+  outline: 2px solid var(--du-focus);
+  outline-offset: 2px;
 }
 
 .du-action,
@@ -346,6 +453,11 @@ label.du-field > span {
   color: var(--du-info-text);
 }
 
+.du-notice--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
+}
+
 .du-badge--good {
   background: var(--du-good-surface);
   color: var(--du-good-text);
@@ -359,6 +471,11 @@ label.du-field > span {
 .du-badge--danger {
   background: var(--du-danger-surface);
   color: var(--du-danger-text);
+}
+
+.du-notice--warning {
+  background: var(--du-warning-surface);
+  color: var(--du-warning-text);
 }
 
 .du-notice--error {
@@ -497,6 +614,10 @@ label.du-field > span {
 }
 
 @media (forced-colors: active) {
+  .du-text-link {
+    color: LinkText;
+  }
+
   .du-action,
   .du-choice,
   .du-field :is(input, select),
@@ -516,6 +637,28 @@ label.du-field > span {
   .du-action--quiet {
     --du-action-interaction-border: ButtonText;
     border-color: ButtonText;
+  }
+
+  .du-action--danger {
+    color: CanvasText;
+  }
+
+  .du-switch__indicator {
+    border-color: ButtonText;
+    background: ButtonFace;
+  }
+
+  .du-switch[data-selected] .du-switch__indicator {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .du-switch__indicator::after {
+    background: ButtonText;
+  }
+
+  .du-switch[data-selected] .du-switch__indicator::after {
+    background: HighlightText;
   }
 
   .du-action--quiet[data-disabled],
@@ -567,6 +710,12 @@ label.du-field > span {
   border-spacing: 0;
   table-layout: fixed;
   inline-size: 100%;
+}
+
+/* A row the screen moved the focus to, such as "View in list" (F06 README 51.3). */
+.du-data-table tr[tabindex="-1"]:focus {
+  outline: 2px solid var(--du-focus);
+  outline-offset: -2px;
 }
 
 .du-data-table th,

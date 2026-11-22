@@ -4,6 +4,7 @@ use super::{Error as PagesError, ModelInput, ModelPages};
 use crate::display_path;
 use du_analysis_index::{
     ResultVersion,
+    folder_collection::{FolderCollection, Unenumerated, UnreadInside},
     visualization::{projection, ratio},
 };
 use du_core_contracts::{
@@ -12,7 +13,8 @@ use du_core_contracts::{
     visualization::{
         item_kind::VizItemKind,
         quantity::VizQuantity,
-        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow},
+        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizUnread},
+        type_slices::VizTypeSlice,
     },
 };
 use std::{
@@ -50,6 +52,9 @@ pub struct OtherPresentation {
     pub legend_class_key: String,
     /// Display flags supplied by their owner.
     pub display_flags: Vec<String>,
+    /// The group carries its members' type slices (F06 README 54.2): set by the
+    /// presentation owner under the type criterion when nothing narrows the model.
+    pub type_slices: bool,
 }
 
 /// Assembly refuses inputs when required source or presentation evidence is unavailable.
@@ -130,6 +135,7 @@ pub(super) fn project_rows(
             row,
             presentation,
             &denominator,
+            cancelled,
         )?);
     }
     if !by_item.is_empty() {
@@ -184,7 +190,15 @@ pub(super) fn project_fallback(
             .remove(&item.item_no)
             .ok_or(Error::MissingClassification)?;
         let size = original_size(&version, item.item_no, basis).ok_or(Error::SourceMismatch)?;
-        rows.push(make_row(&version, item, &size, presentation, &denominator)?);
+        let slices = row_slices(&version, &presentation, basis, false, cancelled)?;
+        rows.push(make_row(
+            &version,
+            item,
+            &size,
+            presentation,
+            &denominator,
+            slices,
+        )?);
     }
     if cancelled() {
         return Err(Error::Cancelled);
@@ -248,6 +262,7 @@ fn project_row(
     row: &projection::Row,
     presentation: RowPresentation,
     denominator: &VizDenominator,
+    cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<VizRow, Error> {
     let item = version
         .items()
@@ -263,7 +278,9 @@ fn project_row(
     {
         return Err(Error::SourceMismatch);
     }
-    let projected = make_row(version, item, &row.size, presentation, denominator)?;
+    let filtered = model.filter.is_some();
+    let slices = row_slices(version, &presentation, &model.basis, filtered, cancelled)?;
+    let projected = make_row(version, item, &row.size, presentation, denominator, slices)?;
     if row.ratio.as_deref() != projected.ratio.as_ref().map(VizRatio::as_str) {
         return Err(Error::InvalidRatio);
     }
@@ -299,6 +316,7 @@ fn make_row(
     size: &SizeValue,
     presentation: RowPresentation,
     denominator: &VizDenominator,
+    type_slices: Option<Vec<VizTypeSlice>>,
 ) -> Result<VizRow, Error> {
     let (_, root) = version
         .observed_root_for(&presentation.item)
@@ -324,12 +342,60 @@ fn make_row(
         label_key: None,
         member_count: None,
         item_kind: VizItemKind::from_result(item.kind),
+        condition: None,
+        unread: row_unread(version, item),
+        type_slices,
     };
     projected
         .validate_revision(version.version_id())
         .map_err(|_| Error::MissingClassification)?;
     Ok(projected)
 }
+/// Whether a folder row could not be read (F06 README 53): its own listing failed, or
+/// ranges below it were not read. One function for every table, so the root table and
+/// an expanded folder's table agree. Its own failure wins: nothing below it was counted.
+fn row_unread(version: &ResultVersion, item: &ResultItem) -> Option<VizUnread> {
+    let reference = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: item.item_no,
+    };
+    let collection = version.folder_collection(&reference).ok()?;
+    match collection {
+        FolderCollection::NotAFolder => None,
+        FolderCollection::Folder {
+            unenumerated: Unenumerated::Yes { .. },
+            ..
+        } => Some(VizUnread::Itself),
+        FolderCollection::Folder { .. } => match version.unread_inside(&reference).ok()? {
+            Some(UnreadInside::Recorded { count }) => VizUnread::inside(count),
+            _ => None,
+        },
+    }
+}
+
+/// A row's type slices (F06 README 54, #298), made by the function that makes its
+/// shape's.
+fn row_slices(
+    version: &ResultVersion,
+    presentation: &RowPresentation,
+    basis: &SizeBasis,
+    filtered: bool,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<VizTypeSlice>>, Error> {
+    super::type_slices::folder_slices(
+        version,
+        &presentation.item,
+        &presentation.legend_class_key,
+        basis,
+        filtered,
+        cancelled,
+    )
+    .map_err(|error| match error {
+        super::type_slices::SlicesError::Cancelled => Error::Cancelled,
+        super::type_slices::SlicesError::Invalid => Error::SourceMismatch,
+    })
+}
+
 fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Error> {
     if &size.basis != basis {
         return Err(Error::SourceMismatch);
@@ -389,6 +455,7 @@ pub(super) fn project_sized(
             size,
             presentation,
             &denominator,
+            None,
         )?);
     }
     Ok(rows)

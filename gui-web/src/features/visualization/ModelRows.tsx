@@ -1,6 +1,13 @@
-import { useLayoutEffect, useRef } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { Action, DataTable, DetailDisclosure, Text } from "../../components";
+import {
+  Action,
+  ChartFallbackContext,
+  DataTable,
+  DetailDisclosure,
+  StackedBar,
+  Text,
+} from "../../components";
 import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
 import {
   RowName,
@@ -8,9 +15,11 @@ import {
   plainRowName,
   rowName,
   rowRatioText,
+  rowFolderTypes,
   vizMessage,
 } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
+import type { RowReveal } from "./UndrawnLine";
 
 /** Class keys that mean a row has no classification. */
 const UNCLASSIFIED = new Set([
@@ -19,6 +28,10 @@ const UNCLASSIFIED = new Set([
 ]);
 /** A row of the table: one fixed height, so the table is as tall as its rows. */
 const ROW_HEIGHT = 48;
+/** The length of a folder's type bar in the class cell (README 54.6). */
+const TYPE_BAR_WIDTH = 96;
+/** A page with a folder's unread line under its value gives every row room for it. */
+const TWO_LINE_ROW_HEIGHT = 64;
 /** Notes the value column already shows (unconfirmed, lower bound); they are not written again. */
 const SHOWN_IN_VALUE = new Set(["viz.flag.unknown", "viz.flag.lower_bound"]);
 const notesOf = (flags: readonly string[]) =>
@@ -49,6 +62,7 @@ export function ModelRows({
   returnTargetRef,
   title,
   expanded = false,
+  reveal,
 }: {
   page: ModelRowsPage;
   /** Absent for a fallback table, which has no model of its own to look classes up in. */
@@ -66,12 +80,18 @@ export function ModelRows({
   title?: string;
   /** Opens the section when it first shows; the rows are what a reader came for. */
   expanded?: boolean;
+  /** A row to open the section on and focus (F06 README 51.3, 48.4). */
+  reveal?: RowReveal | null;
 }) {
   const rowTitle = title ?? defaultTitle(model, text);
+  // In the chart's place the rows open expanded; under a chart they wait
+  // folded, since each shape has its info card (README 22, 24).
+  const open = useContext(ChartFallbackContext) || expanded;
   const rowsRegion = useRef<HTMLElement>(null);
   const { request, response } = page;
   const { rows } = response;
   const next = request.start + rows.length;
+  const revealed = revealInPage(reveal, request.start, next, open);
   const paged = request.start > 0 || next < response.totalCount;
   const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
   const showClassification = rows.some(
@@ -135,8 +155,7 @@ export function ModelRows({
       : []),
     {
       header: text.message("value"),
-      cell: (row) =>
-        row.quantity ? text.quantity(row.quantity) : text.size(row.size),
+      cell: (row) => rowValue(row, text),
     },
     {
       header: text.message("ratio"),
@@ -154,7 +173,7 @@ export function ModelRows({
       ? [
           {
             header: text.message("classification"),
-            cell: (row: VizRow) => classCell(model, row.legendClassKey, text),
+            cell: (row: VizRow) => classification(model, row, text),
           },
         ]
       : []),
@@ -180,8 +199,9 @@ export function ModelRows({
     >
       <DetailDisclosure
         title={rowTitle}
-        defaultExpanded={expanded}
-        key={`${request.modelRef}:${request.resultRevision}`}
+        defaultExpanded={revealed.expand}
+        // A reveal opens the section again even after the reader folded it.
+        key={`${request.modelRef}:${request.resultRevision}:${revealed.key}`}
       >
         {sharedDenominator !== null && (
           <Text>
@@ -193,13 +213,14 @@ export function ModelRows({
           label={rowTitle}
           density="compact"
           flat
-          rowHeight={ROW_HEIGHT}
+          rowHeight={rowHeight(rows)}
           // The action column holds only buttons; its header would read as a value.
           hiddenHeaders={[text.message("actions")]}
           columns={columns.map(({ header }) => header)}
           rows={rows}
           getRowKey={(row) => JSON.stringify([row.itemRef, row.groupRef])}
           renderCells={(row) => columns.map(({ cell }) => cell(row))}
+          focusRow={revealed.focusRow}
         />
         {onPage && paged && (
           <div className="du-review-actions">
@@ -225,6 +246,101 @@ export function ModelRows({
       </DetailDisclosure>
     </div>
   );
+}
+
+/**
+ * The reveal of a row on this page: the section opens and the row takes the
+ * focus. Without one the section opens as it otherwise would (open).
+ */
+function revealInPage(
+  reveal: RowReveal | null | undefined,
+  start: number,
+  end: number,
+  open: boolean,
+) {
+  if (!reveal || reveal.row < start || reveal.row >= end)
+    return { expand: open, key: "", focusRow: null };
+  return {
+    expand: true,
+    key: String(reveal.token),
+    focusRow: { index: reveal.row - start, token: reveal.token },
+  };
+}
+
+/**
+ * The classification cell. A row the type does not apply to reads "—", named
+ * "No category" for assistive technology (F06 README 51, TERMS 「유형」).
+ */
+function classification(
+  model: VizModel | undefined,
+  row: VizRow,
+  text: VizText,
+) {
+  // A folder by its types: the bar and its largest type (README 54.6).
+  const types = rowFolderTypes(model, row, text);
+  if (types && types.bar.length > 0)
+    return (
+      <>
+        <StackedBar
+          slices={types.bar}
+          width={TYPE_BAR_WIDTH}
+          {...(types.total === undefined ? {} : { total: types.total })}
+        />
+        <div>{types.cell}</div>
+      </>
+    );
+  if (!types && !UNCLASSIFIED.has(row.legendClassKey))
+    return classCell(model, row.legendClassKey, text);
+  return (
+    <>
+      <div aria-hidden="true">—</div>
+      <div className="du-visually-hidden">{text.message("noCategory")}</div>
+    </>
+  );
+}
+
+/**
+ * A row's value. A lower bound of nothing, such as a folder that could not be read
+ * at all, is unavailable rather than "at least 0 bytes" (F06 README 48.2, 44.2).
+ */
+function rowValue(row: VizRow, text: VizText) {
+  const value = row.quantity
+    ? text.quantity(row.quantity)
+    : row.size.state === "lower_bound" && row.size.bytes === "0"
+      ? text.message("unavailableValue")
+      : text.size(row.size);
+  const reason = unreadReason(row, text);
+  return reason ? (
+    <div>
+      <Text>{value}</Text>
+      <Text kind="muted">{reason}</Text>
+    </div>
+  ) : (
+    value
+  );
+}
+
+/** The row height of a page: taller when a folder row says why it is partly known. */
+function rowHeight(rows: readonly VizRow[]) {
+  return rows.some(
+    (row) => row.unread?.kind === "itself" || row.unread?.kind === "inside",
+  )
+    ? TWO_LINE_ROW_HEIGHT
+    : ROW_HEIGHT;
+}
+
+/**
+ * Why a folder row is only partly known (F06 README 53), in the browse screen's
+ * words: its own listing failed, or folders below it could not be read. A kind
+ * this screen does not know says nothing.
+ */
+function unreadReason(row: VizRow, text: VizText) {
+  const unread = row.unread;
+  if (unread?.kind === "itself") return text.message("unreadItself");
+  if (unread?.kind !== "inside") return null;
+  return unread.count === undefined
+    ? text.message("unreadInsideSome")
+    : vizMessage(text, "unreadInside", { count: unread.count });
 }
 
 /**

@@ -927,7 +927,17 @@ remainder?: VizTotal,
  * says why). Valid only with `remainder`; keys are not empty, sorted and without
  * duplicates, and an unregistered key is preserved. Omitted rather than null.
  */
-remainderReasonKeys?: Array<string>, };
+remainderReasonKeys?: Array<string>,
+/**
+ * The F03 measurement limits of `scope` (#351): the `measurementLimits` that
+ * `space.total` gives the same item in the model's size basis, from the same
+ * function, so the two always agree. A model that does not measure size has none.
+ *
+ * Only the scope total has them: the other totals are sums F06 makes, which do
+ * not inherit F03's limits. Omitted when there is none, never empty or null; keys
+ * are not empty or repeated, keep F03's order, and an unknown key is preserved.
+ */
+scopeMeasurementLimits?: Array<string>, };
 export type VizTableRevisions = { interpretation: number, requiredData: number, legend: number, viewPolicy: number, sizeRule: QueryStrategy,
 /**
  * Revision of the type classification table, present when the model's
@@ -951,9 +961,39 @@ memberCount?: VizQuantity,
  * Kind of the referenced item, on item shapes only; omitted when unknown. See
  * [`VizItemKind`].
  */
-itemKind?: VizItemKind, };
+itemKind?: VizItemKind,
+/**
+ * The files by legend class of a folder whose children are not drawn, or of the
+ * Other group by its members; the same list as its row's. See [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
 export type VizLegendEntry = { key: string, labelKey: string, itemCount: VizQuantity, total: VizTotal, condition: QueryCondition | null, };
-export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>, };
+export type VizSummary = { groupedItems: VizQuantity, omittedItems: VizQuantity, unknownItems: VizQuantity, reasonKeys: Array<string>,
+/**
+ * Bytes of the scope measured under navigation-root items without a provable area
+ * and outside every drawn item (F06 README 51.3). Treemap only; omitted when no
+ * such item holds a measured byte, and never an exact zero.
+ */
+unknownSize?: VizQuantity,
+/**
+ * Position in the navigation root's table (viz.rows without parentShapeRef) of the
+ * first row without a provable area, or else of the first expanded folder whose
+ * level has one. Treemap only; omitted when no table row is such a row.
+ */
+firstUnknownRow?: number,
+/**
+ * Folders below the model's scope whose listing failed (F06 README 48, #346): a
+ * recorded scan gap, or a folder a cancellation or disconnection left unread. Exact
+ * from the recorded gaps; a lower bound while the scan runs or when such marks make
+ * the count incomplete. Omitted when there are none, never an exact zero. These
+ * folders are not in `unknownItems`.
+ */
+unreadFolders?: VizQuantity,
+/**
+ * Position in the navigation root's table of the first row that is such a folder
+ * or holds one. Omitted with `unreadFolders`, or when no table row holds one.
+ */
+firstUnreadRow?: number, };
 export type VizModel = { modelRef: string, conditionFingerprint: string, aggregateScopeRef: ItemRef, navigationScopeRef: ItemRef, focusItemRef: ItemRef | null, origin: ResultOrigin,
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
@@ -1027,7 +1067,36 @@ memberCount?: VizQuantity,
  * Kind of the referenced item, on item rows only; omitted when unknown. See
  * [`VizItemKind`].
  */
-itemKind?: VizItemKind, };
+itemKind?: VizItemKind,
+/**
+ * The list condition of a histogram interval row (F06 README 12, #297): its
+ * files in the half-open size interval [lower, upper) on the model's size basis,
+ * as All[Type file, Size at least lower, Size less than upper]; the last interval
+ * has no upper bound. Only on group rows; omitted on every other row, and where
+ * the size basis has no size predicate (unique physical size). Omitted rather
+ * than null.
+ */
+condition?: QueryCondition,
+/**
+ * Whether this folder could not be read (F06 README 53): item rows of folders
+ * only. See [`VizUnread`].
+ */
+unread?: VizUnread,
+/**
+ * The files by legend class (F06 README 54) of a folder row, or of the Other
+ * group row by its members together, under the type color criterion, unfiltered,
+ * in a real scan. Omitted where it does not apply, including a folder whose own
+ * listing failed; empty when every file was counted and there is none. See
+ * [`VizTypeSlice`].
+ */
+typeSlices?: Array<VizTypeSlice>, };
+export type VizUnread = { "kind": "itself" } | { "kind": "inside",
+/**
+ * Unread ranges recorded below the folder, a positive u64 in decimal; omitted
+ * when a cancellation or disconnection left folders below it uncounted.
+ */
+count?: string, } | { "kind": "unknown" };
+export type VizTypeSlice = { classKey: string, itemCount: VizQuantity, total: VizQuantity, };
 export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: number, count: number,
 /**
  * The shape of an expanded folder in this model, to read that folder's rows.
@@ -1071,7 +1140,7 @@ export type ResultEnvelope = { name: string, contractVersion: number, correlatio
 export type EventEnvelope = { topic: string, contractVersion: number, seq: number, correlationId?: Id, jobRef?: Id, resultVersion?: Id, occurredAt: Timestamp, body: unknown, };
 export type ResultVersionChange = "published" | "withdrawn";
 export type PublishedCompleteness = "complete" | "partial" | "unknown";
-export type DataSource = "real" | "sample";
+export type DataSource = "real" | "snapshot" | "sample";
 export type ResultVersionChanged = { lineageId: Id, sourceRef: Id, origin: string,
 /**
  * Data source of the lineage's versions; absent means a sample (F32 FR2.HD1).
@@ -1131,7 +1200,16 @@ export type AnalysisTarget = { kind: TargetKind | null, path: OsPath, connected:
  * Whether the target belongs in the default list (F01 #263). The engine always
  * sets it; absent means listed. It only arranges the list and never limits a scope.
  */
-defaultVisible?: boolean, };
+defaultVisible?: boolean,
+/**
+ * The OS-confirmed system volume of a confirmed root volume group.
+ * Omitted when the group or system role is not confirmed. GUI channel only.
+ */
+isStartupVolume?: boolean,
+/**
+ * Volume name reported by the operating system, when available. GUI channel only.
+ */
+volumeName?: string, };
 export type TargetList = { targets: Array<AnalysisTarget>, probeJobRef: Id | null, observedAt: Timestamp, unavailableReason: string | null, };
 export type TargetStatusChanged = { target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
 export type TargetProbeEvent = { sequence: number, target: OsPath, access: TargetAccess, reasonKey: string | null, totalBytes: ByteSize | null, availableBytes: ByteSize | null, capacityReason: string | null, aggregationUncertain: boolean, observedAt: Timestamp, };
@@ -1223,7 +1301,23 @@ export type ScanFailureRow = { kind: ScanFailureKind, stage: ScanFailureStage, p
  * Human-readable display text; never reopen or compare a path from it.
  */
 displayPath?: string, };
-export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind, cursor?: string, count?: number, };
+export type ScanFailuresRequest = { resultVersion: Id, kind?: ScanFailureKind,
+/**
+ * Restricts rows to these zero-based root indexes. Omission selects all roots.
+ * The list must contain 1 to 64 strictly ascending indexes, all below the
+ * pinned result's root count; `null`, empty, duplicate, descending, and
+ * oversized lists are invalid.
+ */
+rootIndexes?: Array<number>,
+/**
+ * Selects exactly issues counted as lane failures: every `collection_failed` row;
+ * `unread_range` rows at `open_directory` or `enumerate`; and traverse-stage unread
+ * rows with reason `scan.boundary_unverifiable` or the worker failure reason
+ * `scan.unclassified`. Omission is false. Known other-volume and revisit ranges,
+ * `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
+ * both filters apply.
+ */
+failuresOnly?: boolean, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
 /**
@@ -1542,6 +1636,19 @@ boundary?: BrowseValue<FolderBoundary>,
  */
 countedAt?: OsPath,
 /**
+ * The item that `counted_at` names in the same result version, for moving there
+ * (#263). Present only with `counted_at` and only when that folder is in the
+ * result; never used for sizes. `null` is rejected. GUI channel only.
+ */
+countedAtItem?: ItemRef,
+/**
+ * The folder's place in the result's confirmed root volume group (#263), an
+ * open set: [`FolderFlags::GROUP_ROLE_DATA`] marks the data mount itself.
+ * Omitted for every other folder and an unknown value means no mark; the
+ * screen never compares paths for it. `null` is rejected. GUI channel only.
+ */
+groupVolumeRole?: string,
+/**
  * Unread ranges inside a folder that was itself read (#226).
  *
  * Present: some ranges below the folder were not read; see [`UnreadInside`]. Absent:
@@ -1595,7 +1702,11 @@ export type BrowseBreadcrumb = { item: ItemRef,
 /**
  * Human-readable display text; never reopen or compare a path from it.
  */
-displayName: BrowseValue<string>, };
+displayName: BrowseValue<string>,
+/**
+ * The root item of a confirmed macOS startup volume group. GUI channel only.
+ */
+isStartupVolume?: boolean, };
 export type BrowseRootKind = "virtual_root" | "scope_root" | "folder";
 export type BrowseContext = { origin: ResultOrigin,
 /**
@@ -1639,7 +1750,14 @@ displayName: BrowseValue<string>, kind: BrowseValue<ResultItemKind>, logicalSize
 /**
  * Data source of the pinned version; absent means a sample (F32 FR2.HD2).
  */
-dataSource?: DataSource, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean, };
+dataSource?: DataSource, completeness: ResultCompleteness, currentCorrespondence: boolean, observationOnly: boolean,
+/**
+ * The scan state of a folder, the same value its row carries in a folder page
+ * (F02 #347): whether it or a place inside it was not read, so a lower bound of 0
+ * can be told from a lower bound where every counted item is empty. Omitted for a
+ * file and for a sample. `null` is rejected.
+ */
+folderFlags?: FolderFlags, };
 export type BrowseCopyPathRequest = { resultVersion: Id, items: Array<ItemRef>, };
 export type BrowseCopyPathRefusal = "path.unrepresentable" | "path.multiline" | "clipboard.unsupported" | "clipboard.failed";
 export type BrowseCopyPathOutcome = { "outcome": "copied", count: number, } | { "outcome": "refused", reasonKey: BrowseCopyPathRefusal, };
@@ -1714,7 +1832,12 @@ export type SpaceDetail = { item: ItemRef, logical: BrowseValue<SpaceDetailSize>
 /**
  * Data source of the pinned version; absent means a sample (F32 FR9.HD1).
  */
-dataSource?: DataSource, };
+dataSource?: DataSource,
+/**
+ * The scan state of a folder, the same value its row carries in a folder page
+ * (F02 #347). Omitted for a file and for a sample. `null` is rejected.
+ */
+folderFlags?: FolderFlags, };
 export type SampleSessionState = "preparing" | "active" | "resetting" | "unavailable" | "closed";
 export type SampleEventState = "inactive" | "loading" | "active" | "failed";
 export type SampleOpenRequest = Record<symbol, never>;
@@ -1739,6 +1862,146 @@ observations: Array<SampleObservationRef>,
 plans: Array<Id>, unavailableReason?: string, realAnalysisAction?: string, };
 export type SampleClosed = { sessionRef: Id, state: SampleSessionState, releasedVersions: number, };
 export type SampleStateChanged = { sessionRef: Id, state: SampleEventState, previousState: SampleEventState, reasonKey?: string, jobRef?: Id, sequence: number, observedAt: Timestamp, };
+export type SnapshotSaveRequest = {
+/**
+ * Result version to capture.
+ */
+resultVersionId: Id,
+/**
+ * Whether the new snapshot should become the baseline.
+ */
+pin: boolean, };
+export type SnapshotSaveResponse = SnapshotSaveAccepted | SnapshotSaveExistingSnapshot | SnapshotSaveExistingJob;
+export type SnapshotSaveAccepted = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveAcceptedOutcome,
+/**
+ * Admitted background job.
+ */
+jobId: Id, };
+export type SnapshotSaveAcceptedOutcome = "accepted";
+export type SnapshotPinApplied = false;
+export type SnapshotSaveExistingSnapshot = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveExistingOutcome,
+/**
+ * Existing snapshot identity.
+ */
+snapshotId: Id,
+/**
+ * Existing snapshots are not pinned by a save request.
+ */
+pinApplied: SnapshotPinApplied, };
+export type SnapshotSaveExistingJob = {
+/**
+ * Fixed outcome tag.
+ */
+outcome: SnapshotSaveExistingOutcome,
+/**
+ * Active save job identity.
+ */
+jobId: Id,
+/**
+ * A duplicate save does not alter pin state.
+ */
+pinApplied: SnapshotPinApplied, };
+export type SnapshotSaveExistingOutcome = "existing";
+export type SnapshotListRequest = {
+/**
+ * Opaque continuation token returned by the previous page.
+ */
+cursor?: string,
+/**
+ * Requested page size; zero and negative values are invalid.
+ */
+limit?: number, };
+export type SnapshotListResponse = {
+/**
+ * Snapshot-index sequence read with these rows.
+ */
+listSeq: number,
+/**
+ * Active snapshot summaries in observation-time order.
+ */
+items: Array<SnapshotSummary>,
+/**
+ * Opaque continuation token, omitted when this is the final page.
+ */
+nextCursor?: string, };
+export type SnapshotSummary = {
+/**
+ * Snapshot identity.
+ */
+snapshotId: Id,
+/**
+ * Observation time, when known.
+ */
+observedAt?: Timestamp,
+/**
+ * Lowercase hexadecimal scope marker; omitted when the marker is empty.
+ */
+scopeLabel?: string,
+/**
+ * Stored condition-summary JSON text.
+ */
+conditionSummary: string,
+/**
+ * Completeness recorded in the snapshot, when known.
+ */
+completeness?: SnapshotListCompleteness,
+/**
+ * Snapshot format version.
+ */
+formatVersion: number,
+/**
+ * Sealed snapshot body size in bytes.
+ */
+bodySize: number,
+/**
+ * Whether this snapshot is the current baseline.
+ */
+pinned: boolean,
+/**
+ * Whether this snapshot was captured locally or imported.
+ */
+sourceKind: SnapshotListSourceKind,
+/**
+ * Volume identities stored with the snapshot, for GUI use only.
+ */
+volumes: Array<SnapshotListVolume>, };
+export type SnapshotListCompleteness = "complete" | "partial" | "missing";
+export type SnapshotListSourceKind = "local" | "imported";
+export type SnapshotListVolume = {
+/**
+ * Zero-based position in the snapshot.
+ */
+volumeIndex: number,
+/**
+ * Lowercase hexadecimal observed identity, when known.
+ */
+observedVolumeId?: string, };
+export type SnapshotChange = "saved" | "imported" | "pinned" | "unpinned" | "deleted" | "swept";
+export type SnapshotChangedBody = {
+/**
+ * Committed snapshot-index list sequence.
+ */
+listSeq: number,
+/**
+ * Mutation represented by this event.
+ */
+change: SnapshotChange,
+/**
+ * Snapshot identities affected by the mutation.
+ */
+snapshotIds: Array<Id>,
+/**
+ * Time at which the mutation was observed, when available.
+ */
+observedAt?: Timestamp | null, };
 export type GroupRuleReview = "ok" | "converted" | "predicate_unregistered";
 export type GroupRule = { groupId: Id, displayName: string, displayOrder: number, condition: QueryCondition, conditionModelVersion: number, predicates: Array<QueryStrategy>, review: GroupRuleReview, };
 export type GroupRuleDraft = { groupId?: Id, displayName: string, condition: QueryCondition, };
@@ -1848,4 +2111,231 @@ export type GroupTotals = { classificationRef: Id, resultVersion: Id,
  * Data source of the pinned version, always set by the producer; absent means a sample (F32 FR2.HD2).
  */
 dataSource?: DataSource, groups: Array<GroupTotalRow>, union: GroupTotal, overlap: GroupTotal, overlapCount: number, unclassified: GroupTotal, undecidable: GroupTotal, scope: GroupTotal, ratios: Array<GroupRatio>, sizeRule: QueryStrategy, };
+export type ChangeAction = "trash" | "move" | "delete";
+export type PlanSourceKind = "manual" | "goal_alternative" | "duplicate_keep" | "scenario";
+export type PlanOriginChannel = "gui" | "cli" | "mcp";
+export type PlanReadiness = "experience_plan" | "source_not_current" | "needs_confirmation" | "no_executable_items" | "approval_possible";
+export type PlanSection = "executable" | "held" | "needs_confirmation" | "absorbed";
+export type PlanItemDisposition = "included" | "held" | "rejected";
+export type PlanHash = string;
+export type PlanSourceCount = { source: PlanSourceKind, count: number, };
+export type PlanDraftSummary = { itemCount: number, bySource: Array<PlanSourceCount>, conversionHeldCount: number, };
+export type PlanDraftOpenRequest = { source: PlanSourceKind, itemRefs: Array<ItemRef>,
+/**
+ * Omitted or null means no alternative reference; the source determines
+ * whether `itemRefs` or this reference is required.
+ */
+alternativeRef?: Id, };
+export type PlanDraftOpenResponse = { draftRef: Id, editSeq: number, summary: PlanDraftSummary, };
+export type PlanDraftEdit = { "kind": "add_item", itemRef: ItemRef, } | { "kind": "remove_item", itemRef: ItemRef, } | { "kind": "set_action", itemRef: ItemRef, action: ChangeAction, } | { "kind": "set_destination", itemRef: ItemRef,
+/**
+ * Null or omitted clears the destination.
+ */
+destination?: OsPath, } | { "kind": "set_retention_condition", itemRef: ItemRef,
+/**
+ * Null or omitted clears the retention condition reference.
+ */
+retentionConditionRef?: Id, } | { "kind": "set_overwrite", itemRef: ItemRef, overwrite: boolean, };
+export type PlanDraftEditRequest = { draftRef: Id, editSeq: number, edit: PlanDraftEdit, };
+export type PlanDraftEditResponse = { draftRef: Id, editSeq: number, summary: PlanDraftSummary, };
+export type PlanDraftCancelRequest = { draftRef: Id, };
+export type PlanDraftCancelResponse = { discarded: boolean, buildCancelled: boolean, };
+export type PlanBuildRequest = { draftRef: Id, editSeq: number, };
+export type PlanBuildResponse = { jobRef: Id, };
+export type PlanGetRequest = { planVersionId: Id, section: PlanSection,
+/**
+ * Omitted or null means no protection-class filter.
+ */
+protectionFilter?: string,
+/**
+ * Omitted or null starts at the first page.
+ */
+cursor?: string, };
+export type PlanVersionHead = { planVersionId: Id, lineageId: Id,
+/**
+ * Null or omission means this is the first version in the lineage.
+ */
+parentPlanVersionId?: Id, planHash: PlanHash, hashFormat: string, readiness: PlanReadiness, protectionRulesetVersion: string, protectionClassTableVersion: string,
+/**
+ * The feature DLD defines this summary's meaning; nested fields remain
+ * opaque to consumers of the common plan head.
+ */
+effectSummary: unknown,
+/**
+ * The feature DLD defines this summary's meaning; nested fields remain
+ * opaque to consumers of the common plan head.
+ */
+restorationLimitSummary: unknown, originChannel: PlanOriginChannel, fixedAt: Timestamp, changeSummary: string, };
+export type PlanVersionItem = { itemNo: number, itemRef: ItemRef, action: ChangeAction,
+/**
+ * Omitted or null means the action has no destination.
+ */
+destination?: OsPath,
+/**
+ * Omitted or null means no retention condition is attached.
+ */
+retentionConditionRef?: Id, disposition: PlanItemDisposition,
+/**
+ * Whether an existing destination item is selected for overwrite.
+ */
+overwrite: boolean,
+/**
+ * Expected identity and baseline facts captured when the version was fixed.
+ */
+expectedIdentity: unknown,
+/**
+ * Protection evaluation details captured with this immutable item.
+ */
+protectionSummary: unknown,
+/**
+ * Omitted or null means the item has no single review reason.
+ */
+reasonKey?: string, selectionBasis: Array<string>,
+/**
+ * Omitted or null means this item does not represent absorbed items.
+ */
+absorbedBy?: ItemRef, };
+export type PlanGetResponse = { head: PlanVersionHead, items: Array<PlanVersionItem>,
+/**
+ * Omitted or null means there is no next page.
+ */
+nextCursor?: string, };
+export type PlanItemReasonRequest = { planVersionId: Id, itemNo: number, };
+export type PlanItemReasonResponse = { itemRef: ItemRef, selectionBasis: Array<string>, restrictions: Array<string>, disposition: PlanItemDisposition,
+/**
+ * Omitted or null means no review reason applies.
+ */
+reasonKey?: string, };
+export type PlanHistoryRequest = { lineageId: Id, };
+export type PlanHistoryEntry = { planVersionId: Id, fixedAt: Timestamp, changeSummary: string, };
+export type PlanHistoryResponse = { versions: Array<PlanHistoryEntry>, };
+export type PlanVersionFixed = { planVersionId: Id, lineageId: Id,
+/**
+ * Omitted or null means the version did not replace another version.
+ */
+replacedPlanVersionId?: Id, planHash: PlanHash, readiness: PlanReadiness, includedCount: number, heldCount: number, needsConfirmationCount: number, jobRef: Id, fixedAt: Timestamp, };
+export type RequestKind = "plan" | "restore" | "move_undo";
+export type ConfirmationKind = "release_default_protection" | "overwrite";
+export type ApprovalState = "in_review" | "granted" | "rejected" | "withdrawn" | "in_use" | "spent" | "invalidated";
+export type ApprovalEventState = "granted" | "consumed" | "revoked" | "rejected";
+export type ApprovalProtectionResult = { itemRef: ItemRef, disposition: PlanItemDisposition,
+/**
+ * Omitted or null means no protection reason was recorded.
+ */
+reasonKey?: string, };
+export type ApprovalProtectionSummary = { rulesetVersion: string, classTableVersion: string, unlockedClasses: Array<string>, unlockedItemCount: number, unlockedBytes: ByteSize, requiredBasicProtectionAck: boolean, };
+export type ApprovalOverwriteSummary = { overwriteItemCount: number, displacedBytes: ByteSize, requiredOverwriteAck: boolean, };
+export type ApprovalReviewSummary = { targetCount: number, targetSize: ByteSize, visibleSelectionCount: number, hiddenSelectionCount: number, hiddenDescendantCount: number, actions: Array<ChangeAction>,
+/**
+ * Omitted or null means the request has no destination.
+ */
+destination?: OsPath, retentionConditions: Array<Id>,
+/**
+ * Nested fields are owned by the corresponding feature summaries.
+ */
+effectSummary: unknown, protectionResults: Array<ApprovalProtectionResult>,
+/**
+ * Nested fields are owned by the corresponding feature summaries.
+ */
+restorationLimitSummary: unknown,
+/**
+ * Omitted or null means no basic-protection release applies.
+ */
+protectionSummary?: ApprovalProtectionSummary,
+/**
+ * Omitted or null means no overwrite confirmation applies.
+ */
+overwriteSummary?: ApprovalOverwriteSummary, };
+export type ApprovalReviewRequest = { requestVersionId: Id, requestKind: RequestKind, };
+export type ApprovalReviewResponse = { requestVersionId: Id, summary: ApprovalReviewSummary, planHash: PlanHash, approvalPossible: boolean,
+/**
+ * Omitted or null means there are no known blocking reasons.
+ */
+unavailableReasonKeys?: Array<string>,
+/**
+ * Omitted or null means the registry has no current state for this version.
+ */
+currentApprovalState?: ApprovalState, };
+export type ApprovalConfirmationProofs = {
+/**
+ * Omitted or null means false; required only for permanent-delete requests.
+ */
+permanentDeleteSelected?: boolean,
+/**
+ * Omitted or null means the target count was not confirmed.
+ */
+confirmedTargetCount?: number,
+/**
+ * Omitted or null means the target size was not confirmed.
+ */
+confirmedTargetSize?: ByteSize,
+/**
+ * Omitted or null means false; true is required only for permanent-delete requests.
+ */
+irreversibilityConfirmed?: boolean,
+/**
+ * Omitted or null means false; true is required when basic protection is released.
+ */
+basicProtectionUnlockConfirmed?: boolean,
+/**
+ * Omitted or null means false; true is required when overwrite is selected.
+ */
+overwriteConfirmed?: boolean,
+/**
+ * Omitted or null means no overwrite count was confirmed.
+ */
+confirmedOverwriteItemCount?: number,
+/**
+ * Omitted or null means no displaced size was confirmed.
+ */
+confirmedDisplacedBytes?: ByteSize, };
+export type ApprovalGrantRequest = { requestVersionId: Id, presentedPlanHash: PlanHash,
+/**
+ * Omitted or null means no additional proof was submitted.
+ */
+confirmations?: ApprovalConfirmationProofs, };
+export type ApprovalGrantResponse = { state: ApprovalState, };
+export type ApprovalRevokeRequest = { requestVersionId: Id, };
+export type ApprovalRevokeResponse = { state: ApprovalState, };
+export type ApprovalStateChanged = { requestVersionId: Id, state: ApprovalEventState,
+/**
+ * Omitted or null means no state-change reason is attached.
+ */
+reasonKey?: string, sequence: number, occurredAt: Timestamp, };
+export type ChangeExecuteRequest = { requestVersionId: Id, };
+export type ChangeExecuteResponse = { jobRef: Id, approvalState: ApprovalState, };
+export type ChangeItemState = "completed" | "skipped" | "failed" | "unprocessed";
+export type ChangeItemResultFilter = "completed" | "failed" | "outcome_unknown" | "skipped" | "held" | "unprocessed";
+export type ChangeItemResultsRequest = { jobRef: Id,
+/**
+ * Omitted or null means all recorded result groups.
+ */
+resultFilter?: ChangeItemResultFilter,
+/**
+ * Omitted or null starts at the first result.
+ */
+cursor?: string, };
+export type ChangeItemCounts = { completed: number,
+/**
+ * The shared job summary includes this category; `change.trash` leaves it zero.
+ */
+overwritten: number, skipped: number, failed: number, unprocessed: number, };
+export type ChangeItemResult = { itemRef: ItemRef,
+/**
+ * F11 `change.trash` uses `state`; it does not emit an `overwritten` item state.
+ */
+state: ChangeItemState,
+/**
+ * Omitted or null means no item-specific reason was recorded.
+ */
+reasonKey?: string,
+/**
+ * Omitted or null means the size was not observed.
+ */
+observedSize?: ByteSize, reviewNeeded: boolean, held: boolean, outcomeUnknown: boolean, undoAvailable: boolean, };
+export type ChangeItemResultsResponse = { jobRef: Id, jobState: JobState, counts: ChangeItemCounts, itemRecording: HistoryItemRecording, items: Array<ChangeItemResult>,
+/**
+ * Omitted or null means there is no next page.
+ */
+nextCursor?: string, };
 export const SIZE_UNIT_RULES = {"decimalPlaces":1,"iec":{"base":1024,"symbols":["B","KiB","MiB","GiB","TiB","PiB"]},"revision":1,"si":{"base":1000,"symbols":["B","kB","MB","GB","TB","PB"]}} as const;

@@ -131,8 +131,11 @@ pub enum TotalsError {
 ///
 /// Folders are walked and never counted. A file outside the scan boundary was
 /// not read and is left out. A size that is unknown or not in the basis adds
-/// nothing and leaves the class total a lower bound, as does a lower bound. Each
-/// file adds its own value, so a file linked twice under the scope is added twice.
+/// nothing and leaves the class total a lower bound, as does a lower bound. On the
+/// logical basis each path adds its own value, so a file linked twice under the scope
+/// is added twice. On the allocated basis a file identity adds its allocation once,
+/// for the first path met, so the classes never add up to more than the scope (#348);
+/// every path still counts as an item.
 pub fn scope_totals(
     version: &ResultVersion,
     scope: &ItemRef,
@@ -144,13 +147,53 @@ pub fn scope_totals(
         .map_err(|_| TotalsError::InvalidScope)?
         .item
         .item_no;
-    // One slot per type, in FileType::ALL order, then the class of no type.
-    let mut slots = [ClassTotal::default(); FileType::ALL.len() + 1];
-    let mut work: Vec<u32> = version
+    let start = version
         .children(scope_no)
         .iter()
         .map(|c| c.item_no)
         .collect();
+    walk(version, start, basis, cancelled)
+}
+
+/// The legend classes of a whole result, every scope root together (F02 #300): the
+/// rules of [`scope_totals`], with one set of counted file identities for all the
+/// roots, so on the allocated basis a file reached from two roots adds its
+/// allocation once. The classes come in legend order ([`LISTED`]).
+pub fn result_totals(
+    version: &ResultVersion,
+    basis: &SizeBasis,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<Vec<(&'static str, ClassTotal)>, TotalsError> {
+    let start = version
+        .scope_roots()
+        .iter()
+        .map(|root| root.item_no)
+        .collect();
+    let mut classes: Vec<_> = walk(version, start, basis, cancelled)?
+        .into_iter()
+        .collect();
+    classes.sort_by_key(|(key, _)| {
+        LISTED
+            .iter()
+            .position(|class| class.key == *key)
+            .unwrap_or(LISTED.len())
+    });
+    Ok(classes)
+}
+
+/// Counts the files at and below `start`, walking folders without counting them.
+///
+/// The items are counted together, so on the allocated basis a file reached twice adds
+/// its allocation once. A file in `start` counts as itself.
+pub(crate) fn walk(
+    version: &ResultVersion,
+    mut work: Vec<u32>,
+    basis: &SizeBasis,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<BTreeMap<&'static str, ClassTotal>, TotalsError> {
+    // One slot per type, in FileType::ALL order, then the class of no type.
+    let mut slots = [ClassTotal::default(); FileType::ALL.len() + 1];
+    let mut counted = std::collections::BTreeSet::new();
     while let Some(no) = work.pop() {
         if cancelled() {
             return Err(TotalsError::Cancelled);
@@ -174,6 +217,13 @@ pub fn scope_totals(
         });
         let total = &mut slots[slot];
         total.count = total.count.saturating_add(1);
+        if *basis != SizeBasis::Logical
+            && version
+                .file_identity(no)
+                .is_some_and(|identity| !counted.insert(identity.clone()))
+        {
+            continue;
+        }
         match version.item_size(no, basis.clone()) {
             Some(size) if size.evidence != SizeEvidence::Unknown && size.basis == *basis => {
                 match &size.amount {

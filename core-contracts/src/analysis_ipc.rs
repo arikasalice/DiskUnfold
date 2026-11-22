@@ -89,6 +89,23 @@ pub struct AnalysisTarget {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub default_visible: Option<bool>,
+    /// The OS-confirmed system volume of a confirmed root volume group.
+    /// Omitted when the group or system role is not confirmed. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::browse_page_ipc::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub is_startup_volume: Option<bool>,
+    /// Volume name reported by the operating system, when available. GUI channel only.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::browse_page_ipc::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub volume_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -444,3 +461,6 @@ pub struct AnalysisJobControl {
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub sequence: u64,
 }
+
+#[cfg(test)]
+mod tests;

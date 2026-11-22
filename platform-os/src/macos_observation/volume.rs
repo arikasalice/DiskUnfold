@@ -11,8 +11,8 @@ use du_core_contracts::{
     scan_observation::{VolumeSpace, VolumeSpaceReader},
 };
 use libc::{
-    ATTR_BIT_MAP_COUNT, ATTR_CMN_FSID, ATTR_CMN_RETURNED_ATTRS, ATTR_DIR_MOUNTSTATUS,
-    ATTR_VOL_INFO, ATTR_VOL_SPACEUSED, ATTR_VOL_UUID, DIR_MNTSTATUS_MNTPOINT,
+    ATTR_BIT_MAP_COUNT, ATTR_CMN_FSID, ATTR_CMN_NAME, ATTR_CMN_RETURNED_ATTRS,
+    ATTR_DIR_MOUNTSTATUS, ATTR_VOL_INFO, ATTR_VOL_SPACEUSED, ATTR_VOL_UUID, DIR_MNTSTATUS_MNTPOINT,
 };
 use std::{
     ffi::CStr,
@@ -197,6 +197,47 @@ pub(crate) fn mount_identity(path: &CStr, listed: Fsid) -> Option<Vec<u8>> {
     }
 }
 
+/// The UTF-8 name reported for the object at this mount path. `None` means the
+/// name was unavailable, invalid, or unsupported.
+pub(crate) fn mount_name(path: &CStr) -> Option<String> {
+    let mut reply = [0u8; 512];
+    attributes(
+        Target::Mount(path),
+        request(ATTR_CMN_NAME, 0, 0),
+        &mut reply,
+    )
+    .ok()?;
+    parse_mount_name(&reply)
+}
+
+fn parse_mount_name(reply: &[u8]) -> Option<String> {
+    let length = usize::try_from(Cursor::new(reply, 0).u32().ok()?).ok()?;
+    let mut cursor = Cursor::new(reply.get(..length)?, 4);
+    let [common, volume, directory, file, fork] = cursor.returned().ok()?;
+    if common & !(ATTR_CMN_RETURNED_ATTRS | ATTR_CMN_NAME) != 0
+        || volume | directory | file | fork != 0
+    {
+        return None;
+    }
+    let name = cursor
+        .optional(common & ATTR_CMN_NAME, |cursor| cursor.name(true))
+        .ok()??;
+    String::from_utf8(name).ok().filter(|name| !name.is_empty())
+}
+
+/// The usage of one volume alone, as the file system reports it for the listed mount,
+/// accepted only while the path leads to the listed file system (#351). On APFS the
+/// statfs block counts are those of the whole container; `None` when the volume
+/// reports no usage of its own.
+pub(crate) fn mount_used_bytes(path: &CStr, listed: Fsid) -> Option<u64> {
+    let reply = volume_attribute::<8>(Target::Mount(path), ATTR_VOL_SPACEUSED).ok()??;
+    if reply.fsid != listed {
+        return None;
+    }
+    u64::try_from(i64::from_ne_bytes(reply.value?)).ok()
+}
+
+/// Whether `fd` is the root directory of a mounted file system.
 /// Whether `fd` is the root directory of a mounted file system.
 pub(super) fn is_mount_root(fd: BorrowedFd<'_>) -> Result<bool, PortError> {
     let mut reply = [0u8; 28];
@@ -294,5 +335,49 @@ pub(crate) fn changed() -> PortError {
         kind: PortErrorKind::IdentityChanged,
         reason_key: "scan.disconnected".into(),
         os_code: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reply(name: Option<&[u8]>) -> Option<Vec<u8>> {
+        let mut common = ATTR_CMN_RETURNED_ATTRS;
+        let name_length = name.map_or(0, |name| name.len() + 1);
+        let name_start = 32;
+        if name.is_some() {
+            common |= ATTR_CMN_NAME;
+        }
+        let mut bytes = vec![
+            0;
+            if name.is_some() {
+                name_start + name_length
+            } else {
+                24
+            }
+        ];
+        let length = u32::try_from(bytes.len()).ok()?;
+        bytes[..4].copy_from_slice(&length.to_ne_bytes());
+        bytes[4..8].copy_from_slice(&common.to_ne_bytes());
+        if let Some(name) = name {
+            bytes[24..28].copy_from_slice(&8i32.to_ne_bytes());
+            bytes[28..32].copy_from_slice(&u32::try_from(name_length).ok()?.to_ne_bytes());
+            bytes[name_start..name_start + name.len()].copy_from_slice(name);
+            bytes[name_start + name.len()] = 0;
+        }
+        Some(bytes)
+    }
+
+    #[test]
+    fn reads_a_valid_name_and_omits_missing_or_invalid_names()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let valid = reply(Some(b"Macintosh HD")).ok_or("valid test name fits")?;
+        assert_eq!(parse_mount_name(&valid).as_deref(), Some("Macintosh HD"));
+        let missing = reply(None).ok_or("empty test name fits")?;
+        assert_eq!(parse_mount_name(&missing), None);
+        let invalid = reply(Some(&[0xff])).ok_or("invalid test name fits")?;
+        assert_eq!(parse_mount_name(&invalid), None);
+        Ok(())
     }
 }

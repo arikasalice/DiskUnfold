@@ -170,6 +170,9 @@ test("F06 README 22, 34: Enter on an item does nothing else and says why; Esc un
   expect(controller.getSnapshot().selection).toBeNull();
   fireEvent.keyDown(shape, { key: " ", code: "Space" });
   expect(controller.getSnapshot().selection).not.toBeNull();
+  // The first Esc closes the focused shape's info card, the next unselects (README 8, 11).
+  fireEvent.keyDown(shape, { key: "Escape", code: "Escape" });
+  expect(controller.getSnapshot().selection).not.toBeNull();
   fireEvent.keyDown(shape, { key: "Escape", code: "Escape" });
   expect(controller.getSnapshot().selection).toBeNull();
 });
@@ -382,6 +385,8 @@ test("a removed graph group row returns to its explanation, not to the rows regi
       count: 100,
     }),
   );
+  // The table under a chart opens folded now that shapes have info cards (README 22).
+  fireEvent.click(screen.getByRole("button", { name: /Items in this folder/ }));
   fireEvent.click(
     screen.getByRole("button", { name: "View items in Other items" }),
   );

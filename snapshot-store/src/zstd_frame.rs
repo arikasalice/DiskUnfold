@@ -152,7 +152,7 @@ pub(crate) fn inspect_frame_cancellable(
     decoded_limit: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<FrameInfo, Error> {
-    match inspect(&mut SliceInput(bytes), decoded_limit, cancelled) {
+    match inspect(&mut SliceInput(bytes), decoded_limit, true, cancelled) {
         Ok(info) => Ok(info),
         Err(ReadError::Frame(error)) => Err(error),
         Err(ReadError::Io(_)) => Err(Error::InvalidFrame),
@@ -164,12 +164,22 @@ pub(crate) fn inspect_reader<R: std::io::Read>(
     decoded_limit: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<FrameInfo, ReadError> {
-    inspect(&mut ReaderInput(reader), decoded_limit, cancelled)
+    inspect(&mut ReaderInput(reader), decoded_limit, true, cancelled)
+}
+
+/// Inspects frame boundaries before integrity and defers output limits to decoding.
+pub(crate) fn inspect_reader_boundaries<R: std::io::Read>(
+    reader: &mut std::io::Take<R>,
+    decoded_limit: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<FrameInfo, ReadError> {
+    inspect(&mut ReaderInput(reader), decoded_limit, false, cancelled)
 }
 
 fn inspect(
     input: &mut impl Input,
     decoded_limit: u64,
+    enforce_decoded_limit: bool,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<FrameInfo, ReadError> {
     let mut fixed = [0; 5];
@@ -207,7 +217,7 @@ fn inspect(
     input.read(&mut raw[..content_len], cancelled)?;
     let content_size = (content_len != 0)
         .then(|| u64::from_le_bytes(raw) + if content_len == 2 { 256 } else { 0 });
-    if content_size.is_some_and(|size| size > decoded_limit) {
+    if enforce_decoded_limit && content_size.is_some_and(|size| size > decoded_limit) {
         return Err(ReadError::Frame(Error::DecodedLimit));
     }
     let window_size = window

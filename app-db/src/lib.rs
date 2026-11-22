@@ -8,11 +8,13 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
+mod approval_check;
 mod group_rules;
 mod history_open;
 mod history_schema;
 mod job_history;
 pub mod migration;
+mod plan_version;
 mod publish;
 mod read_only;
 pub mod recent_scope;
@@ -20,6 +22,8 @@ mod recent_scope_schema;
 pub mod ruleset;
 pub mod scope_observation;
 mod settings;
+pub mod snapshot_index;
+mod snapshot_index_schema;
 
 pub use history_open::{HistoryOpenError, HistoryOpenRefusal};
 pub use history_schema::{HISTORY_DEFINITIONS, HISTORY_SCHEMA_VERSION};

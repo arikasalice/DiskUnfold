@@ -77,6 +77,8 @@ impl ErrorEnvelope {
             | "viz.viewport_invalid"
             | "viz.format_unknown"
             | "snapshot.format_unknown"
+            | "snapshot.list_limit_invalid"
+            | "snapshot.cursor_invalid"
             | "viz.strategy_unknown"
             | "viz.measure_unknown"
             | "viz.denominator_invalid"
@@ -91,10 +93,25 @@ impl ErrorEnvelope {
             | "path.unresolvable"
             | "sample.mixed_source"
             | "snapshot.sample_source"
+            | "snapshot.result_not_complete"
             | "group.unknown"
             | "group.rule_invalid"
             | "group.name_duplicate"
             | "group.rule_limit"
+            | "plan.source_not_current"
+            | "plan.source_channel_denied"
+            | "plan.empty"
+            | "plan.too_many_items"
+            | "plan.not_ready"
+            | "approval.sample_source_denied"
+            | "approval.not_issued"
+            | "approval.mismatch"
+            | "approval.check_failed"
+            | "approval.protection_denied"
+            | "approval.protection_undetermined"
+            | "approval.confirmation_missing"
+            | "approval.review_unavailable"
+            | "approval.review_withdrawn"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -104,7 +121,20 @@ impl ErrorEnvelope {
             | "result.requery_required"
             | "group.rules_modified"
             | "history.version_changed"
-            | "history.review_stale" => ErrorCode::StaleVersion,
+            | "history.review_stale"
+            | "plan.result_stale"
+            | "plan.draft_stale"
+            | "snapshot.cursor_stale"
+            | "approval.already_used"
+            | "approval.invalidated"
+            | "approval.request_superseded"
+            | "approval.stale"
+            | "approval.plan_superseded"
+            | "approval.ruleset_changed"
+            | "approval.restore_info_cleared"
+            | "approval.move_undo_info_cleared"
+            | "approval.user_revoked"
+            | "approval.in_use" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"
@@ -116,18 +146,24 @@ impl ErrorEnvelope {
             | "group.result_expired"
             | "locale.bundle_unavailable"
             | "history.review_not_found"
+            | "plan.not_found"
+            | "approval.request_not_found"
             | "session.evicted" => ErrorCode::NotFound,
-            "command.window_denied" => ErrorCode::OriginDenied,
+            "command.window_denied" | "approval.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" | "viz.busy" => {
                 ErrorCode::Busy
             }
             "db.schema_mismatch"
+            | "snapshot.store_unavailable"
+            | "snapshot.write_failed"
+            | "snapshot.insufficient_space"
             | "support.internal_error"
             | "request.cancelled"
             | "history.storage_unavailable"
             | "history.count_unavailable"
             | "history.policy_store_failed"
+            | "plan.store_failed"
             | "locale.registration_failed" => ErrorCode::Internal,
             _ => return None,
         })
@@ -173,6 +209,28 @@ mod tests {
                 .ok_or("locale reason was not registered")?;
             assert_eq!(envelope.reason_key, reason);
             assert_eq!(envelope.code, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn plan_reasons_keep_their_published_error_codes() -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = crate::Id::from_v7_bytes([9; 16]);
+        for (reason, expected) in [
+            ("plan.source_not_current", ErrorCode::InvalidArgument),
+            ("plan.source_channel_denied", ErrorCode::InvalidArgument),
+            ("plan.empty", ErrorCode::InvalidArgument),
+            ("plan.too_many_items", ErrorCode::InvalidArgument),
+            ("plan.result_stale", ErrorCode::StaleVersion),
+            ("plan.draft_stale", ErrorCode::StaleVersion),
+            ("plan.not_found", ErrorCode::NotFound),
+            ("session.evicted", ErrorCode::NotFound),
+            ("plan.not_ready", ErrorCode::InvalidArgument),
+            ("plan.store_failed", ErrorCode::Internal),
+        ] {
+            let error = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("plan reason was not registered")?;
+            assert_eq!(error.code, expected, "{reason}");
         }
         Ok(())
     }
@@ -263,6 +321,24 @@ mod tests {
                 .ok_or("sample reason was not registered")?;
             assert_eq!(envelope.code, expected);
             assert!(!envelope.retryable);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_save_reasons_use_the_expected_public_codes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let correlation = Id::parse("0195f856-ab83-7a59-9343-10d29775c9a9")?;
+        for (reason, expected) in [
+            ("snapshot.sample_source", ErrorCode::InvalidArgument),
+            ("snapshot.result_not_complete", ErrorCode::InvalidArgument),
+            ("snapshot.store_unavailable", ErrorCode::Internal),
+            ("snapshot.write_failed", ErrorCode::Internal),
+            ("snapshot.insufficient_space", ErrorCode::Internal),
+        ] {
+            let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
+                .ok_or("snapshot save reason was not registered")?;
+            assert_eq!(envelope.code, expected);
         }
         Ok(())
     }

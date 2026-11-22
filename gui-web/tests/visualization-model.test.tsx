@@ -444,6 +444,7 @@ test("page navigation retains the exact model and result revision", () => {
       onPage={onPage}
     />,
   );
+  fireEvent.click(screen.getByRole("button", { name: /Items in this folder/ }));
   fireEvent.click(screen.getByRole("button", { name: "Next rows" }));
   expect(onPage).toHaveBeenCalledWith({ ...input.page.request, start: 4 });
 });

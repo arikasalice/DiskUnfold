@@ -242,9 +242,9 @@ impl SpaceAggregates {
         }
     }
 
-    pub(crate) fn mark_inaccessible(&mut self, item_no: u32, count: u64) {
+    pub(crate) fn mark_inaccessible(&mut self, item_no: u32, count: u64, allocation: bool) {
         if let Some(value) = self.get_mut(item_no) {
-            mark_inaccessible(value, count);
+            mark_inaccessible(value, count, allocation);
         } else {
             self.file_gaps.push((item_no, count));
         }
@@ -354,11 +354,15 @@ pub(crate) fn known_logical(value: &SizeValue) -> bool {
         && value.amount != SizeAmount::Unknown
 }
 
-/// Marks known unread ranges without converting unknown data into zero.
-pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
-    fn mark(value: &mut SizeValue) {
+/// Marks known unread ranges (#341).
+///
+/// What was read is a lower bound: an exact size becomes a lower bound, and a folder
+/// read to no bytes at all is at least zero logical bytes. The unique physical size
+/// stays unknown without bytes, as does any value of an overflowed aggregate.
+pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64, allocation: bool) {
+    fn mark(value: &mut SizeValue, zero_is_bound: bool) {
         if let SizeAmount::Exact { bytes } = &value.amount {
-            value.amount = if bytes.get() == 0 {
+            value.amount = if bytes.get() == 0 && !zero_is_bound {
                 SizeAmount::Unknown
             } else {
                 SizeAmount::LowerBound {
@@ -375,11 +379,50 @@ pub(crate) fn mark_inaccessible(aggregate: &mut SpaceAggregate, count: u64) {
             *value = ResultCompleteness::Missing;
         }
     }
-    mark(&mut aggregate.logical);
-    mark(&mut aggregate.allocated);
-    mark(&mut aggregate.unique_physical);
+    mark(&mut aggregate.logical, true);
+    mark(&mut aggregate.allocated, true);
+    mark(&mut aggregate.unique_physical, false);
+    mark_unread(aggregate, allocation);
     state(&mut aggregate.completeness);
     state(&mut aggregate.allocated_completeness);
     state(&mut aggregate.unique_physical_completeness);
     aggregate.inaccessible_ranges = Some(count);
+}
+
+/// A folder whose contents were left unread, or one above it, is at least the
+/// bytes read below it: with none read, at least zero (#341). The allocated size
+/// follows only when this scan collected allocation (`allocation`); otherwise its
+/// unknown means "not collected" and stays. An overflowed aggregate stays unknown,
+/// and so does the unique physical size.
+pub(crate) fn mark_unread(aggregate: &mut SpaceAggregate, allocation: bool) {
+    if aggregate
+        .limitations
+        .contains(&"space.aggregation_overflow")
+    {
+        return;
+    }
+    let zero = |value: &mut SizeValue| {
+        if value.amount == SizeAmount::Unknown {
+            value.amount = SizeAmount::LowerBound {
+                bytes: ByteSize::from(0),
+            };
+            value.evidence = SizeEvidence::Measured;
+        }
+    };
+    zero(&mut aggregate.logical);
+    if allocation {
+        zero(&mut aggregate.allocated);
+        // The allocation was collected, so "not collected" no longer describes the
+        // bound; the two never describe one folder (#341).
+        if aggregate.allocated.amount != SizeAmount::Unknown
+            && aggregate
+                .limitations
+                .contains(&"space.allocated_not_collected")
+        {
+            aggregate
+                .limitations
+                .to_mut()
+                .retain(|key| *key != "space.allocated_not_collected");
+        }
+    }
 }

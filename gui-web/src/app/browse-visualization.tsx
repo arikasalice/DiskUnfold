@@ -19,6 +19,8 @@ import type { SizeDisplay } from "../i18n/bytes";
 import type { SizeBasisFilter } from "../features/analysis/space-format";
 import type { AnalysisClient, ItemRef, VizCatalog } from "../ipc";
 import type { BrowseOpenLocation } from "../features/browse/BrowsePanel";
+import { useLocaleOsFamily } from "../state/use-locale";
+import { defaultSizeDisplay } from "../state/size-display";
 import { VisualizationSession } from "../features/visualization/VisualizationSession";
 import {
   ChartAreaContext,
@@ -66,7 +68,6 @@ export type BrowseVisualizationProvider = (
   catalog: VizCatalog,
 ) => BrowseVisualizationAssembly | null;
 
-const DEFAULT_DISPLAY: SizeDisplay = { system: "iec", unit: "auto" };
 /** Where the chart is assumed to start in the scroll area until it reports its place. */
 const DEFAULT_CHART_OFFSET = 40;
 
@@ -309,8 +310,9 @@ export function BrowseVisualizationView({
   catalog?: VizCatalog | undefined;
 }) {
   const text = useLocaleText();
+  const osFamily = useLocaleOsFamily();
   const productionText = useProductionVizText(
-    selection?.display ?? DEFAULT_DISPLAY,
+    selection?.display ?? defaultSizeDisplay(osFamily),
   );
   const vizText = assembly?.text ?? productionText;
   const viewportElement = useRef<HTMLDivElement>(null);
@@ -341,7 +343,12 @@ export function BrowseVisualizationView({
   const axis = useHistogramAxis(formats.format, catalog, assembly, vizText);
   const legend = useLegendChoice(formats.format, catalog, assembly, vizText);
   // "Show in list" puts the file list in the chart's place (README 46.13).
-  const list = useTypeListView(open, client, legend.narrowing);
+  const list = useTypeListView(
+    open,
+    client,
+    legend.narrowing,
+    listView(selection, formats.format),
+  );
   // A new format starts at the top of its chart, not where the last one was scrolled.
   useLayoutEffect(() => {
     viewportElement.current?.scrollTo?.({ top: 0 });
@@ -478,6 +485,8 @@ export function BrowseVisualizationView({
         resultVersion={selection.resultVersion}
         scope={selection.location}
         narrowing={legend.narrowing}
+        interval={list.interval}
+        onCloseInterval={list.closeInterval}
         text={vizText}
         title={title}
       />
@@ -513,6 +522,7 @@ export function BrowseVisualizationView({
               legend={legend.controls}
               narrowing={legend.narrowing}
               legendSide={legend.side(viewport.width)}
+              onOpenList={list.openInterval}
               {...(formats.available
                 ? {
                     formatAction: {
@@ -537,6 +547,17 @@ export function BrowseVisualizationView({
       </div>
     </section>
   );
+}
+
+/** What an interval's file list belongs to: it closes when the folder, result or format changes. */
+function listView(
+  selection:
+    { resultVersion: string; location: { itemNo: number } } | undefined,
+  format: string,
+) {
+  return selection
+    ? `${selection.resultVersion}:${selection.location.itemNo}:${format}`
+    : "";
 }
 
 /**

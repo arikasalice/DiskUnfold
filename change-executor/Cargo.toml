@@ -5,5 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dependencies]
+du-change-planner = { version = "0.0.1", path = "../change-planner" }
+du-core-contracts = { version = "0.0.1", path = "../core-contracts" }
+
 [lints]
 workspace = true

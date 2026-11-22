@@ -309,9 +309,49 @@ test("a zero size of a folder the scan did not enter reads as not counted", () =
   expect(sized({ boundary: boundary("already_counted") }, "0")).toBe(
     "Not counted",
   );
+  expect(sized({ boundary: boundary("already_counted") }, "7")).toBe(
+    "Not counted",
+  );
+  const unknown = {
+    state: "unknown",
+    reasonKey: "space.data_insufficient",
+  } as const;
+  expect(
+    size(
+      {
+        ...row(2, { boundary: boundary("already_counted") }),
+        logicalSize: unknown,
+      },
+      unknown,
+      display,
+      text,
+    ),
+  ).toBe("Not counted");
   // A value other than zero is shown as it is, and an empty folder stays empty.
   expect(sized({ boundary: boundary("other_volume") }, "7")).toBe("7 bytes");
   expect(sized({ boundary: unproven }, "0")).toBe("0 bytes");
+});
+
+test("a lower bound of 0 bytes is unavailable only when something inside was not read", () => {
+  const display = { system: "iec", unit: "auto" } as const;
+  const sized = (flags: Partial<Flags>, bytes: string) => {
+    const value = {
+      state: "present",
+      value: {
+        basis: "logical",
+        evidence: "measured",
+        state: "lower_bound",
+        bytes,
+      },
+    } as const;
+    return size({ ...row(1, flags), logicalSize: value }, value, display, text);
+  };
+  const inside = { state: "present", value: { count: "1" } } as const;
+  expect(sized({ unenumerated: unread }, "0")).toBe("Unavailable");
+  expect(sized({ unreadInside: inside }, "0")).toBe("Unavailable");
+  // Everything counted is empty: the lower bound is shown as it is.
+  expect(sized({}, "0")).toBe("At least 0 bytes");
+  expect(sized({ unenumerated: unread }, "2048")).toBe("At least 2.0 KiB");
 });
 
 test("a list keeps the scan status column once a row carried the boundary", () => {

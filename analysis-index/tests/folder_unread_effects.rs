@@ -225,18 +225,42 @@ fn cancelled_and_partial_versions_make_marked_folders_and_ancestors_inexact() ->
             assert_eq!(aggregate.completeness, completeness);
             assert_eq!(aggregate.inaccessible_ranges, None);
         }
-        // The empty marked folder has nothing observed, so its size is unknown, not zero.
+        // The empty marked folder has nothing observed, so it is at least zero bytes,
+        // never an exact zero (#341).
         let leaf = item(&marked, 0, &["marked"])?;
         let leaf = marked.space(leaf.item_no).ok_or("no aggregate")?;
-        assert_eq!(leaf.logical.amount, SizeAmount::Unknown);
-        // The mark does not touch aggregation at all.
+        assert_eq!(
+            leaf.logical.amount,
+            SizeAmount::LowerBound {
+                bytes: du_core_contracts::ByteSize::from(0)
+            }
+        );
+        // The mark changes nothing but unknown logical and (collected) allocated sizes
+        // of the marked folders and those above them, which become zero lower bounds.
         let all = |version: &ResultVersion| -> Vec<_> {
             (0..version.items().len() as u32)
                 .filter_map(|n| version.space(n))
                 .chain([version.scope_total().clone()])
                 .collect()
         };
-        assert_eq!(all(&marked), all(&plain));
+        for (with_mark, without) in all(&marked).into_iter().zip(all(&plain)) {
+            let mut expected = without.clone();
+            let zero = SizeAmount::LowerBound {
+                bytes: du_core_contracts::ByteSize::from(0),
+            };
+            for (bound, before) in [
+                (&with_mark.logical, &mut expected.logical),
+                (&with_mark.allocated, &mut expected.allocated),
+            ] {
+                if before.amount == SizeAmount::Unknown && bound.amount != SizeAmount::Unknown {
+                    assert_eq!(bound.amount, zero);
+                    *before = bound.clone();
+                    // A bound allocation is no longer "not collected".
+                    expected.limitations = with_mark.limitations.clone();
+                }
+            }
+            assert_eq!(with_mark, expected);
+        }
         assert!(!is_exact(&marked.scope_total().logical));
         assert!(marked.items().iter().all(|i| {
             i.kind != ResultItemKind::Directory

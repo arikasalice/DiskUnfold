@@ -1,13 +1,18 @@
 name: Install Linux packages with cached downloads
 description: >-
-  Installs apt packages and keeps the downloaded .deb files in the Actions cache. The Azure Ubuntu
-  mirror can take 15 minutes or more for the GTK and WebKit packages. The cache only supplies files:
-  apt still refreshes the index and checks every cached .deb against it, so a missing, stale or
-  corrupt cache falls back to downloading from the mirror.
+  Always restores cached apt .deb files before installing packages. Saves updated files only when
+  save-cache is true; callers should set it only for pushes to the default branch and nightly runs.
+  The Azure Ubuntu mirror can take 15 minutes or more for GTK and WebKit packages. Apt still
+  refreshes the index and checks every cached .deb against it, so a missing, stale or corrupt cache
+  falls back to downloading from the mirror.
 inputs:
   packages:
     description: Space separated apt package names.
     required: true
+  save-cache:
+    description: Save updated apt .deb files to the Actions cache when set to true.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -21,10 +26,11 @@ runs:
       run: |
         set -euo pipefail
         digest="$(printf '%s\n' $PACKAGES | sort -u | sha256sum | cut -c1-16)"
-        prefix="apt-debs-v2-$RUNNER_OS-$RUNNER_ARCH-$digest-"
+        prefix="apt-debs-v3-$RUNNER_OS-$RUNNER_ARCH-$digest-"
         echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "key=$prefix${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
-    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       env:
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: "5"
       with:
@@ -35,14 +41,22 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
+        SAVE_CACHE: ${{ inputs.save-cache }}
       run: |
         set -euo pipefail
         mkdir -p "$HOME/apt-debs"
         sudo cp -n "$HOME"/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
         sudo apt-get update
         sudo apt-get install -y $PACKAGES
-        # Drop superseded versions, then keep exactly what apt holds now for the next cache.
-        sudo apt-get autoclean || true
-        rm -f "$HOME"/apt-debs/*.deb
-        sudo cp /var/cache/apt/archives/*.deb "$HOME/apt-debs/" 2>/dev/null || true
-        sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
+        if [[ "$SAVE_CACHE" == "true" ]]; then
+          # Drop superseded versions, then keep exactly what apt holds now for the next cache.
+          sudo apt-get autoclean || true
+          rm -f "$HOME"/apt-debs/*.deb
+          sudo cp /var/cache/apt/archives/*.deb "$HOME/apt-debs/" 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
+        fi
+    - if: inputs.save-cache == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.key.outputs.key }}

@@ -340,7 +340,17 @@ test.each(["row keyboard", "nested button", "accessibility activation"])(
     const dialog = await screen.findByRole("dialog", {
       name: "File details",
     });
-    expect(inspectItem).toHaveBeenCalledWith(ref(1), "file");
+    expect(inspectItem).toHaveBeenCalledWith(
+      ref(1),
+      "file",
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      undefined,
+      undefined,
+      undefined,
+    );
     expect(port.open).toHaveBeenCalledTimes(1);
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Close details" }),
@@ -1598,7 +1608,17 @@ test("folder row inspection uses its pinned reference without navigating", async
   const dialog = await screen.findByRole("dialog", {
     name: "Folder details",
   });
-  expect(inspectItem).toHaveBeenCalledWith(ref(2), "folder");
+  expect(inspectItem).toHaveBeenCalledWith(
+    ref(2),
+    "folder",
+    undefined,
+    undefined,
+    undefined,
+    expect.any(Function),
+    undefined,
+    undefined,
+    undefined,
+  );
   expect(open).toHaveBeenCalledTimes(1);
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Close details" }),

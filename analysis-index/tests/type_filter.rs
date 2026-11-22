@@ -395,3 +395,67 @@ fn the_type_legend_counts_the_files_of_the_whole_subtree() -> Result<(), String>
     );
     Ok(())
 }
+
+/// #348: two names of one file add its allocation once to a class, but both are items;
+/// on the logical basis each path still adds its own size.
+#[test]
+fn a_hard_linked_file_adds_its_allocation_to_the_legend_once() -> Result<(), String> {
+    use du_analysis_index::visualization::type_legend::scope_totals;
+    use du_analysis_index::{FileIdentity, SharingEvidence, SpaceObservation};
+    let sink = IngestSink::default();
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/fixture"),
+        },
+        volume_id: vec![1],
+        file_id: vec![2],
+    };
+    let mut builder = sink.open_forest(id(1)?, vec![root]).map_err(error)?;
+    builder.add_directory_at(0, vec![]).map_err(error)?;
+    let allocated = |bytes: u64| SizeValue {
+        basis: SizeBasis::Allocated,
+        evidence: SizeEvidence::OsReported,
+        amount: SizeAmount::Exact {
+            bytes: bytes.into(),
+        },
+    };
+    for (name, file) in [("a.bin", 7_u8), ("a-link.bin", 7), ("b.bin", 8)] {
+        builder
+            .add_with_space_at(
+                0,
+                Observation {
+                    path: vec![name.as_bytes().to_vec()],
+                    size: size(100),
+                },
+                SpaceObservation {
+                    allocated: Some(allocated(4096)),
+                    identity: Some(FileIdentity {
+                        volume: vec![1],
+                        file: vec![file],
+                    }),
+                    link_count: Some(if file == 7 { 2 } else { 1 }),
+                    sharing: SharingEvidence::None,
+                },
+            )
+            .map_err(error)?;
+    }
+    let version = builder
+        .seal(id(2)?, ResultCompleteness::Complete)
+        .map_err(error)?;
+    let scope = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: 0,
+    };
+    let bytes = |basis: SizeBasis| -> Result<(u64, u64), String> {
+        let totals =
+            scope_totals(&version, &scope, &basis, &mut || false).map_err(|e| format!("{e:?}"))?;
+        let total = totals
+            .values()
+            .fold((0, 0), |sum, t| (sum.0 + t.count, sum.1 + t.bytes));
+        Ok(total)
+    };
+    assert_eq!(bytes(SizeBasis::Allocated)?, (3, 8192));
+    assert_eq!(bytes(SizeBasis::Logical)?, (3, 300));
+    Ok(())
+}

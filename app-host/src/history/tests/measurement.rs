@@ -4,7 +4,7 @@ use du_core_contracts::{
     SizeAmount, SizeBasis, analysis_ipc::SpaceTotal, result::ResultCompleteness,
     result_events::RESULT_VERSION_CHANGED,
 };
-use std::fs;
+use std::{fs, path::Path, sync::Mutex};
 
 /// Reads the process-lifetime peak working set, which is not scan-job memory.
 fn process_peak_working_set() -> Option<u64> {
@@ -265,5 +265,202 @@ fn run_native_scan_measurement(
     fixture.close()?;
     profile.close()?;
     eprintln!("F02_MEASURE cleanup=fixture_and_profile_closed");
+    Ok(())
+}
+
+const SCAN_FAN_OUT: &str = "F02_SCAN_FAN_OUT";
+const SCAN_DEPTH: &str = "F02_SCAN_DEPTH";
+const SCAN_FILES_PER_DIRECTORY: &str = "F02_SCAN_FILES_PER_DIRECTORY";
+
+fn scan_parameter(name: &str, default: usize) -> Result<usize, Box<dyn std::error::Error>> {
+    match std::env::var(name) {
+        Ok(value) => Ok(value.parse()?),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(error) => Err(Box::new(error)),
+    }
+}
+
+fn create_scan_tree(
+    root: &Path,
+    fan_out: usize,
+    depth: usize,
+    files_per_directory: usize,
+) -> Result<(usize, usize), Box<dyn std::error::Error>> {
+    let mut pending = vec![(root.to_path_buf(), 0_usize)];
+    let mut directories = 0_usize;
+    let mut files = 0_usize;
+    while let Some((directory, level)) = pending.pop() {
+        directories = directories
+            .checked_add(1)
+            .ok_or("directory count overflow")?;
+        for file in 0..files_per_directory {
+            fs::write(directory.join(format!("entry-{file:06}.bin")), [1])?;
+            files = files.checked_add(1).ok_or("file count overflow")?;
+        }
+        if level < depth {
+            for child in 0..fan_out {
+                let path = directory.join(format!("folder-{child:04}"));
+                fs::create_dir(&path)?;
+                pending.push((path, level + 1));
+            }
+        }
+    }
+    Ok((directories, files))
+}
+
+fn finish_scan_engine(engine: &Engine) -> Result<(), Box<dyn std::error::Error>> {
+    engine.close_job_admission(true)?;
+    engine.prepare_shutdown()?;
+    let barrier = engine.begin_history_commit_barrier(Duration::from_secs(30))?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match barrier.poll() {
+            du_engine_api::shutdown::HistoryCommitStatus::Complete => break,
+            du_engine_api::shutdown::HistoryCommitStatus::Pending
+            | du_engine_api::shutdown::HistoryCommitStatus::TimedOut
+                if Instant::now() < deadline =>
+            {
+                std::thread::yield_now()
+            }
+            status => return Err(format!("engine history barrier failed: {status:?}").into()),
+        }
+    }
+    engine.close_job_workers()?;
+    Ok(())
+}
+
+/// Measures one full generated tree through the regular desktop engine scan path.
+///
+/// Defaults create 201,283 items in 4,681 directories. Set `F02_SCAN_FAN_OUT`,
+/// `F02_SCAN_DEPTH` and `F02_SCAN_FILES_PER_DIRECTORY` to change the deterministic fixture.
+/// Whole-process RSS includes tree creation and engine startup, matching the F03 measure label.
+/// Run with `cargo test --locked -p du-app-host --features gui --lib
+/// history::tests::measurement::scan_memory_components -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement: set F02_SCAN_* and run with --ignored --nocapture"]
+fn scan_memory_components() -> Result<(), Box<dyn std::error::Error>> {
+    let fan_out = scan_parameter(SCAN_FAN_OUT, 8)?;
+    let depth = scan_parameter(SCAN_DEPTH, 4)?;
+    let files_per_directory = scan_parameter(SCAN_FILES_PER_DIRECTORY, 42)?;
+    let fixture = tempfile::tempdir()?;
+    let profile = tempfile::tempdir()?;
+    let (directory_count, file_count) =
+        create_scan_tree(fixture.path(), fan_out, depth, files_per_directory)?;
+    let item_count = directory_count
+        .checked_add(file_count)
+        .ok_or("item count overflow")?;
+
+    let database = crate::startup_database::open(profile.path())?;
+    let mut builder = EngineBuilder::default();
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&diagnostics);
+    let events = du_engine_api::desktop::register_with_scan_diagnostics(
+        &mut builder,
+        Arc::new(du_platform_os::windows_observation::WindowsScopeRoots),
+        Arc::new(du_platform_os::volume::WindowsVolumes),
+        Arc::new(database.history(|| 400)),
+        &du_platform_os::entropy::OsRandom,
+        Arc::new(move || {
+            let scan = Arc::new(du_engine_api::desktop::ScanDiagnostics::default());
+            if let Ok(mut scans) = capture.lock() {
+                scans.push(Arc::clone(&scan));
+            }
+            scan
+        }),
+    )?;
+    let engine = builder.build()?;
+    let raw: Vec<_> = fixture
+        .path()
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let draft = json!({
+        "includes": [{
+            "encoding": "windows_utf16le",
+            "raw": PathBytes::from_bytes(&raw),
+            "display": fixture.path(),
+            "lossy": false
+        }],
+        "exclusions": [],
+        "boundary": "current_volume",
+        "includedMounts": [],
+        "source": "gui"
+    });
+    let review = ipc(
+        &engine,
+        "scope.review",
+        json!({"draft": draft, "requestSeq": 1}),
+    )?;
+    if let Some(error) = review.error {
+        return Err(format!("scope review failed: {error:?}").into());
+    }
+    let review: ScopeReview = serde_json::from_value(review.body)?;
+    let started = Instant::now();
+    let response = ipc(
+        &engine,
+        "scan.start",
+        json!({"draft": draft, "reviewFingerprint": review.review_fingerprint}),
+    )?;
+    if let Some(error) = response.error {
+        return Err(format!("scan start failed: {error:?}").into());
+    }
+    let receipt: ScanStart = serde_json::from_value(response.body)?;
+    if receipt.existing {
+        return Err("measurement unexpectedly reused a scan".into());
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(1_200);
+    let mut terminal = None;
+    while Instant::now() < deadline {
+        if let Some(json) = events.next_json() {
+            let event: EventEnvelope = serde_json::from_str(&json)?;
+            if event.topic == "job.finished" && event.job_ref.as_ref() == Some(&receipt.job_ref) {
+                terminal = Some(event);
+                break;
+            }
+        } else {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let terminal = terminal.ok_or("timed out waiting for scan completion")?;
+    let scan_ms = started.elapsed().as_millis();
+    let body = &terminal.body;
+    if body["state"] != "done"
+        || body["completed"].as_u64() != Some(item_count as u64)
+        || ["failed", "skipped", "unprocessed"]
+            .iter()
+            .any(|key| body[*key].as_u64() != Some(0))
+    {
+        return Err(format!("scan did not complete the fixture: {body}").into());
+    }
+    let scan = diagnostics
+        .lock()
+        .map_err(|_| "diagnostics lock poisoned")?
+        .first()
+        .cloned()
+        .ok_or("scan diagnostics were not created")?;
+    let whole_process_peak_rss = du_platform_os::process_memory::peak_rss_bytes()
+        .map_or_else(|| "unavailable".to_owned(), |bytes| bytes.to_string());
+    println!(
+        "F02_MEASURE_RESULT tree=generated items={item_count} directories={directory_count} files={file_count} scan_ms={scan_ms} observation_peak_events={} observation_peak_bytes={} directory_frames_peak_count={} directory_frames_peak_path_bytes={} visited_entries_peak={} visited_entries_final={:?} correlated_budget_peak_managed_bytes={} shared_ready_peak={:?} whole_process_peak_rss_bytes={whole_process_peak_rss}",
+        scan.observation_channel_peak_events(),
+        scan.observation_channel_peak_bytes(),
+        scan.directory_frames_peak_count(),
+        scan.directory_frames_peak_bytes(),
+        scan.visited_entries_peak(),
+        scan.visited_entries_final(),
+        scan.correlated_budget_peak_managed_bytes(),
+        scan.shared_ready_peak(),
+    );
+
+    finish_scan_engine(&engine)?;
+    drop(engine);
+    drop(events);
+    drop(database);
+    let fixture_path = fixture.keep();
+    let profile_path = profile.keep();
+    fs::remove_dir_all(fixture_path)?;
+    fs::remove_dir_all(profile_path)?;
     Ok(())
 }

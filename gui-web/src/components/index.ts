@@ -1,12 +1,17 @@
 export {
   Action,
+  ActionWithTooltip,
   Choice,
   ChoiceGroup,
   DateField,
   FolderDropSurface,
+  IntegerField,
   PathField,
   SelectField,
+  SwitchField,
+  TextLink,
 } from "./controls";
+export { LineChoice } from "./line-choice";
 export {
   BrandMark,
   CountPill,
@@ -68,6 +73,7 @@ export type { SegmentedOption } from "./segmented-choice";
 
 export { createChartRenderers } from "./charts/chart-renderers";
 export { GeometryRenderer } from "./charts/geometry-renderer";
+export { ChartFallbackContext } from "./charts/geometry-renderer";
 export { BarRenderer, HistogramRenderer } from "./charts/ranked-renderers";
 export {
   ChartPatternDefs,
@@ -77,6 +83,8 @@ export {
 export type { ChartPattern } from "./charts/chart-patterns";
 export { ChartLegend } from "./charts/chart-legend";
 export type { LegendEntry } from "./charts/chart-legend";
+export { StackedBar } from "./charts/stacked-bar";
+export type { StackedBarSlice } from "./charts/stacked-bar";
 export type {
   DisplayGeometry,
   DisplayPoint,

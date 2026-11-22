@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { useLocaleText } from "../i18n/presentation";
 const ROW_HEIGHT = 144;
@@ -20,6 +20,7 @@ export function DataTable<Row>({
   flat = false,
   rowHeight: fixedRowHeight,
   hiddenHeaders,
+  focusRow,
 }: {
   label: string;
   columns: string[];
@@ -43,9 +44,15 @@ export function DataTable<Row>({
   rowHeight?: number;
   /** Headers kept for assistive technology only, such as a column of row actions. */
   hiddenHeaders?: readonly string[];
+  /**
+   * A row to scroll to and focus, by index in rows; a new token focuses it again.
+   * Only for a flat table, where every row is drawn.
+   */
+  focusRow?: { index: number; token: number } | null | undefined;
 }) {
   const text = useLocaleText();
   const [scrollTop, setScrollTop] = useState(0);
+  const focusProps = useRowFocus(flat ? focusRow : null);
   const rowHeight = fixedRowHeight ?? (density === "compact" ? 64 : ROW_HEIGHT);
   const viewRows = density === "compact" ? 10 : VIEW_ROWS;
   const overscan = density === "compact" ? 10 : OVERSCAN;
@@ -119,6 +126,7 @@ export function DataTable<Row>({
               key={getRowKey?.(row) ?? start + index}
               aria-rowindex={start + index + 2}
               aria-label={getRowLabel?.(row, start + index)}
+              {...focusProps(start + index)}
             >
               {renderCells(row, start + index).map((cell, column) => (
                 <td key={column}>
@@ -144,4 +152,19 @@ export function DataTable<Row>({
       </table>
     </div>
   );
+}
+
+/** Scrolls to and focuses one row when its token changes; props for each row. */
+function useRowFocus(
+  focusRow: { index: number; token: number } | null | undefined,
+) {
+  const focused = useRef<HTMLTableRowElement>(null);
+  const token = focusRow?.token;
+  useLayoutEffect(() => {
+    if (token === undefined || !focused.current) return;
+    focused.current.scrollIntoView?.({ block: "nearest" });
+    focused.current.focus();
+  }, [token]);
+  return (index: number) =>
+    focusRow?.index === index ? { ref: focused, tabIndex: -1 } : {};
 }

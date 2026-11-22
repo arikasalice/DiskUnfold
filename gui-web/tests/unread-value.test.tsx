@@ -6,7 +6,7 @@ import { FileInspection } from "../src/features/analysis/FileInspection";
 import { unreadValueText } from "../src/features/analysis/unread-value";
 import { LocaleTextContext, interpolate } from "../src/i18n/presentation";
 import type { LocaleText } from "../src/i18n/presentation";
-import type { AnalysisClient, BrowseDetail } from "../src/ipc";
+import type { AnalysisClient, BrowseDetail, FolderFlags } from "../src/ipc";
 import { folderDetail, liveScan } from "./summary-fixture";
 
 /*
@@ -125,4 +125,66 @@ test("a value the scan could not read carries its description in the same row", 
   expect(unsupported.closest("dd")?.querySelector(".du-readout__note")).toBe(
     null,
   );
+});
+
+test("a 0-byte lower bound is counted empty files only when the folder flags show nothing unread", async () => {
+  const scan = liveScan();
+  const zero = {
+    state: "present",
+    value: {
+      basis: "logical",
+      evidence: "measured",
+      state: "lower_bound",
+      bytes: "0",
+    },
+  } as const;
+  const detail = (flags?: FolderFlags): BrowseDetail => ({
+    ...folderDetail("v1"),
+    logicalSize: zero,
+    allocatedSize: zero,
+    ...(flags ? { folderFlags: flags } : {}),
+  });
+  const clean: FolderFlags = {
+    unenumerated: { state: "present", value: false },
+    excluded: { state: "present", value: false },
+    unreadInside: { state: "absent" },
+  };
+  const unread: FolderFlags = {
+    ...clean,
+    unreadInside: { state: "present", value: { count: "1" } },
+  };
+  const clientOf = (flags?: FolderFlags): AnalysisClient => ({
+    ...scan.client,
+    call: ((name: string, body: never) =>
+      name === "browse.detail"
+        ? Promise.resolve(detail(flags))
+        : scan.client.call(name as never, body)) as AnalysisClient["call"],
+  });
+  const item = { resultVersion: "v1", itemNo: 0 };
+  const shown = (flags?: FolderFlags, unreadNote?: string) => (
+    <LocaleTextContext.Provider value={english}>
+      <FileInspection
+        client={clientOf(flags)}
+        item={item}
+        itemKind="folder"
+        unreadNote={unreadNote}
+      />
+    </LocaleTextContext.Provider>
+  );
+  const { unmount } = render(shown());
+  expect((await screen.findAllByText("Unavailable in this scan")).length).toBe(
+    2,
+  );
+  expect(screen.queryByText("At least 0 bytes")).toBeNull();
+  unmount();
+  // Opened from a row that was not read: the row's word and its status below.
+  const fromRow = render(shown(unread, "Contents not read"));
+  expect((await screen.findAllByText("Unavailable")).length).toBe(2);
+  expect(screen.getAllByText("Contents not read").length).toBe(2);
+  expect(screen.queryByText("Unavailable in this scan")).toBeNull();
+  fromRow.unmount();
+  render(shown(clean));
+  expect(
+    (await screen.findAllByText("At least 0 bytes")).length,
+  ).toBeGreaterThan(0);
 });

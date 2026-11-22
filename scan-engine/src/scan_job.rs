@@ -21,6 +21,7 @@ use crate::scan::{
     DevicePlan, LaneDevice, PreMetadataFilter, ResultIds, ScanControlHandle, ScanControlSession,
     collect_open_forest_diagnostic_with_group, internal_failure,
 };
+pub use crate::scan_diagnostics::ScanDiagnostics;
 
 type DeviceRoots = Vec<(OpenedScopeRoot, RootDevice)>;
 
@@ -61,43 +62,6 @@ pub fn descriptor() -> JobDescriptor {
         progress_unit: ProgressUnit::Items,
         resource_classes: vec![ResourceClass::MetadataIo],
         history: HistoryMode::Summary,
-    }
-}
-
-/// Per-scan opt-in evidence for the directory queues of the scan's lanes.
-///
-/// This is not scan memory or channel occupancy. A result is unavailable until
-/// the workers stop, or if collection exits before creating the queue. Initial
-/// roots count; worker overflow stacks and in-flight frames do not. Use one
-/// instance per scan.
-#[derive(Default)]
-pub struct ScanDiagnostics {
-    ready_peak: Mutex<Option<usize>>,
-    ended_folder_attempts: std::sync::atomic::AtomicU64,
-}
-
-impl ScanDiagnostics {
-    /// Returns the greatest number of items held in all lane queues at once, if observed.
-    pub fn shared_ready_peak(&self) -> Option<usize> {
-        self.ready_peak.lock().ok().and_then(|peak| *peak)
-    }
-
-    /// The folder attempts whose correlated evidence reached the result build and ended
-    /// there, once the workers stopped (F02 DLD IF-19, #218).
-    pub fn ended_folder_attempts(&self) -> u64 {
-        self.ended_folder_attempts
-            .load(std::sync::atomic::Ordering::Acquire)
-    }
-
-    pub(crate) fn record_ready_peak(&self, value: usize) {
-        if let Ok(mut peak) = self.ready_peak.lock() {
-            *peak = Some(value);
-        }
-    }
-
-    pub(crate) fn record_ended_folder_attempts(&self, value: u64) {
-        self.ended_folder_attempts
-            .store(value, std::sync::atomic::Ordering::Release);
     }
 }
 

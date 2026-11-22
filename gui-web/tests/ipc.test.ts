@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  createAnalysisClient,
   createIpcClient,
+  windowsPath,
   type CallEnvelope,
   type ResultEnvelope,
 } from "../src/ipc";
@@ -31,6 +33,111 @@ test("preserves a transport failure for the caller", async () => {
   const transport = vi.fn().mockRejectedValue(error);
 
   await expect(createIpcClient(transport).call(request)).rejects.toBe(error);
+});
+
+test("rejects a scope home suggestion without the unverified group notice", async () => {
+  const suggestedInclude = windowsPath("C:\\Users\\fixture");
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: 1,
+    correlationId: envelope.correlationId,
+    body: {
+      notices: ["scope.volume_group_merged"],
+      suggestedInclude,
+    },
+  }));
+  await expect(
+    client.call("scope.review", {
+      draft: {
+        includes: [],
+        exclusions: [],
+        boundary: "current_volume",
+        includedMounts: [],
+        source: "gui",
+      },
+      requestSeq: 1,
+    }),
+  ).rejects.toThrow("home folder suggestion without an unverified");
+});
+
+test("drops invalid countedAtItem and groupVolumeRole values from folder rows", async () => {
+  const rows = [
+    { flags: { countedAtItem: { resultVersion: "v1", itemNo: 1 } } },
+    {
+      flags: {
+        countedAt: windowsPath("C:\\Users"),
+        countedAtItem: { resultVersion: "v2", itemNo: 2 },
+        groupVolumeRole: "data",
+      },
+    },
+    { flags: { groupVolumeRole: null } },
+    { flags: { groupVolumeRole: 42 } },
+    {
+      flags: {
+        countedAt: windowsPath("C:\\Users"),
+        countedAtItem: { resultVersion: "v1", itemNo: 5 },
+        groupVolumeRole: "data",
+      },
+    },
+  ];
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: 1,
+    correlationId: envelope.correlationId,
+    body: {
+      rowKind: "folder",
+      resultVersion: "v1",
+      rows,
+    },
+  }));
+  const response = await client.call("query.page", {
+    queryRef: "query",
+    resultVersion: "v1",
+    start: 0,
+    count: 5,
+  });
+  if (response.rowKind !== "folder") throw new Error("expected folder rows");
+  const flags = response.rows.map((row) => row.flags);
+  expect(flags[0]).not.toHaveProperty("countedAtItem");
+  expect(flags[1]).not.toHaveProperty("countedAtItem");
+  expect(flags[1]).toHaveProperty("groupVolumeRole", "data");
+  expect(flags[2]).not.toHaveProperty("groupVolumeRole");
+  expect(flags[3]).not.toHaveProperty("groupVolumeRole");
+  expect(flags[4]).toHaveProperty("countedAtItem", {
+    resultVersion: "v1",
+    itemNo: 5,
+  });
+});
+
+test("sanitizes folder flags on the initial browse response", async () => {
+  const client = createAnalysisClient(async (_command, { envelope }) => ({
+    name: envelope.name,
+    contractVersion: 1,
+    correlationId: envelope.correlationId,
+    body: {
+      kind: "opened",
+      page: {
+        resultVersion: "v1",
+        rows: [
+          {
+            flags: {
+              countedAt: windowsPath("C:\\Users"),
+              countedAtItem: { resultVersion: "v2", itemNo: 4 },
+              groupVolumeRole: null,
+            },
+          },
+        ],
+      },
+    },
+  }));
+  const response = await client.call("browse.open", {
+    regionRef: "region",
+    viewKind: "list",
+    requestSeq: 1,
+  });
+  if (response.kind !== "opened") throw new Error("expected opened browse");
+  expect(response.page.rows[0]?.flags).not.toHaveProperty("countedAtItem");
+  expect(response.page.rows[0]?.flags).not.toHaveProperty("groupVolumeRole");
 });
 
 test("the default transport sends the native message and rejects unrelated replies", async () => {

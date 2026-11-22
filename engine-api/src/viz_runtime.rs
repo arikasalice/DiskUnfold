@@ -49,6 +49,8 @@ mod ranked_group_model;
 mod ranked_projection;
 mod remainder;
 pub mod selection;
+mod shape_slices;
+mod unread;
 
 /// Histogram policy and bin presentation frozen by the composition owner at admission.
 #[derive(Clone)]

@@ -14,7 +14,7 @@ struct ChildReservation {
 
 pub(super) struct EntryServices<'a> {
     pub(super) shared: &'a Shared,
-    pub(super) sender: &'a SyncSender<Event>,
+    pub(super) sender: &'a dyn SendMetered,
     pub(super) context: &'a dyn JobContext,
     pub(super) policy: Policy<'a>,
 }
@@ -146,7 +146,7 @@ pub(super) fn process_entry(
     } else {
         (timed.take().ok_or(())?.entry, payload_permit.take())
     };
-    let child = Frame::child(
+    let mut child = Frame::child(
         frame.root_index,
         path.to_vec(),
         parent,
@@ -155,6 +155,7 @@ pub(super) fn process_entry(
         path_permit.take(),
         (child_attempt, &services.shared.visited, frame.boundary),
     );
+    child.track(services.shared.frame_metrics.as_ref());
     Ok(schedule(
         services.shared,
         services.context,
@@ -259,7 +260,7 @@ fn continue_child(
 pub(super) fn open_pending(
     frame: &mut Frame,
     shared: &Shared,
-    sender: &SyncSender<Event>,
+    sender: &dyn SendMetered,
     context: &dyn JobContext,
 ) -> Option<bool> {
     let stop =

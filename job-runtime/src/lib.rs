@@ -3,6 +3,7 @@ pub mod bound_subscribers;
 mod control;
 mod delivery;
 mod flows;
+mod history;
 mod history_prune;
 mod history_recovery;
 mod history_retention;
@@ -11,6 +12,7 @@ mod model;
 mod progress;
 mod publication;
 mod result_publisher;
+mod scheduler;
 mod shutdown;
 pub mod subscribers;
 use control::final_state;
@@ -19,10 +21,7 @@ use delivery::{consume, enqueue};
 use du_core_contracts::job::{Checkpoint, HistoryAppend, JobBody, JobContext};
 use du_core_contracts::{
     Id,
-    job::{
-        HistoryMode, JobControl, JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary,
-        ResourceClass,
-    },
+    job::{HistoryMode, JobControl, JobDescriptor, JobHistory, JobOutcome, JobState, JobSummary},
 };
 pub use history_recovery::recover_history;
 pub use history_retention::{HistoryExpiryCandidates, HistoryExpiryReadError};
@@ -83,13 +82,14 @@ impl JobRuntime {
         let consumer_outstanding = outstanding.clone();
         let weak_table = Arc::downgrade(&table);
         let consumer_clock = clock.clone();
+        let consumer_history = history.clone();
         let event_sink = events.clone();
         let consumer = std::thread::Builder::new()
             .name("job-delivery".into())
             .spawn(move || {
                 consume(
                     receiver,
-                    &*history,
+                    &*consumer_history,
                     &*events,
                     &consumer_outstanding,
                     weak_table,
@@ -102,6 +102,9 @@ impl JobRuntime {
             identity,
             clock,
             events: event_sink,
+            // Weak: the consumer thread owns the strong handle, so joining it at shutdown still
+            // releases the history store for the unique-owner database close.
+            history: Arc::downgrade(&history),
             queue_limit: 64,
             consumer: Mutex::new(Some(consumer)),
             outstanding,
@@ -122,6 +125,18 @@ impl JobRuntime {
     }
     pub fn submit(&self, submission: Submission) -> Result<SubmitResult, RuntimeError> {
         self.submit_inner(submission, None, None, |_| Ok(()))
+    }
+
+    /// Submits a job and commits caller-owned in-memory state before the queued job is visible.
+    ///
+    /// The admission callback runs under the job-table lock after queue validation and before
+    /// insertion. Keep it short and do not call back into this runtime from the callback.
+    pub fn submit_with_admission(
+        &self,
+        submission: Submission,
+        admit: impl FnOnce(&Id) -> Result<(), RuntimeError>,
+    ) -> Result<SubmitResult, RuntimeError> {
+        self.submit_inner(submission, None, None, admit)
     }
 
     /// Submits a job with a result binding stored for the job entry lifetime.
@@ -209,6 +224,7 @@ impl JobRuntime {
                 paused_flows: 0,
                 flows_aborted: false,
                 started_at_ms: None,
+                history_started: false,
                 summary: None,
                 terminal: None,
                 order,
@@ -224,6 +240,27 @@ impl JobRuntime {
     /// Reads the state and terminal fields under the same table lock.
     pub fn snapshot(&self, id: &Id) -> Result<JobSnapshot, RuntimeError> {
         self.read_entry(id, Entry::snapshot)
+    }
+
+    /// Finds an active job with the exact kind and deduplication key.
+    ///
+    /// The table lock is shared with submission, so callers can return an
+    /// already admitted job before performing expensive admission checks. The
+    /// job may finish after this lookup and before the response is observed;
+    /// submission still deduplicates a concurrent admission attempt.
+    pub fn find_active_deduplicated(
+        &self,
+        kind_id: &str,
+        key: &DeduplicationKey,
+    ) -> Result<Option<Id>, RuntimeError> {
+        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
+        expire(&mut table, self.clock.now_ms());
+        Ok(table.jobs.iter().find_map(|(id, job)| {
+            (!job.state.is_terminal()
+                && job.submission.kind_id == kind_id
+                && job.submission.deduplication_key.as_ref() == Some(key))
+            .then(|| id.clone())
+        }))
     }
 
     fn read_entry<T>(&self, id: &Id, read: impl FnOnce(&Entry) -> T) -> Result<T, RuntimeError> {
@@ -322,103 +359,6 @@ impl JobRuntime {
         delivery?;
         Ok((CancelResult::Accepted(JobState::CancelRequested), sequence))
     }
-    /// Runs the oldest eligible queued job on the calling worker thread.
-    pub fn run_next(&self) -> Result<Option<Id>, RuntimeError> {
-        let now = self.clock.now_ms();
-        let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
-        let active = table
-            .jobs
-            .values()
-            .filter(|job| {
-                matches!(
-                    job.state,
-                    JobState::Running
-                        | JobState::PauseRequested
-                        | JobState::Paused
-                        | JobState::CancelRequested
-                )
-            })
-            .count();
-        let changing = table.jobs.values().any(|job| {
-            matches!(
-                job.state,
-                JobState::Running
-                    | JobState::PauseRequested
-                    | JobState::Paused
-                    | JobState::CancelRequested
-            ) && job
-                .descriptor
-                .resource_classes
-                .contains(&ResourceClass::FileChange)
-        });
-        if active >= 4 {
-            return Ok(None);
-        }
-        let selected = table
-            .jobs
-            .iter()
-            .filter(|(_, job)| {
-                job.state == JobState::Queued
-                    && !(changing
-                        && job
-                            .descriptor
-                            .resource_classes
-                            .contains(&ResourceClass::FileChange))
-            })
-            .min_by_key(|(_, job)| (job.submission.priority, job.order))
-            .map(|(id, _)| id.clone());
-        let Some(id) = selected else {
-            return Ok(None);
-        };
-        let job = table.jobs.get(&id).ok_or(RuntimeError::NotFound)?;
-        if job.body.is_none() {
-            return Err(RuntimeError::InvalidState);
-        }
-        let sequence = job.sequence + 1;
-        let event = JobEvent::StateChanged {
-            job_id: id.clone(),
-            state: JobState::Running,
-            sequence,
-        };
-        enqueue(&table, Delivery::Event(event))?;
-        let job = table.jobs.get_mut(&id).ok_or(RuntimeError::NotFound)?;
-        job.state = JobState::Running;
-        job.started_at_ms = Some(now);
-        job.sequence = sequence;
-        let progress = job.progress.start();
-        let cancellation = job.cancel.clone();
-        let body = job.body.take().ok_or(RuntimeError::InvalidState)?;
-        let publication = job.publication.take();
-        let gate = job.publication_gate.clone();
-        drop(table);
-        let context = Arc::new(flows::Context::new(
-            id.clone(),
-            self.table.clone(),
-            cancellation,
-            flows::Services {
-                limits: self.flow_limits.clone(),
-                clock: self.clock.clone(),
-                progress,
-            },
-        ));
-        let body_context = context.clone();
-        let mut outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body.run(body_context)))
-                .unwrap_or_else(|_| JobOutcome {
-                    counts: Default::default(),
-                    completed_scope: false,
-                    failure_reason_key: Some("support.internal_error".into()),
-                    unprocessed_summary: None,
-                    result_version_id: None,
-                });
-        drop(body);
-        if !context.seal_and_wait(&mut outcome.counts) {
-            outcome.completed_scope = false;
-            outcome.failure_reason_key = Some("support.internal_error".into());
-        }
-        self.finish_with_publication(&id, outcome, gate, publication)?;
-        Ok(Some(id))
-    }
     fn finish(&self, id: &Id, outcome: JobOutcome) -> Result<u64, RuntimeError> {
         let finished_at_ms = self.clock.now_ms();
         let mut table = self.table.lock().map_err(|_| RuntimeError::Poisoned)?;
@@ -453,7 +393,12 @@ impl JobRuntime {
         if job.descriptor.kind_id == "viz.compute" {
             job.wake.notify_all();
         }
-        let record = job.descriptor.history != HistoryMode::None && !job.submission.sample;
+        let record = !job.submission.sample
+            && match job.descriptor.history {
+                HistoryMode::None => false,
+                HistoryMode::Summary => true,
+                HistoryMode::PerItem => job.history_started,
+            };
         let delivery = enqueue(
             &table,
             Delivery::Terminal {

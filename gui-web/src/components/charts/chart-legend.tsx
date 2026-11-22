@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 import { ListBox, ListBoxItem, ToggleButton } from "react-aria-components";
 import { Action } from "../controls";
@@ -37,6 +37,7 @@ export function ChartLegend({
   entries,
   selectedKey,
   onSelect,
+  onPreview,
   moreLabel,
   lessLabel,
   footer,
@@ -55,6 +56,12 @@ export function ChartLegend({
   entries: readonly LegendEntry[];
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  /**
+   * The class whose row the pointer rests on or arrow keys moved to, before
+   * anything is pressed, or null when none (F06 README 46.1). It only previews
+   * where the class is; it is not a choice and is not announced as one.
+   */
+  onPreview?: ((key: string | null) => void) | undefined;
   moreLabel: (hidden: number) => string;
   lessLabel: string;
   /** Lines under the list: the scope total, and why it can exceed the classes. */
@@ -119,16 +126,27 @@ export function ChartLegend({
               className="du-chart-legend__item"
               textValue={`${entry.label}, ${entry.count}, ${entry.total}`}
             >
-              {({ isSelected }) => (
+              {({ isSelected, isHovered, isFocusVisible }) => (
                 <>
+                  <PreviewReport
+                    entryKey={entry.key}
+                    active={isHovered || isFocusVisible}
+                    onPreview={onPreview}
+                  />
                   {/* A chosen row has a check left of its swatch (README 46.4). */}
                   <span className="du-chart-legend__check" aria-hidden="true">
                     {isSelected ? "✓" : ""}
                   </span>
                   <Swatch entry={entry} patterns={drawn} prefix={prefix} />
                   <span className="du-chart-legend__name">{entry.label}</span>
-                  <span className="du-chart-legend__number">{entry.count}</span>
-                  <span className="du-chart-legend__number">{entry.total}</span>
+                  <span className="du-chart-legend__numbers">
+                    <span className="du-chart-legend__number">
+                      {entry.count}
+                    </span>
+                    <span className="du-chart-legend__number">
+                      {entry.total}
+                    </span>
+                  </span>
                 </>
               )}
             </ListBoxItem>
@@ -176,4 +194,26 @@ function Swatch({
       )}
     </svg>
   );
+}
+
+/**
+ * Tells the owner while a row is hovered or focused by the keyboard, and lets go
+ * when it no longer is. React runs every cleanup of a commit before its effects,
+ * so moving from one row to the next ends on the next row.
+ */
+function PreviewReport({
+  entryKey,
+  active,
+  onPreview,
+}: {
+  entryKey: string;
+  active: boolean;
+  onPreview: ((key: string | null) => void) | undefined;
+}) {
+  useEffect(() => {
+    if (!onPreview || !active) return;
+    onPreview(entryKey);
+    return () => onPreview(null);
+  }, [active, entryKey, onPreview]);
+  return null;
 }

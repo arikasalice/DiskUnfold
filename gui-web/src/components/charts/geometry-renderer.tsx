@@ -1,12 +1,24 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ChartPatternDefs, patternId } from "./chart-patterns";
 import type { ChartPattern } from "./chart-patterns";
+import { ShapeInfoCard, useShapeCard } from "./chart-card";
+import type { ShapeCard } from "./chart-card";
 import type { KeyboardEvent, ReactNode } from "react";
 import { isImeProcessingKey } from "../ime-composition";
 import { Notice } from "../presentation";
 import { graphemes } from "../graphemes";
 import { NO_GRID, snap, useDeviceGrid, whole } from "./device-grid";
 import type { DeviceGrid } from "./device-grid";
+import { measuredWidth } from "./text-measure";
+import { SliceStack } from "./slice-stack";
+import type { StackedBarSlice } from "./stacked-bar";
 import "./geometry-renderer.css";
 
 /** Presentation coordinates; the caller adapts the generated model at its boundary. */
@@ -17,6 +29,12 @@ export type DisplayGeometry = {
   readonly points: readonly DisplayPoint[];
 };
 const LIMIT = 1_000_000;
+
+/**
+ * True where the renderer shows the caller's rows in place of the chart: the
+ * rows are then the only way to the values and open expanded (README 22, 24).
+ */
+export const ChartFallbackContext = createContext(false);
 
 type Shape = {
   shapeRef: string;
@@ -37,6 +55,8 @@ type Shape = {
   dashed?: boolean;
   /** Said on hover and to assistive technology besides the name, such as a bar drawn shorter. */
   note?: string;
+  /** The info card shown on pointer rest and focus (README 8); its note goes under the value. */
+  card?: ShapeCard;
   /** A lower-bound value: its right and bottom edges are dashed, since it may be larger. */
   lowerBound?: boolean;
   /**
@@ -49,8 +69,22 @@ type Shape = {
   patternAlways?: boolean;
   /** Another legend class is chosen: drawn faded, still selectable (README 4.7). */
   dimmed?: boolean;
+  /**
+   * The class shown from the legend before narrowing (README 46.1, 44.4): in
+   * forced colours, where fading is not seen, its edge is the highlight.
+   */
+  highlighted?: boolean;
   /** The key of its legend class, for choosing a class in the legend. */
   legendClass?: string;
+  /**
+   * A closed folder's files by type, in legend order (F06 README 54): across its
+   * bar, or as a strip along the bottom of its rectangle.
+   */
+  slices?: readonly StackedBarSlice[];
+  /** The folder's bytes: what they hold beyond the slices is drawn last. */
+  slicesTotal?: number;
+  /** The slice of the class chosen in the legend; the others are drawn faded. */
+  chosenSlice?: string;
 };
 type Relation = {
   fromShapeRef: string;
@@ -461,20 +495,52 @@ function shorten(text: string, limit: number) {
 }
 
 /**
- * The label that fits `limit` characters. A shape that gives its name and
- * value apart shows both, or, when they do not fit, the name alone and shortened
- * if need be; the value is never cut in the middle.
+ * The label that fits `room` CSS px of text drawn at `px`. A shape that gives
+ * its name and value apart shows both, or, when they do not fit, the name alone
+ * and shortened if need be; the value is never cut in the middle.
+ *
+ * The drawn width of the text decides (README 51, #367): digits and symbols are
+ * narrower than Hangul, so counting characters cut labels that fit. Where text
+ * cannot be measured, `room` holds one character per `px`, as an estimate.
  */
-function fitLabel(shape: Shape, limit: number) {
+function fitLabel(shape: Shape, room: number, px: number) {
+  const limit = Math.max(4, Math.floor(room / px));
+  const measured = measuredWidth("", px) !== null;
+  const fits = (text: string) =>
+    measured
+      ? (measuredWidth(text, px) ?? Infinity) <= room
+      : graphemes(text).length <= limit;
   if (shape.displayName === undefined)
-    return shorten(shape.displayLabel ?? shape.accessibleLabel, limit);
+    return shortenToFit(
+      shape.displayLabel ?? shape.accessibleLabel,
+      limit,
+      measured ? fits : null,
+    );
   const whole =
     shape.displayValue === undefined
       ? shape.displayName
       : `${shape.displayName} · ${shape.displayValue}`;
-  return Array.from(whole).length <= limit
+  return fits(whole)
     ? whole
-    : shorten(shape.displayName, limit);
+    : shortenToFit(shape.displayName, limit, measured ? fits : null);
+}
+
+/**
+ * The text, or the longest middle shortening of it whose measured width fits;
+ * without a measurement, the shortening to `limit` characters.
+ */
+function shortenToFit(
+  text: string,
+  limit: number,
+  fits: ((text: string) => boolean) | null,
+) {
+  if (fits === null) return shorten(text, limit);
+  if (fits(text)) return text;
+  for (let kept = graphemes(text).length - 1; kept > 0; kept -= 1) {
+    const short = shorten(text, kept);
+    if (short === "" || fits(short)) return short;
+  }
+  return "";
 }
 
 /**
@@ -578,11 +644,10 @@ function rectangleLabel(
           "du-geometry-header",
           left + 4,
           top + 10,
-          fitLabel(shape, Math.max(4, Math.floor((available - 8) / 12))),
+          fitLabel(shape, available - 8, 12),
         );
   if (available < 70 || Math.min(end.y, height) - top < 36) return null;
-  const limit = Math.max(4, Math.floor((available - 24) / 14));
-  const label = fitLabel(shape, limit);
+  const label = fitLabel(shape, available - 24, 14);
   const text = labelText("du-geometry-label", left + 12, top + 24, label);
   if (!plate || text === null) return text;
   return <PlatedLabel x={left + 12} y={top + 24} label={label} />;
@@ -640,6 +705,48 @@ function labelText(className: string, x: number, y: number, label: string) {
 /** Below this size in CSS px a pattern is not drawn (F06 README 4.1). */
 const PATTERN_MIN = 24;
 
+/** A rectangle lower than this has no type strip (README 54, 7B). */
+const STRIP_MIN_HEIGHT = 24;
+
+/**
+ * A closed folder's type slices (README 54): across the whole bar, or an 8 px
+ * strip 4 px inside the bottom of its rectangle that never runs into its label.
+ */
+function folderSlices(
+  shape: Shape,
+  ranked: boolean,
+  patterns: boolean | undefined,
+  prefix: string,
+  at: { viewport: Viewport; width: number; height: number; grid: DeviceGrid },
+) {
+  if (!shape.slices || shape.container) return null;
+  const edges = drawnEdges(shape, at.viewport, at.width, at.height, at.grid);
+  if (!edges) return null;
+  const width = edges.right - edges.left;
+  const height = edges.bottom - edges.top;
+  const strip = { x: edges.left + 4, y: edges.bottom - 12, width: width - 8 };
+  // The label sits in the top 30 px of a rectangle at least 70 by 36 px.
+  const labelled = width >= 70 && height >= 36;
+  if (
+    !ranked &&
+    (height < STRIP_MIN_HEIGHT || (labelled && strip.y < edges.top + 30))
+  )
+    return null;
+  const box = ranked
+    ? { x: edges.left, y: edges.top, width, height }
+    : { ...strip, height: 8 };
+  return (
+    <SliceStack
+      slices={shape.slices}
+      total={shape.slicesTotal}
+      box={box}
+      patterns={patterns ?? false}
+      prefix={prefix}
+      chosen={shape.chosenSlice}
+    />
+  );
+}
+
 /**
  * The pattern of a shape's legend class over its fill, inside its gap: for every
  * class while patterns are on, and always for the neutral classes and the ninth
@@ -683,6 +790,8 @@ export function GeometryRenderer(props: GeometryRendererProps) {
   // Where the chart falls on device pixels, so its 1 px lines stay sharp (#156).
   const grid = useDeviceGrid(svg, Math.round(props.width));
   const controls = useRef(new Map<string, HTMLElement>());
+  const card = useShapeCard();
+  useCardClosesOnScroll(card);
   const restoreFocus = useRef(false);
   // The model-order place of the focused shape, for "the same place" (README 22).
   const focusedIndex = useRef(0);
@@ -757,11 +866,19 @@ export function GeometryRenderer(props: GeometryRendererProps) {
     return (
       <section aria-label={props.label}>
         <Notice>{props.fallbackNotice}</Notice>
-        {fallback.content}
+        <ChartFallbackContext.Provider value={true}>
+          {fallback.content}
+        </ChartFallbackContext.Provider>
       </section>
     );
   if (shapes.length === 0)
-    return <section aria-label={props.label}>{fallback.content}</section>;
+    return (
+      <section aria-label={props.label}>
+        <ChartFallbackContext.Provider value={true}>
+          {fallback.content}
+        </ChartFallbackContext.Provider>
+      </section>
+    );
   const width = Math.round(props.width);
   const height = Math.round(props.height);
   const visible = shapes.flatMap((shape) => {
@@ -823,6 +940,11 @@ export function GeometryRenderer(props: GeometryRendererProps) {
         props.onActivate?.(rowRef, shapeRef, current.shape.container === true);
         return;
       case "Escape":
+        // Esc closes the card first, then lets go of the selection (README 8, 11).
+        if (card.close()) {
+          event.preventDefault();
+          return;
+        }
         if (props.selectedRowRef !== null && props.onClearSelection) {
           event.preventDefault();
           props.onClearSelection();
@@ -891,10 +1013,18 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   data-selected={selected ? "true" : undefined}
                   data-tone={shape.tone}
                   data-dimmed={shape.dimmed ? "true" : undefined}
+                  data-highlighted={shape.highlighted ? "true" : undefined}
                   data-dashed={shape.dashed ? "true" : undefined}
                 >
                   {drawing}
                   {overlay}
+                  {folderSlices(
+                    shape,
+                    props.variant === "ranked",
+                    props.patterns,
+                    clip,
+                    { viewport, width, height, grid },
+                  )}
                   {selected &&
                     selectionBand(shape, viewport, width, height, grid)}
                   {lowerBoundEdge(shape, viewport, width, height, grid)}
@@ -934,9 +1064,7 @@ export function GeometryRenderer(props: GeometryRendererProps) {
               data-shape-index={index}
               aria-selected={shape.rowRef === props.selectedRowRef}
               aria-label={shape.accessibleLabel}
-              {...(shape.note
-                ? { title: shape.note, "aria-description": shape.note }
-                : {})}
+              {...(shape.note ? { "aria-description": shape.note } : {})}
               tabIndex={shape.shapeRef === stop ? 0 : -1}
               style={{
                 left: box.left,
@@ -967,10 +1095,16 @@ export function GeometryRenderer(props: GeometryRendererProps) {
                   shape.shapeRef,
                   currentTarget,
                 );
+                card.focus(shape.shapeRef, currentTarget);
               }}
               onBlur={() => {
                 restoreFocus.current = false;
+                card.blur();
               }}
+              onPointerEnter={({ currentTarget }) =>
+                card.hover(shape.shapeRef, currentTarget)
+              }
+              onPointerLeave={card.leave}
               onClick={({ currentTarget }) => {
                 currentTarget.focus({ preventScroll: true });
                 props.onSelect(shape.rowRef, shape.shapeRef);
@@ -994,8 +1128,58 @@ export function GeometryRenderer(props: GeometryRendererProps) {
             />
           ))}
         </div>
+        <OpenCard
+          shapes={visible.map(({ shape }) => shape)}
+          card={card}
+          area={svg.current}
+        />
       </div>
       {fallback.content}
     </section>
   );
+}
+
+/** The open card of a drawn shape, with its note as the line under the value (README 47). */
+function OpenCard({
+  shapes,
+  card,
+  area,
+}: {
+  shapes: readonly Shape[];
+  card: ReturnType<typeof useShapeCard>;
+  area: Element | null;
+}) {
+  const open = card.open;
+  const shape = open
+    ? shapes.find((candidate) => candidate.shapeRef === open.shapeRef)
+    : undefined;
+  if (!open || !shape?.card || !open.anchor.isConnected) return null;
+  const [first, ...rest] = shape.card.lines;
+  const lines = [
+    ...(first === undefined ? [] : [first]),
+    ...(shape.note ? [shape.note] : []),
+    ...rest,
+  ];
+  return (
+    <ShapeInfoCard
+      card={{ title: shape.card.title, lines }}
+      anchor={open.anchor}
+      area={area}
+      onPointerEnter={card.enterCard}
+      onPointerLeave={card.leaveCard}
+    />
+  );
+}
+
+/** The card is placed for the shape where it was; scrolling moves the shape, so it closes. */
+function useCardClosesOnScroll(card: ReturnType<typeof useShapeCard>) {
+  const isOpen = card.open !== null;
+  const close = useRef(card.close);
+  close.current = card.close;
+  useEffect(() => {
+    if (!isOpen) return;
+    const onScroll = () => close.current();
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [isOpen]);
 }

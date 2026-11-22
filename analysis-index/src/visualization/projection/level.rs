@@ -70,6 +70,10 @@ pub(super) struct Level {
     pub omitted: usize,
     /// Bytes the filter removed from the attributed children.
     pub filtered_bytes: u64,
+    /// The bytes the parent's own value partitions, less what a filter removed.
+    pub parent_bytes: u64,
+    /// Bytes of the attributed children; the rest of parent_bytes has no area.
+    pub attributed_bytes: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -109,9 +113,16 @@ pub(super) fn build(
     } = partial;
     let positive = rows.partition_point(|row| row.bytes > 0);
     let weights: Vec<u64> = rows[..positive].iter().map(|row| row.bytes).collect();
+    // The share of children without a provable area is not reserved (F06 README 51.2):
+    // the attributed children divide the whole rectangle, and only an omitted small
+    // tail stays as an undrawn blank.
+    let attributed_bytes = weights
+        .iter()
+        .try_fold(0_u64, |sum, bytes| sum.checked_add(*bytes))
+        .ok_or(Error::InvalidSource)?;
     let plan = detail::plan(
         &weights,
-        parent_bytes,
+        attributed_bytes,
         Limits {
             area: detail::rect_area(bounds),
             min_area,
@@ -151,6 +162,8 @@ pub(super) fn build(
         group: None,
         omitted: 0,
         filtered_bytes,
+        parent_bytes,
+        attributed_bytes,
     };
     assign(
         level,

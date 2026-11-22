@@ -259,3 +259,73 @@
     color: CanvasText;
   }
 }
+
+@media (min-width: 1024px) {
+  /* The panel column must never add document scrolling (ui-smoke scene 11). */
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    ) {
+    overflow-x: clip;
+  }
+
+  :root:not([data-du-page-scroll])
+    .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    ) {
+    overflow-y: clip;
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    ) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    )
+    > .du-app-header {
+    grid-column: 1 / -1;
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    )
+    > .du-history-shell {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    )
+    > .du-job-center-overlay[data-panel-open] {
+    position: relative;
+    display: block;
+    grid-column: 2;
+    grid-row: 2;
+    min-inline-size: 0;
+    min-block-size: 0;
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    )
+    > .du-job-center-overlay[data-panel-open]
+    > .du-job-center {
+    position: absolute;
+    inset: 0;
+    inline-size: auto;
+  }
+
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    )
+    > .du-job-center-overlay[data-panel-open]
+    .du-toast {
+    inset-inline-end: calc(
+      var(--du-job-center-inline-size) + clamp(14px, 3vw, 36px) +
+        max(0px, calc(50vw - 620px))
+    );
+  }
+}

@@ -1,5 +1,5 @@
 import type { FolderQueryRow, SpaceTotal } from "../../ipc";
-import { SIZE_UNIT_RULES } from "../../ipc";
+import { SIZE_UNIT_RULES, hasUnreadFlags } from "../../ipc";
 import { formatByteUnit } from "../../i18n/bytes";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { LocaleText } from "../../i18n/presentation";
@@ -14,14 +14,39 @@ export function notCounted(
   value: FolderQueryRow["logicalSize"],
 ): boolean {
   const boundary = row.flags.boundary;
+  if (boundary?.state === "present" && boundary.value === "already_counted")
+    return true;
   return (
     boundary?.state === "present" &&
-    (boundary.value === "other_volume" ||
-      boundary.value === "already_counted") &&
+    boundary.value === "other_volume" &&
     value.state === "present" &&
     value.value.state === "exact" &&
     BigInt(value.value.bytes) === 0n
   );
+}
+
+/**
+ * Whether a lower bound of 0 bytes stands for nothing read: the folder was
+ * not read, or a location inside it was not read. A folder whose counted
+ * items are all empty has the same 0 but is shown as "At least 0 bytes".
+ * An unread part makes the folder's size unknown in fact, so the cell says
+ * so (F02 README #201 判定, F06 README 44.2 and 48.2).
+ */
+function unreadZeroBound(
+  row: FolderQueryRow,
+  value: FolderQueryRow["logicalSize"],
+): boolean {
+  return (
+    value.state === "present" &&
+    value.value.state === "lower_bound" &&
+    BigInt(value.value.bytes) === 0n &&
+    hasUnreadPart(row)
+  );
+}
+
+/** Whether the folder itself or a location inside it was not read. */
+export function hasUnreadPart(row: FolderQueryRow): boolean {
+  return hasUnreadFlags(row.flags);
 }
 
 /**
@@ -36,6 +61,8 @@ export function size(
 ): string {
   if (notCounted(row, value))
     return text("ui.browse.not_counted", "Not counted");
+  if (unreadZeroBound(row, value))
+    return text("ui.browse.unavailable", "Unavailable");
   if (value.state === "absent")
     return text("ui.browse.not_recorded", "Not recorded");
   if (value.state !== "present" || value.value.state === "unknown")

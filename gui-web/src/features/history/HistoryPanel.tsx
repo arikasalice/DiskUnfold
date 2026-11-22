@@ -28,6 +28,11 @@ import {
   stateTone,
 } from "./history-labels";
 import { HistoryDetailPanel } from "./HistoryDetailPanel";
+import {
+  HistoryRetentionPanel,
+  retentionHeaderText,
+} from "./HistoryRetentionPanel";
+import { useHistoryRetention } from "./useHistoryRetention";
 import "../../theme/history.css";
 
 type StateFilter =
@@ -44,12 +49,18 @@ function day(value: string, next: boolean): number | null {
 
 export function HistoryPanel({
   client,
+  tasksOpen = false,
+  onOpenRetention,
   onClose,
 }: {
   client: AnalysisClient;
+  tasksOpen?: boolean;
+  onOpenRetention?: () => void;
   onClose: () => void;
 }) {
   const text = useLocaleText();
+  const retention = useHistoryRetention(client, tasksOpen);
+  const retentionLine = retentionHeaderText(retention.policy, text);
   const states = [
     { value: "all", label: text("ui.history.filter_all_states", "All states") },
     { value: "done", label: text("ui.history.state_completed", "Completed") },
@@ -137,83 +148,110 @@ export function HistoryPanel({
     >
       <div ref={list} className="du-history-screen" hidden={Boolean(selected)}>
         <header className="du-history-header">
-          <Heading level={2} ref={title} programmaticFocus>
-            {text("ui.history.operation_history", "Operation history")}
-          </Heading>
-          <Action variant="quiet" icon="back" onPress={onClose}>
-            {text("ui.history.back_to_analysis", "Back to analysis")}
-          </Action>
-        </header>
-        <div className="du-history-controls">
-          <div className="du-history-filter-row">
-            <SelectField
-              label={text("ui.history.end_state", "End state")}
-              value={state}
-              options={states}
-              onChange={setState}
-            />
-            {hasFilters && (
-              <Action
-                variant="quiet"
-                onPress={() => {
-                  setFrom("");
-                  setThrough("");
-                  setKind("all");
-                  setState("all");
-                  list.current
-                    ?.querySelector<HTMLSelectElement>(
-                      ".du-history-filter-row select",
-                    )
-                    ?.focus();
-                }}
-              >
-                {text("ui.history.clear_filters", "Clear filters")}
-              </Action>
+          <div className="du-history-header__title">
+            <Heading level={2} ref={title} programmaticFocus>
+              {text("ui.history.operation_history", "Operation history")}
+            </Heading>
+            {retentionLine && (
+              <Text kind="muted" className="du-history-retention-line">
+                {retentionLine}
+              </Text>
             )}
           </div>
-          <DetailDisclosure
-            title={
-              extraFilters
-                ? text(
-                    "ui.history.date_type_filters_active",
-                    "Date and type filters (active)",
-                  )
-                : text("ui.history.date_type_filters", "Date and type filters")
-            }
-          >
-            <div className="du-history-extra-filters">
-              <DateField
-                label={text("ui.history.from_date", "From date")}
-                value={from}
-                onChange={setFrom}
-                error={invalidRangeMessage}
-              />
-              <DateField
-                label={text("ui.history.through_date", "Through date")}
-                value={through}
-                onChange={setThrough}
-              />
+          <div className="du-history-header__actions">
+            <Action
+              ref={retention.triggerRef}
+              variant="quiet"
+              aria-expanded={retention.isOpen}
+              aria-controls="du-history-retention-panel"
+              onPress={() => {
+                onOpenRetention?.();
+                retention.openPanel();
+              }}
+            >
+              {text("ui.history.retention.settings", "Retention")}
+            </Action>
+            <Action variant="quiet" icon="back" onPress={onClose}>
+              {text("ui.history.back_to_analysis", "Back to analysis")}
+            </Action>
+          </div>
+        </header>
+        <div className="du-history-content">
+          <div className="du-history-controls">
+            <div className="du-history-filter-row">
               <SelectField
-                label={text("ui.history.job_type", "Job type")}
-                value={kind}
-                options={kinds}
-                onChange={setKind}
+                label={text("ui.history.end_state", "End state")}
+                value={state}
+                options={states}
+                onChange={setState}
               />
+              {hasFilters && (
+                <Action
+                  variant="quiet"
+                  onPress={() => {
+                    setFrom("");
+                    setThrough("");
+                    setKind("all");
+                    setState("all");
+                    list.current
+                      ?.querySelector<HTMLSelectElement>(
+                        ".du-history-filter-row select",
+                      )
+                      ?.focus();
+                  }}
+                >
+                  {text("ui.history.clear_filters", "Clear filters")}
+                </Action>
+              )}
             </div>
-          </DetailDisclosure>
+            <DetailDisclosure
+              title={
+                extraFilters
+                  ? text(
+                      "ui.history.date_type_filters_active",
+                      "Date and type filters (active)",
+                    )
+                  : text(
+                      "ui.history.date_type_filters",
+                      "Date and type filters",
+                    )
+              }
+            >
+              <div className="du-history-extra-filters">
+                <DateField
+                  label={text("ui.history.from_date", "From date")}
+                  value={from}
+                  onChange={setFrom}
+                  error={invalidRangeMessage}
+                />
+                <DateField
+                  label={text("ui.history.through_date", "Through date")}
+                  value={through}
+                  onChange={setThrough}
+                />
+                <SelectField
+                  label={text("ui.history.job_type", "Job type")}
+                  value={kind}
+                  options={kinds}
+                  onChange={setKind}
+                />
+              </div>
+            </DetailDisclosure>
+          </div>
+          {!invalid ? (
+            <HistoryPages
+              client={client}
+              filter={filter}
+              hasFilters={hasFilters}
+              onOpen={(job, target) => {
+                opener.current = target;
+                openerLabel.current = target.getAttribute("aria-label");
+                setSelected(job);
+              }}
+            />
+          ) : null}
+          <HistoryRetentionPanel controller={retention} />
         </div>
-        {!invalid ? (
-          <HistoryPages
-            client={client}
-            filter={filter}
-            hasFilters={hasFilters}
-            onOpen={(job, target) => {
-              opener.current = target;
-              openerLabel.current = target.getAttribute("aria-label");
-              setSelected(job);
-            }}
-          />
-        ) : null}
       </div>
       {selected && (
         <HistoryDetailPanel
@@ -307,7 +345,7 @@ function HistoryPages({
               text("ui.history.finished", "Finished"),
               text("ui.history.details", "Details"),
             ]}
-            columnWidths={[212, 106, 152, 64]}
+            columnWidths={[212, 106, 152, 84]}
             density="compact"
             totalRows={hasMore ? -1 : shown}
             rows={page.rows}

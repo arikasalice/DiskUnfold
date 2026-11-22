@@ -1,8 +1,7 @@
 //! Per-folder scan state of the pinned version on the published folder rows.
 //!
-//! Only a scan-lineage version (a real data source) supplies these facts; it is the same
-//! test that makes `folder_collection` answer `NotProvided`. A source that is not scan
-//! lineage keeps the values it sent before folder scan state was wired.
+//! Real scans supply their collection facts. Snapshots supply only recorded markers, and
+//! samples keep the values they sent before folder scan state was wired.
 use du_analysis_index::{
     ResultVersion,
     folder_collection::{
@@ -13,7 +12,8 @@ use du_core_contracts::{
     ItemRef, OsPath, PathBytes, PathEncoding,
     browse_ipc::BrowseValue,
     browse_page_ipc::{FolderBoundary, FolderFlags, QueryTotal, UnreadInside},
-    result::ResultVersionRead,
+    data_source::DataSource,
+    result::{ResultItemKind, ResultVersionRead},
 };
 
 use super::{Error, folder_error};
@@ -27,7 +27,7 @@ pub(super) fn page_flags(
     version: &ResultVersion,
     items: &[ItemRef],
 ) -> Result<Vec<FolderFlags>, Error> {
-    if !version.data_source().is_real() {
+    if version.data_source() == DataSource::Sample {
         return Ok(items.iter().map(|_| not_provided()).collect());
     }
     version
@@ -37,10 +37,33 @@ pub(super) fn page_flags(
         .zip(items)
         .map(|(collection, item)| {
             let inside = version.unread_inside(item).map_err(folder_error)?;
-            let counted_at = counted_at(version, item, &collection);
-            Ok(flags(collection, inside, counted_at))
+            let group = group_facts(version, item, &collection);
+            Ok(flags(collection, inside, group))
         })
         .collect()
+}
+
+/// The flags of one folder for a detail read (F02 #347), computed as the page rows are so
+/// that a row and its details never disagree. `None` for a sample and for an item that is
+/// not a folder, where the facts do not apply; the kind is read from the item itself.
+///
+/// # Errors
+/// `support.internal_error` when the item's folder facts cannot be read although the item
+/// was found: that is a fault, never the answer "not a folder".
+pub(crate) fn detail_flags(
+    version: &ResultVersion,
+    item: &ItemRef,
+) -> Result<Option<FolderFlags>, crate::error::EngineError> {
+    let fault = || crate::error::EngineError::reason("support.internal_error");
+    if version.data_source() == DataSource::Sample {
+        return Ok(None);
+    }
+    let kind = version.detail(item).map_err(|_| fault())?.item.kind;
+    if kind != ResultItemKind::Directory {
+        return Ok(None);
+    }
+    let flags = page_flags(version, std::slice::from_ref(item)).map_err(|_| fault())?;
+    Ok(flags.into_iter().next())
 }
 
 /// Entries an exclusion rule left out directly under the opened folder.
@@ -58,7 +81,7 @@ pub(super) fn excluded_children(
     let Some(location) = location else {
         return Ok(None);
     };
-    if !version.data_source().is_real() {
+    if version.data_source() == DataSource::Sample {
         return Ok(None);
     }
     Ok(version
@@ -77,7 +100,7 @@ pub(super) fn excluded_children(
 fn flags(
     collection: FolderCollection<'_>,
     inside: Option<Inside>,
-    counted_at: Option<OsPath>,
+    group: GroupFacts,
 ) -> FolderFlags {
     // The collector keeps no excluded entry, so no row of a scan-lineage result is one.
     let excluded = BrowseValue::Present { value: false };
@@ -88,6 +111,8 @@ fn flags(
             boundary: None,
             unread_inside: None,
             counted_at: None,
+            counted_at_item: None,
+            group_volume_role: None,
         },
         FolderCollection::Folder {
             unenumerated,
@@ -97,25 +122,55 @@ fn flags(
             excluded,
             boundary: boundary_value(boundary),
             unread_inside: inside.map(unread_inside_value),
-            counted_at,
+            counted_at: group.counted_at,
+            counted_at_item: group.counted_at_item,
+            group_volume_role: group.role,
         },
     }
 }
 
-fn counted_at(
+/// Root volume group facts of one folder row (#263), decided on the server from
+/// the result's frozen group so the screen never compares paths.
+#[derive(Default)]
+struct GroupFacts {
+    counted_at: Option<OsPath>,
+    counted_at_item: Option<ItemRef>,
+    role: Option<String>,
+}
+
+fn group_facts(
     version: &ResultVersion,
     item: &ItemRef,
     collection: &FolderCollection<'_>,
-) -> Option<OsPath> {
-    if !matches!(
+) -> GroupFacts {
+    let Some((group, absolute, root)) = group_path(version, item) else {
+        return GroupFacts::default();
+    };
+    let role = (absolute == group.data_mount).then(|| FolderFlags::GROUP_ROLE_DATA.to_owned());
+    let already_counted = matches!(
         collection,
         FolderCollection::Folder {
             boundary: Boundary::AlreadyCounted,
             ..
         }
-    ) {
-        return None;
+    );
+    let source = already_counted
+        .then(|| group.firmlinks.iter().find(|link| link.target == absolute))
+        .flatten()
+        .map(|link| link.source.as_slice());
+    GroupFacts {
+        counted_at: source.map(unix_path),
+        counted_at_item: source.and_then(|source| item_at_path(version, root, source)),
+        role,
     }
+}
+
+/// The confirmed group, the folder's absolute path and the root item, for a
+/// result scanned from the Unix root `/`.
+fn group_path<'a>(
+    version: &'a ResultVersion,
+    item: &ItemRef,
+) -> Option<(&'a du_core_contracts::volume::RootVolumeGroup, Vec<u8>, u32)> {
     let group = version.volume_group()?;
     let (_, root) = version.observed_root_for(item).ok()?;
     if root.path.encoding != PathEncoding::Unix || root.path.raw.bytes().ok()? != b"/" {
@@ -124,14 +179,14 @@ fn counted_at(
     let items = version.items();
     let mut index = item.item_no as usize;
     let mut components = Vec::new();
-    loop {
+    let root_item = loop {
         let row = items.get(index)?;
         let Some(parent) = row.parent else {
-            break;
+            break row.item_no;
         };
         components.push(row.name.as_slice());
         index = parent as usize;
-    }
+    };
     let mut absolute = b"/".to_vec();
     for component in components.into_iter().rev() {
         if component.is_empty() {
@@ -142,17 +197,31 @@ fn counted_at(
         }
         absolute.extend_from_slice(component);
     }
-    let source = &group
-        .firmlinks
-        .iter()
-        .find(|firmlink| firmlink.target == absolute)?
-        .source;
-    Some(OsPath {
-        encoding: PathEncoding::Unix,
-        raw: PathBytes::from_bytes(source),
-        lossy: std::str::from_utf8(source).is_err(),
-        display: String::from_utf8_lossy(source).into_owned(),
+    Some((group, absolute, root_item))
+}
+
+/// The folder at an absolute path below the root item, in the same version.
+fn item_at_path(version: &ResultVersion, root: u32, path: &[u8]) -> Option<ItemRef> {
+    let mut current = root;
+    for component in path
+        .split(|&byte| byte == b'/')
+        .filter(|part| !part.is_empty())
+    {
+        current = version.child_named(current, component)?.item_no;
+    }
+    (current != root).then(|| ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: current,
     })
+}
+
+fn unix_path(raw: &[u8]) -> OsPath {
+    OsPath {
+        encoding: PathEncoding::Unix,
+        raw: PathBytes::from_bytes(raw),
+        lossy: std::str::from_utf8(raw).is_err(),
+        display: String::from_utf8_lossy(raw).into_owned(),
+    }
 }
 
 fn unread_inside_value(value: Inside) -> BrowseValue<UnreadInside> {
@@ -199,6 +268,8 @@ fn not_provided() -> FolderFlags {
         boundary: None,
         unread_inside: None,
         counted_at: None,
+        counted_at_item: None,
+        group_volume_role: None,
     }
 }
 

@@ -137,6 +137,12 @@
     "distributed": true,
     "reason": "binary path encoding"
   },
+  "cargo:du-engine-api:base64@0.23.1": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "opaque snapshot list cursor encoding"
+  },
   "cargo:du-core-contracts:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
@@ -514,5 +520,23 @@
     "role": "build",
     "distributed": false,
     "reason": "Read the license allow list and banned crates from deny.toml for the notices gate"
+  },
+  "cargo:du-change-planner:blake3@1.8.3": {
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute canonical du.plan.hash.v1 plan-version digests"
+  },
+  "cargo:du-change-planner:serde@1.0.229": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Serialize and verify immutable plan-version records"
+  },
+  "cargo:du-change-planner:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and verify canonical v1 protection ruleset bodies"
   }
 }

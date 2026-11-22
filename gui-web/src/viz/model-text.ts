@@ -2,6 +2,7 @@ import type { VisualizationMessageKey } from "./messages";
 import { rowName } from "./row-text";
 import { interpolate } from "../i18n/presentation";
 import { FOLDER_CLASS, coloredByClass, legendLook } from "./legend-style";
+import { folderTypes } from "./type-slices";
 import type {
   SizeValue,
   VizModel,
@@ -73,6 +74,69 @@ export function rawSourceSize(
 }
 
 /**
+ * The info card says the same as the shape's name, a fact a line (README 8):
+ * the value, the share and what it is a share of, the class, the flags.
+ */
+function shapeCard(
+  shape: VizShape,
+  text: VizText,
+  facts: {
+    name: string;
+    value: string;
+    share: string | null;
+    said: readonly string[];
+    binCount: VizQuantity | undefined;
+  },
+) {
+  return {
+    title: facts.name,
+    lines: [
+      facts.binCount
+        ? `${binItems(facts.binCount, text)}, ${text.size(shape.size)}`
+        : cardValue(shape, facts.value, text),
+      ...(facts.share ? [facts.share] : []),
+      ...facts.said,
+      ...(shape.displayFlags.length
+        ? [shape.displayFlags.map(text.key).join(", ")]
+        : []),
+    ],
+  };
+}
+
+/**
+ * What a histogram interval says about its list (F06 README 52): with a list
+ * condition and items, its name ends in "View in list" and its card says it opens
+ * the list; without a condition (a size basis the list cannot filter) the card says
+ * so and the name adds nothing. An empty interval opens nothing and says nothing.
+ */
+function intervalWords(
+  binCount: VizShape["memberCount"],
+  row: VizRow | undefined,
+  text: VizText,
+): { said: string[]; card: string[] } {
+  const empty = binCount?.state === "exact" && binCount.value === "0";
+  if (!binCount || !row?.groupRef || empty) return { said: [], card: [] };
+  return row.condition
+    ? {
+        said: [text.message("intervalShowInList")],
+        card: [text.message("intervalCardOpens")],
+      }
+    : { said: [], card: [text.message("intervalCardNoList")] };
+}
+
+/** A card's value line: the shown value, and the raw bytes when they are known (README 8). */
+function cardValue(shape: VizShape, value: string, text: VizText) {
+  const size = shape.size;
+  if (shape.quantity || size.state === "unknown") return value;
+  const raw = vizMessage(
+    text,
+    size.state === "lower_bound" ? "rawBytesAtLeast" : "rawBytes",
+    { count: size.bytes },
+  );
+  return `${value} (${raw})`;
+}
+
+/**
  * Where a shape sits in a depth 2 treemap: an expanded folder holds `childCount`
  * drawn shapes, and a shape inside one has that folder's row (`undefined` while
  * it has not arrived). A top-level shape that holds nothing has no place.
@@ -123,18 +187,37 @@ export function shapeLabels(
   const binCount =
     model.representation.format === "histogram" ? shape.memberCount : undefined;
   const look = classLook(model, shape, place, text);
+  const interval = intervalWords(binCount, row, text);
+  const types = closedFolderTypes(model, shape, place, text);
+  const said = [...look.said, ...types.said];
   const accessibleLabel = [
     binCount
       ? `${name}, ${binItems(binCount, text)}, ${text.size(shape.size)}`
       : row
         ? placed
         : `${name}, ${value}`,
-    ...look.said,
+    ...said,
     ...shape.displayFlags.map(text.key),
+    ...interval.said,
   ].join(", ");
+  const card = shapeCard(shape, text, {
+    name,
+    value,
+    share:
+      row && !binCount
+        ? vizMessage(text, "cardShare", {
+            ratio,
+            denominator: `${text.key(denominator.basis)} ${text.quantity(denominator.value)}`,
+          })
+        : null,
+    said: [...said, ...interval.card],
+    binCount,
+  });
   return {
     accessibleLabel,
+    card,
     ...look.drawn,
+    ...types.drawn,
     ...(place.childCount ? { container: true } : {}),
     ...shapeMarks(shape),
     // A lower bound is drawn with a dashed right and bottom edge: it may be larger (4.6).
@@ -156,6 +239,38 @@ export function shapeLabels(
             : { displayValue: value }),
         }
       : {}),
+  };
+}
+
+/**
+ * What a folder drawn closed says and draws of its files by type (README 54); one
+ * drawn open shows them as its children.
+ */
+function closedFolderTypes(
+  model: VizModel,
+  shape: VizShape,
+  place: ShapePlace,
+  text: VizText,
+) {
+  const types = place.childCount
+    ? null
+    : folderTypes(
+        shape.typeSlices,
+        shape.size,
+        model.legend.map((entry) => entry.key),
+        {
+          message: text.message,
+          quantity: text.quantity,
+          className: (key) => legendClassName(model, key, text),
+        },
+      );
+  if (!types) return { said: [] as string[], drawn: {} };
+  return {
+    said: types.said,
+    drawn: {
+      slices: types.bar,
+      ...(types.total === undefined ? {} : { slicesTotal: types.total }),
+    },
   };
 }
 

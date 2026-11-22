@@ -29,10 +29,12 @@ fn platform_adapters_register_scanning_once() -> TestResult {
     let limit: SharedTableLimitSource = Arc::new(SharedTableLimit::default);
     let mut builder = EngineBuilder::default();
     let services = register_analysis(&mut builder, ports.clone(), &database, limit.clone(), None)?;
+    crate::snapshot_save::register(&services, &mut builder, &database)?;
     visualization::register_with_stored_settings(&services.visualization, &mut builder, &database)?;
     let engine = builder.build()?;
     verify_registered(&engine, true)?;
     assert!(engine.has_use_case("scope.review"));
+    assert!(engine.has_use_case("snapshot.list"));
     let mut twice = EngineBuilder::default();
     register_analysis(&mut twice, ports.clone(), &database, limit.clone(), None)?;
     let rejected = register_analysis(&mut twice, ports, &database, limit, None).is_err();

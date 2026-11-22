@@ -206,7 +206,7 @@ impl ResultVersion {
         let mut aggregate = crate::space::aggregate_item(item, source);
         crate::physical::apply_item(self, index, source, &mut aggregate);
         if let Some(count) = self.aggregates.file_gap_count(item.item_no) {
-            crate::space::mark_inaccessible(&mut aggregate, count);
+            crate::space::mark_inaccessible(&mut aggregate, count, self.physical.is_some());
         }
         Some(aggregate)
     }
@@ -246,6 +246,22 @@ impl ResultVersion {
         })
     }
 
+    /// The file identity recorded for an item, when its space evidence carries one.
+    pub fn file_identity(&self, item_no: u32) -> Option<crate::FileIdentity> {
+        Some(self.physical.as_ref()?.get(item_no)?.identity()?.to_owned())
+    }
+
+    /// The volume and file identity bytes recorded for an item, borrowed from this version.
+    pub fn file_identity_bytes(&self, item_no: u32) -> Option<(&[u8], &[u8])> {
+        let identity = self.physical.as_ref()?.get(item_no)?.identity()?;
+        Some((identity.volume, identity.file))
+    }
+
+    /// The observed total link count recorded for an item, when its space evidence carries one.
+    pub fn file_link_count(&self, item_no: u32) -> Option<u64> {
+        self.physical.as_ref()?.get(item_no)?.link_count()
+    }
+
     /// Resolves an item reference against this snapshot, including an older snapshot held open.
     pub fn detail(&self, item: &ItemRef) -> Result<ItemDetail<'_>, QueryError> {
         if item.result_version != self.version_id {
@@ -267,6 +283,13 @@ impl ResultVersion {
         let start = self.items.partition_point(|item| item.parent < parent);
         let end = self.items.partition_point(|item| item.parent <= parent);
         &self.items[start..end]
+    }
+
+    /// The immediate child of `parent` stored under `name`, if any.
+    pub fn child_named(&self, parent: u32, name: &[u8]) -> Option<&ResultItem> {
+        self.children(parent)
+            .iter()
+            .find(|child| child.name == name)
     }
 
     /// Returns the root-to-item chain in the same immutable hierarchy.

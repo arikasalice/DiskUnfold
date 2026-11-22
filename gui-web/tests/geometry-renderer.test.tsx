@@ -474,6 +474,68 @@ test.each([
     expect(labelled(width, name, value)).toBe(expected);
   },
 );
+
+/**
+ * A canvas that measures a wide (Hangul) character as one em and every other
+ * character as half an em, at the size the font names.
+ */
+function measureLikeTheChartFont() {
+  vi.stubGlobal(
+    "OffscreenCanvas",
+    class {
+      getContext() {
+        return {
+          font: "",
+          measureText(text: string) {
+            const px = Number.parseFloat(this.font);
+            const width = Array.from(text).reduce(
+              (sum, part) =>
+                sum + (/[\uac00-\ud7a3]/u.test(part) ? px : px / 2),
+              0,
+            );
+            return { width };
+          },
+        };
+      }
+    },
+  );
+}
+
+test.each([
+  // #349: the 240 px shape leaves 216 px; the label is 140 px wide although it
+  // has 16 characters, more than the 15 a character count allows.
+  [480, "음악 · 최소 40.0 GiB"],
+  // 164 px leaves exactly the 140 px the label needs.
+  [328, "음악 · 최소 40.0 GiB"],
+  // One px less, and the value goes whole: the name alone.
+  [326, "음악"],
+])(
+  "README 51, #367: a %s px chart measures the label and shows %s",
+  (width, expected) => {
+    measureLikeTheChartFont();
+    try {
+      expect(labelled(width, "음악", "최소 40.0 GiB")).toBe(expected);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
+test("README 51, #367: a measured name that does not fit is shortened to the width it has", () => {
+  measureLikeTheChartFont();
+  try {
+    // 300 px leaves 126 px: eight Hangul characters and the ellipsis (119 px).
+    expect(labelled(300, "가나다라마바사아자차카", "1 MiB")).toBe(
+      "가나다라…아자차카",
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("README 51, #367: where text cannot be measured, the character estimate drops the value", () => {
+  expect(labelled(480, "음악", "최소 40.0 GiB")).toBe("음악");
+});
 const rows = (
   <table>
     <caption>Same model rows</caption>

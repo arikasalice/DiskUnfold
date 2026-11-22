@@ -75,6 +75,7 @@ pub(super) fn build(
                 root_branch_ref: None,
                 member_count: row.member_count.clone(),
                 item_kind: None,
+                type_slices: None,
             });
         }
     }
@@ -168,6 +169,16 @@ pub(super) fn build(
             filtered_out: filtered_total,
             remainder: Some(remainder.total),
             remainder_reason_keys: remainder.reason_keys,
+            // An item count has no size limits (F06 HLD 2.2.3).
+            scope_measurement_limits: (!counting)
+                .then(|| {
+                    crate::space::item_limits(
+                        admitted.source.version(),
+                        request.aggregate_scope_ref.item_no,
+                        &request.size_basis,
+                    )
+                })
+                .flatten(),
         },
         shapes,
         relationships: vec![],
@@ -181,6 +192,10 @@ pub(super) fn build(
                 complete,
             )?,
             reason_keys: vec![],
+            unknown_size: None,
+            first_unknown_row: None,
+            unread_folders: None,
+            first_unread_row: None,
         },
         strategy: QueryStrategy {
             id: admitted.descriptor.strategy.id.clone(),

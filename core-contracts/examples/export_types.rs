@@ -1,3 +1,5 @@
+mod feature_contracts;
+
 use du_core_contracts::browse_open_ipc::*;
 use du_core_contracts::browse_page_ipc::*;
 use du_core_contracts::data_source::DataSource;
@@ -31,6 +33,7 @@ use du_core_contracts::shutdown_ipc::*;
 use du_core_contracts::size_units::{
     DISPLAY_DECIMAL_PLACES, IEC_UNITS, SI_UNITS, UNIT_TABLE_REVISION,
 };
+use du_core_contracts::snapshot_ipc::*;
 use du_core_contracts::space_detail_ipc::*;
 use du_core_contracts::startup_ipc::*;
 use du_core_contracts::visualization::availability::{
@@ -58,8 +61,9 @@ use du_core_contracts::visualization::request::{
 use du_core_contracts::visualization::response::{VizRenderModelResponse, VizRenderResponse};
 use du_core_contracts::visualization::rows::{
     VizDenominator, VizDenominatorBasis, VizGroupRows, VizGroupRowsRequest, VizRatio, VizRow,
-    VizRows, VizRowsRequest, VizSizeRange,
+    VizRows, VizRowsRequest, VizSizeRange, VizUnread,
 };
+use du_core_contracts::visualization::type_slices::VizTypeSlice;
 use du_core_contracts::volume_gap_ipc::*;
 use du_core_contracts::*;
 use du_core_contracts::{analysis_ipc::*, job::JobState, result::ResultCompleteness};
@@ -245,6 +249,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         VizRatio::decl(&config),
         VizDenominator::decl(&config),
         VizRow::decl(&config),
+        VizUnread::decl(&config),
+        VizTypeSlice::decl(&config),
         VizRowsRequest::decl(&config),
         VizGroupRowsRequest::decl(&config),
         VizSizeRange::decl(&config),
@@ -419,6 +425,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         SampleSession::decl(&config),
         SampleClosed::decl(&config),
         SampleStateChanged::decl(&config),
+        SnapshotSaveRequest::decl(&config),
+        SnapshotSaveResponse::decl(&config),
+        SnapshotSaveAccepted::decl(&config),
+        SnapshotSaveAcceptedOutcome::decl(&config),
+        SnapshotPinApplied::decl(&config),
+        SnapshotSaveExistingSnapshot::decl(&config),
+        SnapshotSaveExistingJob::decl(&config),
+        SnapshotSaveExistingOutcome::decl(&config),
+    ]
+    .into_iter()
+    .chain(feature_contracts::snapshot_list_declarations(&config))
+    .chain([
+        SnapshotChange::decl(&config),
+        SnapshotChangedBody::decl(&config),
         GroupRuleReview::decl(&config),
         GroupRule::decl(&config),
         GroupRuleDraft::decl(&config),
@@ -452,7 +472,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GroupTotalRow::decl(&config),
         GroupRatio::decl(&config),
         GroupTotals::decl(&config),
-    ];
+    ])
+    .chain(feature_contracts::declarations(&config));
     let output = declarations
         .into_iter()
         .map(|d| format!("export {d}\n"))

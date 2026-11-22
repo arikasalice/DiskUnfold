@@ -21,6 +21,7 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    browse_open_ipc::{QueryCondition, QueryItemType, QueryPredicate, QuerySizeBasis, QuerySizeOp},
     result::ResultVersionRead,
     visualization::{
         item_kind::VizItemKind,
@@ -126,7 +127,14 @@ fn assemble(
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
     let mut no_attribution = false;
-    for (bin, p) in model.histogram.bins.iter().zip(request.bin_presentation) {
+    let bounds = request.bins;
+    for (index, (bin, p)) in model
+        .histogram
+        .bins
+        .iter()
+        .zip(request.bin_presentation)
+        .enumerate()
+    {
         check(cancelled)?;
         if p.group_ref.is_empty()
             || p.legend_class_key.is_empty()
@@ -180,6 +188,9 @@ fn assemble(
                 label_key: None,
                 member_count: None,
                 item_kind: VizItemKind::from_result(item.kind),
+                condition: None,
+                unread: None,
+                type_slices: None,
             };
             row.validate_revision(request.version.version_id())
                 .map_err(|_| Error::MissingPresentation)?;
@@ -229,6 +240,11 @@ fn assemble(
             label_key: None,
             member_count: Some(member_count),
             item_kind: None,
+            condition: bounds
+                .get(index)
+                .and_then(|bounds| interval_condition(bounds, &request.size_basis)),
+            unread: None,
+            type_slices: None,
         };
         row.validate_revision(request.version.version_id())
             .map_err(|_| Error::MissingPresentation)?;
@@ -332,6 +348,37 @@ fn denominator(
         value,
         size,
     })
+}
+
+/// The list condition of one interval (F06 README 12, #297): its files in the
+/// half-open interval [lower, upper) on the model's size basis. The first interval
+/// keeps its `at least 0`, so every interval has the same form; the last has no upper
+/// bound. None where the basis has no size predicate (unique physical size).
+fn interval_condition(bin: &Bin, basis: &SizeBasis) -> Option<QueryCondition> {
+    let basis = match basis {
+        SizeBasis::Logical => QuerySizeBasis::Logical,
+        SizeBasis::Allocated => QuerySizeBasis::Allocated,
+        SizeBasis::UniquePhysical => return None,
+    };
+    let size = |op, bytes: u64| QueryCondition::Predicate {
+        predicate: QueryPredicate::Size {
+            basis,
+            op,
+            bytes: bytes.into(),
+        },
+    };
+    let mut children = vec![
+        QueryCondition::Predicate {
+            predicate: QueryPredicate::Type {
+                value: QueryItemType::File,
+            },
+        },
+        size(QuerySizeOp::AtLeast, bin.lower),
+    ];
+    if let Some(upper) = bin.upper {
+        children.push(size(QuerySizeOp::LessThan, upper));
+    }
+    Some(QueryCondition::All { children })
 }
 
 fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), Error> {

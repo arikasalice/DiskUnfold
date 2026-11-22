@@ -7,13 +7,13 @@
 pub mod format;
 pub mod spool;
 
-const HEADER_BYTES: u64 = 16;
-const FOOTER_BYTES: u64 = 56;
+pub(crate) const HEADER_BYTES: u64 = 16;
+pub(crate) const FOOTER_BYTES: u64 = 56;
 const HASH_BYTES: usize = 32;
-const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-const MAX_METADATA_BYTES: u64 = 65_536;
-const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-const MAGIC: &[u8; 8] = b"DUSNAP\r\n";
+pub(crate) const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+pub(crate) const MAX_METADATA_BYTES: u64 = 65_536;
+pub(crate) const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+pub(crate) const MAGIC: &[u8; 8] = b"DUSNAP\r\n";
 
 /// The only DUSNAP envelope format version this crate reads and writes (F15 release gate reads it).
 pub const DUSNAP_FORMAT_VERSION: u16 = 1;

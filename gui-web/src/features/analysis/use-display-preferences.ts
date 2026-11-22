@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { SIZE_UNIT_RULES } from "../../ipc";
 import type { AnalysisClient, DisplayPreferences, SizeValue } from "../../ipc";
-import { windowsSizeDisplay } from "./space-format";
+import { useLocaleOsFamily } from "../../state/use-locale";
+import { defaultSizeDisplay } from "../../state/size-display";
 import type { SizeDisplay } from "./space-format";
 
 type PreferenceResult = {
@@ -20,6 +21,7 @@ export type AnalysisDisplayPreferences = {
 export function useDisplayPreferences(
   client: AnalysisClient | undefined,
 ): AnalysisDisplayPreferences {
+  const osFamily = useLocaleOsFamily();
   const [result, setResult] = useState<PreferenceResult>();
   useEffect(() => {
     if (!client) return;
@@ -61,7 +63,7 @@ export function useDisplayPreferences(
   const response = current?.response;
   if (!response)
     return {
-      display: windowsSizeDisplay,
+      display: defaultSizeDisplay(osFamily),
       basis: "allocated",
       warning: current?.unavailable ? "settings.restore_failed" : undefined,
     };

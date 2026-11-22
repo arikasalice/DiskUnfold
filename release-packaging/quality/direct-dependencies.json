@@ -177,6 +177,39 @@
   },
   {
     "ecosystem": "cargo",
+    "owner": "du-change-planner",
+    "name": "blake3",
+    "version": "1.8.3",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Compute canonical du.plan.hash.v1 plan-version digests"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-change-planner",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and verify canonical v1 protection ruleset bodies"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-change-planner",
+    "name": "serde",
+    "version": "1.0.229",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Serialize and verify immutable plan-version records"
+  },
+  {
+    "ecosystem": "cargo",
     "owner": "du-cli",
     "name": "serde_json",
     "version": "1.0.154",
@@ -273,6 +306,17 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Compute purpose-separated sample and full content fingerprints for duplicate verification"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-engine-api",
+    "name": "base64",
+    "version": "0.23.1",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "opaque snapshot list cursor encoding"
   },
   {
     "ecosystem": "cargo",

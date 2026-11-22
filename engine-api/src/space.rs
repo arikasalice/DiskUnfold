@@ -26,6 +26,11 @@ use crate::{
 };
 
 /// Registers the GUI query against the same store used for scan publication.
+/// Measurement limit of an allocated total over volumes whose files may share extents:
+/// the sum can exceed the real usage (#351).
+const ALLOCATED_MAY_INCLUDE_SHARED: &str = "space.allocated_may_include_shared";
+
+/// Registers the GUI query against the same store used for scan publication.
 pub fn register_total(builder: &mut EngineBuilder, store: IngestSink) {
     let queries = Arc::new(ResultSets::new(store.clone()));
     register_total_with_queries(builder, queries);
@@ -235,6 +240,25 @@ fn basis(size: &SizeValue, completeness: ResultCompleteness, limits: &[&str]) ->
     }
 }
 
+/// The measurement limits `space.total` gives one item in `basis` (#351), or none.
+///
+/// The visualization's scope total reads them here, so the graph and the result summary
+/// never disagree about the same item and basis.
+pub(crate) fn item_limits(
+    version: &ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> Option<Vec<String>> {
+    let aggregate = version.space(item_no)?;
+    let size = match basis {
+        SizeBasis::Logical => &aggregate.logical,
+        SizeBasis::Allocated => &aggregate.allocated,
+        SizeBasis::UniquePhysical => &aggregate.unique_physical,
+    };
+    let limits = measurement_limits(size, &aggregate.limitations);
+    (!limits.is_empty()).then_some(limits)
+}
+
 fn measurement_limits(size: &SizeValue, limits: &[&str]) -> Vec<String> {
     let mut measurement_limits: Vec<_> = limits
         .iter()
@@ -248,8 +272,101 @@ fn measurement_limits(size: &SizeValue, limits: &[&str]) -> Vec<String> {
         })
         .map(|key| (*key).to_owned())
         .collect();
+    // A sum of per-file allocations counts the extents that files share more than
+    // once, so it can exceed the real usage (#351). Only this basis says so.
+    if size.basis == SizeBasis::Allocated && limits.contains(&"space.sharing_not_collected") {
+        measurement_limits.push(ALLOCATED_MAY_INCLUDE_SHARED.into());
+    }
     if size.amount == SizeAmount::Unknown {
         measurement_limits.push("space.data_insufficient".into());
     }
     measurement_limits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use du_core_contracts::{SizeEvidence, SizeValue};
+
+    fn size(basis: SizeBasis) -> SizeValue {
+        SizeValue {
+            basis,
+            evidence: SizeEvidence::OsReported,
+            amount: SizeAmount::Exact {
+                bytes: ByteSize::from(1),
+            },
+        }
+    }
+
+    /// #351: only an allocated total over files that may share extents says it can
+    /// exceed the real usage.
+    #[test]
+    fn only_the_allocated_basis_names_the_shared_space_limit() {
+        let shared = ["space.sharing_not_collected"];
+        let has = |basis, limits: &[&str]| {
+            measurement_limits(&size(basis), limits)
+                .contains(&ALLOCATED_MAY_INCLUDE_SHARED.to_owned())
+        };
+        assert!(has(SizeBasis::Allocated, &shared));
+        assert!(!has(SizeBasis::Logical, &shared));
+        assert!(!has(SizeBasis::UniquePhysical, &shared));
+        // A volume that cannot share extents never says it.
+        assert!(!has(SizeBasis::Allocated, &["space.aux_not_included"]));
+    }
+
+    /// #351: a sample result's scope total names the same limits as its `space.total`;
+    /// the visualization reads them through the same function, for every basis.
+    #[test]
+    fn item_limits_are_the_limits_space_total_gives_a_sample() -> Result<(), String> {
+        use du_analysis_index::{Observation, SampleSessionKey};
+        use du_core_contracts::{
+            Id, PathBytes, PathEncoding,
+            result::{ResultNativePath, ResultScopeRoot},
+        };
+        let debug = |error: &dyn std::fmt::Debug| format!("{error:?}");
+        let sink = IngestSink::default();
+        let root = ResultScopeRoot {
+            path: ResultNativePath {
+                encoding: PathEncoding::Unix,
+                raw: PathBytes::from_bytes(b"/sample"),
+            },
+            volume_id: vec![1],
+            file_id: vec![2],
+        };
+        let mut build = sink
+            .open_sample_forest(
+                Id::from_v7_bytes([1; 16]),
+                vec![root],
+                &SampleSessionKey::new(Id::from_v7_bytes([9; 16])),
+            )
+            .map_err(|e| debug(&e))?;
+        build
+            .add_directory_at(0, Vec::new())
+            .map_err(|e| debug(&e))?;
+        build
+            .add_at(
+                0,
+                Observation {
+                    path: vec![b"a.pdf".to_vec()],
+                    size: Some(SizeValue {
+                        basis: SizeBasis::Logical,
+                        evidence: SizeEvidence::Measured,
+                        amount: SizeAmount::Exact {
+                            bytes: ByteSize::from(5),
+                        },
+                    }),
+                },
+            )
+            .map_err(|e| debug(&e))?;
+        let version = build
+            .seal(Id::from_v7_bytes([2; 16]), ResultCompleteness::Complete)
+            .map_err(|e| debug(&e))?;
+        let aggregate = version.space(0).ok_or("no aggregate")?;
+        let total = response(&version, 1, &aggregate);
+        for size in &total.sizes {
+            let limits = item_limits(&version, 0, &size.size.basis).unwrap_or_default();
+            assert_eq!(limits, size.measurement_limits, "{:?}", size.size.basis);
+        }
+        Ok(())
+    }
 }

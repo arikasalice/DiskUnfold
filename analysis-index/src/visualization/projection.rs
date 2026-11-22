@@ -103,6 +103,11 @@ pub struct Detail {
     pub groups: Vec<Group>,
     /// Children without a provable area, at every drawn level.
     pub unknown_items: u64,
+    /// The navigation-root share that no sibling could take as area (F06 README 51.3).
+    pub unknown_share: UnknownShare,
+    /// Row of the first navigation-root sibling without a provable area, or else of the
+    /// first expanded folder whose own level has one; none without such a child.
+    pub first_unknown_row: Option<usize>,
     /// Navigation-root siblings with neither a shape nor a group. Hidden children of
     /// drawn folders are counted by [Row::omitted_children] instead.
     pub omitted_items: u64,
@@ -110,6 +115,24 @@ pub struct Detail {
     pub reason_keys: Vec<String>,
     /// What the remainder of [Totals] holds.
     pub remainder_causes: RemainderCauses,
+}
+/// Bytes of the scope measured under navigation-root siblings without a provable area
+/// and outside every attributed sibling.
+///
+/// The scope's F03 value counts each measured file once, and the attributed siblings
+/// hold disjoint measured parts of it, so the scope's partition bytes less theirs is
+/// exactly the set of measured bytes under the other siblings. Expanded folders keep
+/// their unattributed share inside their own drawn value, so it is not here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UnknownShare {
+    /// No navigation-root sibling lacks an area, or they hold no measured byte.
+    #[default]
+    None,
+    Exact(u64),
+    /// An unattributed sibling may hold an entry that could not be read.
+    LowerBound(u64),
+    /// A filter keeps a share of the unattributed siblings that cannot be proven.
+    Unknown,
 }
 /// What the remainder of [Totals] holds, as facts about the navigation-root siblings.
 ///
@@ -198,6 +221,26 @@ impl Model {
             .len()
             .saturating_add(self.descendants.len())
             .saturating_add(self.detail.groups.len())
+    }
+
+    /// Position of a row in the table of the navigation root, where the members of the
+    /// root group leave the table and one group row stands at its slot. None for a
+    /// member of that group or an unknown row.
+    pub fn table_position(&self, row_index: usize) -> Option<usize> {
+        let grouped = |row: &Row| matches!(row.lod, Lod::Grouped(_));
+        if grouped(self.rows.get(row_index)?) {
+            return None;
+        }
+        let before = self.rows[..row_index]
+            .iter()
+            .filter(|row| !grouped(row))
+            .count();
+        let group_before = self
+            .detail
+            .groups
+            .first()
+            .is_some_and(|group| group.parent == self.parent && group.slot <= before);
+        Some(before + usize::from(group_before))
     }
 
     /// Locates an exact item reference using only the pinned hierarchy and model.

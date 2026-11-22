@@ -332,6 +332,8 @@ test("graph and newer table rows with one group ref use and return to their own 
   fireEvent.click(
     screen.getByRole("button", { name: "Items in the latest result" }),
   );
+  // The table under the chart opens folded now that shapes have info cards (README 22).
+  fireEvent.click(screen.getByRole("button", { name: /Items in this folder/ }));
 
   const rows = screen.getAllByRole("button", {
     name: "View items in Shared group",

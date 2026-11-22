@@ -5,7 +5,9 @@ use super::{
 };
 use du_core_contracts::{
     PathBytes,
-    analysis_ipc::{AnalysisJobStatus, ScanStart, ScopeReview, SpaceTotal, TargetAccess},
+    analysis_ipc::{
+        AnalysisJobStatus, ScanStart, ScopeReview, SpaceTotal, TargetAccess, TargetList,
+    },
     job::JobState,
     scan_failures::ScanFailures,
 };
@@ -67,6 +69,27 @@ fn macos_scan_reviews_collects_and_reports_failures() -> TestResult {
     let outcome = scan(&base, profile.path(), denied);
     fs::set_permissions(base.join("locked"), fs::Permissions::from_mode(0o700))?;
     outcome
+}
+
+#[test]
+fn macos_target_list_marks_only_the_named_root_startup_volume() -> TestResult {
+    let profile = tempfile::tempdir()?;
+    let (engine, _services, _database) = engine(profile.path())?;
+    let targets: TargetList = read(&engine, "target.list", json!({"refresh":false}))?;
+    let startup: Vec<_> = targets
+        .targets
+        .iter()
+        .filter(|target| target.is_startup_volume == Some(true))
+        .collect();
+    assert_eq!(startup.len(), 1);
+    assert_eq!(startup[0].path.raw.bytes()?, b"/");
+    assert!(
+        startup[0]
+            .volume_name
+            .as_deref()
+            .is_some_and(|name| !name.is_empty())
+    );
+    Ok(())
 }
 
 /// The macOS adapters, an engine and its database in `profile`; keep the

@@ -65,6 +65,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The number sits like the other numbers. The link's hit area is stretched to
+   the whole cell (at least 24x24) by a pseudo-element over the table cell. */
+.du-scan-lanes .du-data-table td:nth-child(4) {
+  position: relative;
+}
+
+.du-scan-lane__failures .du-text-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
 .du-scan-lanes .du-data-table th:first-child {
   width: 36%;
 }

@@ -20,6 +20,7 @@ pub(super) fn other_group(format: &str) -> Option<OtherPresentation> {
         label_key: Some(policy::GROUP_OTHER_NAME_KEY.to_owned()),
         legend_class_key: policy::LEGEND_CLASS_UNCLASSIFIED.to_owned(),
         display_flags: vec![policy::FLAG_OTHER_GROUP.to_owned()],
+        type_slices: false,
     })
 }
 

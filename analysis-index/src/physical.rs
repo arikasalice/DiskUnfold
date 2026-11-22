@@ -182,19 +182,7 @@ impl Physical {
         result: &crate::ResultVersion,
         index: usize,
     ) -> Option<u64> {
-        let observed = result
-            .physical
-            .as_ref()
-            .and_then(|values| values.get(index as u32));
-        let root = result.roots.get(result.root_indices[index] as usize);
-        let consistent = observed.is_none_or(|value| {
-            value.identity().is_none_or(|identity| {
-                root.is_none_or(|root| {
-                    root.volume_id.is_empty() || identity.volume == root.volume_id
-                })
-            })
-        });
-        let reading = Observed::read(if consistent { observed } else { None });
+        let reading = Observed::read(pinned_observation(result, index));
         self.note_placeholder(
             &reading,
             local_unknown(result.placeholder_observations.as_deref(), index),
@@ -389,6 +377,56 @@ pub(crate) fn selected_scope(
         return None;
     };
     u64::try_from(per_path).ok()?.checked_sub(bytes.get())
+}
+
+/// One file's space observation, or none when its identity disagrees with the volume of
+/// its root, which F03 then treats as missing.
+fn pinned_observation(
+    result: &crate::ResultVersion,
+    index: usize,
+) -> Option<PhysicalObservationRef<'_>> {
+    let observed = result
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(index as u32));
+    let root = result.roots.get(result.root_indices[index] as usize);
+    let consistent = observed.is_none_or(|value| {
+        value.identity().is_none_or(|identity| {
+            root.is_none_or(|root| root.volume_id.is_empty() || identity.volume == root.volume_id)
+        })
+    });
+    if consistent { observed } else { None }
+}
+
+/// One file's allocation as F03 counts it in an allocated total.
+pub(crate) struct FileAllocation<'a> {
+    pub(crate) identity: FileIdentityRef<'a>,
+    pub(crate) bytes: u64,
+    /// The allocation is itself a lower bound, so every total above it is one.
+    pub(crate) lower: bool,
+    pub(crate) sharing: SharingEvidence,
+    /// The observed total link count; none when it was not observed.
+    pub(crate) link_count: Option<u64>,
+}
+
+/// The allocation F03 adds for file `index` of a pinned result, by the same reading as
+/// its totals; none when F03 adds nothing for it and makes the totals above it lower
+/// bounds (no usable allocation, no identity, or an identity of another volume).
+pub(crate) fn pinned_allocation(
+    result: &crate::ResultVersion,
+    index: usize,
+) -> Option<FileAllocation<'_>> {
+    let observation = pinned_observation(result, index)?;
+    match Observed::read(Some(observation)) {
+        Observed::Known(identity, known) => Some(FileAllocation {
+            identity,
+            bytes: known.bytes,
+            lower: known.lower,
+            sharing: known.sharing,
+            link_count: observation.link_count(),
+        }),
+        Observed::Missing | Observed::IdentityMissing => None,
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,29 @@
+name: Restrict Pull Request Authors
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  check-author:
+    # The job only calls the GitHub API with curl.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Close pull requests from non-collaborators
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$AUTHOR_ASSOCIATION" != "OWNER" && "$AUTHOR_ASSOCIATION" != "COLLABORATOR" ]]; then
+            api="$GITHUB_API_URL/repos/$REPO"
+            auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+            curl -fsS -X POST "${auth[@]}" "$api/issues/$PR_NUMBER/comments" \
+              -d '{"body":"Pull requests to this repository are currently restricted to authorized collaborators only."}' > /dev/null
+            curl -fsS -X PATCH "${auth[@]}" "$api/pulls/$PR_NUMBER" -d '{"state":"closed"}' > /dev/null
+          fi

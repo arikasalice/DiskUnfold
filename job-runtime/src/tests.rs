@@ -1,5 +1,5 @@
 use super::*;
-use du_core_contracts::job::{JobCounts, ProgressUnit};
+use du_core_contracts::job::{JobCounts, ProgressUnit, ResourceClass};
 use std::sync::{Barrier, atomic::AtomicUsize};
 
 struct Identity(Id);
@@ -124,6 +124,16 @@ fn cancellation_waits_for_body_and_history_failure_keeps_terminal_event()
         runtime.submit(submission)?,
         SubmitResult::Existing(id.clone())
     );
+    let deduplication_key = DeduplicationKey {
+        scope: "scope".into(),
+        input: "input".into(),
+        channel: "gui".into(),
+        key: "key".into(),
+    };
+    assert_eq!(
+        runtime.find_active_deduplicated("scan.metadata", &deduplication_key)?,
+        Some(id.clone())
+    );
     let worker = {
         let runtime = runtime.clone();
         std::thread::spawn(move || runtime.run_next())
@@ -141,6 +151,10 @@ fn cancellation_waits_for_body_and_history_failure_keeps_terminal_event()
     leave.wait();
     worker.join().map_err(|_| "worker panicked")??;
     assert_eq!(runtime.state(&id)?, JobState::Cancelled);
+    assert_eq!(
+        runtime.find_active_deduplicated("scan.metadata", &deduplication_key)?,
+        None
+    );
     runtime.flush()?;
     assert_eq!(history.calls.load(Ordering::SeqCst), 1);
     let events = events.0.lock().map_err(|_| "events poisoned")?;
@@ -353,6 +367,7 @@ fn file_change_class_has_single_active_job() -> Result<(), Box<dyn std::error::E
 mod blocked;
 mod history_boundary;
 mod history_receipt;
+mod item_history;
 mod lifecycle;
 mod listing;
 mod multiflow;

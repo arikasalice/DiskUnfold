@@ -72,7 +72,12 @@ type Props = {
   /** Back to the chart, narrowed as before. */
   onBack: () => void;
   /** The chip's ×: clears the type and returns to the whole chart. */
-  onClear: () => void;
+  onClear?: (() => void) | undefined;
+  /**
+   * A histogram interval's list (F06 README 52): its label, "Size 1 MB to under
+   * 10 MB", stands in the type's place and there is no chip to clear.
+   */
+  interval?: string | undefined;
 };
 
 /**
@@ -94,10 +99,6 @@ export function TypeList(props: Props) {
     title.current?.focus({ preventScroll: true });
   }, []);
   const count = countText(summary.count, text);
-  const chip = vizMessage(text, "legendChip", {
-    criterion: text.message("colorType"),
-    name: props.type,
-  });
   return (
     <div ref={root} className="du-type-list">
       <div className="du-type-list__head">
@@ -107,26 +108,16 @@ export function TypeList(props: Props) {
         <Heading level={3} ref={title} programmaticFocus>
           {text.message("listTitle")}
         </Heading>
-        <div className="du-type-list__condition">
-          <Action
-            onPress={props.onClear}
-            aria-label={vizMessage(text, "filterChipName", { chip })}
-          >
-            {`${chip} ×`}
-          </Action>
-          <Text kind="muted">
-            {vizMessage(text, "listTotal", {
-              type: props.type,
-              count,
-              size: text.quantity(summary.size),
-              basis: text.key(summary.sizeBasis),
-            })}
-          </Text>
-        </div>
+        <ListCondition {...props} count={count} />
       </div>
       <div className="du-visually-hidden" role="status" aria-live="polite">
         {list.state.kind === "ready"
-          ? vizMessage(text, "listAnnounce", { type: props.type, count })
+          ? props.interval
+            ? vizMessage(text, "intervalListAnnounce", {
+                interval: props.interval,
+                count,
+              })
+            : vizMessage(text, "listAnnounce", { type: props.type, count })
           : ""}
       </div>
       <ListBody
@@ -140,6 +131,53 @@ export function TypeList(props: Props) {
   );
 }
 
+/**
+ * The list's condition under its title: the type chip with its × and the
+ * legend's values, or for an interval one line, "Size 1 MB to under 10 MB ·
+ * 6 files · 23 MB · Allocated size" (README 52).
+ */
+function ListCondition({
+  text,
+  type,
+  summary,
+  onClear,
+  interval,
+  count,
+}: Props & { count: string }) {
+  const basis = text.key(summary.sizeBasis);
+  const size = text.quantity(summary.size);
+  if (interval || !onClear)
+    return (
+      <div className="du-type-list__condition">
+        <Text kind="muted">
+          {vizMessage(text, "intervalListTotal", {
+            interval: interval ?? type,
+            count,
+            size,
+            basis,
+          })}
+        </Text>
+      </div>
+    );
+  const chip = vizMessage(text, "legendChip", {
+    criterion: text.message("colorType"),
+    name: type,
+  });
+  return (
+    <div className="du-type-list__condition">
+      <Action
+        onPress={onClear}
+        aria-label={vizMessage(text, "filterChipName", { chip })}
+      >
+        {`${chip} ×`}
+      </Action>
+      <Text kind="muted">
+        {vizMessage(text, "listTotal", { type, count, size, basis })}
+      </Text>
+    </div>
+  );
+}
+
 function ListBody({
   list,
   narrow,
@@ -149,6 +187,7 @@ function ListBody({
   type,
   summary,
   onBack,
+  interval,
 }: Props & {
   list: ReturnType<typeof useListState>;
   narrow: boolean;
@@ -171,7 +210,13 @@ function ListBody({
       </Notice>
     );
   if (state.rows.length === 0)
-    return <Text>{vizMessage(text, "listEmpty", { type })}</Text>;
+    return (
+      <Text>
+        {interval
+          ? vizMessage(text, "intervalListEmpty", { interval })
+          : vizMessage(text, "listEmpty", { type })}
+      </Text>
+    );
   return (
     <ListTable
       state={state}

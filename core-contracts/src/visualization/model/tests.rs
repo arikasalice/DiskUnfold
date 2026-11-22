@@ -317,3 +317,78 @@ fn a_shape_with_children_must_not_be_a_file_or_other() -> Result<(), Box<dyn std
     }
     Ok(())
 }
+
+#[test]
+fn items_not_drawn_carry_a_size_and_row_only_with_such_items()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let check = |summary: Value| -> Result<bool, Box<dyn std::error::Error>> {
+        let mut value = fixture();
+        value["summary"] = summary;
+        let model: VizModel = serde_json::from_value(value)?;
+        Ok(model.validate_revision(&id).is_ok())
+    };
+    let one = json!({"unit":"items","state":"exact","value":"1"});
+    let none = json!({"unit":"items","state":"exact","value":"0"});
+    let size = json!({"unit":"bytes","state":"lower_bound","value":"10"});
+    let base = |unknown: &Value| json!({"groupedItems":none,"omittedItems":none,"unknownItems":unknown,"reasonKeys":[]});
+    let mut with = base(&one);
+    with["unknownSize"] = size.clone();
+    with["firstUnknownRow"] = json!(3);
+    assert!(check(with.clone())?);
+    // The fields round-trip and stay absent when not set.
+    let mut value = fixture();
+    value["summary"] = with;
+    let model: VizModel = serde_json::from_value(value.clone())?;
+    assert_eq!(serde_json::to_value(&model)?, value);
+    assert!(
+        !serde_json::to_string(&serde_json::from_value::<VizModel>(fixture())?)?
+            .contains("unknownSize")
+    );
+    // Not without items not drawn, not an exact zero, only in bytes, never null.
+    let mut without = base(&none);
+    without["firstUnknownRow"] = json!(0);
+    assert!(!check(without)?);
+    let mut zero = base(&one);
+    zero["unknownSize"] = json!({"unit":"bytes","state":"exact","value":"0"});
+    assert!(!check(zero)?);
+    let mut items = base(&one);
+    items["unknownSize"] = one.clone();
+    assert!(!check(items)?);
+    let mut null = base(&one);
+    null["unknownSize"] = Value::Null;
+    let mut value = fixture();
+    value["summary"] = null;
+    assert!(serde_json::from_value::<VizModel>(value).is_err());
+    Ok(())
+}
+
+#[test]
+fn unread_folders_are_a_positive_count_and_their_row_needs_them()
+-> Result<(), Box<dyn std::error::Error>> {
+    let id = Id::parse("018f0000-0000-7000-8000-000000000001")?;
+    let check = |extra: Value| -> Result<bool, Box<dyn std::error::Error>> {
+        let mut value = fixture();
+        for (key, field) in extra.as_object().ok_or("not object")? {
+            value["summary"][key] = field.clone();
+        }
+        let model: VizModel = serde_json::from_value(value)?;
+        Ok(model.validate_revision(&id).is_ok())
+    };
+    let two = json!({"unit":"items","state":"exact","value":"2"});
+    assert!(check(json!({"unreadFolders": two, "firstUnreadRow": 1}))?);
+    assert!(check(
+        json!({"unreadFolders": {"unit":"items","state":"lower_bound","value":"1"}})
+    )?);
+    assert!(!check(
+        json!({"unreadFolders": {"unit":"items","state":"exact","value":"0"}})
+    )?);
+    assert!(!check(
+        json!({"unreadFolders": {"unit":"bytes","state":"exact","value":"2"}})
+    )?);
+    assert!(!check(json!({"firstUnreadRow": 0}))?);
+    let mut null = fixture();
+    null["summary"]["unreadFolders"] = Value::Null;
+    assert!(serde_json::from_value::<VizModel>(null).is_err());
+    Ok(())
+}

@@ -202,10 +202,12 @@ name = "du-app-host"
 version = "0.0.1"
 dependencies = [
  "du-app-db",
+ "du-change-executor",
  "du-core-contracts",
  "du-engine-api",
  "du-mcp-gateway",
  "du-platform-os",
+ "du-snapshot-files",
  "du-user-env",
  "rusqlite",
  "serde",
@@ -228,12 +230,19 @@ dependencies = [
 [[package]]
 name = "du-change-executor"
 version = "0.0.1"
+dependencies = [
+ "du-change-planner",
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-change-planner"
 version = "0.0.1"
 dependencies = [
+ "blake3",
  "du-core-contracts",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -274,8 +283,10 @@ dependencies = [
 name = "du-engine-api"
 version = "0.0.1"
 dependencies = [
+ "base64",
  "blake3",
  "du-analysis-index",
+ "du-change-planner",
  "du-core-contracts",
  "du-duplicate-engine",
  "du-job-runtime",

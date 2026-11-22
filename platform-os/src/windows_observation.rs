@@ -1,6 +1,7 @@
 //! Handle-relative, read-only observations on a local NTFS volume.
 mod anchored_directory;
 pub mod case_sensitivity;
+mod change;
 #[cfg(test)]
 mod correlated_batches;
 #[cfg(test)]
@@ -12,6 +13,8 @@ mod filter_tests;
 mod metadata;
 mod path;
 pub(super) use path::{bytes, wide};
+mod protection_identity;
+pub(crate) use protection_identity::protection_identity;
 mod recall;
 pub mod recent_probe;
 mod reparse;
@@ -22,6 +25,7 @@ mod space;
 mod timestamps;
 mod volume_space;
 pub(crate) mod watch_identity;
+pub(crate) use change::lookup_change_item;
 pub(crate) use scope::volume_name;
 pub(crate) use space::file_id;
 pub use volume_space::WindowsVolumeSpace;
@@ -121,6 +125,7 @@ pub struct DirectoryIdentity {
     pub volume: u64,
     pub file_id: u64,
 }
+
 fn error(code: i32) -> PortError {
     let (kind, reason_key) = match code {
         2 | 3 => (PortErrorKind::NotFound, "os.query_failed"),
@@ -217,6 +222,24 @@ fn relative_with_case(
     stable: bool,
     case_insensitive: bool,
 ) -> Result<File, PortError> {
+    relative_with_extra_access(
+        parent,
+        name,
+        directory,
+        stable,
+        case_insensitive,
+        Default::default(),
+    )
+}
+
+fn relative_with_extra_access(
+    parent: &File,
+    name: &[u16],
+    directory: bool,
+    stable: bool,
+    case_insensitive: bool,
+    extra_access: windows::Win32::Storage::FileSystem::FILE_ACCESS_RIGHTS,
+) -> Result<File, PortError> {
     let length =
         u16::try_from(name.len().checked_mul(2).ok_or_else(invalid)?).map_err(|_| invalid())?;
     let object_name = UNICODE_STRING {
@@ -240,6 +263,7 @@ fn relative_with_case(
     let mut handle = HANDLE::default();
     let access = FILE_READ_ATTRIBUTES
         | SYNCHRONIZE
+        | extra_access
         | if directory {
             FILE_LIST_DIRECTORY
         } else {
@@ -296,17 +320,51 @@ fn verified_directory(
     Ok(file)
 }
 
+fn verified_snapshot_storage_directory(
+    parent: &File,
+    name: &[u16],
+    volume: u64,
+    expected: Option<u64>,
+    stable: bool,
+) -> Result<File, PortError> {
+    let file = relative_with_extra_access(
+        parent,
+        name,
+        true,
+        stable,
+        true,
+        windows::Win32::Storage::FileSystem::FILE_WRITE_DATA,
+    )?;
+    let value = info(&file)?;
+    recall::check_handle_attributes(value.dwFileAttributes)?;
+    if kind(value.dwFileAttributes) != ObservedKind::Directory
+        || u64::from(value.dwVolumeSerialNumber) != volume
+        || identity(&value) == 0
+        || expected.is_some_and(|id| id != identity(&value))
+    {
+        return Err(invalid());
+    }
+    Ok(file)
+}
+
 /// Opens an absolute local drive path after verifying NTFS and every component.
 ///
 /// The returned handle can be passed directly to the scan collector. It is not
 /// safe to substitute a path reopened after review for this verified handle.
 pub fn open_verified(path: &Path) -> Result<WindowsDirectory, PortError> {
-    open_verified_impl(path, false)
+    open_verified_impl(path, false, false)
 }
 
 /// Opens a verified local directory and retains its ancestor handles without delete sharing.
 pub fn open_verified_stable(path: &Path) -> Result<WindowsDirectory, PortError> {
-    open_verified_impl(path, true)
+    open_verified_impl(path, true, false)
+}
+
+/// Opens a stable directory with the access needed to flush its namespace metadata.
+pub(crate) fn open_verified_stable_for_snapshot_storage(
+    path: &Path,
+) -> Result<WindowsDirectory, PortError> {
+    open_verified_impl(path, true, true)
 }
 
 impl WindowsDirectory {
