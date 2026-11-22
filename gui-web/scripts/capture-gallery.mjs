@@ -908,7 +908,7 @@ async function open(
         const height = card
           ?.querySelector(".du-stacked-bar")
           ?.getBoundingClientRect().height;
-        const items = card?.querySelectorAll("li").length;
+        const items = card?.querySelectorAll('[role="listitem"]').length;
         return { slices, items, height, words: card?.textContent ?? "" };
       });
       if (bar.slices !== 6 || Math.round(bar.height) !== 12 || bar.items !== 7)

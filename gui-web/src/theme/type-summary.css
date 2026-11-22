@@ -16,7 +16,7 @@
   font-size: 13px;
 }
 
-.du-type-summary__list > li {
+.du-type-summary__list > [role="listitem"] {
   display: inline-flex;
   align-items: center;
   gap: 6px;

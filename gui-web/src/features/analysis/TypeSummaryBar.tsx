@@ -194,18 +194,18 @@ export function TypeSummaryBar({
         height={12}
         {...(wholeBytes === undefined ? {} : { total: wholeBytes })}
       />
-      <ul className="du-type-summary__list">
+      <div className="du-type-summary__list" role="list">
         {items.map((item) => (
-          <li key={item.key}>
-            <span
+          <div key={item.key} role="listitem">
+            <div
               className="du-type-summary__swatch"
               data-tone={item.tone}
               aria-hidden="true"
             />
             {item.words}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

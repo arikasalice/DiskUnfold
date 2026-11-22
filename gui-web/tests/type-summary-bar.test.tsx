@@ -112,7 +112,9 @@ test("F02 #300: the five largest types and the rest are a bar and a list in the 
   ).toBe("12");
   // The same content as a list: a colour square before each item, spaces inside it,
   // the rest of the types, and the part no type holds last.
-  const items = [...card.querySelectorAll("li")].map((li) => li.textContent);
+  const items = [...card.querySelectorAll('[role="listitem"]')].map(
+    (li) => li.textContent,
+  );
   expect(items).toEqual([
     "동영상 400.0 MiB",
     "문서 300.0 MiB",
@@ -122,7 +124,9 @@ test("F02 #300: the five largest types and the rest are a bar and a list in the 
     "나머지 유형 2개 50.0 MiB",
     "유형별로 나누지 못함 100.0 MiB",
   ]);
-  expect(card.querySelectorAll("li > [data-tone]")).toHaveLength(7);
+  expect(card.querySelectorAll('[role="listitem"] > [data-tone]')).toHaveLength(
+    7,
+  );
   expect(card.querySelector('[data-tone="unsplit"]')).not.toBeNull();
 });
 
