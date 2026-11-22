@@ -1,10 +1,11 @@
+use super::MAX_APPROVAL_SUMMARY_BYTES;
 use crate::AppDb;
 use du_core_contracts::{
     Id,
     approval_check::{
         ApprovalCheckFacts, ApprovalCheckFinishRecord, ApprovalCheckRecordKind,
-        ApprovalCheckRecorder, ApprovalCheckStartRecord, ApprovalOperationKind,
-        ApprovalRequestKind,
+        ApprovalCheckRecorder, ApprovalCheckResult, ApprovalCheckStartRecord,
+        ApprovalOperationKind, ApprovalRequestKind,
     },
     ports::PortErrorKind,
 };
@@ -56,7 +57,7 @@ fn facts(seed: u8, job_id: Option<Id>, created_at_ms: i64) -> ApprovalCheckFacts
         operation_kind: ApprovalOperationKind::Delete,
         destination_summary: Some(r#"{"kind":"none"}"#.into()),
         keep_summary: None,
-        check_result: "valid".into(),
+        check_result: ApprovalCheckResult::Valid,
         mismatch_fields: "[]".into(),
         approved_at_ms: 100,
         created_at_ms,
@@ -120,9 +121,14 @@ fn start_finish_round_trip_and_both_lookup_indexes() -> TestResult {
     let mut db = AppDb::create_gui_with_history(&path).map_err(|error| format!("{error:?}"))?;
     let job = id(40);
     let start_facts = facts(1, Some(job.clone()), 100);
+    let tied_facts = facts(3, Some(job.clone()), 100);
     let finish_facts = facts(2, Some(job.clone()), 200);
     db.append_start(&ApprovalCheckStartRecord {
         facts: start_facts.clone(),
+    })
+    .map_err(|error| format!("{error:?}"))?;
+    db.append_start(&ApprovalCheckStartRecord {
+        facts: tied_facts.clone(),
     })
     .map_err(|error| format!("{error:?}"))?;
     db.append_finish(&ApprovalCheckFinishRecord {
@@ -134,23 +140,25 @@ fn start_finish_round_trip_and_both_lookup_indexes() -> TestResult {
     let request_rows = db
         .read_for_request(&id(20))
         .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(request_rows.len(), 2);
+    assert_eq!(request_rows.len(), 3);
     assert_eq!(request_rows[0].facts, start_facts);
     assert_eq!(request_rows[0].record_kind, ApprovalCheckRecordKind::Start);
-    assert_eq!(request_rows[1].facts, finish_facts);
-    assert_eq!(request_rows[1].record_kind, ApprovalCheckRecordKind::Finish);
-    assert_eq!(request_rows[1].end_state.as_deref(), Some("done"));
+    assert_eq!(request_rows[1].facts, tied_facts);
+    assert_eq!(request_rows[1].record_kind, ApprovalCheckRecordKind::Start);
+    assert_eq!(request_rows[2].facts, finish_facts);
+    assert_eq!(request_rows[2].record_kind, ApprovalCheckRecordKind::Finish);
+    assert_eq!(request_rows[2].end_state.as_deref(), Some("done"));
     assert_eq!(
         db.read_for_job(&job)
             .map_err(|error| format!("{error:?}"))?
             .len(),
-        2
+        3
     );
 
     let request_plan: String = db.connection.query_row(
         "EXPLAIN QUERY PLAN
          SELECT check_id FROM job_runtime_approval_check
-         WHERE request_version_id = ?1 ORDER BY created_at_ms",
+         WHERE request_version_id = ?1 ORDER BY created_at_ms, check_id",
         [blob(&id(20))],
         |row| row.get(3),
     )?;
@@ -158,10 +166,11 @@ fn start_finish_round_trip_and_both_lookup_indexes() -> TestResult {
         request_plan.contains("ix_job_runtime_approval_check_request"),
         "{request_plan}"
     );
+    assert!(!request_plan.contains("USE TEMP B-TREE"), "{request_plan}");
     let job_plan: String = db.connection.query_row(
         "EXPLAIN QUERY PLAN
          SELECT check_id FROM job_runtime_approval_check
-         WHERE job_id = ?1 ORDER BY created_at_ms",
+         WHERE job_id = ?1 ORDER BY created_at_ms, check_id",
         [blob(&job)],
         |row| row.get(3),
     )?;
@@ -169,6 +178,7 @@ fn start_finish_round_trip_and_both_lookup_indexes() -> TestResult {
         job_plan.contains("ix_job_runtime_approval_check_job"),
         "{job_plan}"
     );
+    assert!(!job_plan.contains("USE TEMP B-TREE"), "{job_plan}");
     Ok(())
 }
 
@@ -287,6 +297,93 @@ fn lock_timeout_returns_busy_without_appending() -> TestResult {
             .map_err(|error| format!("{error:?}"))?
             .is_empty()
     );
+    Ok(())
+}
+
+#[test]
+fn caller_input_violations_are_rejected_before_writing() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = AppDb::create_gui_with_history(&dir.path().join("invalid-input.db"))
+        .map_err(|error| format!("{error:?}"))?;
+
+    let mut known_field = facts(20, Some(id(40)), 100);
+    known_field.mismatch_fields = r#"["plan_hash"]"#.into();
+    db.append_start(&ApprovalCheckStartRecord { facts: known_field })
+        .map_err(|error| format!("{error:?}"))?;
+
+    let mut invalid_summary = facts(21, Some(id(40)), 100);
+    invalid_summary.destination_summary = Some("not-json".into());
+    let mut invalid_field_key = facts(22, Some(id(40)), 100);
+    invalid_field_key.mismatch_fields = r#"["C:\\Users\\private\\secret.txt"]"#.into();
+    let mut non_string_field = facts(23, Some(id(40)), 100);
+    non_string_field.mismatch_fields = "[1]".into();
+    let mut oversized_destination = facts(24, Some(id(40)), 100);
+    oversized_destination.destination_summary =
+        Some(format!("[{}]", " ".repeat(MAX_APPROVAL_SUMMARY_BYTES + 1)));
+    let mut oversized_keep = facts(25, Some(id(40)), 100);
+    oversized_keep.keep_summary = Some(format!("[{}]", " ".repeat(MAX_APPROVAL_SUMMARY_BYTES + 1)));
+
+    for invalid in [
+        invalid_summary,
+        invalid_field_key,
+        non_string_field,
+        oversized_destination,
+        oversized_keep,
+    ] {
+        let error = db
+            .append_start(&ApprovalCheckStartRecord { facts: invalid })
+            .err()
+            .ok_or("invalid approval check was stored")?;
+        assert_eq!(error.kind, PortErrorKind::Unsupported);
+        assert_eq!(error.reason_key, "db.invalid_input");
+    }
+
+    let empty_end_state = ApprovalCheckFinishRecord {
+        facts: facts(26, Some(id(40)), 100),
+        end_state: String::new(),
+    };
+    let error = db
+        .append_finish(&empty_end_state)
+        .err()
+        .ok_or("empty end_state was stored")?;
+    assert_eq!(error.kind, PortErrorKind::Unsupported);
+    assert_eq!(error.reason_key, "db.invalid_input");
+    Ok(())
+}
+
+#[test]
+fn duplicate_check_id_returns_a_distinct_error() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = AppDb::create_gui_with_history(&dir.path().join("duplicate.db"))
+        .map_err(|error| format!("{error:?}"))?;
+    let record = ApprovalCheckStartRecord {
+        facts: facts(27, Some(id(40)), 100),
+    };
+    db.append_start(&record)
+        .map_err(|error| format!("{error:?}"))?;
+
+    let error = db
+        .append_start(&record)
+        .err()
+        .ok_or("duplicate check ID was stored")?;
+    assert_eq!(error.kind, PortErrorKind::InUse);
+    assert_eq!(error.reason_key, "db.duplicate");
+    Ok(())
+}
+
+#[test]
+fn write_check_constraint_is_not_reported_as_corruption() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let db = AppDb::create_gui_with_history(&dir.path().join("check-constraint.db"))
+        .map_err(|error| format!("{error:?}"))?;
+    let mut invalid = raw(28);
+    invalid.check_result = "unknown_result";
+    let sqlite_error = insert_raw(&db, &invalid)
+        .err()
+        .ok_or("CHECK violation should fail")?;
+    let error = super::db_write_error(sqlite_error);
+    assert_eq!(error.kind, PortErrorKind::Unsupported);
+    assert_eq!(error.reason_key, "db.invalid_input");
     Ok(())
 }
 

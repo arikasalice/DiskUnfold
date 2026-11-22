@@ -70,3 +70,67 @@ fn expired_unattached_approval_checks_use_created_at_and_attached_rows_follow_th
     assert_eq!(remaining, [(String::new(), cutoff_ms + 1)]);
     Ok(())
 }
+
+#[test]
+fn unattached_approval_retention_is_fixed_at_90_days() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = writer(&dir.path().join("fixed-approval-retention.db"))?;
+    let reference_ms = 8_000_000_000_i64;
+    let cutoff_ms = reference_ms - 90 * 86_400_000;
+    insert_approval_check(&db, 35, None, cutoff_ms)?;
+    insert_approval_check(&db, 36, None, cutoff_ms + 1)?;
+
+    let receipt = db
+        .delete_expired_history_batch(&[], 0, reference_ms, reference_ms + 1)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(receipt.deleted_row_count, 1);
+    let remaining: Vec<i64> = db
+        .connection
+        .prepare("SELECT created_at_ms FROM job_runtime_approval_check")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(remaining, [cutoff_ms + 1]);
+    Ok(())
+}
+
+#[test]
+fn orphaned_job_approval_rows_expire_after_90_days() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = writer(&dir.path().join("orphan-approval-retention.db"))?;
+    let reference_ms = 8_000_000_000_i64;
+    let cutoff_ms = reference_ms - 90 * 86_400_000;
+    let orphan_job = id(41);
+    let live_job = id(42);
+
+    insert_approval_check(&db, 43, Some(&orphan_job), cutoff_ms)?;
+    insert_approval_check(&db, 44, Some(&orphan_job), cutoff_ms + 1)?;
+    insert_approval_check(&db, 45, Some(&live_job), cutoff_ms)?;
+    insert_history(&mut db, &live_job, cutoff_ms - 1, 1, 0)?;
+
+    let receipt = db
+        .delete_expired_history_batch(&[], 0, reference_ms, reference_ms + 1)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(receipt.deleted_row_count, 1);
+    let remaining: Vec<(String, i64)> = db
+        .connection
+        .prepare(
+            "SELECT hex(check_id), created_at_ms FROM job_runtime_approval_check
+             ORDER BY created_at_ms, check_id",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    let check_id = |seed: u8| {
+        let mut bytes = [seed; 16];
+        bytes[6] = 0x70;
+        bytes[8] = 0x80;
+        bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>()
+    };
+    assert_eq!(
+        remaining,
+        [(check_id(45), cutoff_ms), (check_id(44), cutoff_ms + 1),]
+    );
+    Ok(())
+}

@@ -67,9 +67,12 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
 
     let first = record(1, 10, None, 100);
     let second = record(2, 10, Some(first.plan_version_id.clone()), 200);
+    let tied = record(3, 10, Some(first.plan_version_id.clone()), 200);
     db.append_fixed(&first)
         .map_err(|error| format!("{error:?}"))?;
     db.append_fixed(&second)
+        .map_err(|error| format!("{error:?}"))?;
+    db.append_fixed(&tied)
         .map_err(|error| format!("{error:?}"))?;
 
     assert_eq!(
@@ -91,12 +94,22 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
     let lineage = db
         .read_lineage(&id(10))
         .map_err(|error| format!("{error:?}"))?;
-    assert_eq!(lineage, [first, second]);
+    assert_eq!(lineage, [first, second, tied]);
+    let heads = db
+        .read_lineage_heads(&id(10))
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(heads.len(), 3);
+    assert_eq!(heads[0].plan_version_id, id(1));
+    assert_eq!(heads[1].plan_version_id, id(2));
+    assert_eq!(
+        db.read_body(&id(2)).map_err(|error| format!("{error:?}"))?,
+        "{}"
+    );
     let key = blob(&id(10))?;
     let plan: String = db.connection.query_row(
         "EXPLAIN QUERY PLAN
          SELECT plan_version_id FROM change_planner_plan_version
-         WHERE lineage_id = ?1 ORDER BY created_at_ms",
+         WHERE lineage_id = ?1 ORDER BY created_at_ms, plan_version_id",
         [key],
         |row| row.get(3),
     )?;
@@ -104,6 +117,7 @@ fn append_read_and_lineage_order_use_the_documented_index() -> TestResult {
         plan.contains("ix_change_planner_plan_version_lineage"),
         "{plan}"
     );
+    assert!(!plan.contains("USE TEMP B-TREE"), "{plan}");
 
     let absent = db.read(&id(99)).err().ok_or("missing plan was returned")?;
     assert_eq!(absent.kind, PortErrorKind::NotFound);
@@ -173,6 +187,101 @@ fn sample_versions_are_rejected_before_persistence() -> TestResult {
         |row| row.get(0),
     )?;
     assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+fn caller_input_violations_are_not_reported_as_database_corruption() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("invalid-input.db"))?;
+    add_ruleset(&db)?;
+    assert_eq!(MAX_PLAN_BODY_BYTES, 128 * 1024 * 1024);
+
+    let mut empty_hash_format = record(5, 40, None, 100);
+    empty_hash_format.hash_format.clear();
+    let mut zero_ruleset = record(6, 40, None, 100);
+    zero_ruleset.ruleset_version = 0;
+    let mut oversized_body = record(7, 40, None, 100);
+    oversized_body.body = format!("{}{{}}", " ".repeat(MAX_PLAN_BODY_BYTES - 1));
+
+    for bad in [empty_hash_format, zero_ruleset, oversized_body] {
+        let error = db
+            .append_fixed(&bad)
+            .err()
+            .ok_or("invalid plan version was stored")?;
+        assert_eq!(error.kind, PortErrorKind::Unsupported);
+        assert_eq!(error.reason_key, "db.invalid_input");
+    }
+    let count: i64 = db.connection.query_row(
+        "SELECT count(*) FROM change_planner_plan_version",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+fn invalid_json_is_rejected_as_invalid_input() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("invalid-json.db"))?;
+    add_ruleset(&db)?;
+    let mut invalid = record(4, 40, None, 100);
+    invalid.body = "{".into();
+
+    let error = db
+        .append_fixed(&invalid)
+        .err()
+        .ok_or("invalid JSON plan was stored")?;
+    assert_eq!(error.kind, PortErrorKind::Unsupported);
+    assert_eq!(error.reason_key, "db.invalid_input");
+    let count: i64 = db.connection.query_row(
+        "SELECT count(*) FROM change_planner_plan_version",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+fn lineage_heads_do_not_read_the_body_column() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let db = database(&dir.path().join("heads.db"))?;
+    add_ruleset(&db)?;
+    db.connection
+        .execute_batch("PRAGMA ignore_check_constraints=ON;")?;
+    db.connection.execute(
+        "INSERT INTO change_planner_plan_version
+         (plan_version_id,lineage_id,version_hash,hash_format,ruleset_version,
+          readiness,origin_channel,body,created_at_ms)
+         VALUES (?1,?2,?3,'du.plan.hash.v1',1,'ready','gui','{',100)",
+        params![blob(&id(31))?, blob(&id(30))?, [31u8; 32].as_slice()],
+    )?;
+
+    let heads = db
+        .read_lineage_heads(&id(30))
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(heads.len(), 1);
+    assert_eq!(heads[0].plan_version_id, id(31));
+    Ok(())
+}
+
+#[test]
+fn duplicate_plan_version_id_returns_a_distinct_error() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("duplicate.db"))?;
+    add_ruleset(&db)?;
+    let version = record(8, 80, None, 100);
+    db.append_fixed(&version)
+        .map_err(|error| format!("{error:?}"))?;
+
+    let error = db
+        .append_fixed(&version)
+        .err()
+        .ok_or("duplicate plan version ID was stored")?;
+    assert_eq!(error.kind, PortErrorKind::InUse);
+    assert_eq!(error.reason_key, "db.duplicate");
     Ok(())
 }
 
@@ -285,5 +394,91 @@ fn missing_ruleset_and_malformed_body_fail_without_partial_rows() -> TestResult 
         |row| row.get(0),
     )?;
     assert_eq!(count, 0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "opt-in 100,000-item plan storage and read measurement"]
+fn plan_version_measures_a_near_limit_body() -> TestResult {
+    use std::{process::Command, time::Instant};
+
+    const ITEM_COUNT: usize = 100_000;
+    const PATH_BYTES: usize = 1_024;
+    let target_bytes = MAX_PLAN_BODY_BYTES - 64 * 1024;
+    let body_prefix = "{\"items\":[";
+    let item_prefix = "{\"path\":\"";
+    let item_middle = "\",\"detail\":\"";
+    let item_suffix = "\"}";
+    let body_suffix = "]}";
+    let base_bytes = body_prefix.len()
+        + body_suffix.len()
+        + ITEM_COUNT * (item_prefix.len() + PATH_BYTES + item_middle.len() + item_suffix.len())
+        + (ITEM_COUNT - 1);
+    let fill_bytes = target_bytes - base_bytes;
+    let fill_per_item = fill_bytes / ITEM_COUNT;
+    let final_item_fill = fill_bytes % ITEM_COUNT;
+    let path = "p".repeat(PATH_BYTES);
+    let fill = "x".repeat(fill_per_item);
+    let final_fill = "x".repeat(final_item_fill);
+
+    let started = Instant::now();
+    let mut body = String::with_capacity(target_bytes);
+    body.push_str(body_prefix);
+    for index in 0..ITEM_COUNT {
+        if index > 0 {
+            body.push(',');
+        }
+        body.push_str(item_prefix);
+        body.push_str(&path);
+        body.push_str(item_middle);
+        body.push_str(&fill);
+        if index + 1 == ITEM_COUNT {
+            body.push_str(&final_fill);
+        }
+        body.push_str(item_suffix);
+    }
+    body.push_str(body_suffix);
+    assert_eq!(body.len(), target_bytes);
+    assert!(body.len() < MAX_PLAN_BODY_BYTES);
+    let build_body_ms = started.elapsed().as_millis();
+
+    let dir = tempfile::tempdir()?;
+    let mut db = database(&dir.path().join("maximum-plan.db"))?;
+    add_ruleset(&db)?;
+    let mut version = record(32, 32, None, 100);
+    version.body = body;
+
+    let append_started = Instant::now();
+    db.append_fixed(&version)
+        .map_err(|error| format!("{error:?}"))?;
+    let append_ms = append_started.elapsed().as_millis();
+
+    let read_started = Instant::now();
+    let loaded = db
+        .read(&version.plan_version_id)
+        .map_err(|error| format!("{error:?}"))?;
+    let read_ms = read_started.elapsed().as_millis();
+    assert_eq!(loaded, version);
+
+    let peak_working_set_bytes = {
+        let command = format!("(Get-Process -Id {}).PeakWorkingSet64", std::process::id());
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| {
+                String::from_utf8(output.stdout)
+                    .ok()?
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            })
+    };
+    println!(
+        "plan storage measurement: items={ITEM_COUNT}, body_bytes={}, build_body_ms={build_body_ms}, append_ms={append_ms}, read_ms={read_ms}, total_ms={}, peak_working_set_bytes={peak_working_set_bytes:?}",
+        version.body.len(),
+        started.elapsed().as_millis()
+    );
     Ok(())
 }

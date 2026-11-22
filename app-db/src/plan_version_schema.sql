@@ -12,7 +12,7 @@ CREATE TABLE change_planner_plan_version (
  created_at_ms INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX ix_change_planner_plan_version_lineage
- ON change_planner_plan_version(lineage_id, created_at_ms);
+ ON change_planner_plan_version(lineage_id, created_at_ms, plan_version_id);
 CREATE TRIGGER change_planner_plan_version_no_update BEFORE UPDATE ON change_planner_plan_version
 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER change_planner_plan_version_no_delete BEFORE DELETE ON change_planner_plan_version
