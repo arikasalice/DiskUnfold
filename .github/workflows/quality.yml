@@ -277,9 +277,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
-            # A self-hosted machine may lack rustup or keep ~/.cargo/bin outside the job's PATH.
-            export PATH="$HOME/.cargo/bin:$PATH"
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            # A self-hosted machine may lack rustup or keep its cargo bin folder outside the job's PATH.
+            # A runner with its own CARGO_HOME (for example the Intel runner next to an ARM64 one) uses that one.
+            cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+            export PATH="$cargo_bin:$PATH"
+            echo "$cargo_bin" >> "$GITHUB_PATH"
             if ! command -v rustup > /dev/null; then
               curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             fi
