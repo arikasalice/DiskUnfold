@@ -61,9 +61,7 @@ const fallbackText = ((
   )) as never;
 const detailWith = (group: object | undefined) =>
   ({
-    linkGroup: group
-      ? { state: "present", value: group }
-      : { state: "absent" },
+    linkGroup: group ? { state: "present", value: group } : { state: "absent" },
   }) as unknown as SpaceDetail;
 const counted = { resultVersion: "r1", itemNo: 4 };
 const folder = { resultVersion: "r1", itemNo: 2 };
@@ -91,7 +89,10 @@ test("F03 #359: a path that is not counted says where it is counted and opens th
   ]);
   render(<div>{rows[0]!.value}</div>);
   await waitFor(() =>
-    expect(screen.getByText("Counted at /Users/a/clip.mp4")).toBeTruthy(),
+    // The path is split for the middle ellipsis, so read the whole text.
+    expect(document.body.textContent).toContain(
+      "Counted at /Users/a/clip.mp4",
+    ),
   );
   fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
   expect(navigate).toHaveBeenCalledWith(folder);
