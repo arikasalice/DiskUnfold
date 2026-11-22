@@ -1078,6 +1078,16 @@ itemKind?: VizItemKind,
  */
 condition?: QueryCondition,
 /**
+ * Whether this allocated path shares its file identity with another path in
+ * this result version. Present only when that in-scope sharing is established.
+ */
+sharesSpace?: boolean,
+/**
+ * The path whose allocation is counted, on a shared non-counted file row only.
+ * The reference is valid only within this row's result version.
+ */
+sharedCountedItem?: ItemRef,
+/**
  * Whether this folder could not be read (F06 README 53): item rows of folders
  * only. See [`VizUnread`].
  */
@@ -1113,7 +1123,11 @@ export type VizRowsRequest = { modelRef: string, resultRevision: Id, start: numb
 parentShapeRef?: string, };
 export type VizGroupRowsRequest = { modelRef: string, groupRef: string, start: number, count: number, };
 export type VizSizeRange = { "kind": "known", min: SizeValue, max: SizeValue, } | { "kind": "unknown" };
-export type VizRows = { rows: Array<VizRow>, totalCount: number, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
+export type VizRows = { rows: Array<VizRow>, totalCount: number,
+/**
+ * Size basis used to calculate this page's file rows.
+ */
+sizeBasis: SizeBasis, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type VizGroupRows = { rows: Array<VizRow>, totalCount: number, groupTotal: SizeValue, sizeRange: VizSizeRange, resultRevision: Id, observedAt: Timestamp | null, completeness: ResultCompleteness, };
 export type VizLocateRequest = {
 /**
@@ -1844,7 +1858,15 @@ export type SpaceLinkGroup = {
 /**
  * Total OS-reported links, serialized as an exact decimal count.
  */
-reportedLinkCount: string | null, inScopePaths: Array<ItemRef>, hasOutsideLinks: boolean | null, };
+reportedLinkCount: string | null, inScopePaths: Array<ItemRef>,
+/**
+ * Present only when at least two in-scope paths share this file identity.
+ */
+sharesSpace?: boolean,
+/**
+ * The in-scope path whose allocation is counted when multiple paths share identity.
+ */
+countedItem?: ItemRef, hasOutsideLinks: boolean | null, };
 export type SpaceExclusiveDecision = { confirmed: boolean, reasonKey: string | null, };
 export type SpacePlaceholderState = "none" | "partial" | "full";
 export type SpaceAuxiliary = { size: SizeValue, includedInAllocated: boolean | null, };

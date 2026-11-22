@@ -5,8 +5,8 @@ pub use super::ratio::VizRatio;
 pub use super::row_unread::VizUnread;
 use super::type_slices::VizTypeSlice;
 use crate::{
-    Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, browse_open_ipc::QueryCondition,
-    result::ResultCompleteness,
+    Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp,
+    browse_open_ipc::QueryCondition, result::ResultCompleteness,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -114,6 +114,16 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub condition: Option<QueryCondition>,
+    /// Whether this allocated path shares its file identity with another path in
+    /// this result version. Present only when that in-scope sharing is established.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub shares_space: Option<bool>,
+    /// The path whose allocation is counted, on a shared non-counted file row only.
+    /// The reference is valid only within this row's result version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub shared_counted_item: Option<ItemRef>,
     /// Whether this folder could not be read (F06 README 53): item rows of folders
     /// only. See [`VizUnread`].
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,6 +176,29 @@ impl VizRow {
         if self.condition.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
             return Err("condition on an item row");
         }
+        if (self.shares_space.is_some() || self.shared_counted_item.is_some())
+            && self.size.basis != SizeBasis::Allocated
+        {
+            return Err("shared allocation fields on a non-allocated row");
+        }
+        if self.shares_space.is_some() && self.item_ref.is_none() {
+            return Err("shared allocation field on a group row");
+        }
+        if let Some(counted) = &self.shared_counted_item {
+            let is_zero = match &self.size.amount {
+                SizeAmount::Unknown => true,
+                SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => bytes.get() == 0,
+            };
+            if self.shares_space != Some(true)
+                || self.item_ref.as_ref().is_none_or(|item| {
+                    item == counted || item.result_version != counted.result_version
+                })
+                || self.ratio.is_some()
+                || !is_zero
+            {
+                return Err("invalid shared counted item");
+            }
+        }
         if self.unread.is_some() && self.item_ref.is_none() {
             return Err("unread state on a group row");
         }
@@ -180,6 +213,13 @@ impl VizRow {
             .is_some_and(|item| &item.result_version != revision)
         {
             return Err("row revision mismatch");
+        }
+        if self
+            .shared_counted_item
+            .as_ref()
+            .is_some_and(|item| &item.result_version != revision)
+        {
+            return Err("shared counted item revision mismatch");
         }
         Ok(())
     }
@@ -263,6 +303,8 @@ pub struct VizRows {
     pub rows: Vec<VizRow>,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub total_count: u64,
+    /// Size basis used to calculate this page's file rows.
+    pub size_basis: SizeBasis,
     pub result_revision: Id,
     pub observed_at: Option<Timestamp>,
     pub completeness: ResultCompleteness,
@@ -286,6 +328,7 @@ struct RowsWire {
     rows: Vec<VizRow>,
     #[serde(deserialize_with = "safe_count")]
     total_count: u64,
+    size_basis: SizeBasis,
     result_revision: Id,
     #[serde(deserialize_with = "required_nullable")]
     observed_at: Option<Timestamp>,
@@ -297,6 +340,7 @@ impl<'de> Deserialize<'de> for VizRows {
         let page = Self {
             rows: w.rows,
             total_count: w.total_count,
+            size_basis: w.size_basis,
             result_revision: w.result_revision,
             observed_at: w.observed_at,
             completeness: w.completeness,
