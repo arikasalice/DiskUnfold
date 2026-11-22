@@ -158,6 +158,7 @@ export type {
   BrowseOpenResponse,
   FolderQueryPage,
   FolderQueryRow,
+  FolderFlags,
   ItemRef,
   QueryPageRequest,
   QueryPageResponse,
@@ -470,6 +471,7 @@ export type FolderDrop = { seq: number } & (
 );
 
 export { AnalysisError };
+export { countedZeroOf, hasUnreadFlags } from "./folder-flags";
 export {
   rejectedScopeReviewText,
   resultReadProblem,

@@ -74,6 +74,7 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
             size(value, aggregate)
         }
     };
+    let folder_flags = crate::browse::folder::collection::detail_flags(version, &facts.item);
     SpaceDetail {
         item: facts.item,
         logical: size(facts.logical, aggregate),
@@ -90,6 +91,7 @@ fn project(version: &ResultVersion, facts: ItemEvidence) -> SpaceDetail {
         data_source: Some(du_core_contracts::result::ResultVersionRead::data_source(
             version,
         )),
+        folder_flags,
     }
 }
 

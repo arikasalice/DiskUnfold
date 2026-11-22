@@ -121,6 +121,17 @@ pub struct BrowseDetail {
     pub completeness: ResultCompleteness,
     pub current_correspondence: bool,
     pub observation_only: bool,
+    /// The scan state of a folder, the same value its row carries in a folder page
+    /// (F02 #347): whether it or a place inside it was not read, so a lower bound of 0
+    /// can be told from a lower bound where every counted item is empty. Omitted for a
+    /// file and for a sample. `null` is rejected.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::browse_page_ipc::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub folder_flags: Option<crate::browse_page_ipc::FolderFlags>,
 }
 
 #[cfg(test)]

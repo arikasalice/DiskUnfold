@@ -2,7 +2,7 @@
 //!
 //! The desktop adapter shares this registry between folder opens and pages.
 mod admission;
-mod collection;
+pub(crate) mod collection;
 pub(crate) mod commands;
 pub mod cursor;
 pub mod job;

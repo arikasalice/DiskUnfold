@@ -15,7 +15,7 @@ import {
   Text,
   Unbroken,
 } from "../../components";
-import { AnalysisError } from "../../ipc";
+import { AnalysisError, countedZeroOf } from "../../ipc";
 import type {
   AnalysisClient,
   BrowseDetail,
@@ -348,7 +348,6 @@ export function FileInspection({
   actionsDisabledReason,
   onStale,
   copy,
-  countedZero = false,
   unreadNote,
 }: {
   client: AnalysisClient;
@@ -373,12 +372,6 @@ export function FileInspection({
    * the item's detail cannot be read, the copy is reported as not done.
    */
   copy?: CopyContinuation | undefined;
-  /**
-   * The browse row this dialog opened from showed counted items below the
-   * folder with nothing unread, so a lower bound of 0 bytes is counted empty
-   * files. Without it, a 0-byte lower bound reads as unavailable.
-   */
-  countedZero?: boolean | undefined;
   /**
    * The scan status the opening row showed for an unread folder ("Contents
    * not read", "1 location inside not read"). With it a 0-byte lower bound
@@ -494,7 +487,7 @@ export function FileInspection({
                   text,
                   renderTime,
                   actions,
-                  countedZero,
+                  countedZeroOf(detail.folderFlags),
                   unreadNote,
                 ).concat(
                   itemKind === "folder"
@@ -542,7 +535,6 @@ export function FileInspection({
         item={item}
         display={effectiveDisplay}
         onStale={onStale}
-        countedZero={countedZero}
       />
     </>
   );

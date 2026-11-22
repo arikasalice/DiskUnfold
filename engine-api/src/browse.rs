@@ -64,6 +64,7 @@ fn project(
         ResultItemKind::Unknown | ResultItemKind::UnknownStructure => unknown("ref.unavailable"),
         kind => BrowseValue::Present { value: kind },
     };
+    let folder_flags = folder::collection::detail_flags(version, &request.item);
     Ok(BrowseDetail {
         item: request.item,
         display_path: field(display_path, "ref.unavailable"),
@@ -90,6 +91,7 @@ fn project(
         // The current scan model cannot establish a live correspondence from observation alone.
         current_correspondence: false,
         observation_only: true,
+        folder_flags,
     })
 }
 

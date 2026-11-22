@@ -43,6 +43,18 @@ pub(super) fn page_flags(
         .collect()
 }
 
+/// The flags of one folder for a detail read (F02 #347), computed as the page rows are so
+/// that a row and its details never disagree. `None` for a sample and for an item that is
+/// not a folder, where the facts do not apply.
+pub(crate) fn detail_flags(version: &ResultVersion, item: &ItemRef) -> Option<FolderFlags> {
+    let flags = page_flags(version, std::slice::from_ref(item))
+        .ok()?
+        .pop()?;
+    let is_folder = !matches!(flags.unenumerated, BrowseValue::Absent)
+        && version.data_source() != DataSource::Sample;
+    is_folder.then_some(flags)
+}
+
 /// Entries an exclusion rule left out directly under the opened folder.
 ///
 /// `None` at the virtual top level, for a source that is not scan lineage and when the
