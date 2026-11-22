@@ -14,9 +14,7 @@ import type {
   SpaceTypeSummary,
   VizQuantity,
 } from "../../ipc";
-import { legendLook } from "../../viz/legend-style";
-import { NAMED_TYPES } from "../../viz/type-slices";
-import { useProductionVizText } from "../../viz/production-text";
+import { NAMED_TYPES, legendLook, useProductionVizText } from "../../viz";
 import type { SizeBasisFilter, SizeDisplay } from "./space-format";
 import { useAutoPatterns } from "./use-auto-patterns";
 import "../../theme/type-summary.css";
