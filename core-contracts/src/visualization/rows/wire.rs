@@ -32,6 +32,10 @@ struct RowWire {
     #[serde(default, deserialize_with = "optional_present")]
     condition: Option<QueryCondition>,
     #[serde(default, deserialize_with = "optional_present")]
+    shares_space: Option<bool>,
+    #[serde(default, deserialize_with = "optional_present")]
+    shared_counted_item: Option<ItemRef>,
+    #[serde(default, deserialize_with = "optional_present")]
     unread: Option<VizUnread>,
     #[serde(default, deserialize_with = "optional_present")]
     type_slices: Option<Vec<VizTypeSlice>>,
@@ -55,6 +59,8 @@ impl<'de> Deserialize<'de> for VizRow {
             member_count: w.member_count,
             item_kind: w.item_kind,
             condition: w.condition,
+            shares_space: w.shares_space,
+            shared_counted_item: w.shared_counted_item,
             unread: w.unread,
             type_slices: w.type_slices,
             links: w.links,

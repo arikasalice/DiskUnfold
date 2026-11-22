@@ -6,12 +6,11 @@ pub use super::row_unread::VizUnread;
 use super::sankey::VizLink;
 use super::type_slices::VizTypeSlice;
 use crate::{
-    Id, ItemRef, SizeAmount, SizeEvidence, SizeValue, Timestamp, browse_open_ipc::QueryCondition,
-    result::ResultCompleteness,
+    Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue, Timestamp,
+    browse_open_ipc::QueryCondition, result::ResultCompleteness,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use std::collections::HashSet;
-
+mod checks;
 mod slices;
 mod wire;
 
@@ -115,6 +114,16 @@ pub struct VizRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub condition: Option<QueryCondition>,
+    /// Whether this allocated path shares its file identity with another path in
+    /// this result version. Present only when that in-scope sharing is established.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub shares_space: Option<bool>,
+    /// The path whose allocation is counted, on a shared non-counted file row only.
+    /// The reference is valid only within this row's result version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub shared_counted_item: Option<ItemRef>,
     /// Whether this folder could not be read (F06 README 53): item rows of folders
     /// only. See [`VizUnread`].
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,49 +145,6 @@ pub struct VizRow {
     pub links: Option<Vec<VizLink>>,
 }
 impl VizRow {
-    /// Checks local invariants. The caller must resolve group references in the pinned model.
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if self.item_ref.is_some() == self.group_ref.is_some()
-            || self.group_ref.as_ref().is_some_and(String::is_empty)
-        {
-            return Err("invalid row reference");
-        }
-        let mut seen = HashSet::new();
-        if self
-            .display_flags
-            .iter()
-            .any(|key| key.is_empty() || !seen.insert(key))
-        {
-            return Err("invalid display flags");
-        }
-        if self.label_key.as_ref().is_some_and(String::is_empty) {
-            return Err("invalid label key");
-        }
-        // An item row shows a real file name. A message key there would let a
-        // consumer replace that name with message text.
-        if self.label_key.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
-            return Err("label key on an item row");
-        }
-        if let Some(count) = &self.member_count {
-            if self.item_ref.is_some() || self.group_ref.is_none() {
-                return Err("member count on an item row");
-            }
-            if count.unit() != "items" {
-                return Err("member count is not a count of items");
-            }
-        }
-        if self.item_kind.is_some() && self.item_ref.is_none() {
-            return Err("item kind on a group row");
-        }
-        if self.condition.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
-            return Err("condition on an item row");
-        }
-        if self.unread.is_some() && self.item_ref.is_none() {
-            return Err("unread state on a group row");
-        }
-        self.validate_type_slices()?;
-        self.validate_links()
-    }
     /// Checks the item revision only; group membership requires the pinned model.
     pub fn validate_revision(&self, revision: &Id) -> Result<(), &'static str> {
         self.validate()?;
@@ -188,6 +154,13 @@ impl VizRow {
             .is_some_and(|item| &item.result_version != revision)
         {
             return Err("row revision mismatch");
+        }
+        if self
+            .shared_counted_item
+            .as_ref()
+            .is_some_and(|item| &item.result_version != revision)
+        {
+            return Err("shared counted item revision mismatch");
         }
         Ok(())
     }
@@ -271,6 +244,12 @@ pub struct VizRows {
     pub rows: Vec<VizRow>,
     #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub total_count: u64,
+    /// Size basis used to calculate this page's file rows. Omitted when the producer
+    /// does not say; a screen pairs it with the requested basis and ignores it otherwise.
+    /// `null` is rejected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub size_basis: Option<SizeBasis>,
     pub result_revision: Id,
     pub observed_at: Option<Timestamp>,
     pub completeness: ResultCompleteness,
@@ -294,6 +273,8 @@ struct RowsWire {
     rows: Vec<VizRow>,
     #[serde(deserialize_with = "safe_count")]
     total_count: u64,
+    #[serde(default, deserialize_with = "crate::folder_flags::non_null")]
+    size_basis: Option<SizeBasis>,
     result_revision: Id,
     #[serde(deserialize_with = "required_nullable")]
     observed_at: Option<Timestamp>,
@@ -305,6 +286,7 @@ impl<'de> Deserialize<'de> for VizRows {
         let page = Self {
             rows: w.rows,
             total_count: w.total_count,
+            size_basis: w.size_basis,
             result_revision: w.result_revision,
             observed_at: w.observed_at,
             completeness: w.completeness,

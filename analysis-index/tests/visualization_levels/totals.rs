@@ -4,8 +4,9 @@
 //! shape of their own and the grouped total adds the members of the root group; the two
 //! sets are disjoint, and nested shapes lie inside their folder and are never added
 //! again. What neither total holds is the remainder: siblings left out below the
-//! minimum area or for coordinate precision, plus the share of the scope that no single
-//! sibling can carry because two of them contain the same file.
+//! minimum area or for coordinate precision, plus measured content that cannot be
+//! attributed to a sibling.
+use super::lower_bound::{Entry, scan};
 use super::*;
 
 /// Scope minus the drawn, grouped and filtered bytes.
@@ -178,23 +179,21 @@ fn allocated_folders(folders: &[(&str, u8, u64, u64)]) -> Arc<ResultVersion> {
 }
 
 #[test]
-fn a_file_shared_by_two_siblings_stays_in_the_remainder_once() {
-    // a and c contain the same 10-byte file, which the scope counts once.
+fn a_file_shared_by_two_siblings_is_drawn_once() {
+    // a and c contain the same 10-byte file; a gets its area and c gets none.
     let version = allocated_folders(&[("a", 7, 2, 10), ("b", 8, 1, 10), ("c", 7, 2, 10)]);
     let model = project(&version, SizeBasis::Allocated, 16).unwrap();
-    assert_eq!(model.detail.unknown_items, 2);
+    assert_eq!(model.detail.unknown_items, 0);
     assert_eq!(bytes_of(&model.totals.scope), 20);
-    assert_eq!(model.totals.drawn_bytes, 10);
+    assert_eq!(model.totals.drawn_bytes, 20);
     assert_eq!(model.totals.grouped_bytes, 0);
-    assert_eq!(remainder(&model), 10);
-    // The rows of the two siblings add up to more than the share they carry: their
-    // values are shown but never added to a total.
-    assert_eq!(unattributed_rows(&model), 20);
+    assert_eq!(remainder(&model), 0);
+    assert_eq!(unattributed_rows(&model), 0);
     assert_eq!(model.detail.omitted_items, 0);
 }
 
 #[test]
-fn omitted_siblings_and_an_unattributed_share_add_up_in_the_remainder() {
+fn omitted_siblings_are_the_only_remainder_beside_a_shared_file() {
     // 600 bytes of shared file, one large sibling and four siblings below the minimum.
     let version = allocated_folders(&[
         ("a", 7, 2, 600),
@@ -206,14 +205,14 @@ fn omitted_siblings_and_an_unattributed_share_add_up_in_the_remainder() {
         ("t4", 14, 1, 10),
     ]);
     let model = project_with(&version, SizeBasis::Allocated, 16, false).unwrap();
-    assert_eq!(model.detail.unknown_items, 2);
+    assert_eq!(model.detail.unknown_items, 0);
     assert_eq!(model.detail.omitted_items, 4);
     assert_eq!(bytes_of(&model.totals.scope), 8_640);
-    assert_eq!(model.totals.drawn_bytes, 8_000);
-    assert_eq!(remainder(&model), 640);
-    // The omitted siblings carry 40 of them; the 600 are the shared file.
+    assert_eq!(model.totals.drawn_bytes, 8_600);
+    assert_eq!(remainder(&model), 40);
+    // The counted shared path and the large sibling are drawn; only the tail is omitted.
     assert_eq!(omitted_bytes(&model), 40);
-    assert_eq!(remainder(&model) - omitted_bytes(&model), 600);
+    assert_eq!(remainder(&model), omitted_bytes(&model));
 }
 
 /// The causes of the gap, read the way a producer reads them.
@@ -247,19 +246,22 @@ fn the_remainder_causes_say_what_the_gap_between_the_totals_holds() {
     assert_eq!(causes(&model), (false, false));
     assert_eq!(remainder(&model), 0);
 
-    // A file shared by two siblings.
+    // A file shared by two siblings is counted on its selected path.
     let shared = allocated_folders(&[("a", 7, 2, 10), ("b", 8, 1, 10), ("c", 7, 2, 10)]);
     let model = project(&shared, SizeBasis::Allocated, 16).unwrap();
-    assert_eq!(causes(&model), (false, true));
+    assert_eq!(causes(&model), (false, false));
+    assert_eq!(remainder(&model), 0);
 
-    // Both at once.
-    let version = allocated_folders(&[
-        ("a", 7, 2, 600),
-        ("b", 7, 2, 600),
-        ("big", 8, 1, 8_000),
-        ("t1", 11, 1, 10),
-        ("t2", 12, 1, 10),
-    ]);
+    // Both at once: omitted small files and unread data without an area.
+    let entries = [
+        Entry::File("big", 8_000),
+        Entry::Unread("unread"),
+        Entry::File("t1", 10),
+        Entry::File("t2", 10),
+        Entry::File("t3", 10),
+        Entry::File("t4", 10),
+    ];
+    let version = scan(&entries, ResultCompleteness::Complete, &[]);
     let model = project_with(&version, SizeBasis::Allocated, 16, false).unwrap();
     assert_eq!(causes(&model), (true, true));
 }

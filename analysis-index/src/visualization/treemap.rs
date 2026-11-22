@@ -14,12 +14,11 @@ use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultItemKind, ResultVersionRead},
 };
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
+mod order;
 mod physical;
+use order::order;
 use physical::{FileBytes, link_bytes, physical_file};
 mod partial;
 pub(crate) use partial::{Partial, Unattributed, admit_filtered_cancellable};
@@ -101,9 +100,8 @@ pub fn admit_cancellable(
             cancelled,
         )?
         .bytes;
-        let raw =
-            value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
-        if partition_bytes(&raw, &basis, allow_lower_bound) != Some(observed) {
+        let raw = attributed_value(version, child.item_no, &basis)?;
+        if !matches_observed(child.kind, &raw, &basis, observed, allow_lower_bound) {
             return Err(AdmissionError::NoAttribution);
         }
         total = total
@@ -157,88 +155,6 @@ fn check(cancelled: &mut dyn FnMut() -> bool) -> Result<(), AdmissionError> {
         Err(AdmissionError::Cancelled)
     } else {
         Ok(())
-    }
-}
-
-// Stable merge of lightweight row indexes gives a cancellation check per output.
-fn order(
-    version: &ResultVersion,
-    rows: Vec<AdmittedChild>,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Vec<AdmittedChild>, AdmissionError> {
-    let mut indices: Vec<usize> = (0..rows.len()).collect();
-    let mut scratch = indices.clone();
-    let mut width = 1usize;
-    while width < indices.len() {
-        let mut start = 0usize;
-        while start < indices.len() {
-            let mid = start.saturating_add(width).min(indices.len());
-            let end = mid.saturating_add(width).min(indices.len());
-            let (mut left, mut right) = (start, mid);
-            for dest in &mut scratch[start..end] {
-                check(cancelled)?;
-                let take_left = right == end
-                    || (left < mid && before(version, &rows[indices[left]], &rows[indices[right]]));
-                if take_left {
-                    *dest = indices[left];
-                    left += 1;
-                } else {
-                    *dest = indices[right];
-                    right += 1;
-                }
-            }
-            start = end;
-        }
-        std::mem::swap(&mut indices, &mut scratch);
-        width = width.saturating_mul(2);
-    }
-    let mut slots: Vec<_> = rows.into_iter().map(Some).collect();
-    let mut output = Vec::with_capacity(indices.len());
-    for index in indices {
-        check(cancelled)?;
-        output.push(slots[index].take().ok_or(AdmissionError::NoAttribution)?);
-    }
-    Ok(output)
-}
-
-/// Display order of two admitted siblings: attributed bytes descending, then
-/// the raw name bytes preserved by the index, compared bytewise ascending
-/// (a proper prefix sorts first). Scope roots have no parent and sort by their
-/// scope-root number instead; the index numbers roots first, in root order, so
-/// that number equals their item number. The item number is the last
-/// tie-break only so that the order is total; names are unique among siblings.
-///
-/// The order is for display only. It does not decide whether two rows are the
-/// same item and does not map items between result versions. It uses no
-/// display name, locale or case folding.
-///
-/// Because the comparison is on raw bytes, a Windows name (UTF-16LE bytes) is
-/// not in human alphabetical order: U+0100 (bytes 00 01) sorts before "a"
-/// (bytes 61 00). The rule exists only to make the order deterministic.
-///
-/// Two siblings with equal bytes compare by their own names alone. While their
-/// sizes stay equal, a later version of the same build may insert new siblings
-/// between them without changing their relative order.
-fn before(version: &ResultVersion, a: &AdmittedChild, b: &AdmittedChild) -> bool {
-    let (left, right) = (a.child.item.item_no, b.child.item.item_no);
-    b.bytes
-        .cmp(&a.bytes)
-        .then_with(|| sibling_order(version, left, right))
-        .then_with(|| left.cmp(&right))
-        .is_le()
-}
-
-fn sibling_order(version: &ResultVersion, left: u32, right: u32) -> Ordering {
-    match (
-        version.items().get(left as usize),
-        version.items().get(right as usize),
-    ) {
-        (Some(a), Some(b)) if a.parent.is_none() && b.parent.is_none() => version
-            .root_indices
-            .get(left as usize)
-            .cmp(&version.root_indices.get(right as usize)),
-        (Some(a), Some(b)) => a.name.cmp(&b.name),
-        _ => Ordering::Equal,
     }
 }
 
@@ -312,8 +228,7 @@ pub fn layout_nested_parent(
                 .map(|child| {
                     Ok(Child {
                         item: reference(version, child.item_no),
-                        value: value(version, child.item_no, &basis)
-                            .map_err(|_| AdmissionError::NoAttribution)?,
+                        value: attributed_value(version, child.item_no, &basis)?,
                         area_attributed: false,
                     })
                 })
@@ -327,6 +242,52 @@ pub fn layout_nested_parent(
             })
         }
         Err(error) => Err(error),
+    }
+}
+
+/// Reads the original subtree value, zeroing only a shared non-counted file on allocated basis.
+pub(super) fn attributed_value(
+    version: &ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> Result<SizeValue, AdmissionError> {
+    let mut size = value(version, item_no, basis).map_err(|_| AdmissionError::NoAttribution)?;
+    if *basis == SizeBasis::Allocated
+        && version
+            .items()
+            .get(item_no as usize)
+            .is_some_and(|item| item.kind == ResultItemKind::File)
+    {
+        let item = reference(version, item_no);
+        if version
+            .shared_counted_item(&item)
+            .map_err(|_| AdmissionError::NoAttribution)?
+            .is_some_and(|counted| counted.item_no != item_no)
+        {
+            size.amount = match size.amount {
+                SizeAmount::Exact { .. } => SizeAmount::Exact { bytes: 0.into() },
+                SizeAmount::LowerBound { .. } => SizeAmount::LowerBound { bytes: 0.into() },
+                SizeAmount::Unknown => SizeAmount::Unknown,
+            };
+        }
+    }
+    Ok(size)
+}
+
+fn matches_observed(
+    kind: ResultItemKind,
+    value: &SizeValue,
+    basis: &SizeBasis,
+    observed: u64,
+    allow_lower_bound: bool,
+) -> bool {
+    let Some(bytes) = partition_bytes(value, basis, allow_lower_bound) else {
+        return false;
+    };
+    if *basis == SizeBasis::Allocated && kind == ResultItemKind::Directory {
+        observed <= bytes
+    } else {
+        observed == bytes
     }
 }
 

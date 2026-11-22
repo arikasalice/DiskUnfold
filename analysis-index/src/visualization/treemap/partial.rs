@@ -4,14 +4,16 @@
 //! child cannot be attributed. This admission decides per child instead, and only the
 //! parent itself can still be refused.
 use super::{
-    AdmissionError, AdmittedChild, Child, Identities, Observed, check, gap_covers_parent,
-    inspect_subtree, lower_bound_partitions, order, partition_bytes,
+    AdmissionError, AdmittedChild, Child, Identities, Observed, attributed_value, check,
+    gap_covers_parent, inspect_subtree, lower_bound_partitions, order, partition_bytes,
 };
 use crate::{
     ResultVersion,
-    visualization::{filter::ItemFilter, reference, root_ref, value},
+    visualization::{filter::ItemFilter, reference, root_ref},
 };
-use du_core_contracts::{ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue};
+use du_core_contracts::{
+    ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue, result::ResultItemKind,
+};
 
 /// An immediate child whose area cannot be established, with its original F03 value.
 ///
@@ -82,16 +84,14 @@ pub(crate) fn admit_filtered_cancellable(
         return Err(AdmissionError::NoAttribution);
     }
     let allow_lower_bound = lower_bound_partitions(basis);
-    let parent_value =
-        value(version, parent_no, basis).map_err(|_| AdmissionError::NoAttribution)?;
+    let parent_value = attributed_value(version, parent_no, basis)?;
     let parent_bytes = partition_bytes(&parent_value, basis, allow_lower_bound)
         .ok_or(AdmissionError::NoAttribution)?;
     let mut identities = Identities::default();
     let mut entries = Vec::with_capacity(version.children(parent_no).len());
     for child in version.children(parent_no) {
         check(cancelled)?;
-        let raw =
-            value(version, child.item_no, basis).map_err(|_| AdmissionError::NoAttribution)?;
+        let raw = attributed_value(version, child.item_no, basis)?;
         let observed = match inspect_subtree(
             version,
             child.item_no,
@@ -109,7 +109,9 @@ pub(crate) fn admit_filtered_cancellable(
             .as_ref()
             .map(|observed| (observed.kept, observed.unmeasured));
         let child_row = observed
-            .filter(|observed| is_observed_value(&raw, basis, observed, allow_lower_bound))
+            .filter(|observed| {
+                is_observed_value(child.kind, &raw, basis, observed, allow_lower_bound)
+            })
             .map(|observed| AdmittedChild {
                 child: Child {
                     item: reference(version, child.item_no),
@@ -205,14 +207,25 @@ fn unknown(basis: SizeBasis) -> SizeValue {
 // The F03 value of a sibling is what its subtree measured. Over a subtree with
 // unmeasured parts only a lower bound can be that value.
 fn is_observed_value(
+    kind: ResultItemKind,
     raw: &SizeValue,
     basis: &SizeBasis,
     observed: &Observed,
     allow_lower_bound: bool,
 ) -> bool {
     let lower = matches!(raw.amount, SizeAmount::LowerBound { .. });
-    (lower || !observed.unmeasured)
-        && partition_bytes(raw, basis, allow_lower_bound) == Some(observed.bytes)
+    if lower || !observed.unmeasured {
+        let Some(bytes) = partition_bytes(raw, basis, allow_lower_bound) else {
+            return false;
+        };
+        if *basis == SizeBasis::Allocated && kind == ResultItemKind::Directory {
+            observed.bytes <= bytes
+        } else {
+            observed.bytes == bytes
+        }
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -249,19 +262,55 @@ mod tests {
             unmeasured: false,
             kept: 20,
         };
-        assert!(!is_observed_value(&exact, &basis, &with_gap, true));
-        assert!(is_observed_value(&lower, &basis, &with_gap, true));
-        assert!(is_observed_value(&exact, &basis, &measured, true));
+        assert!(!is_observed_value(
+            ResultItemKind::File,
+            &exact,
+            &basis,
+            &with_gap,
+            true
+        ));
+        assert!(is_observed_value(
+            ResultItemKind::File,
+            &lower,
+            &basis,
+            &with_gap,
+            true
+        ));
+        assert!(is_observed_value(
+            ResultItemKind::File,
+            &exact,
+            &basis,
+            &measured,
+            true
+        ));
         // A lower bound over fully measured parts happens when the whole result is one.
-        assert!(is_observed_value(&lower, &basis, &measured, true));
+        assert!(is_observed_value(
+            ResultItemKind::File,
+            &lower,
+            &basis,
+            &measured,
+            true
+        ));
         // Whatever the state, the measured bytes must be the value.
         let short = Observed {
             bytes: 19,
             unmeasured: true,
             kept: 19,
         };
-        assert!(!is_observed_value(&lower, &basis, &short, true));
+        assert!(!is_observed_value(
+            ResultItemKind::File,
+            &lower,
+            &basis,
+            &short,
+            true
+        ));
         // Where a lower bound may not take part, it is never the observed value.
-        assert!(!is_observed_value(&lower, &basis, &with_gap, false));
+        assert!(!is_observed_value(
+            ResultItemKind::File,
+            &lower,
+            &basis,
+            &with_gap,
+            false
+        ));
     }
 }

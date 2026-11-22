@@ -55,6 +55,9 @@ impl ModelPages {
                     if entry.scope != input.scope {
                         return Err(Error::InvalidModel);
                     }
+                    if entry.size_basis != input.size_basis {
+                        return Err(Error::InvalidModel);
+                    }
                     let layout = entry.layout.clone();
                     touch(&mut state.lru, &existing);
                     return Ok((existing, layout));
@@ -107,6 +110,7 @@ impl ModelPages {
                         source: Arc::downgrade(version),
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
+                        size_basis: input.size_basis.clone(),
                         layout: layout.clone(),
                         metadata: metadata.clone(),
                         scope: input.scope.clone(),

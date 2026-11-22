@@ -47,6 +47,22 @@ pub struct SpaceLinkGroup {
     /// Total OS-reported links, serialized as an exact decimal count.
     pub reported_link_count: Option<String>,
     pub in_scope_paths: Vec<ItemRef>,
+    /// Present only when at least two in-scope paths share this file identity.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::folder_flags::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub shares_space: Option<bool>,
+    /// The in-scope path whose allocation is counted when multiple paths share identity.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::folder_flags::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub counted_item: Option<ItemRef>,
     pub has_outside_links: Option<bool>,
 }
 

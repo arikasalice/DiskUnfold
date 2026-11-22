@@ -90,18 +90,19 @@ fn layout(v: &ResultVersion, basis: SizeBasis) -> Result<treemap::Partition, Adm
     )
 }
 #[test]
-fn same_identity_across_siblings_rejects_physical_but_logical_is_per_path() {
+fn allocated_identity_has_one_counted_sibling_and_logical_is_per_path() {
     let v = build(
         Some(obs(1, 7, Some(2))),
         Some(obs(1, 7, Some(2))),
         ResultCompleteness::Complete,
     );
-    for basis in [SizeBasis::Allocated, SizeBasis::UniquePhysical] {
-        assert_eq!(
-            layout(&v, basis).unwrap_err(),
-            AdmissionError::NoAttribution
-        );
-    }
+    let allocated = layout(&v, SizeBasis::Allocated).unwrap();
+    assert_eq!(allocated.children.len(), 2);
+    assert_eq!(allocated.layout.shapes.len(), 1);
+    assert_eq!(
+        layout(&v, SizeBasis::UniquePhysical).unwrap_err(),
+        AdmissionError::NoAttribution
+    );
     let partition = layout(&v, SizeBasis::Logical).unwrap();
     assert_eq!(partition.layout.shapes.len(), 2);
     assert_eq!(partition.children.len(), 2);
@@ -241,20 +242,21 @@ fn files_recorded_with_unknown_sharing_draw_an_allocated_partition_that_adds_up_
 }
 
 #[test]
-fn a_file_linked_from_two_siblings_is_refused_whatever_the_sharing_evidence() {
+fn allocated_shared_file_is_counted_once_across_siblings() {
     for sharing in [SharingEvidence::None, SharingEvidence::Unknown] {
         let v = build(
             Some(obs_sharing(1, 7, Some(2), sharing)),
             Some(obs_sharing(1, 7, Some(2), sharing)),
             ResultCompleteness::Complete,
         );
-        for basis in [SizeBasis::Allocated, SizeBasis::UniquePhysical] {
-            assert_eq!(
-                layout(&v, basis).unwrap_err(),
-                AdmissionError::NoAttribution,
-                "{sharing:?}"
-            );
-        }
+        let allocated = layout(&v, SizeBasis::Allocated).unwrap();
+        assert_eq!(allocated.children.len(), 2, "{sharing:?}");
+        assert_eq!(allocated.layout.shapes.len(), 1, "{sharing:?}");
+        assert_eq!(
+            layout(&v, SizeBasis::UniquePhysical).unwrap_err(),
+            AdmissionError::NoAttribution,
+            "{sharing:?}"
+        );
         // Logical bytes are disjoint by path, so the links are no overlap there.
         assert_eq!(
             layout(&v, SizeBasis::Logical).unwrap().layout.shapes.len(),
@@ -436,14 +438,10 @@ fn nested_unprovable_partition_suppresses_children_without_redistributing() {
         right: 100,
         bottom: 100,
     };
-    assert_eq!(
-        treemap::layout_parent(&v, &parent, SizeBasis::Allocated, bounds).unwrap_err(),
-        AdmissionError::NoAttribution
-    );
-    let branch = treemap::layout_nested_parent(&v, &parent, SizeBasis::Allocated, bounds).unwrap();
-    assert!(branch.layout.shapes.is_empty());
+    let branch = treemap::layout_parent(&v, &parent, SizeBasis::Allocated, bounds).unwrap();
     assert_eq!(branch.children.len(), 2);
-    assert!(branch.children.iter().all(|child| !child.area_attributed
+    assert_eq!(branch.layout.shapes.len(), 1);
+    assert!(branch.children.iter().all(|child| child.area_attributed
         && child.value.amount == size(SizeBasis::Allocated, 10).amount));
 }
 

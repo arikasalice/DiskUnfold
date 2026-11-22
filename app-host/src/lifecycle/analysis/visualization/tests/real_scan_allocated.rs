@@ -316,13 +316,11 @@ fn a_real_linux_scan_confirms_the_unique_physical_size_only_where_nothing_is_sha
     Ok(())
 }
 
-// Two links of one file in sibling folders cannot both be given the file's bytes. The
-// allocated basis decides child by child: the two folders that share the file are unknown
-// items without a shape, the folder that shares nothing is drawn, and the parent stays a
-// model. The bytes of the shared file stay in the scope total and in no drawn shape. The
-// logical basis counts bytes by path and draws all three folders.
+// Two links of one file in sibling folders get one deterministic allocated shape. The
+// folder with the first path gets the file's allocation; the other folder gets no area.
+// The logical basis counts bytes by path and draws all three folders.
 #[test]
-fn a_file_linked_from_two_sibling_folders_is_unknown_for_both_on_the_allocated_basis()
+fn a_file_linked_from_two_sibling_folders_is_attributed_to_one_on_the_allocated_basis()
 -> Result<(), Failure> {
     let assembled = assemble()?;
     let folder = tempfile::tempdir()?;
@@ -349,31 +347,38 @@ fn a_file_linked_from_two_sibling_folders_is_unknown_for_both_on_the_allocated_b
             .ok_or("no row of this name")?;
         bytes(&row["size"]["bytes"])
     };
-    // Only the folder that shares nothing is drawn; the other two are counted, not drawn.
+    // The first path (left) and the independent folder (other) are drawn.
     let shapes = model["shapes"].as_array().ok_or("shapes are not a list")?;
-    assert_eq!(shapes.len(), 1, "{allocated}");
+    assert_eq!(shapes.len(), 2, "{allocated}");
     let other = rows["rows"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["displayName"] == "other"))
         .ok_or("no row of the folder that shares nothing")?;
-    assert_eq!(shapes[0]["itemRef"], other["itemRef"]);
-    assert_eq!(model["summary"]["unknownItems"]["value"], "2");
-    // The scope total is the F03 value, which counts the shared file once. The drawn total
-    // is the one folder, and what is left of the scope is that file.
+    let left = rows["rows"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["displayName"] == "left"))
+        .ok_or("no row for the counted folder")?;
+    assert!(
+        shapes
+            .iter()
+            .any(|shape| shape["itemRef"] == left["itemRef"])
+    );
+    assert!(
+        shapes
+            .iter()
+            .any(|shape| shape["itemRef"] == other["itemRef"])
+    );
+    assert_eq!(model["summary"]["unknownItems"]["value"], "0");
+    // The shared file is counted once by the scope and by the counted folder.
     let scope = bytes(&model["totals"]["scope"]["quantity"]["value"])?;
     assert_eq!(scope, space_total(&assembled, &revision, "allocated", 1)?);
     let drawn = bytes(&model["totals"]["drawn"]["quantity"]["value"])?;
-    assert_eq!(drawn, row_bytes("other")?);
+    assert_eq!(drawn, row_bytes("left")? + row_bytes("other")?);
     assert_eq!(bytes(&model["totals"]["grouped"]["quantity"]["value"])?, 0);
-    assert_eq!(scope - drawn, row_bytes("left")?);
+    assert_eq!(scope, drawn);
     assert_eq!(row_bytes("left")?, row_bytes("right")?);
-    // What is left of the scope is the shared file, counted once, and no folder carries
-    // it: the remainder says so, and the summary counts the two folders it could not draw.
-    assert_eq!(remainder(model)?, row_bytes("left")?);
-    assert_eq!(
-        model["totals"]["remainderReasonKeys"],
-        json!(["viz.remainder.unattributed"])
-    );
+    assert_eq!(remainder(model)?, 0);
+    assert!(model["totals"].get("remainderReasonKeys").is_none());
     assert_valid(model, &revision)?;
 
     let logical = render(&assembled, &revision, "logical")?;

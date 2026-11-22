@@ -154,6 +154,7 @@ impl ModelPages {
         }
         let input = PreparedModelInput {
             version: pages.version,
+            size_basis: pages.size_basis,
             condition_fingerprint: pages.condition_fingerprint,
             rows: Some(
                 du_analysis_index::visualization::live_models::PreparedRows::new_cancellable(
