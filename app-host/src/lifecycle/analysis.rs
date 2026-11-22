@@ -42,9 +42,10 @@ struct PlanChangeServices {
 /// the same step as `scan.start`, which supplies its job bodies.
 /// FR10.HD1.app-host.DD2: the visualization registration adds the `viz.*` commands
 /// and the `viz.compute` job kind.
-const REQUIRED_USE_CASES: [&str; 20] = [
+const REQUIRED_USE_CASES: [&str; 21] = [
     "scan.start",
     "scan.failures",
+    "space.type_summary",
     "viz.view.open",
     "viz.view.close",
     "viz.render",

@@ -318,6 +318,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ScanFailureRow::decl(&config),
         ScanFailuresRequest::decl(&config),
         ScanFailures::decl(&config),
+        du_core_contracts::space_type_summary::SpaceTypeSummaryRequest::decl(&config),
+        du_core_contracts::space_type_summary::SpaceTypeSummary::decl(&config),
         ScanPriorityRequest::decl(&config),
         ScanPriorityResponse::decl(&config),
         JobState::decl(&config),

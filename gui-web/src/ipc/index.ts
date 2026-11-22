@@ -108,6 +108,8 @@ import type {
   SpaceDetailRequest,
   SpaceTotal,
   SpaceTotalRequest,
+  SpaceTypeSummary,
+  SpaceTypeSummaryRequest,
   TargetList,
   TargetListRequest,
   VolumeGapRequest,
@@ -279,6 +281,7 @@ export type {
   ScopeReview,
   SpaceTotal,
   SpaceTotalSize,
+  SpaceTypeSummary,
   SpaceDetail,
   SpaceDetailSize,
   StartupAccessAction,
@@ -420,6 +423,7 @@ type Commands = {
   "i18n.set_profile": [LocaleProfileSetRequest, LocaleProfile];
   "space.display_preferences": [DisplayPreferencesRequest, DisplayPreferences];
   "space.total": [SpaceTotalRequest, SpaceTotal];
+  "space.type_summary": [SpaceTypeSummaryRequest, SpaceTypeSummary];
   "space.detail": [SpaceDetailRequest, SpaceDetail];
   "space.volume_gap": [VolumeGapRequest, VolumeGapResponse];
   "browse.detail": [BrowseDetailRequest, BrowseDetail];

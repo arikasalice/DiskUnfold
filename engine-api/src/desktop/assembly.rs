@@ -451,6 +451,7 @@ fn register_services_inner(
         random,
     )?;
     crate::scan_failures::register(builder, store.clone(), random);
+    crate::space::type_summary::register(builder, store.clone());
     let path_copy = crate::browse::copy_path::PathCopy(store.clone());
     jobs::register_with_scan_store(builder, runtime.clone(), store.clone());
     Ok(DesktopServices {

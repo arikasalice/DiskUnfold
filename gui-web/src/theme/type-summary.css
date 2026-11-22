@@ -1,0 +1,123 @@
+.du-type-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.du-type-summary__defs {
+  position: absolute;
+  inline-size: 0;
+  block-size: 0;
+}
+
+/* The items under the bar are told apart by their colour square and a wide gap; the
+   words of one item are separated by spaces only (F02 README #300). */
+.du-type-summary__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--du-muted);
+  font-size: 13px;
+}
+
+.du-type-summary__list > [role="listitem"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.du-type-summary__swatch {
+  flex: none;
+}
+
+.du-type-summary__swatch[data-tone="1"] > rect:first-child {
+  fill: var(--du-chart-1);
+}
+.du-type-summary__swatch[data-tone="2"] > rect:first-child {
+  fill: var(--du-chart-2);
+}
+.du-type-summary__swatch[data-tone="3"] > rect:first-child {
+  fill: var(--du-chart-3);
+}
+.du-type-summary__swatch[data-tone="4"] > rect:first-child {
+  fill: var(--du-chart-4);
+}
+.du-type-summary__swatch[data-tone="5"] > rect:first-child {
+  fill: var(--du-chart-5);
+}
+.du-type-summary__swatch[data-tone="6"] > rect:first-child {
+  fill: var(--du-chart-6);
+}
+.du-type-summary__swatch[data-tone="7"] > rect:first-child {
+  fill: var(--du-chart-7);
+}
+.du-type-summary__swatch[data-tone="8"] > rect:first-child {
+  fill: var(--du-chart-8);
+}
+.du-type-summary__swatch[data-tone="neutral"] > rect:first-child {
+  fill: var(--du-chart-neutral);
+}
+.du-type-summary__swatch[data-tone="neutral-2"] > rect:first-child {
+  fill: var(--du-chart-neutral-2);
+}
+
+/* The part no type holds is not painted: an empty cell of the bar, an outline here. */
+.du-type-summary__swatch[data-tone="unsplit"] > rect:first-child {
+  fill: transparent;
+  stroke: var(--du-muted);
+  stroke-width: 1;
+}
+
+.du-type-summary .du-stacked-bar__rest {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--du-border);
+}
+
+/* A dashed outline is an undecided value in the app (F06 README 4.6): when the answer
+   is a lower bound, the part no type holds says "at least" as its words do. */
+.du-type-summary[data-lower-bound] .du-stacked-bar__rest {
+  box-shadow: none;
+  border: 1px dashed var(--du-muted);
+  box-sizing: border-box;
+}
+
+.du-type-summary[data-lower-bound]
+  .du-type-summary__swatch[data-tone="unsplit"]
+  > rect:first-child {
+  stroke-dasharray: 2 2;
+}
+
+@media (forced-colors: active) {
+  /* The types take the patterns of the chart; only the part no type holds is an
+     empty outline. The rest of the types is GrayText. */
+  .du-type-summary__swatch[data-tone] > rect:first-child {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-width: 1;
+  }
+
+  .du-type-summary__swatch[data-tone="neutral"] > rect:first-child {
+    fill: GrayText;
+    stroke: none;
+  }
+
+  .du-type-summary .du-stacked-bar__slice[data-key="other"] > rect:first-child {
+    fill: GrayText;
+    stroke: none;
+  }
+
+  .du-type-summary .du-stacked-bar__rest {
+    background: transparent;
+    box-shadow: none;
+    outline: 1px dashed CanvasText;
+    outline-offset: -1px;
+  }
+
+  /* The plain pattern of the first type is also an outline, so the part no type holds
+     is dashed, in the square and in the bar. */
+  .du-type-summary__swatch[data-tone="unsplit"] > rect:first-child {
+    stroke-dasharray: 2 2;
+  }
+}

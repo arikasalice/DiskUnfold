@@ -69,7 +69,9 @@ pub(crate) fn group_slices(
     }
 }
 
-fn to_slices(types: folder_types::FolderTypes) -> Result<Vec<VizTypeSlice>, SlicesError> {
+pub(crate) fn to_slices(
+    types: folder_types::FolderTypes,
+) -> Result<Vec<VizTypeSlice>, SlicesError> {
     let lower = types.below_unread;
     types
         .classes
