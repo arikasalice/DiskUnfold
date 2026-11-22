@@ -176,7 +176,11 @@ mod unix {
             }
             // SAFETY: fstatvfs returned success and initialized the structure.
             let status = unsafe { status.assume_init() };
-            u64::from(status.f_bavail).checked_mul(status.f_frsize)
+            // The field widths differ by target (u32 on macOS, u64 on Linux), so the
+            // conversion is needed on some targets and the identity on others.
+            #[allow(clippy::useless_conversion)]
+            let blocks = u64::from(status.f_bavail);
+            blocks.checked_mul(status.f_frsize)
         }
 
         fn check_no_replace_register(&self) -> Result<(), SnapshotFileError> {
