@@ -261,6 +261,20 @@
 }
 
 @media (min-width: 1024px) {
+  /* The panel column must never add document scrolling (ui-smoke scene 11). */
+  .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    ) {
+    overflow-x: clip;
+  }
+
+  :root:not([data-du-page-scroll])
+    .du-app:has(> .du-history-shell):has(
+      > .du-job-center-overlay[data-panel-open]
+    ) {
+    overflow-y: clip;
+  }
+
   .du-app:has(> .du-history-shell):has(
       > .du-job-center-overlay[data-panel-open]
     ) {
