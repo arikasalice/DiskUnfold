@@ -22,6 +22,10 @@ fn fr11_hd1_app_host_dd2_recomputes_the_stored_hash_and_rejudges_current_protect
     if let Ok(rejudged) = rejudged {
         assert_eq!(rejudged.recomputed_hash, plan.hash);
         assert_eq!(
+            rejudged.ruleset_version,
+            plan.ruleset.as_ref().map(|rules| rules.version)
+        );
+        assert_eq!(
             rejudged.items,
             [(plan.items[0].item_no, RejudgementState::Same)]
         );
@@ -69,5 +73,6 @@ fn fr11_hd1_app_host_dd2_returns_undetermined_when_current_ruleset_is_unreadable
     assert!(rejudged.is_ok());
     if let Ok(rejudged) = rejudged {
         assert_eq!(rejudged.items[0].1, RejudgementState::Undetermined);
+        assert_eq!(rejudged.ruleset_version, None);
     }
 }

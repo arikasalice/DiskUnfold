@@ -151,7 +151,7 @@ impl DesktopServices {
         &self,
         builder: &mut EngineBuilder,
         sources: crate::plan::PlanSources,
-    ) -> Result<(), du_job_runtime::RuntimeError> {
+    ) -> Result<crate::plan::ApprovalPrepareService, du_job_runtime::RuntimeError> {
         crate::plan::register(
             builder,
             self.runtime.clone(),

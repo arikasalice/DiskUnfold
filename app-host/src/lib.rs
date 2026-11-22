@@ -1,5 +1,10 @@
 //! Assemble the GUI and own its lifecycle.
 
+#[cfg(all(
+    feature = "gui",
+    any(windows, target_os = "linux", target_os = "macos")
+))]
+mod approval;
 #[cfg(feature = "gui")]
 pub mod approval_source;
 #[cfg(all(feature = "gui", windows))]

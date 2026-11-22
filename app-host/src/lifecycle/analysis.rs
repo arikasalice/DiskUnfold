@@ -306,7 +306,15 @@ fn register_analysis_with_plan_source(
             Arc::new(std::sync::Mutex::new(database.clone()));
         du_engine_api::plan::PlanSources::new(versions, Arc::new(database.clone()))
     });
-    services.register_plans(builder, plan_sources)?;
+    let approval_prepare = services.register_plans(builder, plan_sources)?;
+    crate::approval::register(
+        builder,
+        approval_prepare,
+        database.clone(),
+        services.events.clone(),
+        Arc::new(du_platform_os::entropy::OsRandom),
+        true,
+    );
     Ok(services)
 }
 

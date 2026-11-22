@@ -38,7 +38,11 @@ impl EngineBuilder {
         self.outbound_filter = Some(Box::new(filter));
     }
 
-    pub(crate) fn on_session_retire(&mut self, retire: impl Fn() + Send + Sync + 'static) {
+    /// Registers app-session state to erase when this engine session is retired.
+    ///
+    /// Adapters that own one-session secrets must keep the callback short and
+    /// release its state synchronously before the engine accepts another session.
+    pub fn on_session_retire(&mut self, retire: impl Fn() + Send + Sync + 'static) {
         let previous = self.session_retire.take();
         self.session_retire = Some(Box::new(move || {
             if let Some(previous) = &previous {

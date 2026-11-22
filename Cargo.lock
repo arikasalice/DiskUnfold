@@ -202,6 +202,7 @@ name = "du-app-host"
 version = "0.0.1"
 dependencies = [
  "du-app-db",
+ "du-change-executor",
  "du-core-contracts",
  "du-engine-api",
  "du-mcp-gateway",
@@ -229,6 +230,10 @@ dependencies = [
 [[package]]
 name = "du-change-executor"
 version = "0.0.1"
+dependencies = [
+ "du-change-planner",
+ "du-core-contracts",
+]
 
 [[package]]
 name = "du-change-planner"

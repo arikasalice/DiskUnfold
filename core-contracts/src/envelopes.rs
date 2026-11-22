@@ -103,6 +103,15 @@ impl ErrorEnvelope {
             | "plan.empty"
             | "plan.too_many_items"
             | "plan.not_ready"
+            | "approval.sample_source_denied"
+            | "approval.not_issued"
+            | "approval.mismatch"
+            | "approval.check_failed"
+            | "approval.protection_denied"
+            | "approval.protection_undetermined"
+            | "approval.confirmation_missing"
+            | "approval.review_unavailable"
+            | "approval.review_withdrawn"
             | "startup.shutting_down" => ErrorCode::InvalidArgument,
             "cursor.stale"
             | "cursor.expired"
@@ -115,7 +124,17 @@ impl ErrorEnvelope {
             | "history.review_stale"
             | "plan.result_stale"
             | "plan.draft_stale"
-            | "snapshot.cursor_stale" => ErrorCode::StaleVersion,
+            | "snapshot.cursor_stale"
+            | "approval.already_used"
+            | "approval.invalidated"
+            | "approval.request_superseded"
+            | "approval.stale"
+            | "approval.plan_superseded"
+            | "approval.ruleset_changed"
+            | "approval.restore_info_cleared"
+            | "approval.move_undo_info_cleared"
+            | "approval.user_revoked"
+            | "approval.in_use" => ErrorCode::StaleVersion,
             "locale.profile_modified" => ErrorCode::StaleVersion,
             "ref.unavailable"
             | "result.version_not_found"
@@ -128,8 +147,9 @@ impl ErrorEnvelope {
             | "locale.bundle_unavailable"
             | "history.review_not_found"
             | "plan.not_found"
+            | "approval.request_not_found"
             | "session.evicted" => ErrorCode::NotFound,
-            "command.window_denied" => ErrorCode::OriginDenied,
+            "command.window_denied" | "approval.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
             "db.busy" | "job.queue_full" | "job.shutting_down" | "query.busy" | "viz.busy" => {
                 ErrorCode::Busy

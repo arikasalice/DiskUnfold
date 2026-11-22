@@ -214,7 +214,7 @@ fn append_only_updates_closed_deletes_and_replace_are_rejected() -> TestResult {
                   operation_kind,record_kind,check_result,mismatch_fields,approved_at_ms,
                   created_at_ms,correlation_id)
                  VALUES (?1,zeroblob(16),zeroblob(16),'plan',zeroblob(32),
-                         'du.plan.hash.v1','delete','start','matched','[]',1,1,zeroblob(16))",
+                         'du.plan.hash.v1','delete','start','valid','[]',1,1,zeroblob(16))",
                 [&key],
             )
             .is_err()
