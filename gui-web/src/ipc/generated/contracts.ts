@@ -1330,7 +1330,12 @@ failuresOnly?: boolean,
 underItem?: ItemRef, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type SpaceTypeSummaryRequest = { resultVersion: Id, basis: SizeBasis, };
-export type SpaceTypeSummary = { resultVersion: Id, slices: Array<VizTypeSlice>, legendOrder: Array<string>,
+export type SpaceTypeSummary = { resultVersion: Id,
+/**
+ * The basis of the request, returned so that a reader pairs an answer with the
+ * basis it asked for and never draws a value of one basis beside another.
+ */
+basis: SizeBasis, slices: Array<VizTypeSlice>, legendOrder: Array<string>,
 /**
  * A range of the result was not read, or whether one was cannot be told: the
  * slices, and an empty list, are then only lower bounds.

@@ -204,6 +204,7 @@ const typeSlices = {
 
 const typeSummary = (basis: "logical" | "allocated") => ({
   resultVersion: version,
+  basis,
   slices: typeSlices[basis],
   legendOrder: [
     "type.document",

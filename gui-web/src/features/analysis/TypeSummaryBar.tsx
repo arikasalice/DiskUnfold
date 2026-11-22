@@ -97,7 +97,13 @@ export function TypeSummaryBar({
       resolve(client.call("space.type_summary", { resultVersion, basis })),
     )
       .then((summary) => {
-        if (current && summary.resultVersion === resultVersion)
+        // An answer is drawn only for the version and basis it was asked for, so a
+        // basis changed between two calls never mixes two bases in one bar.
+        if (
+          current &&
+          summary.resultVersion === resultVersion &&
+          summary.basis === basis
+        )
           setAnswer({ state: "ready", summary });
       })
       .catch(() => {

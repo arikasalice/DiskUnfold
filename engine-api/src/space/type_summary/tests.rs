@@ -131,6 +131,8 @@ fn every_root_is_counted_in_one_walk_in_legend_order_with_a_shared_file_once() -
     assert!(rows[0].1.contains('2') && rows[0].2.contains("4096"));
     assert!(rows[1].1.contains('1') && rows[1].2.contains("4096"));
     assert_eq!(allocated.body["lowerBound"], false);
+    // The answer names the basis it was asked for.
+    assert_eq!(allocated.body["basis"], "allocated");
     let order = allocated.body["legendOrder"].as_array().ok_or("no order")?;
     assert_eq!(order.len(), 9);
     assert_eq!(order[0], "type.document");
@@ -138,6 +140,7 @@ fn every_root_is_counted_in_one_walk_in_legend_order_with_a_shared_file_once() -
         &engine,
         json!({"resultVersion": version, "basis": "logical"}),
     )?;
+    assert_eq!(logical.body["basis"], "logical");
     assert!(
         logical.body["slices"][0]["total"]
             .to_string()

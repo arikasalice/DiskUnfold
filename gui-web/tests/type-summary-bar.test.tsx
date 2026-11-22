@@ -87,6 +87,7 @@ test("F02 #300: the five largest types and the rest are a bar and a list in the 
       slice("unclassified", 20),
     ],
     legendOrder: legend,
+    basis: "allocated",
     lowerBound: false,
   });
   const { container } = show(client, "allocated", exact(1200));
@@ -135,6 +136,7 @@ test("F02 #300: an empty answer is a scope without files only when every range w
     resultVersion: version,
     slices: [],
     legendOrder: legend,
+    basis: "allocated",
     lowerBound: false,
   });
   const { container } = show(none.client);
@@ -146,6 +148,7 @@ test("F02 #300: an empty answer is a scope without files only when every range w
     resultVersion: version,
     slices: [],
     legendOrder: legend,
+    basis: "allocated",
     lowerBound: true,
   });
   show(unread.client);
@@ -166,6 +169,7 @@ test("F02 #300: a failed answer, another version and unique physical size draw n
     resultVersion: "018f0000-0000-7000-8000-0000000000b2",
     slices: [slice("type.video", 1)],
     legendOrder: legend,
+    basis: "allocated",
     lowerBound: false,
   });
   const second = show(other.client);
@@ -177,10 +181,25 @@ test("F02 #300: a failed answer, another version and unique physical size draw n
     resultVersion: version,
     slices: [slice("type.video", 1)],
     legendOrder: legend,
+    basis: "allocated",
     lowerBound: false,
   });
   const third = show(physical.client, "unique_physical");
   await Promise.resolve();
   expect(physical.call).not.toHaveBeenCalled();
   expect(third.container.querySelector(".du-type-summary")).toBeNull();
+});
+
+test("F02 #300: an answer for another basis than the one asked is not drawn", async () => {
+  const other = answering({
+    resultVersion: version,
+    basis: "logical",
+    slices: [slice("type.video", 1)],
+    legendOrder: legend,
+    lowerBound: false,
+  });
+  const { container } = show(other.client, "allocated", exact(1));
+  await waitFor(() => expect(other.call).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(container.querySelector(".du-type-summary")).toBeNull();
 });

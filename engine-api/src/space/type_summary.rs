@@ -80,6 +80,7 @@ fn summary(
         type_slices::to_slices(types).map_err(|_| EngineError::reason("support.internal_error"))?;
     let body = SpaceTypeSummary {
         result_version: request.result_version,
+        basis: request.basis,
         slices,
         legend_order: type_legend::LISTED
             .iter()

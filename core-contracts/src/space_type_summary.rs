@@ -1,6 +1,9 @@
 //! The type classes of a whole result, for the result summary card (F02 #300).
 
-use crate::{Id, SizeBasis, visualization::type_slices::VizTypeSlice};
+use crate::{
+    Id, SizeBasis,
+    visualization::{quantity::VizAmount, type_slices::VizTypeSlice},
+};
 use serde::{Deserialize, Serialize};
 
 /// Asks for the legend classes of the pinned result in one size basis.
@@ -35,6 +38,9 @@ pub struct SpaceTypeSummaryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SpaceTypeSummary {
     pub result_version: Id,
+    /// The basis of the request, returned so that a reader pairs an answer with the
+    /// basis it asked for and never draws a value of one basis beside another.
+    pub basis: SizeBasis,
     pub slices: Vec<VizTypeSlice>,
     pub legend_order: Vec<String>,
     /// A range of the result was not read, or whether one was cannot be told: the
@@ -43,7 +49,9 @@ pub struct SpaceTypeSummary {
 }
 
 impl SpaceTypeSummary {
-    /// Checks the response: valid slices and every slice class in the legend order.
+    /// Checks the response: valid slices, every slice class in the legend order, and
+    /// `lower_bound` set whenever a slice is a lower bound (one direction: a result with
+    /// an unread range may still have only exact slices).
     ///
     /// # Errors
     /// A message naming the broken rule.
@@ -59,6 +67,49 @@ impl SpaceTypeSummary {
         {
             return Err("a slice class is not in the legend order");
         }
+        let lower = |amount: &VizAmount| matches!(amount, VizAmount::LowerBound { .. });
+        if !self.lower_bound
+            && self
+                .slices
+                .iter()
+                .any(|slice| lower(slice.item_count.amount()) || lower(slice.total.amount()))
+        {
+            return Err("a slice is a lower bound but the answer is not");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::visualization::quantity::VizQuantity;
+
+    fn summary(total: VizQuantity, lower_bound: bool) -> Result<SpaceTypeSummary, String> {
+        let exact_items = VizQuantity::exact("items", 3).ok_or("items")?;
+        Ok(SpaceTypeSummary {
+            result_version: Id::from_v7_bytes([1; 16]),
+            basis: SizeBasis::Allocated,
+            slices: vec![VizTypeSlice {
+                class_key: "type.video".into(),
+                item_count: exact_items,
+                total,
+            }],
+            legend_order: vec!["type.video".into()],
+            lower_bound,
+        })
+    }
+
+    #[test]
+    fn a_lower_bound_slice_needs_a_lower_bound_answer_but_not_the_other_way() -> Result<(), String>
+    {
+        let lower = VizQuantity::lower_bound("bytes", 10).ok_or("bytes")?;
+        let exact = VizQuantity::exact("bytes", 10).ok_or("bytes")?;
+        assert!(summary(lower.clone(), true)?.validate().is_ok());
+        assert!(summary(lower, false)?.validate().is_err());
+        // An unread range elsewhere may leave every counted slice exact.
+        assert!(summary(exact.clone(), true)?.validate().is_ok());
+        assert!(summary(exact, false)?.validate().is_ok());
         Ok(())
     }
 }
