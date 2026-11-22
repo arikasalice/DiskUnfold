@@ -206,6 +206,7 @@ mod tests {
             condition: None,
             unread: None,
             type_slices: None,
+            links: None,
         };
         let groups = HashMap::from([(
             "g".into(),

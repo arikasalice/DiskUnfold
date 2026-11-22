@@ -46,6 +46,7 @@ import { HistogramListPreview } from "./HistogramListPreview";
 import { TargetPickerPreview } from "./TargetPickerPreview";
 import { ScanIssuesPreview } from "./ScanIssuesPreview";
 import { TypeSlicesPreview } from "./TypeSlicesPreview";
+import { SankeyPreview } from "./SankeyPreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -88,7 +89,8 @@ type GallerySurface =
   | "histogram-list"
   | "target-picker"
   | "scan-issues"
-  | "type-slices";
+  | "type-slices"
+  | "sankey";
 
 /** The surface and theme named in the address, for a capture that opens on them. */
 function requested(): {
@@ -106,7 +108,8 @@ function requested(): {
       surface === "histogram-list" ||
       surface === "target-picker" ||
       surface === "scan-issues" ||
-      surface === "type-slices"
+      surface === "type-slices" ||
+      surface === "sankey"
         ? surface
         : surface !== null && Object.hasOwn(fixtures, surface)
           ? (surface as SurfaceId)
@@ -163,6 +166,9 @@ export function Gallery() {
   }
   if (surface === "type-slices") {
     return <TypeSlicesPreview scene={scene} />;
+  }
+  if (surface === "sankey") {
+    return <SankeyPreview scene={scene} />;
   }
   if (surface === "scan-issues") {
     return <ScanIssuesPreview />;

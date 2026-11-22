@@ -34,7 +34,7 @@ use crate::current_analysis::CurrentAnalysis;
 /// different implementation registered under the same strategy identity.
 pub struct Session {
     pub(super) pages: ModelPages,
-    dispatcher: Dispatcher,
+    pub(super) dispatcher: Dispatcher,
     pinned: Mutex<Option<PinnedModel>>,
 }
 
@@ -52,7 +52,7 @@ pub struct ChildPolicyEvidence {
 impl Session {
     /// Returns formats that have both a registered strategy and a runtime compute path.
     pub(crate) fn required_data_formats(&self) -> Vec<String> {
-        let runtime_formats = ["treemap", "bar", "histogram"];
+        let runtime_formats = ["treemap", "bar", "histogram", "sankey"];
         let mut formats = Vec::new();
         for descriptor in self.dispatcher.catalog() {
             if runtime_formats.contains(&descriptor.format.as_str())
@@ -171,6 +171,7 @@ impl Session {
     ) -> Result<super::GroupPage, Error> {
         self.pages.group_rows(reference, group, start, count)
     }
+
     /// Creates a session from a frozen registry and an empty model store.
     pub fn new(
         source: IngestSink,

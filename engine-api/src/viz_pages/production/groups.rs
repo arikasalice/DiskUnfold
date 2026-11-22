@@ -182,6 +182,7 @@ pub(super) fn group_row(
         condition: None,
         unread: None,
         type_slices,
+        links: None,
     };
     row.validate_revision(version.version_id())
         .map_err(|_| Error::InvalidGroup)?;

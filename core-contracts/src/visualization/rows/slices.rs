@@ -1,10 +1,16 @@
-//! Local checks of a row's type slices (F06 README 54).
+//! Local checks of a row's type slices (F06 README 54) and Sankey links (#296).
 
 use super::VizRow;
 use crate::visualization::item_kind::VizItemKind;
+use crate::visualization::sankey::VizLink;
 use crate::visualization::type_slices::{OTHER_GROUP_LABEL_KEY, VizTypeSlice};
 
 impl VizRow {
+    /// A Sankey node row's links: exact amounts to distinct rows.
+    pub(super) fn validate_links(&self) -> Result<(), &'static str> {
+        self.links.as_deref().map_or(Ok(()), VizLink::validate_list)
+    }
+
     /// Slices belong to a folder item row or to the Other group row.
     pub(super) fn validate_type_slices(&self) -> Result<(), &'static str> {
         let Some(slices) = &self.type_slices else {

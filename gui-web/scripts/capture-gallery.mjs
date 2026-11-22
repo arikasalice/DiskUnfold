@@ -79,6 +79,9 @@ const surfaces = {
   // F06 README 54 (#298): folders divided by type, as bars and as a treemap.
   // Every scene draws the three folders' slices.
   "type-slices": { ready: ".du-slice-stack", count: 3, pointer: false },
+  // F06 README 12.1 (#296): the Sankey, with 「확장자 없음」 and 「유형 확인 불가」.
+  // The lone scope root is left out: the folder and type column names.
+  sankey: { ready: ".du-geometry-sankey-heading", count: 2, pointer: false },
 };
 const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
@@ -581,7 +584,19 @@ const shots =
         ]
       : surface === "target-picker"
         ? [...galleryShots, { name: "light-360", theme: "light", width: 360 }]
-        : galleryShots;
+        : surface === "sankey"
+          ? [
+              { name: "light-1280", theme: "light", width: 1280 },
+              {
+                name: "forced-colors-focus-type-1280",
+                theme: "light",
+                width: 1280,
+                scene: "focus-type",
+                forcedColors: "active",
+                focus: true,
+              },
+            ]
+          : galleryShots;
 
 function browserPath() {
   const named = process.env.DU_CAPTURE_BROWSER;
@@ -1498,7 +1513,27 @@ try {
         await prepareRetentionScene(session, shot.scene ?? "panel");
         await save(session, shot.name, true, shot.scene ?? "panel");
       } else if (surface === "job-center") await save(session, shot.name, true);
-      else if (surface === "type-slices" && shot.hover) {
+      else if (surface === "sankey" && shot.focus) {
+        // A headless page has no focus of its own, so the node's focus and the
+        // links it keeps would not show without this (README 12.1).
+        await session.send("Emulation.setFocusEmulationEnabled", {
+          enabled: true,
+        });
+        const focused = await session.run(function focusUnavailableType() {
+          const node = Array.from(
+            document.querySelectorAll(".du-geometry-target"),
+          ).find((option) =>
+            option.getAttribute("aria-label")?.startsWith("유형 확인 불가"),
+          );
+          if (!(node instanceof HTMLElement)) return false;
+          node.focus();
+          return document.activeElement === node;
+        });
+        if (!focused)
+          throw new Error("The 유형 확인 불가 node was not focused");
+        await sleep(300);
+        await save(session, shot.name, false);
+      } else if (surface === "type-slices" && shot.hover) {
         // The pointer rests on a legend row (README 46.1, #383): a real mouse move.
         const box = await session.run(function legendRowBox(name) {
           const row = Array.from(

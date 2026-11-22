@@ -345,6 +345,7 @@ fn make_row(
         condition: None,
         unread: row_unread(version, item),
         type_slices,
+        links: None,
     };
     projected
         .validate_revision(version.version_id())

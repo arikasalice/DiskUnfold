@@ -96,6 +96,7 @@ export function adaptVizModel(
     legendClass?: string;
     slices?: readonly StackedBarSlice[];
     slicesTotal?: number;
+    displayShare?: string;
     card?: { title: string; lines: readonly string[] };
   },
   folderRows: readonly VizRow[] = [],
@@ -127,6 +128,7 @@ export function adaptVizModel(
     const count = shape.shapeRef ? childCount.get(shape.shapeRef) : undefined;
     return {
       ...(count ? { childCount: count } : {}),
+      ...incomingOf(shape),
       ...(parent
         ? {
             inFolder: true,
@@ -134,6 +136,23 @@ export function adaptVizModel(
           }
         : {}),
     };
+  };
+  // The bands into a Sankey type node, with the row of the node they leave (#296).
+  const incomingOf = (shape: VizShape) => {
+    if (shape.column !== "type" || !shape.shapeRef) return {};
+    const incoming = frame.model.relationships.flatMap((relation) => {
+      if (relation.toShapeRef !== shape.shapeRef || !relation.quantity)
+        return [];
+      const from = byRef.get(relation.fromShapeRef);
+      const key = from ? targetKey(from) : null;
+      return [
+        {
+          row: key ? rowByTarget.get(key) : undefined,
+          quantity: relation.quantity,
+        },
+      ];
+    });
+    return { incoming };
   };
   const adapted: GeometryRendererProps["shapes"] = frame.model.shapes.map(
     (shape, index) => {
@@ -169,6 +188,10 @@ export function adaptVizModel(
         shapeRef,
         rowRef: key ?? "",
         geometry: shape.geometry,
+        // A Sankey node's column decides its arrow keys (README 12.1).
+        ...(shape.column && shape.column !== "unknown"
+          ? { column: shape.column }
+          : {}),
         ...describe(
           shape,
           key ? rowByTarget.get(key) : undefined,
