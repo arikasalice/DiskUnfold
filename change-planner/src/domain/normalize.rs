@@ -54,6 +54,7 @@ pub(crate) fn normalize(
             expected_size: candidate.facts.size,
             expected_modified_at: candidate.facts.modified_at,
             classification_id: candidate.facts.classification_id,
+            observed_descendants: Some(candidate.facts.descendants),
             action: candidate.selection.action,
             destination: candidate.selection.destination,
             overwrite: candidate.selection.overwrite,

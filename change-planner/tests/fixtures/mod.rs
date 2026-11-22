@@ -130,6 +130,7 @@ impl PlatformFactsPort for FakePorts {
         &self,
         _item: &AnalysisItemFacts,
         _ruleset: &RulesetSnapshot,
+        _action: PlanAction,
     ) -> Result<PlatformProtectionFacts, PortError> {
         match &self.platform_error {
             Some(error) => Err(error.clone()),
@@ -222,6 +223,7 @@ pub fn item_facts(
         size: size.map(size_value),
         modified_at: Timestamp::from_unix_millis(1_600_000_000_000),
         classification_id: Some("user-file".to_owned()),
+        descendants: Fact::Known(DescendantResult::Clear),
     }
 }
 
@@ -241,6 +243,7 @@ pub fn platform_facts() -> PlatformProtectionFacts {
         link_boundary: Fact::Known(LinkBoundary::WithinVolume),
         volume_role: Fact::Known(ProtectionVolumeRole::Ordinary),
         known_location: Fact::Known(KnownLocation::NotListed),
+        classification_id: Some("user-file".to_owned()),
         os_component: Fact::Known(false),
         age_guard: Fact::Known(GuardResult::Clear),
         permission_guard: Fact::Known(GuardResult::Clear),
@@ -255,11 +258,20 @@ pub fn ruleset() -> RulesetSnapshot {
     RulesetSnapshot {
         version: 4,
         hash: b"ruleset-hash".to_vec(),
+        hash_format: "du.protect.ruleset.v1".into(),
         classification_version: 2,
         known_location_version: 3,
-        class_actions: [("user-file".to_owned(), ProtectionAction::GuidanceOnly)]
+        rule_format_version: 1,
+        user_rules: Vec::new(),
+        class_actions: [("user-file".to_owned(), ProtectionAction::Allow)]
             .into_iter()
             .collect(),
+        class_release_state: [(
+            "user-file".to_owned(),
+            du_change_planner::ports::ClassReleaseState::NotReleasable,
+        )]
+        .into_iter()
+        .collect(),
     }
 }
 

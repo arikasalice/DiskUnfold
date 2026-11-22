@@ -189,6 +189,17 @@
   {
     "ecosystem": "cargo",
     "owner": "du-change-planner",
+    "name": "serde_json",
+    "version": "1.0.154",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and verify canonical v1 protection ruleset bodies"
+  },
+  {
+    "ecosystem": "cargo",
+    "owner": "du-change-planner",
     "name": "serde",
     "version": "1.0.229",
     "source": "registry+https://github.com/rust-lang/crates.io-index",

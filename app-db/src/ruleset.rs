@@ -66,6 +66,55 @@ fn valid(row: &RulesetRow) -> bool {
         && serde_json::from_str::<serde_json::Value>(&row.body).is_ok()
 }
 impl AppDb {
+    /// Inserts the built-in version-one row only when the ruleset table is empty.
+    ///
+    /// The caller constructs this row from the canonical ruleset implementation.
+    /// An immediate transaction serializes startup races across database handles.
+    pub fn initialize_builtin_ruleset_if_empty(
+        &mut self,
+        row: &RulesetRow,
+    ) -> Result<bool, RulesetError> {
+        if row.version != 1
+            || row.hash_format != du_core_contracts::ruleset::PROTECTION_RULESET_HASH_FORMAT
+            || row.class_table_version != "1"
+            || row.known_location_table_version != "1"
+            || row.rule_format_version != 1
+            || row.origin != "product_update"
+            || !valid(row)
+        {
+            return Err(RulesetError::Corrupt);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let has_any: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM change_planner_ruleset)",
+            [],
+            |record| record.get(0),
+        )?;
+        if has_any {
+            tx.commit()?;
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT INTO change_planner_ruleset (version,ruleset_hash,hash_format,class_table_version,known_location_table_version,rule_format_version,origin,change_summary,body,created_at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            params![
+                row.version,
+                row.ruleset_hash,
+                row.hash_format,
+                row.class_table_version,
+                row.known_location_table_version,
+                row.rule_format_version,
+                row.origin,
+                row.change_summary,
+                row.body,
+                row.created_at_ms
+            ],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Reads the latest raw row. `None` means that no initial version exists.
     pub fn latest_ruleset(&self) -> Result<Option<RulesetRow>, RulesetError> {
         let sql =

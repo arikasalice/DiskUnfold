@@ -67,7 +67,10 @@ fn fr7_hd1_app_host_dd1_makes_every_item_undetermined_when_ruleset_read_fails() 
 
 #[test]
 fn fr7_hd1_app_host_dd1_denies_identity_mismatch_and_unavailable_identity() {
-    for identity in [Fact::Known(IdentityObservation::Mismatch), Fact::Unknown] {
+    for identity in [
+        Fact::Known(IdentityObservation::Mismatch),
+        Fact::Unknown(du_core_contracts::protection_facts::fact_reason::PARTIAL),
+    ] {
         let mut fake = FakePorts::standard();
         fake.platform.identity = identity;
         let plan = fake
@@ -77,13 +80,27 @@ fn fr7_hd1_app_host_dd1_denies_identity_mismatch_and_unavailable_identity() {
         if let Ok(plan) = plan {
             let item = &plan.items[0];
             assert_eq!(item.state, PlanItemState::Rejected);
-            assert_eq!(item.reason_key.as_deref(), Some("plan.item.protected"));
+            let mismatch = matches!(identity, Fact::Known(IdentityObservation::Mismatch));
+            let expected = if mismatch {
+                "plan.item.protected"
+            } else {
+                "plan.item.undetermined"
+            };
+            assert_eq!(item.reason_key.as_deref(), Some(expected));
             assert!(item.protection.as_ref().is_some_and(|summary| {
-                summary.verdict == ProtectionVerdict::Deny
-                    && summary
-                        .evidence
-                        .iter()
-                        .any(|key| key == "protect.identity_unavailable")
+                summary.verdict
+                    == if mismatch {
+                        ProtectionVerdict::Deny
+                    } else {
+                        ProtectionVerdict::Undetermined
+                    }
+                    && summary.evidence.iter().any(|key| {
+                        key == if mismatch {
+                            "protect.identity_unavailable"
+                        } else {
+                            du_core_contracts::protection_facts::fact_reason::PARTIAL
+                        }
+                    })
             }));
         }
     }
@@ -188,7 +205,7 @@ fn fr7_hd1_app_host_dd1_denies_a_known_location_root() {
 }
 
 #[test]
-fn fr7_hd1_app_host_dd1_evaluates_classification_under_user_cache_and_releases_it() {
+fn fr7_hd1_app_host_dd1_v1_allows_only_a_class_with_an_allow_action() {
     let mut fake = FakePorts::standard();
     fake.platform.known_location = Fact::Known(KnownLocation::Under(KnownLocationKind::UserCache));
     let mut plan_request = request(&fake, vec![selection(&fake, 1)]);
@@ -203,8 +220,8 @@ fn fr7_hd1_app_host_dd1_evaluates_classification_under_user_cache_and_releases_i
         let Some(summary) = &item.protection else {
             return;
         };
-        assert_eq!(summary.verdict, ProtectionVerdict::AllowReleased);
-        assert!(summary.released);
+        assert_eq!(summary.verdict, ProtectionVerdict::Allow);
+        assert!(!summary.released);
         assert_eq!(
             summary
                 .evaluators
@@ -213,18 +230,20 @@ fn fr7_hd1_app_host_dd1_evaluates_classification_under_user_cache_and_releases_i
                 .collect::<Vec<_>>(),
             EvaluatorId::ORDERED.to_vec()
         );
-        assert!(plan.confirmations.iter().any(|token| matches!(
-            token,
-            ConfirmationToken::ReleaseDefaultProtection { classification_ids }
-                if classification_ids == &["user-file".to_owned()]
-        )));
+        assert!(
+            !plan
+                .confirmations
+                .iter()
+                .any(|token| matches!(token, ConfirmationToken::ReleaseDefaultProtection { .. }))
+        );
     }
 }
 
 #[test]
 fn fr7_hd1_app_host_dd1_keeps_unknown_known_location_undetermined() {
     let mut fake = FakePorts::standard();
-    fake.platform.known_location = Fact::Unknown;
+    fake.platform.known_location =
+        Fact::Unknown(du_core_contracts::protection_facts::fact_reason::PARTIAL);
     let plan = fake
         .planner()
         .build(request(&fake, vec![selection(&fake, 1)]));
@@ -238,7 +257,7 @@ fn fr7_hd1_app_host_dd1_keeps_unknown_known_location_undetermined() {
                 && summary
                     .evidence
                     .iter()
-                    .any(|key| key == "protect.known_location_unverifiable")
+                    .any(|key| key == du_core_contracts::protection_facts::fact_reason::PARTIAL)
                 && summary
                     .evaluators
                     .iter()
@@ -246,6 +265,27 @@ fn fr7_hd1_app_host_dd1_keeps_unknown_known_location_undetermined() {
                     .collect::<Vec<_>>()
                     == EvaluatorId::ORDERED.to_vec()
         }));
+    }
+}
+
+#[test]
+fn f29_missing_derived_classification_does_not_reuse_analysis_classification() {
+    let mut fake = FakePorts::standard();
+    fake.platform.classification_id = None;
+    fake.platform.known_location = Fact::Known(KnownLocation::Under(KnownLocationKind::UserHome));
+    let plan = fake
+        .planner()
+        .build(request(&fake, vec![selection(&fake, 1)]));
+    assert!(plan.is_ok());
+    if let Ok(plan) = plan {
+        let item = &plan.items[0];
+        assert_eq!(item.state, PlanItemState::Rejected);
+        assert_eq!(item.reason_key.as_deref(), Some("plan.item.undetermined"));
+        assert!(
+            item.protection
+                .as_ref()
+                .is_some_and(|summary| summary.classification_id.is_none())
+        );
     }
 }
 

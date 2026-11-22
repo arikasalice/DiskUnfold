@@ -42,22 +42,25 @@ impl DomainPlatformFactsPort for UnknownPlatformFacts {
         &self,
         _: &du_change_planner::ports::AnalysisItemFacts,
         _: &du_change_planner::ports::RulesetSnapshot,
+        _: du_change_planner::ports::PlanAction,
     ) -> Result<
         du_change_planner::ports::PlatformProtectionFacts,
         du_core_contracts::ports::PortError,
     > {
         use du_change_planner::ports::{Fact, PlatformProtectionFacts};
+        use du_core_contracts::protection_facts::fact_reason::UNSUPPORTED;
         Ok(PlatformProtectionFacts {
-            identity: Fact::Unknown,
-            link_boundary: Fact::Unknown,
-            volume_role: Fact::Unknown,
-            known_location: Fact::Unknown,
-            os_component: Fact::Unknown,
-            age_guard: Fact::Unknown,
-            permission_guard: Fact::Unknown,
-            disk_backed_guard: Fact::Unknown,
-            user_rule: Fact::Unknown,
-            descendants: Fact::Unknown,
+            identity: Fact::Unknown(UNSUPPORTED),
+            link_boundary: Fact::Unknown(UNSUPPORTED),
+            volume_role: Fact::Unknown(UNSUPPORTED),
+            known_location: Fact::Unknown(UNSUPPORTED),
+            classification_id: None,
+            os_component: Fact::Unknown(UNSUPPORTED),
+            age_guard: Fact::Unknown(UNSUPPORTED),
+            permission_guard: Fact::Unknown(UNSUPPORTED),
+            disk_backed_guard: Fact::Unknown(UNSUPPORTED),
+            user_rule: Fact::Unknown(UNSUPPORTED),
+            descendants: Fact::Unknown(UNSUPPORTED),
             trash_capability: None,
         })
     }

@@ -13,6 +13,8 @@ mod filter_tests;
 mod metadata;
 mod path;
 pub(super) use path::{bytes, wide};
+mod protection_identity;
+pub(crate) use protection_identity::protection_identity;
 mod recall;
 pub mod recent_probe;
 mod reparse;
@@ -123,6 +125,7 @@ pub struct DirectoryIdentity {
     pub volume: u64,
     pub file_id: u64,
 }
+
 fn error(code: i32) -> PortError {
     let (kind, reason_key) = match code {
         2 | 3 => (PortErrorKind::NotFound, "os.query_failed"),

@@ -242,6 +242,7 @@ dependencies = [
  "blake3",
  "du-core-contracts",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

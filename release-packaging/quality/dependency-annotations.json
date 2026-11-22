@@ -532,5 +532,11 @@
     "role": "runtime",
     "distributed": true,
     "reason": "Serialize and verify immutable plan-version records"
+  },
+  "cargo:du-change-planner:serde_json@1.0.154": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "Encode and verify canonical v1 protection ruleset bodies"
   }
 }

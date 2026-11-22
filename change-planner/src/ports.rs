@@ -97,6 +97,8 @@ pub struct AnalysisItemFacts {
     pub modified_at: Option<Timestamp>,
     /// Classification identifier from the pinned source result.
     pub classification_id: Option<String>,
+    /// Whether this pinned item has a complete, safe child observation.
+    pub descendants: Fact<DescendantResult>,
 }
 
 /// Stable identity used for duplicate detection and effect aggregation.
@@ -142,12 +144,20 @@ pub struct RulesetSnapshot {
     pub version: u64,
     /// Canonical ruleset digest.
     pub hash: Vec<u8>,
+    /// Verified ruleset hash format.
+    pub hash_format: String,
     /// Classification table version.
     pub classification_version: u32,
     /// Known-location table version.
     pub known_location_version: u32,
+    /// Rule body format version.
+    pub rule_format_version: u32,
+    /// Complete user rule set pinned to this version.
+    pub user_rules: Vec<du_core_contracts::ruleset::UserProtectionRule>,
     /// Protection action by classification identifier.
     pub class_actions: BTreeMap<String, ProtectionAction>,
+    /// Release state by classification identifier.
+    pub class_release_state: BTreeMap<String, ClassReleaseState>,
 }
 
 /// One item's protection facts read from platform and analysis adapters.
@@ -161,6 +171,8 @@ pub struct PlatformProtectionFacts {
     pub volume_role: Fact<ProtectionVolumeRole>,
     /// Known-location lookup.
     pub known_location: Fact<KnownLocation>,
+    /// F29 class ID derived by engine-api from observed protection facts.
+    pub classification_id: Option<String>,
     /// OS component check.
     pub os_component: Fact<bool>,
     /// Age guard result.
@@ -184,6 +196,7 @@ pub trait PlatformFactsPort: Send + Sync {
         &self,
         item: &AnalysisItemFacts,
         ruleset: &RulesetSnapshot,
+        action: PlanAction,
     ) -> Result<PlatformProtectionFacts, PortError>;
 }
 
@@ -429,6 +442,12 @@ pub struct PlanItem {
     pub expected_modified_at: Option<Timestamp>,
     /// Classification identifier from the pinned result.
     pub classification_id: Option<String>,
+    /// Current pinned child-observation fact, used only during this build.
+    ///
+    /// The field is transient: stored plans re-read it from the pinned analysis
+    /// source before re-judgement.
+    #[serde(skip)]
+    pub observed_descendants: Option<Fact<DescendantResult>>,
     /// Requested action.
     pub action: PlanAction,
     /// Move destination, if supplied.

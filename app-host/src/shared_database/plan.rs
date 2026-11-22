@@ -96,6 +96,21 @@ impl RulesetRead for SharedDatabase {
     }
 }
 
+impl SharedDatabase {
+    /// Seeds the built-in protection ruleset after GUI schema migrations succeed.
+    pub(crate) fn initialize_builtin_ruleset_if_empty(
+        &self,
+        row: &RulesetRow,
+    ) -> Result<bool, PortError> {
+        self.0
+            .connection
+            .lock()
+            .map_err(|_| database_port_error())?
+            .initialize_builtin_ruleset_if_empty(row)
+            .map_err(|_| database_port_error())
+    }
+}
+
 fn database_port_error() -> PortError {
     PortError {
         kind: PortErrorKind::Io,
