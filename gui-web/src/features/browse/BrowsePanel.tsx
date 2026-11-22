@@ -31,6 +31,8 @@ import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import { useBrowseDedupLimit } from "./use-browse-dedup-limit";
 import type { InspectedItem } from "./use-item-inspection";
+import { resumeMatches } from "./browse-resume";
+import type { BrowseResumeRef } from "./browse-resume";
 import {
   BrowseItemDialog,
   ObservationSummary,
@@ -81,6 +83,7 @@ export function BrowsePanel({
   priority,
   rootLabel,
   viewUnread,
+  resume,
   actionsDisabledReason,
   titleBadge,
   focusTitle = false,
@@ -95,6 +98,11 @@ export function BrowsePanel({
   priority?: ScanPriority;
   /** Opens the unreadable locations below a folder in the analysis view (F02 #358). */
   viewUnread?: (item: ItemRef, name: string) => void;
+  /**
+   * Where the user was, kept by the host while the list is closed: the list opens the
+   * folder it holds for this result and writes it back as the user moves (F02 #406).
+   */
+  resume?: BrowseResumeRef;
   /** Names the top of the folder path instead of "Scope roots", e.g. for the sample root. */
   rootLabel?: string;
   /**
@@ -127,6 +135,8 @@ export function BrowsePanel({
     location: ItemRef | undefined;
     pinned: string | undefined;
   }>(undefined);
+  /** The next opening restores a saved folder, so a failure falls back to the roots. */
+  const resuming = useRef(false);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -155,6 +165,14 @@ export function BrowsePanel({
   ) {
     if (retrying && opening.current) return;
     lastAttempt.current = { location, pinned };
+    const resumedAttempt = resuming.current;
+    resuming.current = false;
+    const fallBack = () => {
+      if (!resumedAttempt) return false;
+      if (resume) resume.current = undefined;
+      navigate(undefined, pinned);
+      return true;
+    };
     const requestSeq = ++sequence.current;
     const active = document.activeElement;
     // The title holds the screen's entry focus; opening the first list keeps it there.
@@ -192,6 +210,7 @@ export function BrowsePanel({
               : response.page.resultVersion !== pinned))
         ) {
           setMessage("error");
+          if (fallBack()) return;
           setOpenFailures((count) => count + 1);
           return;
         }
@@ -202,6 +221,18 @@ export function BrowsePanel({
         }
         const pages = new BrowsePages(response.page);
         onOpened?.(response);
+        if (resume) {
+          const version = response.page.resultVersion;
+          const where = response.location ?? undefined;
+          const saved = resume.current;
+          const keep = resumeMatches(saved, version, where);
+          resume.current = {
+            version,
+            location: where,
+            selected: keep ? saved.selected : [],
+            scrollTop: keep ? saved.scrollTop : 0,
+          };
+        }
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
         }
@@ -228,6 +259,7 @@ export function BrowsePanel({
         if (sequence.current !== requestSeq) return;
         opening.current = undefined;
         setBusy(false);
+        if (fallBack()) return;
         setMessage("error");
         setOpenFailures((count) => count + 1);
       });
@@ -257,7 +289,14 @@ export function BrowsePanel({
   useEffect(() => {
     inspection.reset();
     virtualRootVersion.current = undefined;
-    navigate(undefined, resultVersion);
+    // A saved position of this result opens its folder instead of the scope roots.
+    const saved = resume?.current;
+    const start =
+      resultVersion !== undefined && saved?.version === resultVersion
+        ? saved.location
+        : undefined;
+    resuming.current = start !== undefined;
+    navigate(start, resultVersion);
     return () => {
       sequence.current += 1;
       opening.current?.abort();
@@ -440,6 +479,7 @@ export function BrowsePanel({
             copyDisabledReason={actionsDisabledReason}
             priority={priority}
             viewUnread={viewUnread}
+            resume={resume}
             reopen={() =>
               navigate(
                 view.opened.location ?? undefined,

@@ -21,6 +21,10 @@ import { useDisplayPreferences } from "../features/analysis/use-display-preferen
 import type { LocaleText } from "../i18n/presentation";
 import { BrowsePanel } from "../features/browse/BrowsePanel";
 import type {
+  BrowseResume,
+  BrowseResumeRef,
+} from "../features/browse/browse-resume";
+import type {
   BrowseOpenLocation,
   BrowsePort,
 } from "../features/browse/BrowsePanel";
@@ -133,6 +137,8 @@ export function App({
   const [issueFolderRequest, setIssueFolderRequest] =
     useState<ScanIssueFolderRequest>();
   const issueFolderSequence = useRef(0);
+  // Where the folder list was when it closed, so it opens there again (#406).
+  const browseResume = useRef<BrowseResume>(undefined);
   const tasksTrigger = useRef<HTMLButtonElement>(null);
   // Names the screen for the window title bar: operation history, folder browsing or analysis.
   useTitleBarContext(
@@ -354,6 +360,7 @@ export function App({
         display={browseDisplay}
         hidden={controls.listHidden}
         priority={priority}
+        resume={browseResume}
         onViewUnread={(item, name) => {
           // Back to the analysis view, where the issue list opens for this folder.
           visualization.invalidate();
@@ -493,6 +500,7 @@ function BrowseSurface({
   onOpening,
   onOpened,
   onViewUnread,
+  resume,
 }: {
   client: AnalysisClient | undefined;
   port: BrowsePort | undefined;
@@ -501,6 +509,7 @@ function BrowseSurface({
   hidden: boolean;
   priority: ScanPriority;
   onViewUnread: (item: ItemRef, name: string) => void;
+  resume: BrowseResumeRef;
   onOpening: () => void;
   onOpened: (resultVersion: string, opened: BrowseOpenLocation) => void;
 }) {
@@ -517,6 +526,7 @@ function BrowseSurface({
         display={display}
         priority={priority}
         viewUnread={onViewUnread}
+        resume={resume}
         focusTitle
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}
