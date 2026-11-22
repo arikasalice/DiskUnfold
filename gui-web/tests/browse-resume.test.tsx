@@ -5,6 +5,7 @@ import type { BrowsePort } from "../src/features/browse/BrowsePanel";
 import type { BrowseResume } from "../src/features/browse/browse-resume";
 import { LocaleTextContext } from "../src/i18n/presentation";
 import type { BrowseOpenResponse, FolderQueryRow, ItemRef } from "../src/ipc";
+import { rowKey } from "../src/features/browse/browse-display";
 import { englishText } from "../preview/result-summary-fixture";
 
 afterEach(cleanup);
@@ -77,7 +78,7 @@ test("F02 #406: a saved folder of the same result opens again where the user lef
     current: {
       version,
       location: ref(3),
-      selected: ["x"],
+      selected: [rowKey(ref(5)), "not-drawn"],
       scrollTop: 0,
     } satisfies BrowseResume as BrowseResume | undefined,
   };
@@ -86,8 +87,8 @@ test("F02 #406: a saved folder of the same result opens again where the user lef
   expect(open).toHaveBeenCalledTimes(1);
   expect(open.mock.calls[0]?.[0]).toMatchObject({ location: ref(3) });
   expect(resume.current?.location).toEqual(ref(3));
-  // The saved selection and scroll belong to the folder that was restored.
-  expect(resume.current?.selected).toEqual(["x"]);
+  // The saved selection of the restored folder stays, except a row that is not drawn.
+  expect(resume.current?.selected).toEqual([rowKey(ref(5))]);
 });
 
 test("F02 #406: another result, or none saved, opens the scope roots and records them", async () => {
@@ -113,6 +114,7 @@ test("F02 #406: another result, or none saved, opens the scope roots and records
     location: undefined,
     selected: [],
     scrollTop: 0,
+    focusRestored: false,
   });
 });
 
@@ -139,4 +141,32 @@ test("F02 #406: a saved folder that can no longer be opened falls back to the sc
   expect(open.mock.calls[1]?.[0]).not.toHaveProperty("location");
   expect(resume.current?.location).toBeUndefined();
   expect(screen.queryByText(/could not/i)).toBeNull();
+});
+
+test("F02 #406: a restored selection takes the focus, and without one the first row does", async () => {
+  const open = vi.fn<BrowsePort["open"]>((request) =>
+    Promise.resolve({
+      ...opened(request.location ?? null, [folder(5), folder(6)]),
+      requestSeq: request.requestSeq,
+    }),
+  );
+  const resume = {
+    current: {
+      version,
+      location: ref(3),
+      selected: [rowKey(ref(6))],
+      scrollTop: 0,
+    } satisfies BrowseResume as BrowseResume | undefined,
+  };
+  panel(open, resume);
+  await screen.findAllByText("Folder 6");
+  await waitFor(() =>
+    expect(
+      document.activeElement
+        ?.closest("[data-row]")
+        ?.getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  // The focus is asked for once: a later list does not take it again.
+  expect(resume.current?.focusRestored).toBe(false);
 });

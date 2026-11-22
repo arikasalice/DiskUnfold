@@ -26,7 +26,7 @@ import type {
 import { BROWSE_PAGE_SIZE, BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { useLocaleOsFamily } from "../../state/use-locale";
-import { folderPath } from "./browse-display";
+import { folderPath, rowKey } from "./browse-display";
 import { BrowseResults } from "./BrowseResults";
 import type { ListEntryFocus, ListRowFocus } from "./BrowseResults";
 import { useBrowseDedupLimit } from "./use-browse-dedup-limit";
@@ -137,6 +137,8 @@ export function BrowsePanel({
   }>(undefined);
   /** The next opening restores a saved folder, so a failure falls back to the roots. */
   const resuming = useRef(false);
+  /** The next list is the one opened at a saved position, which takes the focus. */
+  const restoredEntry = useRef(false);
   const virtualRootVersion = useRef<string>(undefined);
   const panel = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -226,13 +228,22 @@ export function BrowsePanel({
           const where = response.location ?? undefined;
           const saved = resume.current;
           const keep = resumeMatches(saved, version, where);
+          // A selected row that is not among the rows drawn is dropped, so no row the
+          // user cannot see stays selected (#406).
+          const drawn = new Set(
+            response.page.rows.map((row) => rowKey(row.item)),
+          );
           resume.current = {
             version,
             location: where,
-            selected: keep ? saved.selected : [],
+            selected: keep
+              ? saved.selected.filter((key) => drawn.has(key))
+              : [],
             scrollTop: keep ? saved.scrollTop : 0,
+            focusRestored: keep && restoredEntry.current,
           };
         }
+        restoredEntry.current = false;
         if (response.rootKind === "virtual_root") {
           virtualRootVersion.current = response.page.resultVersion;
         }
@@ -296,6 +307,8 @@ export function BrowsePanel({
         ? saved.location
         : undefined;
     resuming.current = start !== undefined;
+    restoredEntry.current =
+      resultVersion !== undefined && saved?.version === resultVersion;
     navigate(start, resultVersion);
     return () => {
       sequence.current += 1;

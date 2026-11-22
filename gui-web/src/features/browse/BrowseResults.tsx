@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   Action,
@@ -23,6 +23,11 @@ import type { BrowsePages } from "../../state/browse-pages";
 import type { ScanPriority } from "../../state/scan-priority";
 import { browseDisplayName, rowKey } from "./browse-display";
 import { unreadLocationActions } from "./unread-locations";
+import {
+  rememberSelection,
+  resumedKeys,
+  useResumedScroll,
+} from "./browse-resume";
 import type { BrowseResumeRef } from "./browse-resume";
 import {
   browseNotice,
@@ -157,26 +162,14 @@ export function BrowseResults({
       : []),
   ];
   const scrollRoot = useRef<HTMLDivElement>(null);
-  // The scroll position is saved as the rows scroll and put back when a saved folder
-  // opens again (#406); a list opened anew has none saved.
-  useEffect(() => {
-    const rows = scrollRoot.current;
-    if (!rows || !resume) return;
-    if (resume.current?.scrollTop) rows.scrollTop = resume.current.scrollTop;
-    const save = () => {
-      if (resume.current) resume.current.scrollTop = rows.scrollTop;
-    };
-    rows.addEventListener("scroll", save, { passive: true });
-    return () => rows.removeEventListener("scroll", save);
-    // The list is remounted for every folder, so this reads the saved position once.
-  }, []);
+  useResumedScroll(resume, scrollRoot);
   // A row is named by its name and its badge only; the controls beside them
   // keep their own names.
   const labels = useId();
   const nameId = (row: FolderQueryRow) => `${labels}name-${rowKey(row.item)}`;
   const badgeId = (row: FolderQueryRow) => `${labels}badge-${rowKey(row.item)}`;
   const [selection, setSelection] = useState<Selection>(
-    () => new Set(resume?.current?.selected ?? []),
+    () => new Set(resumedKeys(resume)),
   );
   const [rowFocus, setRowFocus] = useState<BrowseGridFocus>();
   const copy = useBrowseCopy(
@@ -290,6 +283,36 @@ export function BrowseResults({
       return active === null || active === document.body || active === origin;
     });
   }
+  // A list opened at a saved position puts the focus on the first restored selected
+  // row, else on its first row, once (#406). The title's focus is the only one it may
+  // take over.
+  useLayoutEffect(() => {
+    const saved = resume?.current;
+    if (!saved?.focusRestored) return;
+    saved.focusRestored = false;
+    if (pages.count === 0) {
+      focusEmpty();
+      return;
+    }
+    const keys = new Set(saved.selected);
+    let first = 0;
+    for (let index = 0; index < pages.count; index += 1) {
+      const row = pages.row(index);
+      if (row && keys.has(rowKey(row.item))) {
+        first = index;
+        break;
+      }
+    }
+    requestRow(first, () => {
+      const active = document.activeElement;
+      return (
+        active === null ||
+        active === document.body ||
+        /^H[1-6]$/.test(active.tagName)
+      );
+    });
+    // Reads the saved position once, when the list mounts.
+  }, []);
   useLayoutEffect(() => {
     listEntry.current = focusEntry;
     listRow.current = (index) => {
@@ -402,11 +425,10 @@ export function BrowseResults({
             ? `${nameId(row)} ${badgeId(row)}`
             : nameId(row)
         }
+        defaultSelectedKeys={resumedKeys(resume)}
         onSelectionChange={(next) => {
           setSelection(next);
-          if (resume?.current)
-            resume.current.selected =
-              next === "all" ? [] : [...next].map(String);
+          rememberSelection(resume, next);
         }}
         renderCells={(row) => [
           <ItemActions

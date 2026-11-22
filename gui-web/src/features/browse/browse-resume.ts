@@ -1,4 +1,5 @@
-import type { MutableRefObject } from "react";
+import { useEffect } from "react";
+import type { MutableRefObject, RefObject } from "react";
 import type { ItemRef } from "../../ipc";
 
 /**
@@ -12,6 +13,8 @@ export type BrowseResume = {
   location: ItemRef | undefined;
   selected: string[];
   scrollTop: number;
+  /** The list was just opened at a saved position: it puts the focus there once. */
+  focusRestored?: boolean;
 };
 
 export type BrowseResumeRef = MutableRefObject<BrowseResume | undefined>;
@@ -28,4 +31,39 @@ export function resumeMatches(
     saved.location?.itemNo === location?.itemNo &&
     saved.location?.resultVersion === location?.resultVersion
   );
+}
+
+/** The saved selection of a list opened at a saved position, else none. */
+export function resumedKeys(resume: BrowseResumeRef | undefined): string[] {
+  return resume?.current?.selected ?? [];
+}
+
+/** Keeps the selection up to date in the saved position. */
+export function rememberSelection(
+  resume: BrowseResumeRef | undefined,
+  next: "all" | ReadonlySet<string>,
+) {
+  if (resume?.current)
+    resume.current.selected = next === "all" ? [] : [...next].map(String);
+}
+
+/**
+ * Puts the saved scroll position back when the rows mount and keeps it up to date as
+ * they scroll; a list opened anew has none saved (#406).
+ */
+export function useResumedScroll(
+  resume: BrowseResumeRef | undefined,
+  rows: RefObject<HTMLElement | null>,
+) {
+  useEffect(() => {
+    const root = rows.current;
+    if (!root || !resume) return;
+    if (resume.current?.scrollTop) root.scrollTop = resume.current.scrollTop;
+    const save = () => {
+      if (resume.current) resume.current.scrollTop = root.scrollTop;
+    };
+    root.addEventListener("scroll", save, { passive: true });
+    return () => root.removeEventListener("scroll", save);
+    // The list is remounted for every folder, so this reads the saved position once.
+  }, []);
 }
