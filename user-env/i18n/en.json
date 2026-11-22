@@ -1323,7 +1323,7 @@
     ["ui.analysis.issues_filter_storage_name","Storage: {value}, clear storage filter",[["value","name"]]],
     ["ui.analysis.issues_filter_folder","Location:",[]],
     ["ui.analysis.issues_filter_folder_below","and below",[]],
-    ["ui.analysis.issues_filter_folder_name","Location: below {folder}, clear location filter",[["folder","name"]]],
+    ["ui.analysis.issues_filter_folder_name","Location: {folder} and below, clear location filter",[["folder","name"]]],
     ["ui.browse.view_unread_locations","View unread locations",[]],
     ["ui.analysis.issues_none","No scan issues were recorded for this filter.",[]],
     ["ui.analysis.issue_entries","Scan issue entries",[]],

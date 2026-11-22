@@ -21,6 +21,8 @@
 //     scene: scan-status | lower-bounds | lower-bounds-notice
 //   npm run capture:date-picker-gallery -- [output folder]
 //   node scripts/capture-gallery.mjs target-picker <output folder> [scene]
+//   node scripts/capture-gallery.mjs scan-issues <output folder>
+//     the issue list with the storage and folder chips (F02 #358)
 //     scene: default | checking | hidden-all   (F02 #350)
 //   node scripts/capture-gallery.mjs summary <output folder> [scene]
 //     scene: shared-limit   (F03 #386)
@@ -72,6 +74,7 @@ const surfaces = {
   },
   // F02 #350: the location picker with a network volume and 9 hidden volumes.
   "target-picker": { ready: ".du-drive-picker", count: 1, pointer: false },
+  "scan-issues": { ready: ".du-scan-issues__chip", count: 2, pointer: false },
   summary: { ready: ".du-metric__detail", count: 1, pointer: false },
   // F06 README 54 (#298): folders divided by type, as bars and as a treemap.
   // Every scene draws the three folders' slices.
@@ -81,7 +84,12 @@ const surface = process.argv[2];
 if (!Object.hasOwn(surfaces, surface))
   throw new Error("Name a surface: " + Object.keys(surfaces).join(", "));
 const { ready, count, pointer } = surfaces[surface];
-const browseScenes = ["scan-status", "lower-bounds", "lower-bounds-notice"];
+const browseScenes = [
+  "scan-status",
+  "lower-bounds",
+  "lower-bounds-notice",
+  "unread-menu",
+];
 const summaryScenes = ["shared-limit"];
 const scanLaneScenes = [
   "scope-collapsed",
@@ -831,7 +839,8 @@ async function open(
     }
   } else {
     const expected =
-      surface === "browse" && scene === "scan-status"
+      surface === "browse" &&
+      (scene === "scan-status" || scene === "unread-menu")
         ? 6
         : // The bars add the Other group's slices to the three folders'.
           surface === "type-slices" && scene === "bar"
@@ -1270,7 +1279,29 @@ try {
           );
         await saveLanes(session, shot.name, shot.locale);
       } else if (surface === "scan-lanes") await saveLanes(session, shot.name);
-      else if (surface === "target-picker") {
+      else if (surface === "browse" && scene === "unread-menu") {
+        // F02 #358: the row menu of a folder with an unread part offers its locations.
+        const opened = await session.run(function openRowMenu() {
+          const row = Array.from(
+            document.querySelectorAll(".du-browse-grid__row"),
+          ).find((element) => element.textContent?.includes("안을 읽지 못함"));
+          if (!row) return false;
+          row.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+          );
+          return true;
+        });
+        if (!opened)
+          throw new Error("No folder with unread contents was found");
+        await sleep(300);
+        const offered = await session.run(() =>
+          Array.from(document.querySelectorAll('[role="menuitem"]')).some(
+            (item) => item.textContent?.includes("읽지 못한 위치 보기"),
+          ),
+        );
+        if (!offered) throw new Error("The menu has no unread locations item");
+        await save(session, shot.name, true, scene);
+      } else if (surface === "target-picker") {
         if (!targetPickerScenes.includes(scene))
           throw new Error("Unknown target-picker scene: " + scene);
         if (scene === "hidden-all") {

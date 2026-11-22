@@ -1,4 +1,5 @@
-import { Action, MiddleEllipsisText, Text } from "../../components";
+import { useId } from "react";
+import { ActionWithTooltip, MiddleEllipsisText, Text } from "../../components";
 import { useLocaleText } from "../../i18n/presentation";
 import type { ScanIssueFolder } from "./scan-issue-filter";
 
@@ -14,15 +15,18 @@ export function ScanIssueFolderChip({
   onClear: () => void;
 }) {
   const text = useLocaleText();
+  const pathId = useId();
+  const path = folder.path ?? folder.label;
   return (
     <div className="du-scan-issues__chip">
-      <Action
+      <ActionWithTooltip
         aria-label={text(
           "ui.analysis.issues_filter_folder_name",
-          "Location: below {folder}, clear location filter",
+          "Location: {folder} and below, clear location filter",
           { folder: folder.label },
         )}
-        title={folder.label}
+        aria-describedby={pathId}
+        tooltip={path}
         onPress={onClear}
       >
         <Text inline>
@@ -35,7 +39,10 @@ export function ScanIssueFolderChip({
           {text("ui.analysis.issues_filter_folder_below", "and below")}
         </Text>
         <Text inline>×</Text>
-      </Action>
+      </ActionWithTooltip>
+      <div id={pathId} className="du-visually-hidden">
+        {path}
+      </div>
     </div>
   );
 }

@@ -109,7 +109,11 @@ export function ScanOutput({
       storageLabel: "",
       storagePaths: [],
       allStorages: false,
-      folder: { item: folderRequest.item, label: folderRequest.label },
+      folder: {
+        item: folderRequest.item,
+        label: folderRequest.label,
+        path: folderRequest.path,
+      },
       requestId: ++issueRequestSequence.current,
     });
   }, [folderRequest]);

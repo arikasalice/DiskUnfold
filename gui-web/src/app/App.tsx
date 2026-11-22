@@ -359,11 +359,22 @@ export function App({
           visualization.invalidate();
           browse.set(undefined);
           setVisualizationOpen(false);
-          setIssueFolderRequest({
-            item,
-            label: name,
-            requestId: ++issueFolderSequence.current,
-          });
+          const requestId = ++issueFolderSequence.current;
+          // The chip names the folder and shows its full path as a tooltip; a path that
+          // cannot be read leaves the name.
+          const open = (path?: string) =>
+            setIssueFolderRequest({ item, label: name, path, requestId });
+          if (!client) return open();
+          client
+            .call("browse.detail", { resultVersion: item.resultVersion, item })
+            .then((detail) =>
+              open(
+                detail.displayPath.state === "present"
+                  ? detail.displayPath.value
+                  : undefined,
+              ),
+            )
+            .catch(() => open());
         }}
         onOpening={() => {
           visualization.invalidate();

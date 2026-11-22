@@ -44,6 +44,7 @@ import { HistoryRetentionPreview } from "./HistoryRetentionPreview";
 import { SpaceUndrawnPreview } from "./SpaceUndrawnPreview";
 import { HistogramListPreview } from "./HistogramListPreview";
 import { TargetPickerPreview } from "./TargetPickerPreview";
+import { ScanIssuesPreview } from "./ScanIssuesPreview";
 import { TypeSlicesPreview } from "./TypeSlicesPreview";
 
 const presenters = {
@@ -86,6 +87,7 @@ type GallerySurface =
   | "space-undrawn"
   | "histogram-list"
   | "target-picker"
+  | "scan-issues"
   | "type-slices";
 
 /** The surface and theme named in the address, for a capture that opens on them. */
@@ -103,6 +105,7 @@ function requested(): {
       surface === "space-undrawn" ||
       surface === "histogram-list" ||
       surface === "target-picker" ||
+      surface === "scan-issues" ||
       surface === "type-slices"
         ? surface
         : surface !== null && Object.hasOwn(fixtures, surface)
@@ -160,6 +163,9 @@ export function Gallery() {
   }
   if (surface === "type-slices") {
     return <TypeSlicesPreview scene={scene} />;
+  }
+  if (surface === "scan-issues") {
+    return <ScanIssuesPreview />;
   }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;

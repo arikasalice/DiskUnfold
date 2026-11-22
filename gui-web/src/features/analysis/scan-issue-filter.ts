@@ -16,7 +16,12 @@ export type ScanIssueLaneRequest = ScanIssueLaneSelection & {
 };
 
 /** The folder a scan issue list is restricted to, with the name its chip shows. */
-export type ScanIssueFolder = { item: ItemRef; label: string };
+export type ScanIssueFolder = {
+  item: ItemRef;
+  label: string;
+  /** The folder's full display path, when it could be read; the chip's tooltip. */
+  path?: string | undefined;
+};
 
 /** A request from Browse to show the unreadable locations below one folder. */
 export type ScanIssueFolderRequest = ScanIssueFolder & { requestId: number };

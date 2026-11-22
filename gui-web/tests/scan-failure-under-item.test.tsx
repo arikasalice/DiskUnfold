@@ -139,6 +139,7 @@ test("F02 #358: a folder request restricts the list below it and its chip clears
           folder: {
             item: { resultVersion: version, itemNo: 2 },
             label: "Photos",
+            path: "C:\\Users\\minseo\\Photos",
           },
         }}
       />
@@ -151,11 +152,16 @@ test("F02 #358: a folder request restricts the list below it and its chip clears
       underItem: { resultVersion: version, itemNo: 2 },
     }),
   );
-  fireEvent.click(
-    screen.getByRole("button", {
-      name: "Location: below Photos, clear location filter",
-    }),
-  );
+  const chip = screen.getByRole("button", {
+    name: "Location: Photos and below, clear location filter",
+  });
+  // The full path is the tooltip and the description, as other folders may share the name.
+  expect(chip.getAttribute("title")).toBe("C:\\Users\\minseo\\Photos");
+  expect(
+    document.getElementById(chip.getAttribute("aria-describedby") ?? "")
+      ?.textContent,
+  ).toBe("C:\\Users\\minseo\\Photos");
+  fireEvent.click(chip);
   await waitFor(() => expect(requests.at(-1)?.underItem).toBeUndefined());
   expect(
     screen.queryByRole("button", { name: /clear location filter/ }),
