@@ -5,6 +5,8 @@ use crate::{
 };
 use serde::Deserialize;
 
+pub use crate::browse_value::BrowseValue;
+
 /// Copies paths observed in one pinned result revision.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -75,20 +77,6 @@ where
         .map(|items| items.into_iter().map(|item| item.0).collect())
 }
 
-/// Distinguishes an absent value from a value the source could not establish.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
-#[serde(
-    tag = "state",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-pub enum BrowseValue<T> {
-    Present { value: T },
-    Absent,
-    Unknown { reason_key: String },
-}
-
 /// Result origin supplied by the current analysis result store.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
@@ -128,10 +116,10 @@ pub struct BrowseDetail {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::browse_page_ipc::non_null"
+        deserialize_with = "crate::folder_flags::non_null"
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
-    pub folder_flags: Option<crate::browse_page_ipc::FolderFlags>,
+    pub folder_flags: Option<crate::folder_flags::FolderFlags>,
 }
 
 #[cfg(test)]

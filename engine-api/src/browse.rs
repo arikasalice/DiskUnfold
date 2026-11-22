@@ -64,7 +64,7 @@ fn project(
         ResultItemKind::Unknown | ResultItemKind::UnknownStructure => unknown("ref.unavailable"),
         kind => BrowseValue::Present { value: kind },
     };
-    let folder_flags = folder::collection::detail_flags(version, &request.item);
+    let folder_flags = folder::collection::detail_flags(version, &request.item)?;
     Ok(BrowseDetail {
         item: request.item,
         display_path: field(display_path, "ref.unavailable"),

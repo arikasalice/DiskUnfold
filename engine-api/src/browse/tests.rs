@@ -6,6 +6,8 @@ use du_core_contracts::{
 };
 use serde_json::{Value, json};
 
+mod folder_flags;
+
 fn id(n: u8) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{n:012x}"))
 }
@@ -477,82 +479,5 @@ fn detail_names_why_an_attribute_was_not_observed() -> Result<(), String> {
         plain["modifiedAt"],
         json!({"state": "unknown", "reasonKey": "ref.unavailable"})
     );
-    Ok(())
-}
-
-#[test]
-fn detail_carries_the_folder_scan_state_of_its_row_and_none_for_a_file() -> Result<(), String> {
-    let sink = IngestSink::default();
-    let version = id(2)?;
-    let mut build = sink
-        .open_forest(id(1)?, vec![root(PathEncoding::Unix, b"/r")])
-        .map_err(|e| format!("{e:?}"))?;
-    build
-        .add_directory_at(0, vec![])
-        .map_err(|e| format!("{e:?}"))?;
-    for folder in ["clean", "locked"] {
-        build
-            .add_directory_at(0, vec![folder.as_bytes().to_vec()])
-            .map_err(|e| format!("{e:?}"))?;
-    }
-    build
-        .add_with_space_at(
-            0,
-            Observation {
-                path: vec![b"clean".to_vec(), b"f".to_vec()],
-                size: None,
-            },
-            SpaceObservation {
-                allocated: None,
-                identity: None,
-                link_count: None,
-                sharing: SharingEvidence::None,
-            },
-        )
-        .map_err(|e| format!("{e:?}"))?;
-    build
-        .record_gap_at(
-            0,
-            vec![b"locked".to_vec(), b"deep".to_vec()],
-            "scan.unclassified".into(),
-            None,
-        )
-        .map_err(|e| format!("{e:?}"))?;
-    let sealed = build
-        .seal(version.clone(), ResultCompleteness::Missing)
-        .map_err(|e| format!("{e:?}"))?;
-    let mut builder = EngineBuilder::default();
-    register(&mut builder, sink);
-    let engine = builder.build().map_err(|e| e.to_string())?;
-    let number = |parts: &[&str]| -> Result<u32, String> {
-        let mut current = sealed.scope_roots().first().ok_or("no root")?.item_no;
-        for part in parts {
-            current = sealed
-                .items()
-                .iter()
-                .find(|item| item.parent == Some(current) && item.name == part.as_bytes())
-                .ok_or("missing")?
-                .item_no;
-        }
-        Ok(current)
-    };
-    let flags = |parts: &[&str]| -> Result<Value, String> {
-        let response = call_detail(&engine, &version, &version, number(parts)?)?;
-        assert!(response.error.is_none());
-        Ok(response
-            .body
-            .get("folderFlags")
-            .cloned()
-            .unwrap_or(Value::Null))
-    };
-    let clean = flags(&["clean"])?;
-    // A hand-built version carries no folder attempt evidence, so that fact is unknown,
-    // as it is on the folder page.
-    assert_eq!(clean["unenumerated"]["state"], "unknown");
-    assert_eq!(clean["unreadInside"]["state"], "absent");
-    let locked = flags(&["locked"])?;
-    assert_eq!(locked["unreadInside"]["state"], "present");
-    // A file has no folder state, so the field is omitted rather than null.
-    assert!(flags(&["clean", "f"])?.is_null());
     Ok(())
 }
