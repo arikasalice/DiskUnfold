@@ -241,8 +241,8 @@ impl JobBody for BuildBody {
         if draft.edit_seq != self.edit_seq {
             return failed("plan.draft_stale");
         }
-        if storage::append(&self.service.versions, &version).is_err() {
-            return failed("plan.store_failed");
+        if let Err(reason) = storage::append(&self.service.versions, &version) {
+            return failed(reason);
         }
         draft.last_fixed = Some(version.version_id.clone());
         drop(drafts);

@@ -11,12 +11,14 @@ use du_change_planner::{
 use du_core_contracts::{
     Id,
     plan_ipc::{
-        PlanGetRequest, PlanGetResponse, PlanHash, PlanHistoryEntry, PlanHistoryRequest,
-        PlanHistoryResponse, PlanItemDisposition, PlanItemReasonResponse, PlanReadiness,
-        PlanSection, PlanVersionFixed, PlanVersionHead, PlanVersionItem,
+        PLAN_SOURCE_NOT_CURRENT, PLAN_TOO_MANY_ITEMS, PlanGetRequest, PlanGetResponse, PlanHash,
+        PlanHistoryEntry, PlanHistoryRequest, PlanHistoryResponse, PlanItemDisposition,
+        PlanItemReasonResponse, PlanReadiness, PlanSection, PlanVersionFixed, PlanVersionHead,
+        PlanVersionItem,
     },
     plan_version_store::{
-        PlanOriginChannel, PlanReadiness as StoredReadiness, PlanVersionRecord, PlanVersionStore,
+        PLAN_BODY_MAX_BYTES, PlanOriginChannel, PlanReadiness as StoredReadiness,
+        PlanVersionRecord, PlanVersionStore,
     },
     ports::{PortError, PortErrorKind},
     ruleset::{RulesetRead, RulesetReadError},
@@ -70,12 +72,32 @@ impl PlanVersionPort for VersionReader {
     }
 }
 
-pub(super) fn append(store: &SharedVersionStore, version: &PlanVersion) -> Result<(), PortError> {
-    let record = encode_record(version)?;
+pub(super) fn append(
+    store: &SharedVersionStore,
+    version: &PlanVersion,
+) -> Result<(), &'static str> {
+    let record = encode_record(version).map_err(|error| {
+        if error.reason_key == PLAN_SOURCE_NOT_CURRENT {
+            PLAN_SOURCE_NOT_CURRENT
+        } else {
+            "plan.store_failed"
+        }
+    })?;
+    append_record(store, &record)
+}
+
+fn append_record(
+    store: &SharedVersionStore,
+    record: &PlanVersionRecord,
+) -> Result<(), &'static str> {
+    if record.body.len() > PLAN_BODY_MAX_BYTES {
+        return Err(PLAN_TOO_MANY_ITEMS);
+    }
     store
         .lock()
-        .map_err(|_| port_error(PortErrorKind::Io, "db.storage_unavailable"))?
-        .append_fixed(&record)
+        .map_err(|_| "plan.store_failed")?
+        .append_fixed(record)
+        .map_err(|_| "plan.store_failed")
 }
 
 pub(super) fn read_for_get(
@@ -461,3 +483,6 @@ fn port_error(kind: PortErrorKind, reason: &str) -> PortError {
         os_code: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

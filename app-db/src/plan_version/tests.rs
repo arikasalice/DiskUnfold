@@ -195,14 +195,14 @@ fn caller_input_violations_are_not_reported_as_database_corruption() -> TestResu
     let dir = tempfile::tempdir()?;
     let mut db = database(&dir.path().join("invalid-input.db"))?;
     add_ruleset(&db)?;
-    assert_eq!(MAX_PLAN_BODY_BYTES, 128 * 1024 * 1024);
+    assert_eq!(PLAN_BODY_MAX_BYTES, 128 * 1024 * 1024);
 
     let mut empty_hash_format = record(5, 40, None, 100);
     empty_hash_format.hash_format.clear();
     let mut zero_ruleset = record(6, 40, None, 100);
     zero_ruleset.ruleset_version = 0;
     let mut oversized_body = record(7, 40, None, 100);
-    oversized_body.body = format!("{}{{}}", " ".repeat(MAX_PLAN_BODY_BYTES - 1));
+    oversized_body.body = format!("{}{{}}", " ".repeat(PLAN_BODY_MAX_BYTES - 1));
 
     for bad in [empty_hash_format, zero_ruleset, oversized_body] {
         let error = db
@@ -404,7 +404,7 @@ fn plan_version_measures_a_near_limit_body() -> TestResult {
 
     const ITEM_COUNT: usize = 100_000;
     const PATH_BYTES: usize = 1_024;
-    let target_bytes = MAX_PLAN_BODY_BYTES - 64 * 1024;
+    let target_bytes = PLAN_BODY_MAX_BYTES - 64 * 1024;
     let body_prefix = "{\"items\":[";
     let item_prefix = "{\"path\":\"";
     let item_middle = "\",\"detail\":\"";
@@ -439,7 +439,7 @@ fn plan_version_measures_a_near_limit_body() -> TestResult {
     }
     body.push_str(body_suffix);
     assert_eq!(body.len(), target_bytes);
-    assert!(body.len() < MAX_PLAN_BODY_BYTES);
+    assert!(body.len() < PLAN_BODY_MAX_BYTES);
     let build_body_ms = started.elapsed().as_millis();
 
     let dir = tempfile::tempdir()?;
