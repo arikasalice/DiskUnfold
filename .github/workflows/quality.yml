@@ -29,6 +29,10 @@ on:
         description: "Run only these native targets, for example macos-x64,macos-arm64; skips the static checks, UI smoke and coverage"
         type: string
         default: ""
+      reset_build_output:
+        description: "Clear the build output a self-hosted runner keeps, to measure a cold build (the compiler cache of the runner stays)"
+        type: boolean
+        default: false
 permissions:
   contents: read
 # A newer push to the same pull request or branch replaces the older run, so only the latest commit
@@ -273,9 +277,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$RUNNER_ENVIRONMENT" == self-hosted ]]; then
-            # A self-hosted machine may lack rustup or keep ~/.cargo/bin outside the job's PATH.
-            export PATH="$HOME/.cargo/bin:$PATH"
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            # A self-hosted machine may lack rustup or keep its cargo bin folder outside the job's PATH.
+            # A runner with its own CARGO_HOME (for example the Intel runner next to an ARM64 one) uses that one.
+            cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+            export PATH="$cargo_bin:$PATH"
+            echo "$cargo_bin" >> "$GITHUB_PATH"
             if ! command -v rustup > /dev/null; then
               curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             fi
@@ -298,13 +304,21 @@ jobs:
         shell: bash
         env:
           RUST_TARGET: ${{ matrix.rustTarget }}
+          RESET_BUILD_OUTPUT: ${{ inputs.reset_build_output }}
         run: |
           set -euo pipefail
           dir="$HOME/.cache/diskunfold-ci/target-$RUST_TARGET"
+          if [[ "$RESET_BUILD_OUTPUT" == true ]]; then rm -rf "$dir"; echo "Cleared $dir"; fi
           mkdir -p "$dir"
           # Bound the disk use: start over when the folder passes 15 GB.
           if [[ "$(du -sk "$dir" | cut -f1)" -gt 15728640 ]]; then rm -rf "$dir"; mkdir -p "$dir"; fi
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          # A runner may set RUSTC_WRAPPER to sccache, a compiler cache that survives a reset of the build
+          # output. Fail early and clearly when that file is gone, and count hits for this job only.
+          if [[ -n "${RUSTC_WRAPPER:-}" ]]; then
+            if [[ ! -x "$RUSTC_WRAPPER" ]]; then echo "::error::RUSTC_WRAPPER=$RUSTC_WRAPPER is not an executable file"; exit 1; fi
+            "$RUSTC_WRAPPER" --zero-stats
+          fi
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: runner.environment == 'github-hosted'
         with:
@@ -367,6 +381,14 @@ jobs:
           cargo build --locked -p du-launcher
           bash release-packaging/launcher/smoke-linux.sh target/debug/diskunfold
           xvfb-run -a dbus-run-session cargo test --locked -p du-platform-os --features webview linux_webview_smoke -- --ignored
+      - name: Compiler cache statistics
+        if: always() && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          if [[ -n "${RUSTC_WRAPPER:-}" && -x "$RUSTC_WRAPPER" ]]; then
+            "$RUSTC_WRAPPER" --show-stats
+            { echo '### sccache'; echo '```'; "$RUSTC_WRAPPER" --show-stats; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
   # Real WebView2 window on a GitHub-hosted Windows runner: runs the scenarios of
   # release-packaging/quality/windows-ui-smoke.json with smoke-windows.ps1 in three shards and keeps
   # the logs and review captures as artifacts. Pull requests run it only when GUI code changed.
