@@ -345,7 +345,7 @@ function HistoryPages({
               text("ui.history.finished", "Finished"),
               text("ui.history.details", "Details"),
             ]}
-            columnWidths={[212, 106, 152, 64]}
+            columnWidths={[212, 106, 152, 84]}
             density="compact"
             totalRows={hasMore ? -1 : shown}
             rows={page.rows}
