@@ -238,6 +238,12 @@ fn encode_record(version: &PlanVersion) -> Result<PlanVersionRecord, PortError> 
         DomainReadiness::NeedsConfirmation => StoredReadiness::NeedsConfirmation,
         DomainReadiness::NoTarget => StoredReadiness::NoTarget,
         DomainReadiness::SamplePlan => StoredReadiness::NoTarget,
+        DomainReadiness::SourceNotCurrent => {
+            return Err(port_error(
+                PortErrorKind::Unsupported,
+                du_core_contracts::plan_ipc::PLAN_SOURCE_NOT_CURRENT,
+            ));
+        }
     };
     let origin_channel = match version.request_channel {
         du_change_planner::ports::RequestChannel::Gui => PlanOriginChannel::Gui,
@@ -280,6 +286,9 @@ fn decode_record(record: PlanVersionRecord) -> Result<PlanVersion, PortError> {
         DomainReadiness::Ready => StoredReadiness::Ready,
         DomainReadiness::NeedsConfirmation => StoredReadiness::NeedsConfirmation,
         DomainReadiness::NoTarget | DomainReadiness::SamplePlan => StoredReadiness::NoTarget,
+        DomainReadiness::SourceNotCurrent => {
+            return Err(port_error(PortErrorKind::Corrupt, "db.corrupt"));
+        }
     };
     if version.version_id != record.plan_version_id
         || version.lineage_id != record.lineage_id
@@ -410,6 +419,7 @@ fn disposition(state: PlanItemState) -> PlanItemDisposition {
 fn wire_readiness(readiness: DomainReadiness) -> PlanReadiness {
     match readiness {
         DomainReadiness::SamplePlan => PlanReadiness::ExperiencePlan,
+        DomainReadiness::SourceNotCurrent => PlanReadiness::SourceNotCurrent,
         DomainReadiness::NeedsConfirmation => PlanReadiness::NeedsConfirmation,
         DomainReadiness::NoTarget => PlanReadiness::NoExecutableItems,
         DomainReadiness::Ready => PlanReadiness::ApprovalPossible,

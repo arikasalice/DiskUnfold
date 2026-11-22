@@ -322,19 +322,22 @@ fn cancel_during_plan_build_leaves_no_version_row() -> TestResult {
 }
 
 #[test]
-fn sample_analysis_is_refused_at_gui_ipc_admission() -> TestResult {
-    let analysis = FakeAnalysis::new(DataSource::Sample, None, None, None);
-    let item = analysis.item_ref(1);
-    let app = assemble(analysis)?;
-    let result = call(
-        &app.engine,
-        "plan.draft_open",
-        json!({"source":"manual","itemRefs":[item]}),
-    )?;
-    assert_eq!(
-        result.error.as_ref().map(|error| error.reason_key.as_str()),
-        Some("plan.source_not_current")
-    );
+fn sample_and_snapshot_analysis_are_refused_at_gui_ipc_admission() -> TestResult {
+    for data_source in [DataSource::Sample, DataSource::Snapshot] {
+        let analysis = FakeAnalysis::new(data_source, None, None, None);
+        let item = analysis.item_ref(1);
+        let app = assemble(analysis)?;
+        let result = call(
+            &app.engine,
+            "plan.draft_open",
+            json!({"source":"manual","itemRefs":[item]}),
+        )?;
+        assert_eq!(
+            result.error.as_ref().map(|error| error.reason_key.as_str()),
+            Some("plan.source_not_current"),
+            "{data_source:?}"
+        );
+    }
     Ok(())
 }
 

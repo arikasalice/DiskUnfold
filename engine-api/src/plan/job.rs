@@ -298,3 +298,16 @@ fn plan_error(error: &PlanError) -> &'static str {
         _ => "support.internal_error",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_plan_error_uses_the_source_not_current_reason() {
+        assert_eq!(
+            plan_error(&PlanError::SourceNotCurrent),
+            PLAN_SOURCE_NOT_CURRENT
+        );
+    }
+}
