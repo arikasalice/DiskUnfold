@@ -95,9 +95,7 @@ export function ModelRows({
   const next = request.start + rows.length;
   // The shared-space fields describe the allocated basis only: use them when the page
   // says it was computed on the basis this model was requested on (omitted: not said).
-  const sharedShown =
-    response.sizeBasis === "allocated" &&
-    model?.representation.sizeBasis === "allocated";
+  const sharedShown = sharedFieldsApply(response, model);
   const revealed = revealInPage(reveal, request.start, next, open);
   const paged = request.start > 0 || next < response.totalCount;
   const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
@@ -489,5 +487,15 @@ function OpenGroup({
     >
       {label}
     </Action>
+  );
+}
+/** Whether the page says it was computed on the allocated basis the model asked for. */
+function sharedFieldsApply(
+  response: ModelRowsPage["response"],
+  model: VizModel | undefined,
+) {
+  return (
+    response.sizeBasis === "allocated" &&
+    model?.representation.sizeBasis === "allocated"
   );
 }
