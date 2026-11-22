@@ -90,9 +90,7 @@ test("F03 #359: a path that is not counted says where it is counted and opens th
   render(<div>{rows[0]!.value}</div>);
   await waitFor(() =>
     // The path is split for the middle ellipsis, so read the whole text.
-    expect(document.body.textContent).toContain(
-      "Counted at /Users/a/clip.mp4",
-    ),
+    expect(document.body.textContent).toContain("Counted at /Users/a/clip.mp4"),
   );
   fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
   expect(navigate).toHaveBeenCalledWith(folder);
