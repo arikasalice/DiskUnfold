@@ -137,6 +137,12 @@
     "distributed": true,
     "reason": "binary path encoding"
   },
+  "cargo:du-engine-api:base64@0.23.1": {
+    "license": "MIT OR Apache-2.0",
+    "role": "runtime",
+    "distributed": true,
+    "reason": "opaque snapshot list cursor encoding"
+  },
   "cargo:du-core-contracts:serde_json@1.0.154": {
     "license": "MIT OR Apache-2.0",
     "role": "runtime",
