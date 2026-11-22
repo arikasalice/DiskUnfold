@@ -1,18 +1,30 @@
 //! Ports for staging and durably registering immutable snapshot files.
 
-use crate::Id;
-use std::io::{self, ErrorKind, Write};
+use crate::{
+    Id,
+    snapshot_spool::{CaptureSpool, SealedSpool},
+};
+use std::io::{self, ErrorKind, Read, Write};
 
-/// A failure before a snapshot file has been registered.
+/// A failure during private snapshot-file operations.
 ///
 /// `StoreUnavailable` and `Unsupported` map to `snapshot.store_unavailable`.
-/// `WriteFailed` maps to `snapshot.write_failed`. The `ErrorKind` is diagnostic only.
+/// `NotFound` maps to `snapshot.not_found`; `InsufficientSpace` maps to
+/// `snapshot.insufficient_space`; `WriteFailed` maps to `snapshot.write_failed`.
+/// `ReadFailed` is diagnostic only and must not be mapped to `snapshot.write_failed`.
+/// The contained `ErrorKind` values are diagnostic only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotFileError {
     /// The configured snapshot directory could not be opened or created.
     StoreUnavailable,
     /// The directory's filesystem cannot register files without replacement.
     Unsupported,
+    /// The final identifier-derived snapshot name does not exist.
+    NotFound,
+    /// Reading the opened final snapshot failed; the error kind is diagnostic only.
+    ReadFailed(ErrorKind),
+    /// The snapshot volume has less than the requested free space.
+    InsufficientSpace,
     /// Staging failed before registration.
     WriteFailed(ErrorKind),
 }
@@ -22,6 +34,11 @@ impl std::fmt::Display for SnapshotFileError {
         match self {
             Self::StoreUnavailable => formatter.write_str("snapshot store is unavailable"),
             Self::Unsupported => formatter.write_str("snapshot store lacks required operations"),
+            Self::NotFound => formatter.write_str("registered snapshot was not found"),
+            Self::ReadFailed(_) => formatter.write_str("registered snapshot read failed"),
+            Self::InsufficientSpace => {
+                formatter.write_str("snapshot volume has insufficient space")
+            }
             Self::WriteFailed(_) => formatter.write_str("snapshot file staging failed"),
         }
     }
@@ -59,7 +76,7 @@ impl std::fmt::Display for SnapshotPublishError {
 
 impl std::error::Error for SnapshotPublishError {}
 
-/// Provides the private snapshot-file operations used by local snapshot saves.
+/// Provides private snapshot-file operations used by local snapshot saves and reads.
 pub trait SnapshotFilePort: Send + Sync {
     /// Opens or creates the private snapshots folder and checks its current save capability.
     ///
@@ -76,6 +93,30 @@ pub trait SnapshotFilePort: Send + Sync {
         &self,
         snapshot_id: &Id,
     ) -> Result<Box<dyn PendingSnapshotFile + '_>, SnapshotFileError>;
+
+    /// Opens only the registered final name for reading.
+    ///
+    /// Implementations never open `.tmp-*.part` names. The returned handle is
+    /// bound to the opened file even if its directory entry is later replaced.
+    /// Missing names return `NotFound`; open errors return `ReadFailed` with a
+    /// diagnostic-only error kind. Errors from subsequent reads remain I/O errors.
+    /// Neither the handle nor diagnostics expose a filesystem path.
+    fn open_registered(
+        &self,
+        snapshot_id: &Id,
+    ) -> Result<Box<dyn Read + Send + '_>, SnapshotFileError>;
+
+    /// Creates one private, exclusively locked capture for this operation.
+    ///
+    /// The capture is removed when dropped, including after cancellation or
+    /// failure. When `required_bytes` is known, insufficient available space
+    /// returns `InsufficientSpace` before the capture is created. A later write
+    /// error is `WriteFailed`; `None` means the size is unknown and the adapter
+    /// checks for any available space when it can.
+    fn create_capture(
+        &self,
+        required_bytes: Option<u64>,
+    ) -> Result<Box<dyn CaptureSpool<Sealed = Box<dyn SealedSpool>> + Send + '_>, SnapshotFileError>;
 }
 
 /// Snapshot-store facts collected without creating a pending snapshot file.
@@ -123,6 +164,15 @@ pub trait SnapshotFileDirectory: Send + Sync {
         &self,
         snapshot_id: &Id,
     ) -> Result<Box<dyn SnapshotFileSystemTempFile>, SnapshotFileError>;
+
+    /// Opens only `<snapshot_id>.dusnap` relative to this held directory.
+    fn open_final(&self, snapshot_id: &Id) -> io::Result<Box<dyn Read + Send>>;
+
+    /// Creates one private capture file after checking known free-space needs.
+    fn create_capture(
+        &self,
+        required_bytes: Option<u64>,
+    ) -> Result<Box<dyn CaptureSpool<Sealed = Box<dyn SealedSpool>> + Send>, SnapshotFileError>;
 
     /// Synchronizes the folder after successful registration. An error does not undo
     /// registration; the final name remains registered.

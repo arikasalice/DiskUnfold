@@ -42,6 +42,13 @@ pub enum LoadError {
     Io(io::Error),
     /// The isolated index build rejected the source data.
     Build(BuildError),
+    /// Discarding staged records failed after an otherwise successful load.
+    Cleanup(io::Error),
+    /// Loading failed and discarding staged records also failed.
+    Discard {
+        failure: Box<LoadError>,
+        cleanup: io::Error,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -53,6 +60,8 @@ impl fmt::Display for LoadError {
             }
             Self::Io(_) => formatter.write_str("verified snapshot record read failed"),
             Self::Build(error) => write!(formatter, "snapshot result build failed: {error:?}"),
+            Self::Cleanup(_) => formatter.write_str("snapshot staging cleanup failed"),
+            Self::Discard { .. } => formatter.write_str("snapshot load and staging cleanup failed"),
         }
     }
 }
@@ -61,6 +70,8 @@ impl std::error::Error for LoadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Cleanup(error) => Some(error),
+            Self::Discard { cleanup, .. } => Some(cleanup),
             Self::Build(_) => None,
             Self::Cancelled | Self::InvalidSnapshot => None,
         }
@@ -89,6 +100,26 @@ impl From<BuildError> for LoadError {
 /// because the index has no unknown-completeness state.
 pub fn load<W>(
     mut snapshot: VerifiedSnapshot<W>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<Arc<du_analysis_index::ResultVersion>, LoadError>
+where
+    W: StagingSink + Read + Seek,
+{
+    let result = load_inner(&mut snapshot, cancelled);
+    match snapshot.discard_records() {
+        Ok(()) => result,
+        Err(cleanup) => match result {
+            Ok(_) => Err(LoadError::Cleanup(cleanup)),
+            Err(failure) => Err(LoadError::Discard {
+                failure: Box::new(failure),
+                cleanup,
+            }),
+        },
+    }
+}
+
+fn load_inner<W>(
+    snapshot: &mut VerifiedSnapshot<W>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Arc<du_analysis_index::ResultVersion>, LoadError>
 where
@@ -140,9 +171,8 @@ where
         )
     };
     let root_by_item = root_item_map(&root_links)?;
-    let root_file_ids =
-        read_root_identities(&mut snapshot, &root_by_item, encoding, &mut cancelled)?;
-    let roots = build_roots(&snapshot, &root_links, &volume_ids, root_file_ids, encoding)?;
+    let root_file_ids = read_root_identities(snapshot, &root_by_item, encoding, &mut cancelled)?;
+    let roots = build_roots(snapshot, &root_links, &volume_ids, root_file_ids, encoding)?;
     let mut build = SnapshotBuild::open(
         snapshot_id,
         version_id,
@@ -154,7 +184,7 @@ where
     )?;
     build.build_mut().set_volume_reports(reports)?;
     load_records(
-        &mut snapshot,
+        snapshot,
         &mut build,
         &root_by_item,
         encoding,

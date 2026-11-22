@@ -148,6 +148,7 @@ impl ErrorEnvelope {
             | "history.review_not_found"
             | "plan.not_found"
             | "approval.request_not_found"
+            | "snapshot.not_found"
             | "session.evicted" => ErrorCode::NotFound,
             "command.window_denied" | "approval.window_denied" => ErrorCode::OriginDenied,
             "path.outside_scope" | "path.link_escape" => ErrorCode::ScopeDenied,
@@ -165,6 +166,11 @@ impl ErrorEnvelope {
             | "history.policy_store_failed"
             | "plan.store_failed"
             | "locale.registration_failed" => ErrorCode::Internal,
+            "snapshot.format_invalid"
+            | "snapshot.integrity_failed"
+            | "snapshot.decompress_limit"
+            | "snapshot.format_unsupported"
+            | "snapshot.format_newer" => ErrorCode::InvalidArgument,
             _ => return None,
         })
     }
@@ -335,6 +341,12 @@ mod tests {
             ("snapshot.store_unavailable", ErrorCode::Internal),
             ("snapshot.write_failed", ErrorCode::Internal),
             ("snapshot.insufficient_space", ErrorCode::Internal),
+            ("snapshot.not_found", ErrorCode::NotFound),
+            ("snapshot.format_invalid", ErrorCode::InvalidArgument),
+            ("snapshot.integrity_failed", ErrorCode::InvalidArgument),
+            ("snapshot.decompress_limit", ErrorCode::InvalidArgument),
+            ("snapshot.format_unsupported", ErrorCode::InvalidArgument),
+            ("snapshot.format_newer", ErrorCode::InvalidArgument),
         ] {
             let envelope = ErrorEnvelope::from_reason(reason, correlation.clone(), Vec::new())
                 .ok_or("snapshot save reason was not registered")?;

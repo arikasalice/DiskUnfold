@@ -38,7 +38,7 @@ impl Write for Capture {
 }
 impl CaptureSpool for Capture {
     type Sealed = Sealed;
-    fn seal(mut self) -> io::Result<Sealed> {
+    fn seal(mut self: Box<Self>) -> io::Result<Sealed> {
         self.sealed = true;
         Ok(Sealed {
             bytes: Cursor::new(std::mem::take(&mut self.bytes)),
@@ -262,9 +262,9 @@ fn cancellation_at_verified_spool_return_drops_capture() {
     }
     impl CaptureSpool for TrackedCapture {
         type Sealed = TrackedSealed;
-        fn seal(self) -> io::Result<Self::Sealed> {
+        fn seal(self: Box<Self>) -> io::Result<Self::Sealed> {
             Ok(TrackedSealed {
-                inner: self.inner.seal()?,
+                inner: Box::new(self.inner).seal()?,
                 milestone: self.milestone,
                 zero_seeks: 0,
                 digest_read: false,

@@ -287,6 +287,28 @@ impl SnapshotFilePort for MemoryFiles {
             closed: false,
         }))
     }
+
+    fn open_registered(
+        &self,
+        _snapshot_id: &Id,
+    ) -> Result<Box<dyn std::io::Read + Send + '_>, SnapshotFileError> {
+        Err(SnapshotFileError::Unsupported)
+    }
+
+    fn create_capture(
+        &self,
+        _required_bytes: Option<u64>,
+    ) -> Result<
+        Box<
+            dyn du_core_contracts::snapshot_spool::CaptureSpool<
+                    Sealed = Box<dyn du_core_contracts::snapshot_spool::SealedSpool>,
+                > + Send
+                + '_,
+        >,
+        SnapshotFileError,
+    > {
+        Err(SnapshotFileError::Unsupported)
+    }
 }
 
 struct MemoryPending {

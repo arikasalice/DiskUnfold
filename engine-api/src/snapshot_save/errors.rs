@@ -55,6 +55,12 @@ pub(super) fn file_error(error: SnapshotFileError) -> EngineError {
         SnapshotFileError::StoreUnavailable | SnapshotFileError::Unsupported => {
             EngineError::reason("snapshot.store_unavailable")
         }
+        SnapshotFileError::NotFound => EngineError::reason("snapshot.not_found"),
+        SnapshotFileError::ReadFailed(_) => EngineError::reason("snapshot.store_unavailable"),
+        SnapshotFileError::InsufficientSpace => EngineError::reason_with_internal(
+            "snapshot.store_unavailable",
+            "snapshot.insufficient_space",
+        ),
         SnapshotFileError::WriteFailed(_) => EngineError::reason("snapshot.write_failed"),
     }
 }
@@ -64,6 +70,9 @@ pub(super) fn save_file_error(error: SnapshotFileError) -> SaveFailure {
         SnapshotFileError::StoreUnavailable | SnapshotFileError::Unsupported => {
             "snapshot.store_unavailable"
         }
+        SnapshotFileError::NotFound => "snapshot.not_found",
+        SnapshotFileError::ReadFailed(_) => "snapshot.store_unavailable",
+        SnapshotFileError::InsufficientSpace => "snapshot.insufficient_space",
         SnapshotFileError::WriteFailed(_) => "snapshot.write_failed",
     })
 }

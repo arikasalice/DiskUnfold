@@ -192,12 +192,12 @@ fn sealed_capture_reads_the_same_bytes_while_excluding_other_writers()
     let dir = tempfile::tempdir()?;
     let root = SnapshotDirectory::open(dir.path()).map_err(|e| format!("{e:?}"))?;
     let temp = id(91)?;
-    let path = temp_path(dir.path(), &temp);
+    let path = dir.path().join(format!(".capture-{}.part", temp.as_str()));
     let mut capture = root.capture(&temp)?;
     capture.write_all(b"sealed")?;
-    let mut sealed = capture.seal()?;
+    let mut sealed = Box::new(capture).seal()?;
     assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
-    assert!(root.create(&temp).is_err());
+    assert!(root.capture(&temp).is_err());
     assert!(root.capture(&temp).is_err());
     let mut bytes = Vec::new();
     sealed.read_to_end(&mut bytes)?;
@@ -221,10 +221,10 @@ fn sealed_capture_is_independent_of_source_replacement_and_is_removed()
     fs::create_dir(&snapshots)?;
     let root = SnapshotDirectory::open(&snapshots).map_err(|e| format!("{e:?}"))?;
     let temp = id(93)?;
-    let path = temp_path(&snapshots, &temp);
+    let path = snapshots.join(format!(".capture-{}.part", temp.as_str()));
     let mut capture = root.capture(&temp)?;
     std::io::copy(&mut fs::File::open(&source)?, &mut capture)?;
-    let mut sealed = capture.seal()?;
+    let mut sealed = Box::new(capture).seal()?;
     fs::remove_file(&source)?;
     fs::write(&source, b"replacement")?;
     assert!(fs::remove_file(&path).is_err());

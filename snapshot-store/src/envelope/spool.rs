@@ -13,6 +13,9 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 /// Failure while capturing or inspecting; no verified spool is returned.
 #[derive(Debug)]
 pub enum Error {
+    /// Reading the input or sealed capture failed.
+    Read(io::Error),
+    /// Writing or sealing the capture failed.
     Io(io::Error),
     Cancelled,
     Format(FormatError),
@@ -72,6 +75,20 @@ impl<S: SealedSpool> VerifiedSpool<S> {
     }
 }
 
+impl<S: SealedSpool> Read for VerifiedSpool<S> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.spool.read(bytes)
+    }
+}
+
+impl<S: SealedSpool> Seek for VerifiedSpool<S> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.spool.seek(position)
+    }
+}
+
+impl<S: SealedSpool> SealedSpool for VerifiedSpool<S> {}
+
 /// A read-only view of the verified compressed range.
 pub struct CompressedReader<'a, S: SealedSpool> {
     inner: io::Take<&'a mut S>,
@@ -99,7 +116,7 @@ pub fn capture_v1<R: Read, W: CaptureSpool>(
 ) -> Result<VerifiedSpool<W::Sealed>, Error> {
     copy(source, &mut spool, MAX_FILE_BYTES, &mut cancelled)?;
     check_cancel(&mut cancelled)?;
-    let sealed = spool.seal().map_err(Error::Io)?;
+    let sealed = Box::new(spool).seal().map_err(Error::Io)?;
     verify(
         sealed,
         index_digest,
@@ -153,7 +170,7 @@ fn copy<R: Read, W: Write>(
         };
         let count = match source.read(&mut buffer[..read_len]) {
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            other => other.map_err(Error::Io)?,
+            other => other.map_err(Error::Read)?,
         };
         if count == 0 {
             break;
@@ -184,9 +201,9 @@ fn verify<S: SealedSpool>(
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<VerifiedSpool<S>, Error> {
     check_cancel(cancelled)?;
-    let len = spool.seek(SeekFrom::End(0)).map_err(Error::Io)?;
+    let len = spool.seek(SeekFrom::End(0)).map_err(Error::Read)?;
     check_file_length(len).map_err(Error::Format)?;
-    spool.seek(SeekFrom::Start(0)).map_err(Error::Io)?;
+    spool.seek(SeekFrom::Start(0)).map_err(Error::Read)?;
     let mut header = [0; 16];
     read_exact(&mut spool, &mut header, cancelled)?;
     if &header[..8] != MAGIC {
@@ -208,7 +225,7 @@ fn verify<S: SealedSpool>(
         .checked_add(metadata_len)
         .filter(|offset| *offset <= footer_offset)
         .ok_or(Error::Format(FormatError::LengthMismatch))?;
-    spool.seek(SeekFrom::Start(16)).map_err(Error::Io)?;
+    spool.seek(SeekFrom::Start(16)).map_err(Error::Read)?;
     let mut metadata = vec![0; metadata_len as usize];
     read_exact(&mut spool, &mut metadata, cancelled)?;
     let metadata =
@@ -219,7 +236,7 @@ fn verify<S: SealedSpool>(
 
     spool
         .seek(SeekFrom::Start(footer_offset))
-        .map_err(Error::Io)?;
+        .map_err(Error::Read)?;
     let mut footer = [0; 56];
     read_exact(&mut spool, &mut footer, cancelled)?;
     let compressed_length = read_u64(&footer, 0).map_err(Error::Format)?;
@@ -234,7 +251,7 @@ fn verify<S: SealedSpool>(
     }
     spool
         .seek(SeekFrom::Start(compressed_offset))
-        .map_err(Error::Io)?;
+        .map_err(Error::Read)?;
     let inspected_length = if mode == VerificationMode::Open {
         actual_compressed_length
     } else {
@@ -249,7 +266,7 @@ fn verify<S: SealedSpool>(
     frame_check.map_err(|error| match error {
         crate::zstd_frame::ReadError::Frame(FrameError::Cancelled) => Error::Cancelled,
         crate::zstd_frame::ReadError::Frame(error) => Error::Frame(error),
-        crate::zstd_frame::ReadError::Io(error) => Error::Io(error),
+        crate::zstd_frame::ReadError::Io(error) => Error::Read(error),
     })?;
     if mode == VerificationMode::Open {
         layout(len, metadata_len, compressed_length).map_err(Error::Format)?;
@@ -275,7 +292,7 @@ fn digest<R: Read + Seek>(
     index: Option<[u8; 32]>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), Error> {
-    spool.seek(SeekFrom::Start(0)).map_err(Error::Io)?;
+    spool.seek(SeekFrom::Start(0)).map_err(Error::Read)?;
     let mut left = len - 32;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0; 16 * 1024];
@@ -307,7 +324,7 @@ fn read_exact<R: Read>(
             Ok(0) => return Err(Error::Format(FormatError::Truncated)),
             Ok(n) => bytes = &mut bytes[n..],
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(Error::Io(e)),
+            Err(e) => return Err(Error::Read(e)),
         }
     }
     Ok(())

@@ -4,6 +4,7 @@ pub mod comparison;
 pub mod comparison_ranking;
 pub mod envelope;
 pub mod load;
+pub mod load_saved;
 mod open;
 mod record_framing;
 pub mod records;
@@ -15,4 +16,5 @@ pub mod trend;
 pub mod zstd_frame;
 pub mod zstd_stream;
 
+pub use load_saved::{LoadSavedError, LoadSavedErrorKind, load_saved};
 pub use open::{OpenCompatibility, OpenError, OpenErrorKind, VerifiedSnapshot, open};
