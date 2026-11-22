@@ -222,6 +222,7 @@ pub(super) fn build(
         .map_err(|_| internal())?;
     let input = ModelInput {
         version: version.clone(),
+        size_basis: admitted.request.size_basis.clone(),
         condition_fingerprint: admitted.key.clone(),
         rows: nodes.into_iter().map(|node| node.row).collect(),
         groups,
