@@ -13,6 +13,7 @@ import { isSampleSource } from "../../state/sample-session";
 import type {
   AnalysisClient,
   BrowseValue,
+  ItemRef,
   SpaceDetail,
   SpaceDetailSize,
 } from "../../ipc";
@@ -25,6 +26,7 @@ import {
   displaySpaceReason,
 } from "./space-format";
 import type { SizeDisplay } from "./space-format";
+import { sharedSpaceRows } from "./shared-space-rows";
 
 type LocaleText = ReturnType<typeof useLocaleText>;
 type Message = readonly [key: string, fallback: string];
@@ -261,12 +263,15 @@ export function ItemSpaceDetails({
   item,
   display,
   onStale,
+  navigateItem,
 }: {
   client: AnalysisClient;
   item: SpaceDetail["item"];
   display: SizeDisplay;
   /** Told when the read was refused because the item's result was replaced. */
   onStale?: ((resultVersion: string) => void) | undefined;
+  /** Opens the folder of another item of this result, such as the counted path. */
+  navigateItem?: ((item: ItemRef) => void) | undefined;
 }) {
   const text = useLocaleText();
   const timestamp = useTimestampText();
@@ -337,13 +342,16 @@ export function ItemSpaceDetails({
     >
       <Readout
         label={text("ui.analysis.observed_item_space", "Observed item space")}
-        rows={rows(
-          detail,
-          display,
-          text,
-          timestamp,
-          countedZeroOf(detail.folderFlags),
-        )}
+        rows={[
+          ...rows(
+            detail,
+            display,
+            text,
+            timestamp,
+            countedZeroOf(detail.folderFlags),
+          ),
+          ...sharedSpaceRows(detail, navigateItem, text),
+        ]}
       />
     </DetailDisclosure>
   );

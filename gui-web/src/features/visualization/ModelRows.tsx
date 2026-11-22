@@ -93,6 +93,11 @@ export function ModelRows({
   const { request, response } = page;
   const { rows } = response;
   const next = request.start + rows.length;
+  // The shared-space fields describe the allocated basis only: use them when the page
+  // says it was computed on the basis this model was requested on (omitted: not said).
+  const sharedShown =
+    response.sizeBasis === "allocated" &&
+    model?.representation.sizeBasis === "allocated";
   const revealed = revealInPage(reveal, request.start, next, open);
   const paged = request.start > 0 || next < response.totalCount;
   const hasOpenableGroups = onOpenGroup !== undefined && rows.some(openable);
@@ -157,7 +162,7 @@ export function ModelRows({
       : []),
     {
       header: text.message("value"),
-      cell: (row) => rowValue(row, text),
+      cell: (row) => rowValue(row, text, sharedShown),
     },
     {
       header: text.message("ratio"),
@@ -216,7 +221,7 @@ export function ModelRows({
           label={rowTitle}
           density="compact"
           flat
-          rowHeight={rowHeight(rows)}
+          rowHeight={rowHeight(rows, sharedShown)}
           // The action column holds only buttons; its header would read as a value.
           hiddenHeaders={[text.message("actions")]}
           columns={columns.map(({ header }) => header)}
@@ -306,13 +311,13 @@ function classification(
  * A row's value. A lower bound of nothing, such as a folder that could not be read
  * at all, is unavailable rather than "at least 0 bytes" (F06 README 48.2, 44.2).
  */
-function rowValue(row: VizRow, text: VizText) {
+function rowValue(row: VizRow, text: VizText, sharedShown: boolean) {
   const value = row.quantity
     ? text.quantity(row.quantity)
     : row.size.state === "lower_bound" && row.size.bytes === "0"
       ? text.message("unavailableValue")
       : text.size(row.size);
-  const reason = unreadReason(row, text);
+  const reason = unreadReason(row, text) ?? sharedReason(row, text, sharedShown);
   return reason ? (
     <div>
       <Text>{value}</Text>
@@ -324,9 +329,12 @@ function rowValue(row: VizRow, text: VizText) {
 }
 
 /** The row height of a page: taller when a folder row says why it is partly known. */
-function rowHeight(rows: readonly VizRow[]) {
+function rowHeight(rows: readonly VizRow[], sharedShown: boolean) {
   return rows.some(
-    (row) => row.unread?.kind === "itself" || row.unread?.kind === "inside",
+    (row) =>
+      row.unread?.kind === "itself" ||
+      row.unread?.kind === "inside" ||
+      (sharedShown && row.sharesSpace === true),
   )
     ? TWO_LINE_ROW_HEIGHT
     : ROW_HEIGHT;
@@ -377,6 +385,19 @@ function unreadReason(row: VizRow, text: VizText) {
   return unread.count === undefined
     ? text.message("unreadInsideSome")
     : vizMessage(text, "unreadInside", { count: unread.count });
+}
+
+/**
+ * Why a file row's allocated space is counted once for several paths (F03 #359): the
+ * row that is not the counted path points to it, the counted one says so.
+ */
+function sharedReason(row: VizRow, text: VizText, sharedShown: boolean) {
+  if (!sharedShown || row.sharesSpace !== true) return null;
+  return text.message(
+    row.sharedCountedItem === undefined
+      ? "sharesSpaceCountedHere"
+      : "sharesSpace",
+  );
 }
 
 /**
