@@ -248,6 +248,10 @@ mod tests {
                     resolve(detail);
                 }, { once: true });
             });
+            // The native side sends its single event only after it sees this title, so a slow start-up
+            // cannot deliver the event before the listener exists (#357). A missing event after the
+            // listener is registered still fails below.
+            document.title = 'Listening';
             const marker = Object.getOwnPropertyDescriptor(window, '__diskunfoldLocale');
             if (marker?.value !== true || marker.writable || marker.configurable) throw new Error('locale marker');
             const response = await window.__diskunfoldRequest('ping');
@@ -304,6 +308,8 @@ mod tests {
         )?;
         let next_event = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let source = Arc::clone(&next_event);
+        let listening = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let listening_source = Arc::clone(&listening);
         let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let started_callback = Arc::clone(&started);
         let ready = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -314,6 +320,9 @@ mod tests {
         let failed_callback = Arc::clone(&failures);
         let events = Events::new(
             move || {
+                if !listening_source.load(std::sync::atomic::Ordering::SeqCst) {
+                    return None;
+                }
                 source
                     .swap(false, std::sync::atomic::Ordering::SeqCst)
                     .then(|| EVENT.to_owned())
@@ -339,6 +348,9 @@ mod tests {
         let event_loop = glib::MainLoop::new(None, false);
         let quit = event_loop.clone();
         view.connect_title_notify(move |view| {
+            if view.title().as_deref() == Some("Listening") {
+                listening.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
             if view.title().is_some_and(|t| t.starts_with("IPC ")) {
                 quit.quit();
             }
