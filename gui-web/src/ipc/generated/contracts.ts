@@ -1317,7 +1317,17 @@ rootIndexes?: Array<number>,
  * `uncertain`, and `untraversed_link` rows are excluded. When combined with `kind`,
  * both filters apply.
  */
-failuresOnly?: boolean, cursor?: string, count?: number, };
+failuresOnly?: boolean,
+/**
+ * Restricts rows to the folder this item names and everything below it, in the
+ * folder's own root only (F02 #358). The reference must pin the request's own
+ * `result_version` and name a folder. A row is kept when the folder's root-relative
+ * path is the whole of its path or a leading run of its components, so the folder's
+ * own unread range is kept and `/a/bc` is not below `/a/b`. Omission selects the
+ * whole result; `null` is invalid. It combines with `root_indexes`, `kind` and
+ * `failures_only` by AND, and a cursor is bound to it.
+ */
+underItem?: ItemRef, cursor?: string, count?: number, };
 export type ScanFailures = { resultVersion: Id, rows: Array<ScanFailureRow>, totalCount: number, nextCursor?: string, };
 export type ScanPriorityRequest = {
 /**

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalysisError, resultReadProblem } from "../ipc";
 import type {
   AnalysisClient,
+  ItemRef,
   ResultReadProblem,
   ScanFailureKind,
   ScanFailureRow,
@@ -51,6 +52,7 @@ type ReadPlan = {
   version: string;
   kind: ScanFailureKind | null;
   rootIndexes?: number[] | undefined;
+  underItem?: ItemRef | undefined;
   failuresOnly: boolean;
   cursor: string | undefined;
   minimum: number;
@@ -58,6 +60,11 @@ type ReadPlan = {
 };
 
 class PageMismatch extends Error {}
+
+/** The storage and folder filters of a list as one key, so a change of either replaces it. */
+function filterKey(roots: string | null, under: ItemRef | undefined) {
+  return under === undefined ? roots : `${roots ?? ""}#${under.itemNo}`;
+}
 
 function emptyList(
   version: string,
@@ -109,7 +116,15 @@ function pageMatches(
  */
 async function readPages(
   client: AnalysisClient,
-  { version, kind, rootIndexes, failuresOnly, cursor, minimum }: ReadPlan,
+  {
+    version,
+    kind,
+    rootIndexes,
+    underItem,
+    failuresOnly,
+    cursor,
+    minimum,
+  }: ReadPlan,
   wanted: () => boolean,
 ): Promise<Pages | undefined> {
   const rows: ScanFailureRow[] = [];
@@ -119,6 +134,7 @@ async function readPages(
       resultVersion: version,
       ...(kind && { kind }),
       ...(rootIndexes && { rootIndexes }),
+      ...(underItem && { underItem }),
       ...(failuresOnly && { failuresOnly: true }),
       ...(next && { cursor: next }),
     });
@@ -156,7 +172,10 @@ function withPages(
   return {
     version: plan.version,
     kind: plan.kind,
-    rootIndexesKey: plan.rootIndexes?.join(",") ?? null,
+    rootIndexesKey: filterKey(
+      plan.rootIndexes?.join(",") ?? null,
+      plan.underItem,
+    ),
     failuresOnly: plan.failuresOnly,
     rows: appended ? [...previous.rows, ...pages.rows] : pages.rows,
     totalCount: pages.totalCount,
@@ -203,12 +222,23 @@ export function useScanFailures(
   rootIndexes?: readonly number[],
   failuresOnly = false,
   refreshKey = 0,
+  underItem?: ItemRef,
 ) {
   const filter = kind ?? null;
-  const rootIndexesKey = rootIndexes?.join(",") ?? null;
+  const rootsKey = rootIndexes?.join(",") ?? null;
+  const rootIndexesKey = filterKey(rootsKey, underItem);
   const requestRoots = useMemo(
-    () => rootIndexesKey?.split(",").map(Number),
-    [rootIndexesKey],
+    () => rootsKey?.split(",").map(Number),
+    [rootsKey],
+  );
+  const underNo = underItem?.itemNo;
+  const underVersion = underItem?.resultVersion;
+  const requestUnder = useMemo(
+    () =>
+      underNo === undefined || underVersion === undefined
+        ? undefined
+        : { resultVersion: underVersion, itemNo: underNo },
+    [underNo, underVersion],
   );
   const [list, setList] = useState<ListState>(() =>
     emptyList(resultVersion, filter, rootIndexesKey, failuresOnly),
@@ -241,6 +271,7 @@ export function useScanFailures(
         version: resultVersion,
         kind: filter,
         rootIndexes: requestRoots,
+        underItem: requestUnder,
         failuresOnly,
         cursor,
         minimum,
@@ -290,7 +321,15 @@ export function useScanFailures(
       if (loaded.nextCursor !== undefined)
         void read(loaded.nextCursor, 1, false);
     },
-    [client, failuresOnly, filter, requestRoots, resultVersion, rootIndexesKey],
+    [
+      client,
+      failuresOnly,
+      filter,
+      requestRoots,
+      requestUnder,
+      resultVersion,
+      rootIndexesKey,
+    ],
   );
 
   useEffect(() => {

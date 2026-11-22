@@ -35,7 +35,8 @@ import { SettingsRestoration } from "../features/settings/SettingsRestoration";
 import { LocaleSettings } from "../features/settings/LocaleSettings";
 import type { LocaleSettingsProps } from "../features/settings/LocaleSettings";
 import { createAnalysisClient, hasDesktopAnalysisBridge } from "../ipc";
-import type { AnalysisClient } from "../ipc";
+import type { AnalysisClient, ItemRef } from "../ipc";
+import type { ScanIssueFolderRequest } from "../features/analysis/scan-issue-filter";
 import {
   type ScanPriority,
   useScanPriority,
@@ -129,6 +130,9 @@ export function App({
   const { version: browseVersion, choice: browseChoice } = browse;
   const groups = useGroupsEntry(browseVersion);
   const browseTrigger = useRef<HTMLButtonElement>(null);
+  const [issueFolderRequest, setIssueFolderRequest] =
+    useState<ScanIssueFolderRequest>();
+  const issueFolderSequence = useRef(0);
   const tasksTrigger = useRef<HTMLButtonElement>(null);
   // Names the screen for the window title bar: operation history, folder browsing or analysis.
   useTitleBarContext(
@@ -338,6 +342,7 @@ export function App({
             browseTrigger={browseTrigger}
             onScanContext={setScanContext}
             priorityArea={priority.requestedArea}
+            issueFolderRequest={issueFolderRequest}
             startAlternative={<SampleEntrySlot flow={flow} />}
           />
         </div>
@@ -349,6 +354,17 @@ export function App({
         display={browseDisplay}
         hidden={controls.listHidden}
         priority={priority}
+        onViewUnread={(item, name) => {
+          // Back to the analysis view, where the issue list opens for this folder.
+          visualization.invalidate();
+          browse.set(undefined);
+          setVisualizationOpen(false);
+          setIssueFolderRequest({
+            item,
+            label: name,
+            requestId: ++issueFolderSequence.current,
+          });
+        }}
         onOpening={() => {
           visualization.invalidate();
           visualizationOffer.opening();
@@ -465,6 +481,7 @@ function BrowseSurface({
   priority,
   onOpening,
   onOpened,
+  onViewUnread,
 }: {
   client: AnalysisClient | undefined;
   port: BrowsePort | undefined;
@@ -472,6 +489,7 @@ function BrowseSurface({
   display: SizeDisplay;
   hidden: boolean;
   priority: ScanPriority;
+  onViewUnread: (item: ItemRef, name: string) => void;
   onOpening: () => void;
   onOpened: (resultVersion: string, opened: BrowseOpenLocation) => void;
 }) {
@@ -487,6 +505,7 @@ function BrowseSurface({
         resultVersion={resultVersion}
         display={display}
         priority={priority}
+        viewUnread={onViewUnread}
         focusTitle
         onOpening={onOpening}
         onOpened={(opened) => onOpened(resultVersion, opened)}

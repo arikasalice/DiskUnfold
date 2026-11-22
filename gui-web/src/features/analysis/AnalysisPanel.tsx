@@ -53,6 +53,7 @@ import { ScopeCollectionConditions } from "./ResourceControls";
 import type { ResourceLimitError } from "./ResourceControls";
 import type { SizeDisplay } from "../../i18n/bytes";
 import type { SizeBasisFilter } from "./space-format";
+import type { ScanIssueFolderRequest } from "./scan-issue-filter";
 import type { AnalysisDisplayPreferences } from "./use-display-preferences";
 
 function draft(paths: OsPath[], saved?: ScopeDraft): ScopeDraft {
@@ -170,6 +171,7 @@ export function AnalysisPanel({
   browseTrigger,
   onScanContext,
   priorityArea,
+  issueFolderRequest,
   startAlternative,
 }: {
   client: AnalysisClient;
@@ -190,6 +192,8 @@ export function AnalysisPanel({
   onScanContext?: (context: ScanPriorityContext | undefined) => void;
   /** The folder name retained by this GUI for its priority request. */
   priorityArea?: ScanPriorityArea | undefined;
+  /** Browse asked for the unreadable locations below one folder (F02 #358). */
+  issueFolderRequest?: ScanIssueFolderRequest | undefined;
   /** Another way to begin, such as the sample experience, offered before a scan starts. */
   startAlternative?: ReactNode;
 }) {
@@ -905,6 +909,7 @@ export function AnalysisPanel({
                 problem={error}
                 roots={resultRoots}
                 priorityArea={priorityArea}
+                folderRequest={issueFolderRequest}
                 exclusions={resultExclusions}
                 groupUnverified={resultGroupUnverified}
                 actions={

@@ -9,7 +9,6 @@ import {
   Action,
   DataTable,
   Heading,
-  MiddleEllipsisText,
   NameText,
   Notice,
   Progress,
@@ -29,13 +28,20 @@ import {
 } from "../../ipc";
 import type {
   AnalysisClient,
+  ItemRef,
   ResultReadProblem,
   ScanFailureKind,
   ScanFailureRow,
   ScanIssueFilter,
 } from "../../ipc";
 import { useScanFailures } from "../../state/scan-failures";
-import type { ScanIssueLaneRequest } from "./scan-issue-filter";
+import type {
+  ScanIssueFolder,
+  ScanIssueLaneRequest,
+} from "./scan-issue-filter";
+import { ScanIssueFolderChip } from "./ScanIssueFolderChip";
+import { ScanIssueStorageChip } from "./ScanIssueStorageChip";
+import type { StorageFilter } from "./ScanIssueStorageChip";
 import "../../theme/scan-issues.css";
 
 type IssueSource = {
@@ -48,14 +54,6 @@ type IssueSource = {
   onReopenLatest: () => void;
   running?: boolean | undefined;
   laneRequest?: ScanIssueLaneRequest | undefined;
-};
-
-type StorageFilter = {
-  rootIndexes: number[];
-  storagePath?: string | undefined;
-  storageTail?: string | undefined;
-  storageLabel: string;
-  storagePaths: string[];
 };
 
 function selectedIssueKind(
@@ -77,6 +75,7 @@ export function ScanIssues({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<ScanIssueFilter>("all");
   const [storageFilter, setStorageFilter] = useState<StorageFilter>();
+  const [folderFilter, setFolderFilter] = useState<ScanIssueFolder>();
   const [allStorageNotice, setAllStorageNotice] = useState(false);
   const [focusTitleToken, setFocusTitleToken] = useState(0);
   const [listReady, setListReady] = useState(false);
@@ -104,6 +103,7 @@ export function ScanIssues({
           }
         : undefined,
     );
+    setFolderFilter(laneRequest.folder);
     setAllStorageNotice(laneRequest.allStorages);
     setListReady(false);
     setCountText("");
@@ -135,6 +135,13 @@ export function ScanIssues({
     setStorageFilter(undefined);
   };
 
+  const clearFolder = () => {
+    setFocusTitleToken((value) => value + 1);
+    setListReady(false);
+    setCountText("");
+    setFolderFilter(undefined);
+  };
+
   const changeProblemType = (value: ScanIssueFilter) => {
     setFilter(value);
     setListReady(false);
@@ -144,25 +151,6 @@ export function ScanIssues({
   const rootIndexes = storageFilter?.rootIndexes;
   const kind = selectedIssueKind(filter);
   const failuresOnly = filter === "unreadable_locations";
-  const storageTooltip = storageFilter
-    ? [
-        ...storageFilter.storagePaths.slice(0, 5),
-        ...(storageFilter.storagePaths.length > 5
-          ? [
-              text("ui.analysis.issues_filter_paths_more", "and {count} more", {
-                count: BigInt(storageFilter.storagePaths.length - 5),
-              }),
-            ]
-          : []),
-      ].join("\n")
-    : "";
-  const storageChipLabel = storageFilter
-    ? text(
-        "ui.analysis.issues_filter_storage_name",
-        "Storage: {value}, clear storage filter",
-        { value: storageFilter.storageLabel },
-      )
-    : "";
   return (
     <section
       ref={section}
@@ -188,37 +176,22 @@ export function ScanIssues({
           >
             {text("ui.analysis.issues_title", "Scan issues")}
           </Heading>
-          {(storageFilter || (allStorageNotice && failuresOnly)) && (
+          {(storageFilter ||
+            folderFilter ||
+            (allStorageNotice && failuresOnly)) && (
             <div className="du-scan-issues__conditions">
+              {folderFilter && (
+                <ScanIssueFolderChip
+                  folder={folderFilter}
+                  onClear={clearFolder}
+                />
+              )}
               {storageFilter && (
-                <div className="du-scan-issues__chip">
-                  <Action
-                    ref={storageChip}
-                    aria-label={storageChipLabel}
-                    title={storageTooltip}
-                    onPress={clearStorage}
-                  >
-                    <Text inline>
-                      {text("ui.analysis.issues_filter_storage", "Storage:")}
-                    </Text>
-                    {storageFilter.storagePath ? (
-                      <Text inline className="du-scan-issues__storage-path">
-                        <MiddleEllipsisText
-                          text={storageFilter.storagePath}
-                          cell
-                        />
-                      </Text>
-                    ) : (
-                      storageFilter.storageLabel
-                    )}
-                    {storageFilter.storageTail && (
-                      <Text inline className="du-scan-issues__storage-tail">
-                        {storageFilter.storageTail}
-                      </Text>
-                    )}
-                    <Text inline>×</Text>
-                  </Action>
-                </div>
+                <ScanIssueStorageChip
+                  filter={storageFilter}
+                  chipRef={storageChip}
+                  onClear={clearStorage}
+                />
               )}
               {allStorageNotice && failuresOnly && (
                 <Text kind="muted" className="du-scan-issues__notice">
@@ -250,6 +223,7 @@ export function ScanIssues({
             resultVersion={resultVersion}
             kind={kind}
             rootIndexes={rootIndexes}
+            underItem={folderFilter?.item}
             failuresOnly={failuresOnly}
             refreshKey={laneRequest?.requestId ?? 0}
             running={running}
@@ -267,6 +241,7 @@ function IssuePages({
   resultVersion,
   kind,
   rootIndexes,
+  underItem,
   failuresOnly,
   refreshKey,
   running,
@@ -275,6 +250,7 @@ function IssuePages({
 }: IssueSource & {
   kind: ScanFailureKind | undefined;
   rootIndexes: number[] | undefined;
+  underItem: ItemRef | undefined;
   failuresOnly: boolean;
   refreshKey: number;
   onReadState: (ready: boolean, count: string) => void;
@@ -287,9 +263,10 @@ function IssuePages({
     rootIndexes,
     failuresOnly,
     refreshKey,
+    underItem,
   );
   const { rows, totalCount, problem } = list;
-  const autoFollowKey = `${resultVersion}:${refreshKey}:${kind ?? ""}:${rootIndexes?.join(",") ?? ""}:${failuresOnly}`;
+  const autoFollowKey = `${resultVersion}:${refreshKey}:${kind ?? ""}:${rootIndexes?.join(",") ?? ""}:${underItem?.itemNo ?? ""}:${failuresOnly}`;
   const autoFollowed = useRef("");
 
   useEffect(() => {
