@@ -1,5 +1,5 @@
 use du_analysis_index::{
-    IngestSink, Observation, ResultVersion,
+    FileIdentity, IngestSink, Observation, ResultVersion, SharingEvidence, SpaceObservation,
     visualization::{
         geometry::Rect,
         projection::{self, Options, Source},
@@ -102,6 +102,101 @@ fn fixture() -> Result<(IngestSink, Arc<ResultVersion>, projection::Model), Stri
     .map_err(|e| format!("{e:?}"))?;
     Ok((sink, version, model))
 }
+
+fn hardlink_fixture() -> Result<(IngestSink, Arc<ResultVersion>, projection::Model), String> {
+    let sink = IngestSink::default();
+    let root = ResultScopeRoot {
+        path: ResultNativePath {
+            encoding: PathEncoding::Unix,
+            raw: PathBytes::from_bytes(b"/"),
+        },
+        volume_id: vec![1],
+        file_id: vec![1],
+    };
+    let mut b = sink
+        .open_observed(id(11)?, root)
+        .map_err(|e| format!("{e:?}"))?;
+    b.add_directory(vec![]).map_err(|e| format!("{e:?}"))?;
+    b.add_directory(vec![b"files".to_vec()])
+        .map_err(|e| format!("{e:?}"))?;
+    let mib = 1024_u64 * 1024;
+    for (name, bytes, file_id, link_count) in [
+        (b"b".as_slice(), mib, 7_u8, 2_u64),
+        (b"a".as_slice(), mib, 7, 2),
+        (b"large".as_slice(), 2 * mib, 8, 1),
+    ] {
+        b.add_with_space(
+            Observation {
+                path: vec![b"files".to_vec(), name.to_vec()],
+                size: Some(SizeValue {
+                    basis: SizeBasis::Logical,
+                    evidence: SizeEvidence::Measured,
+                    amount: SizeAmount::Exact {
+                        bytes: bytes.into(),
+                    },
+                }),
+            },
+            SpaceObservation {
+                allocated: Some(SizeValue {
+                    basis: SizeBasis::Allocated,
+                    evidence: SizeEvidence::OsReported,
+                    amount: SizeAmount::Exact {
+                        bytes: bytes.into(),
+                    },
+                }),
+                identity: Some(FileIdentity {
+                    volume: vec![1],
+                    file: vec![file_id],
+                }),
+                link_count: Some(link_count),
+                sharing: SharingEvidence::Unknown,
+            },
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    }
+    let version = b
+        .seal(id(12)?, ResultCompleteness::Complete)
+        .map_err(|e| format!("{e:?}"))?;
+    let parent_no = version
+        .items()
+        .iter()
+        .find(|item| item.name == b"files")
+        .map(|item| item.item_no)
+        .ok_or("missing folder")?;
+    let parent = ItemRef {
+        result_version: version.version_id().clone(),
+        item_no: parent_no,
+    };
+    let desc = typed_layout::treemap_descriptor();
+    let mut builder = registry::Builder::<Box<dyn Strategy>>::default();
+    builder
+        .register(desc.clone(), Box::new(Treemap))
+        .map_err(|e| format!("{e:?}"))?;
+    let dispatcher = Dispatcher::new(builder.build(&[desc]).map_err(|e| format!("{e:?}"))?);
+    let model = projection::project(
+        Source {
+            version: &version,
+            parent: &parent,
+            basis: SizeBasis::Allocated,
+            bounds: Rect {
+                left: 0,
+                top: 0,
+                right: 1_000_000,
+                bottom: 1_000_000,
+            },
+        },
+        &dispatcher,
+        Options {
+            format: "treemap",
+            strategy: None,
+            max_shapes: 10,
+            group_tail: true,
+        },
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    Ok((sink, version, model))
+}
 fn labels(model: &projection::Model) -> Vec<RowPresentation> {
     model
         .rows
@@ -145,6 +240,7 @@ fn actual_pinned_projection_yields_matching_page_rows_and_geometry() -> Result<(
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(page.rows.len(), 3);
     assert_eq!(page.result_revision, *version.version_id());
+    assert_eq!(page.size_basis, SizeBasis::Logical);
     for (row, source) in page.rows.iter().zip(&model.rows) {
         assert_eq!(row.item_ref.as_ref(), Some(&source.item));
         assert_eq!(row.size, source.size);
@@ -172,6 +268,87 @@ fn actual_pinned_projection_yields_matching_page_rows_and_geometry() -> Result<(
             .iter()
             .any(|r| r.display_name == "zero" && r.ratio.as_ref().map(|x| x.as_str()) == Some("0"))
     );
+    Ok(())
+}
+
+#[test]
+fn allocated_hardlinks_have_one_area_and_blank_non_counted_ratio() -> Result<(), String> {
+    let (sink, version, model) = hardlink_fixture()?;
+    assert_eq!(model.rows.len(), 3);
+    assert_eq!(model.shapes.len(), 2);
+    assert_eq!(model.detail.unknown_items, 0);
+    assert_eq!(
+        model.detail.unknown_share,
+        du_analysis_index::visualization::projection::UnknownShare::None
+    );
+    assert!(!model.detail.remainder_causes.unattributed);
+
+    let pages = pages(sink)?;
+    let reference = production::register_projection(
+        &pages,
+        version.clone(),
+        &model,
+        "hardlinks".into(),
+        labels(&model),
+        None,
+        &mut || false,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let page = pages
+        .rows(&VizRowsRequest {
+            model_ref: reference,
+            result_revision: version.version_id().clone(),
+            start: 0,
+            count: 10,
+            parent_shape_ref: None,
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(page.size_basis, SizeBasis::Allocated);
+
+    let row = |name: &str| {
+        page.rows
+            .iter()
+            .find(|row| row.display_name == name)
+            .ok_or_else(|| format!("missing row {name}"))
+    };
+    let bytes = |name: &str| -> Result<u64, String> {
+        match &row(name)?.size.amount {
+            SizeAmount::Exact { bytes } => Ok(bytes.get()),
+            _ => Err(format!("unexpected size for {name}")),
+        }
+    };
+    let a = row("a")?;
+    let b = row("b")?;
+    let large = row("large")?;
+    assert_eq!(bytes("a")?, 1024 * 1024);
+    assert_eq!(bytes("b")?, 0);
+    assert_eq!(bytes("large")?, 2 * 1024 * 1024);
+    assert_eq!(a.shares_space, Some(true));
+    assert!(a.shared_counted_item.is_none());
+    assert_eq!(b.shares_space, Some(true));
+    assert_eq!(b.ratio, None);
+    assert_eq!(
+        b.shared_counted_item.as_ref().map(|item| item.item_no),
+        a.item_ref.as_ref().map(|item| item.item_no)
+    );
+    assert_eq!(large.shares_space, None);
+    let ratio_a: f64 = a
+        .ratio
+        .as_ref()
+        .ok_or("missing counted ratio")?
+        .as_str()
+        .parse()
+        .map_err(|e| format!("{e}"))?;
+    let ratio_large: f64 = large
+        .ratio
+        .as_ref()
+        .ok_or("missing ordinary ratio")?
+        .as_str()
+        .parse()
+        .map_err(|e| format!("{e}"))?;
+    assert!((ratio_a - 1.0 / 3.0).abs() < 0.00001);
+    assert!((ratio_large - 2.0 / 3.0).abs() < 0.00001);
+    assert!(ratio_a + ratio_large <= 1.0);
     Ok(())
 }
 #[test]

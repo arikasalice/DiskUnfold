@@ -7,14 +7,8 @@ use super::lower_bound::{Entry, is_lower_bound, project_at, row_of, scan};
 use super::*;
 use du_analysis_index::visualization::projection::UnknownShare;
 
-fn table_row(model: &Model, version: &ResultVersion, name: &str) -> Option<usize> {
-    let wanted = find(version, name);
-    let index = model.rows.iter().position(|row| row.item == wanted)?;
-    model.table_position(index)
-}
-
 #[test]
-fn a_file_shared_by_two_siblings_is_in_the_share_once() {
+fn a_file_shared_by_two_siblings_is_counted_once_without_an_unknown_share() {
     // a and c hold the same 10-byte file (two links); b holds 20 bytes of its own.
     let version = scan(
         &[
@@ -29,21 +23,18 @@ fn a_file_shared_by_two_siblings_is_in_the_share_once() {
         &[],
     );
     let model = project_at(&version, "", SizeBasis::Allocated, 16).unwrap();
-    assert_eq!(model.detail.unknown_items, 2);
-    assert_eq!(model.detail.unknown_share, UnknownShare::Exact(10));
-    // b fills the chart; the first row without an area is a, after b in the table.
-    assert_eq!(model.shapes.len(), 1);
-    let first = model.detail.first_unknown_row.unwrap();
-    assert_eq!(model.rows[first].item, find(&version, "a"));
+    assert_eq!(model.detail.unknown_items, 0);
+    assert_eq!(model.detail.unknown_share, UnknownShare::None);
+    assert_eq!(model.detail.first_unknown_row, None);
+    assert_eq!(model.shapes.len(), 2);
     assert_eq!(
-        model.table_position(first),
-        table_row(&model, &version, "a")
+        version.shared_counted_item(&find(&version, "fa")).unwrap(),
+        Some(find(&version, "fa"))
     );
-    assert_eq!(model.table_position(first), Some(1));
 }
 
 #[test]
-fn an_unread_entry_under_an_attributed_sibling_follows_the_unattributed_values() {
+fn an_unread_entry_under_an_attributed_sibling_does_not_make_a_shared_file_unknown() {
     let version = scan(
         &[
             Entry::Dir("a"),
@@ -63,21 +54,13 @@ fn an_unread_entry_under_an_attributed_sibling_follows_the_unattributed_values()
         SizeAmount::LowerBound { .. }
     ));
     assert_eq!(row_of(&model, &version, "b").omission, None);
-    // The share is exact when F03 keeps the siblings without an area exact; whether a
-    // result with an unread range makes every folder a lower bound is F03's rule.
-    let unattributed_lower = ["a", "c"]
-        .iter()
-        .any(|name| is_lower_bound(&row_of(&model, &version, name).size));
-    let expected = if unattributed_lower {
-        UnknownShare::LowerBound(10)
-    } else {
-        UnknownShare::Exact(10)
-    };
-    assert_eq!(model.detail.unknown_share, expected);
+    assert_eq!(model.detail.unknown_items, 0);
+    assert_eq!(model.detail.unknown_share, UnknownShare::None);
+    assert_eq!(model.detail.first_unknown_row, None);
 }
 
 #[test]
-fn an_unread_entry_under_a_sibling_without_an_area_makes_the_share_a_lower_bound() {
+fn an_unread_entry_under_a_counted_sibling_does_not_create_an_unknown_share() {
     let version = scan(
         &[
             Entry::Dir("a"),
@@ -92,11 +75,9 @@ fn an_unread_entry_under_a_sibling_without_an_area_makes_the_share_a_lower_bound
         &["a/locked"],
     );
     let model = project_at(&version, "", SizeBasis::Allocated, 16).unwrap();
-    assert_eq!(
-        row_of(&model, &version, "a").omission,
-        Some(NoArea::Unknown)
-    );
-    assert_eq!(model.detail.unknown_share, UnknownShare::LowerBound(10));
+    assert!(is_lower_bound(&row_of(&model, &version, "a").size));
+    assert_eq!(model.detail.unknown_items, 0);
+    assert_eq!(model.detail.unknown_share, UnknownShare::None);
 }
 
 #[test]
@@ -120,12 +101,12 @@ fn an_unread_entry_is_a_zero_lower_bound_and_no_item_without_an_area() {
 
 #[test]
 fn the_table_position_counts_the_group_row_instead_of_its_members() {
-    // Many small files become the root group; the shared pair stays without an area.
+    // Many small files become the root group; unread siblings stay without an area.
     let mut entries = vec![
         Entry::Dir("a"),
         Entry::Dir("c"),
-        Entry::Linked("a/fa", 10, 7, 2),
-        Entry::Linked("c/fc", 10, 7, 2),
+        Entry::Unread("a/unread"),
+        Entry::Unread("c/unread"),
         Entry::File("big", 1_000),
     ];
     let names: Vec<String> = (0..120).map(|i| format!("s{i:03}")).collect();
@@ -143,5 +124,6 @@ fn the_table_position_counts_the_group_row_instead_of_its_members() {
         .count();
     // The pair comes after every kept row, and the group row stands among them.
     assert_eq!(model.table_position(first), Some(kept + 1 - 2));
-    assert_eq!(model.detail.unknown_share, UnknownShare::Exact(10));
+    assert_eq!(model.detail.unknown_items, 2);
+    assert_eq!(model.detail.unknown_share, UnknownShare::None);
 }

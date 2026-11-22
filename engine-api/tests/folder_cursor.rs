@@ -139,6 +139,7 @@ fn visualization_registration_collision_preserves_authenticated_folder_cursor() 
     let pages = ModelPages::new(sink, NonZeroUsize::MIN, Arc::new(Ids(AtomicU8::new(40))));
     let input = |key: &str| ModelInput {
         version: version.clone(),
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: key.into(),
         rows: vec![],
         groups: Default::default(),

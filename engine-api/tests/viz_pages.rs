@@ -53,6 +53,7 @@ fn request(r: &str, v: &ResultVersion) -> VizRowsRequest {
 fn register(p: &ModelPages, v: &Arc<ResultVersion>, key: &str) -> Result<String, String> {
     p.register(ModelInput {
         version: v.clone(),
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: key.into(),
         rows: vec![make_row(v)?],
         groups: Default::default(),
@@ -85,6 +86,7 @@ fn source_reference_collision_preserves_existing_model_and_page() -> Result<(), 
         pages
             .register(ModelInput {
                 version: version.clone(),
+                size_basis: du_core_contracts::SizeBasis::Logical,
                 condition_fingerprint: "new".into(),
                 rows: vec![make_row(&version)?],
                 groups: Default::default()
@@ -132,6 +134,7 @@ fn current_replacement_restore_and_model_expiry_are_distinct() -> Result<(), Str
     assert_eq!(
         p.register(ModelInput {
             version: a.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "late".into(),
             rows: vec![],
             groups: Default::default()
@@ -203,6 +206,7 @@ fn same_id_from_another_store_cannot_be_admitted() -> Result<(), String> {
     assert_eq!(
         p.register(ModelInput {
             version: impostor,
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "x".into(),
             rows: vec![],
             groups: Default::default()
@@ -369,6 +373,7 @@ fn group_rows_keep_order_and_producer_evidence_and_reject_other_model_group() ->
     let model = pages
         .register(ModelInput {
             version: a.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "a".into(),
             rows: vec![],
             groups,
@@ -377,6 +382,7 @@ fn group_rows_keep_order_and_producer_evidence_and_reject_other_model_group() ->
     let other = pages
         .register(ModelInput {
             version: a.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "b".into(),
             rows: vec![],
             groups: HashMap::from([(

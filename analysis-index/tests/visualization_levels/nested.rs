@@ -1,3 +1,4 @@
+use super::lower_bound::{Entry, scan};
 use super::*;
 use du_analysis_index::visualization::projection::{
     FolderFrame, add_child_partition, add_framed_child_partition, finish_child_partitions,
@@ -110,33 +111,22 @@ fn nested_levels_never_push_the_model_past_the_limit() {
 
 #[test]
 fn unattributed_children_of_an_expanded_folder_are_counted_as_unknown() {
-    let sink = IngestSink::default();
-    let mut builder = sink.open(id(1)).unwrap();
-    for path in [
-        vec![],
-        vec![b"p".to_vec()],
-        vec![b"p".to_vec(), b"x".to_vec()],
-        vec![b"p".to_vec(), b"y".to_vec()],
-    ] {
-        builder.add_directory(path).unwrap();
-    }
-    for folder in [b"x", b"y"] {
-        builder
-            .add_with_space(
-                Observation {
-                    path: vec![b"p".to_vec(), folder.to_vec(), b"file".to_vec()],
-                    size: Some(logical(10)),
-                },
-                observation(7, 2),
-            )
-            .unwrap();
-    }
-    let version = builder.seal(id(2), ResultCompleteness::Complete).unwrap();
+    let version = scan(
+        &[
+            Entry::Dir("p"),
+            Entry::File("p/anchor", 10),
+            Entry::Unread("p/x"),
+            Entry::Unread("p/y"),
+        ],
+        ResultCompleteness::Complete,
+        &[],
+    );
     let mut model = project(&version, SizeBasis::Allocated, 16).unwrap();
     assert_eq!(model.shapes.len(), 1);
     expand(&mut model, &version, 0, 16).unwrap();
     assert_eq!(model.detail.unknown_items, 2);
-    assert!(model.descendants.is_empty() && model.detail.groups.is_empty());
+    assert_eq!(model.descendants.len(), 1);
+    assert!(model.detail.groups.is_empty());
     assert_eq!(model.rows[0].omitted_children, 0);
 }
 

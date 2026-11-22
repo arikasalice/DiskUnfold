@@ -98,6 +98,7 @@ fn rejected_submission_and_stale_job_do_not_evict_current_model() -> Result<(), 
     let reference = pages
         .register(ModelInput {
             version: current.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "current".into(),
             rows: vec![],
             groups: Default::default(),
