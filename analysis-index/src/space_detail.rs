@@ -152,7 +152,8 @@ impl ResultVersion {
             return summary;
         };
         let groups = match self
-            .identity_groups
+            .groups
+            .all
             .get_or_init(|| build_groups(self, self.shared_table_limit, false))
         {
             Ok(groups) => groups,
@@ -258,7 +259,8 @@ impl ResultVersion {
         };
         // Identities are matched by bytes, so a shared group needs no verified root.
         let Ok(groups) = self
-            .shared_groups
+            .groups
+            .shared
             .get_or_init(|| build_groups(self, usize::MAX, true))
         else {
             // A group that cannot be built leaves the file counted at its own path.
@@ -329,6 +331,13 @@ struct IdentityGroup {
 
 #[derive(Debug)]
 pub(crate) struct IdentityGroups(BTreeMap<FileIdentity, IdentityGroup>);
+
+/// Lazily built identity tables: every file (space detail) and the shared files only.
+#[derive(Debug, Default)]
+pub(crate) struct GroupCaches {
+    all: std::sync::OnceLock<Result<IdentityGroups, ()>>,
+    shared: std::sync::OnceLock<Result<IdentityGroups, ()>>,
+}
 
 fn build_groups(
     result: &ResultVersion,

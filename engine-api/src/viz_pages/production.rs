@@ -8,12 +8,11 @@ use du_analysis_index::{
     visualization::{projection, ratio},
 };
 use du_core_contracts::{
-    ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
+    ItemRef, SizeBasis, SizeValue,
     result::{ResultItem, ResultItemKind, ResultVersionRead},
     visualization::{
         item_kind::VizItemKind,
-        quantity::VizQuantity,
-        rows::{VizDenominator, VizDenominatorBasis, VizRatio, VizRow, VizUnread},
+        rows::{VizDenominator, VizRatio, VizRow, VizUnread},
         type_slices::VizTypeSlice,
     },
 };
@@ -24,8 +23,10 @@ use std::{
 
 mod folder_table;
 mod groups;
+mod shared;
 pub(crate) use folder_table::rows as folder_table_rows;
 pub(crate) use groups::nested_group_rows;
+use shared::{denominator, original_size, quantity, shared_counted_item, zero_non_counted_size};
 
 /// Classification and flags already evaluated by their owning producer for one item.
 #[derive(Clone)]
@@ -444,70 +445,6 @@ fn row_slices(
         super::type_slices::SlicesError::Cancelled => Error::Cancelled,
         super::type_slices::SlicesError::Invalid => Error::SourceMismatch,
     })
-}
-
-fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Error> {
-    if &size.basis != basis {
-        return Err(Error::SourceMismatch);
-    }
-    Ok(VizDenominator {
-        basis: VizDenominatorBasis::Scope,
-        value: quantity(size)?,
-        size: Some(size.clone()),
-    })
-}
-fn original_size(version: &ResultVersion, item_no: u32, basis: &SizeBasis) -> Option<SizeValue> {
-    let mut size = version.item_space_size(item_no, basis.clone())?;
-    if shared_counted_item(version, item_no, basis)
-        .ok()?
-        .is_some_and(|counted| counted.item_no != item_no)
-    {
-        size = zero_non_counted_size(size);
-    }
-    Some(size)
-}
-
-fn shared_counted_item(
-    version: &ResultVersion,
-    item_no: u32,
-    basis: &SizeBasis,
-) -> Result<Option<ItemRef>, Error> {
-    if *basis != SizeBasis::Allocated
-        || !version
-            .items()
-            .get(item_no as usize)
-            .is_some_and(|item| item.kind == ResultItemKind::File)
-    {
-        return Ok(None);
-    }
-    version
-        .shared_counted_item(&ItemRef {
-            result_version: version.version_id().clone(),
-            item_no,
-        })
-        .map_err(|_| Error::SourceMismatch)
-}
-
-fn zero_non_counted_size(mut size: SizeValue) -> SizeValue {
-    size.amount = match size.amount {
-        SizeAmount::Exact { .. } => SizeAmount::Exact { bytes: 0.into() },
-        SizeAmount::LowerBound { .. } => SizeAmount::LowerBound { bytes: 0.into() },
-        SizeAmount::Unknown => SizeAmount::Unknown,
-    };
-    size
-}
-
-fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {
-    let bytes = |bytes: &du_core_contracts::ByteSize| Ok::<_, Error>(bytes.get());
-    let value = match &size.amount {
-        SizeAmount::Exact { bytes: value } if size.evidence != SizeEvidence::Unknown => {
-            VizQuantity::exact("bytes", i128::from(bytes(value)?))
-        }
-        SizeAmount::Exact { .. } => return Err(Error::SourceMismatch),
-        SizeAmount::LowerBound { bytes: value } => VizQuantity::lower_bound("bytes", bytes(value)?),
-        _ => VizQuantity::unknown("bytes", "viz.unavailable.no_attribution".into()),
-    };
-    value.ok_or(Error::InvalidQuantity)
 }
 
 /// Rows for the given children with the given values, such as the kept bytes of a

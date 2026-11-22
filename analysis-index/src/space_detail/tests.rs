@@ -291,7 +291,8 @@ fn concurrent_readers_initialize_once_and_release_with_version() -> Result<(), S
         workers.push(std::thread::spawn(move || {
             barrier.wait();
             let groups = result
-                .identity_groups
+                .groups
+                .all
                 .get_or_init(|| build_groups(&result, 3, false));
             groups
                 .as_ref()
@@ -314,7 +315,8 @@ fn concurrent_readers_initialize_once_and_release_with_version() -> Result<(), S
 fn exhausted_table_returns_unknown_without_partial_group() -> Result<(), String> {
     let result = fixture()?;
     result
-        .identity_groups
+        .groups
+        .all
         .set(Err(()))
         .map_err(|_| "already initialized")?;
     let reference = ItemRef {

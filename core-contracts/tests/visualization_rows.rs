@@ -453,48 +453,6 @@ fn a_list_condition_rides_only_on_a_group_row_and_is_never_null()
 }
 
 #[test]
-fn a_folder_row_says_how_it_could_not_be_read() -> Result<(), Box<dyn std::error::Error>> {
-    use du_core_contracts::visualization::rows::VizUnread;
-    let with = |unread: Value| {
-        let mut value = row();
-        value["unread"] = unread;
-        value
-    };
-    for (wire, expected) in [
-        (json!({"kind":"itself"}), VizUnread::Itself),
-        (
-            json!({"kind":"inside","count":"3"}),
-            VizUnread::Inside {
-                count: Some("3".into()),
-            },
-        ),
-        (json!({"kind":"inside"}), VizUnread::Inside { count: None }),
-        // An unknown kind is read, so a newer sender does not break an older receiver.
-        (json!({"kind":"later"}), VizUnread::Unknown),
-    ] {
-        let parsed: VizRow = serde_json::from_value(with(wire.clone()))?;
-        assert_eq!(parsed.unread, Some(expected), "{wire}");
-    }
-    assert_eq!(VizUnread::inside(Some(0)), None);
-    for bad in [
-        Value::Null,
-        json!({"kind":"inside","count":"0"}),
-        json!({"kind":"inside","count":"03"}),
-        json!({"kind":"inside","count":"-3"}),
-        json!({"kind":"inside","count":null}),
-    ] {
-        assert!(
-            serde_json::from_value::<VizRow>(with(bad.clone())).is_err(),
-            "{bad}"
-        );
-    }
-    let mut group = group_row();
-    group["unread"] = json!({"kind":"itself"});
-    assert!(serde_json::from_value::<VizRow>(group).is_err());
-    Ok(())
-}
-
-#[test]
 fn group_rows_request_has_published_fields_and_rejects_invalid_values()
 -> Result<(), Box<dyn std::error::Error>> {
     let input = serde_json::json!({"modelRef":"model", "groupRef":"group", "start":0, "count":1});

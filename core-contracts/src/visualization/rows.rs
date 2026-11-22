@@ -10,8 +10,7 @@ use crate::{
     browse_open_ipc::QueryCondition, result::ResultCompleteness,
 };
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
-use std::collections::HashSet;
-
+mod checks;
 mod slices;
 mod wire;
 
@@ -146,72 +145,6 @@ pub struct VizRow {
     pub links: Option<Vec<VizLink>>,
 }
 impl VizRow {
-    /// Checks local invariants. The caller must resolve group references in the pinned model.
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if self.item_ref.is_some() == self.group_ref.is_some()
-            || self.group_ref.as_ref().is_some_and(String::is_empty)
-        {
-            return Err("invalid row reference");
-        }
-        let mut seen = HashSet::new();
-        if self
-            .display_flags
-            .iter()
-            .any(|key| key.is_empty() || !seen.insert(key))
-        {
-            return Err("invalid display flags");
-        }
-        if self.label_key.as_ref().is_some_and(String::is_empty) {
-            return Err("invalid label key");
-        }
-        // An item row shows a real file name. A message key there would let a
-        // consumer replace that name with message text.
-        if self.label_key.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
-            return Err("label key on an item row");
-        }
-        if let Some(count) = &self.member_count {
-            if self.item_ref.is_some() || self.group_ref.is_none() {
-                return Err("member count on an item row");
-            }
-            if count.unit() != "items" {
-                return Err("member count is not a count of items");
-            }
-        }
-        if self.item_kind.is_some() && self.item_ref.is_none() {
-            return Err("item kind on a group row");
-        }
-        if self.condition.is_some() && (self.item_ref.is_some() || self.group_ref.is_none()) {
-            return Err("condition on an item row");
-        }
-        if (self.shares_space.is_some() || self.shared_counted_item.is_some())
-            && self.size.basis != SizeBasis::Allocated
-        {
-            return Err("shared allocation fields on a non-allocated row");
-        }
-        if self.shares_space.is_some() && self.item_ref.is_none() {
-            return Err("shared allocation field on a group row");
-        }
-        if let Some(counted) = &self.shared_counted_item {
-            let is_zero = match &self.size.amount {
-                SizeAmount::Unknown => true,
-                SizeAmount::Exact { bytes } | SizeAmount::LowerBound { bytes } => bytes.get() == 0,
-            };
-            if self.shares_space != Some(true)
-                || self.item_ref.as_ref().is_none_or(|item| {
-                    item == counted || item.result_version != counted.result_version
-                })
-                || self.ratio.is_some()
-                || !is_zero
-            {
-                return Err("invalid shared counted item");
-            }
-        }
-        if self.unread.is_some() && self.item_ref.is_none() {
-            return Err("unread state on a group row");
-        }
-        self.validate_type_slices()?;
-        self.validate_links()
-    }
     /// Checks the item revision only; group membership requires the pinned model.
     pub fn validate_revision(&self, revision: &Id) -> Result<(), &'static str> {
         self.validate()?;
