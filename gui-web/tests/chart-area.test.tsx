@@ -3,6 +3,7 @@ import { createRef, useRef } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   CHART_BOTTOM_MARGIN,
+  CHART_OFFSET_RESERVE,
   ChartAreaContext,
   MIN_CHART_HEIGHT,
   chartHeight,
@@ -12,9 +13,11 @@ import {
 afterEach(cleanup);
 
 test.each([
-  // 1280x800 window: the scroll area leaves 560 px, the status line starts 44 px down.
-  [560, 44, 560 - 44 - CHART_BOTTOM_MARGIN],
-  [900.9, 40, 844],
+  // 1280x800 window: the scroll area leaves 560 px; the status line and a line
+  // of notes take the reserve, a wrapped line more.
+  [560, 44, 560 - CHART_OFFSET_RESERVE - CHART_BOTTOM_MARGIN],
+  [560, 130, 560 - 130 - CHART_BOTTOM_MARGIN],
+  [900.9, 120, 764],
   [300, 44, MIN_CHART_HEIGHT],
   [0, 0, MIN_CHART_HEIGHT],
   [-50, 10, MIN_CHART_HEIGHT],
@@ -26,9 +29,19 @@ test.each([
 );
 
 test("the chart height never drops below the minimum and keeps the bottom margin", () => {
-  expect(chartHeight(10_000, 0)).toBe(10_000 - CHART_BOTTOM_MARGIN);
+  expect(chartHeight(10_000, 0)).toBe(
+    10_000 - CHART_OFFSET_RESERVE - CHART_BOTTOM_MARGIN,
+  );
   expect(MIN_CHART_HEIGHT).toBe(240);
   expect(CHART_BOTTOM_MARGIN).toBe(16);
+});
+
+test("the lines that arrive with the first model do not change the chart height (#365)", () => {
+  // The first request assumes the reserve; the status line alone (40) or with
+  // a line of notes (94) keeps the same height, so no second chart is asked for.
+  const first = chartHeight(789, CHART_OFFSET_RESERVE);
+  expect(chartHeight(789, 40)).toBe(first);
+  expect(chartHeight(789, 94)).toBe(first);
 });
 
 test("the chart reports where it starts in the scroll area", () => {
