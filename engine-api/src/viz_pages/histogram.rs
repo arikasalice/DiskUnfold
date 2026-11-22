@@ -189,6 +189,8 @@ fn assemble(
                 member_count: None,
                 item_kind: VizItemKind::from_result(item.kind),
                 condition: None,
+                shares_space: None,
+                shared_counted_item: None,
                 unread: None,
                 type_slices: None,
             };
@@ -243,6 +245,8 @@ fn assemble(
             condition: bounds
                 .get(index)
                 .and_then(|bounds| interval_condition(bounds, &request.size_basis)),
+            shares_space: None,
+            shared_counted_item: None,
             unread: None,
             type_slices: None,
         };
@@ -283,6 +287,7 @@ fn assemble(
         no_attribution,
         pages: ModelInput {
             version: request.version,
+            size_basis: request.size_basis,
             condition_fingerprint: fingerprint,
             rows,
             groups,

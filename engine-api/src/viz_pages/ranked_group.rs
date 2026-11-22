@@ -160,6 +160,7 @@ impl ModelPages {
         )?;
         let input = ModelInput {
             version: source,
+            size_basis: basis,
             condition_fingerprint: key,
             rows,
             groups,
@@ -170,6 +171,7 @@ impl ModelPages {
         }
         let prepared = PreparedModelInput {
             version: input.version,
+            size_basis: input.size_basis,
             condition_fingerprint: input.condition_fingerprint,
             rows: Some(
                 PreparedRows::new_cancellable(input.rows, input.groups, cancelled)

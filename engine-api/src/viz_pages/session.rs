@@ -19,7 +19,7 @@ use du_analysis_index::{
     },
 };
 use du_core_contracts::{
-    Id, ItemRef,
+    Id, ItemRef, SizeBasis,
     result::{ResultItem, ResultVersionRead},
     visualization::rows::{VizRow, VizRows, VizRowsRequest},
 };
@@ -326,6 +326,7 @@ struct PinnedModel {
     reference: String,
     source: Arc<ResultVersion>,
     rows: Arc<[VizRow]>,
+    size_basis: SizeBasis,
     layout: Option<Arc<projection::Model>>,
     scope: Option<ItemRef>,
 }
@@ -356,12 +357,14 @@ impl Session {
             return Err(Error::StaleVersion);
         }
         let layout = entry.layout.clone();
+        let size_basis = entry.size_basis.clone();
         let scope = entry.scope.clone();
         let rows = source.pin_viz_rows(model_ref).map_err(super::model_error)?;
         *slot = Some(PinnedModel {
             reference: model_ref.to_owned(),
             source,
             rows,
+            size_basis,
             layout,
             scope,
         });
@@ -393,6 +396,7 @@ impl Session {
         }
         let source = pin.source.clone();
         let rows = pin.rows.clone();
+        let size_basis = pin.size_basis.clone();
         let layout = pin.layout.clone();
         let reference = pin.reference.clone();
         drop(slot);
@@ -410,6 +414,7 @@ impl Session {
         Ok(VizRows {
             rows: rows[start..end].to_vec(),
             total_count: rows.len() as u64,
+            size_basis,
             result_revision: source.version_id().clone(),
             observed_at: source.observed_at().cloned(),
             completeness: source.completeness(),

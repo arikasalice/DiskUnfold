@@ -9,7 +9,7 @@ use du_analysis_index::{
 };
 use du_core_contracts::{
     ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
-    result::{ResultItem, ResultVersionRead},
+    result::{ResultItem, ResultItemKind, ResultVersionRead},
     visualization::{
         item_kind::VizItemKind,
         quantity::VizQuantity,
@@ -155,6 +155,7 @@ pub(super) fn project_rows(
     let (rows, groups) = groups::assemble(&version, model, rows, other, &denominator, cancelled)?;
     Ok(ModelInput {
         version,
+        size_basis: model.basis.clone(),
         condition_fingerprint: fingerprint,
         rows,
         groups,
@@ -205,6 +206,7 @@ pub(super) fn project_fallback(
     }
     Ok(ModelInput {
         version,
+        size_basis: basis.clone(),
         condition_fingerprint: fingerprint,
         rows,
         groups: HashMap::new(),
@@ -280,8 +282,36 @@ fn project_row(
     }
     let filtered = model.filter.is_some();
     let slices = row_slices(version, &presentation, &model.basis, filtered, cancelled)?;
-    let projected = make_row(version, item, &row.size, presentation, denominator, slices)?;
-    if row.ratio.as_deref() != projected.ratio.as_ref().map(VizRatio::as_str) {
+    let mut projected = make_row(version, item, &row.size, presentation, denominator, slices)?;
+    let model_ratio = ratio::calculate(&quantity(&row.size)?, &denominator.value)
+        .as_deref()
+        .map(VizRatio::parse)
+        .transpose()
+        .map_err(|_| Error::InvalidRatio)?;
+    let attributed_ratio = row
+        .ratio
+        .as_deref()
+        .map(VizRatio::parse)
+        .transpose()
+        .map_err(|_| Error::InvalidRatio)?;
+    let non_counted = shared_counted_item(version, item.item_no, &model.basis)?
+        .is_some_and(|counted| counted.item_no != item.item_no);
+    let allocated_folder =
+        model.basis == SizeBasis::Allocated && item.kind == ResultItemKind::Directory;
+    if !allocated_folder && attributed_ratio != model_ratio {
+        return Err(Error::InvalidRatio);
+    }
+    let expected_ratio = if non_counted {
+        None
+    } else if allocated_folder {
+        attributed_ratio
+    } else {
+        model_ratio
+    };
+    if allocated_folder {
+        projected.ratio = expected_ratio.clone();
+    }
+    if projected.ratio != expected_ratio {
         return Err(Error::InvalidRatio);
     }
     Ok(projected)
@@ -323,17 +353,30 @@ fn make_row(
         .map_err(|_| Error::MissingDisplayName)?;
     let display_name =
         display_path::name(&root.path.encoding, &item.name).ok_or(Error::MissingDisplayName)?;
-    let numerator = quantity(size)?;
-    let ratio = ratio::calculate(&numerator, &denominator.value)
-        .as_deref()
-        .map(VizRatio::parse)
-        .transpose()
-        .map_err(|_| Error::InvalidRatio)?;
+    let counted_item = shared_counted_item(version, item.item_no, &size.basis)?;
+    let non_counted = counted_item
+        .as_ref()
+        .is_some_and(|counted| counted.item_no != item.item_no);
+    let row_size = if non_counted {
+        zero_non_counted_size(size.clone())
+    } else {
+        size.clone()
+    };
+    let ratio = if non_counted {
+        None
+    } else {
+        let numerator = quantity(&row_size)?;
+        ratio::calculate(&numerator, &denominator.value)
+            .as_deref()
+            .map(VizRatio::parse)
+            .transpose()
+            .map_err(|_| Error::InvalidRatio)?
+    };
     let projected = VizRow {
         item_ref: Some(presentation.item),
         group_ref: None,
         display_name,
-        size: size.clone(),
+        size: row_size,
         quantity: None,
         ratio,
         denominator: denominator.clone(),
@@ -343,6 +386,12 @@ fn make_row(
         member_count: None,
         item_kind: VizItemKind::from_result(item.kind),
         condition: None,
+        shares_space: counted_item.as_ref().map(|_| true),
+        shared_counted_item: if non_counted {
+            counted_item.clone()
+        } else {
+            None
+        },
         unread: row_unread(version, item),
         type_slices,
     };
@@ -407,7 +456,44 @@ fn denominator(size: &SizeValue, basis: &SizeBasis) -> Result<VizDenominator, Er
     })
 }
 fn original_size(version: &ResultVersion, item_no: u32, basis: &SizeBasis) -> Option<SizeValue> {
-    version.item_space_size(item_no, basis.clone())
+    let mut size = version.item_space_size(item_no, basis.clone())?;
+    if shared_counted_item(version, item_no, basis)
+        .ok()?
+        .is_some_and(|counted| counted.item_no != item_no)
+    {
+        size = zero_non_counted_size(size);
+    }
+    Some(size)
+}
+
+fn shared_counted_item(
+    version: &ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> Result<Option<ItemRef>, Error> {
+    if *basis != SizeBasis::Allocated
+        || !version
+            .items()
+            .get(item_no as usize)
+            .is_some_and(|item| item.kind == ResultItemKind::File)
+    {
+        return Ok(None);
+    }
+    version
+        .shared_counted_item(&ItemRef {
+            result_version: version.version_id().clone(),
+            item_no,
+        })
+        .map_err(|_| Error::SourceMismatch)
+}
+
+fn zero_non_counted_size(mut size: SizeValue) -> SizeValue {
+    size.amount = match size.amount {
+        SizeAmount::Exact { .. } => SizeAmount::Exact { bytes: 0.into() },
+        SizeAmount::LowerBound { .. } => SizeAmount::LowerBound { bytes: 0.into() },
+        SizeAmount::Unknown => SizeAmount::Unknown,
+    };
+    size
 }
 
 fn quantity(size: &SizeValue) -> Result<VizQuantity, Error> {

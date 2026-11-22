@@ -101,9 +101,8 @@ pub fn admit_cancellable(
             cancelled,
         )?
         .bytes;
-        let raw =
-            value(version, child.item_no, &basis).map_err(|_| AdmissionError::NoAttribution)?;
-        if partition_bytes(&raw, &basis, allow_lower_bound) != Some(observed) {
+        let raw = attributed_value(version, child.item_no, &basis)?;
+        if !matches_observed(child.kind, &raw, &basis, observed, allow_lower_bound) {
             return Err(AdmissionError::NoAttribution);
         }
         total = total
@@ -312,8 +311,7 @@ pub fn layout_nested_parent(
                 .map(|child| {
                     Ok(Child {
                         item: reference(version, child.item_no),
-                        value: value(version, child.item_no, &basis)
-                            .map_err(|_| AdmissionError::NoAttribution)?,
+                        value: attributed_value(version, child.item_no, &basis)?,
                         area_attributed: false,
                     })
                 })
@@ -327,6 +325,52 @@ pub fn layout_nested_parent(
             })
         }
         Err(error) => Err(error),
+    }
+}
+
+/// Reads the original subtree value, zeroing only a shared non-counted file on allocated basis.
+pub(super) fn attributed_value(
+    version: &ResultVersion,
+    item_no: u32,
+    basis: &SizeBasis,
+) -> Result<SizeValue, AdmissionError> {
+    let mut size = value(version, item_no, basis).map_err(|_| AdmissionError::NoAttribution)?;
+    if *basis == SizeBasis::Allocated
+        && version
+            .items()
+            .get(item_no as usize)
+            .is_some_and(|item| item.kind == ResultItemKind::File)
+    {
+        let item = reference(version, item_no);
+        if version
+            .shared_counted_item(&item)
+            .map_err(|_| AdmissionError::NoAttribution)?
+            .is_some_and(|counted| counted.item_no != item_no)
+        {
+            size.amount = match size.amount {
+                SizeAmount::Exact { .. } => SizeAmount::Exact { bytes: 0.into() },
+                SizeAmount::LowerBound { .. } => SizeAmount::LowerBound { bytes: 0.into() },
+                SizeAmount::Unknown => SizeAmount::Unknown,
+            };
+        }
+    }
+    Ok(size)
+}
+
+fn matches_observed(
+    kind: ResultItemKind,
+    value: &SizeValue,
+    basis: &SizeBasis,
+    observed: u64,
+    allow_lower_bound: bool,
+) -> bool {
+    let Some(bytes) = partition_bytes(value, basis, allow_lower_bound) else {
+        return false;
+    };
+    if *basis == SizeBasis::Allocated && kind == ResultItemKind::Directory {
+        observed <= bytes
+    } else {
+        observed == bytes
     }
 }
 

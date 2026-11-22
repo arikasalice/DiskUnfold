@@ -180,6 +180,8 @@ pub(super) fn group_row(
         member_count: Some(member_count(group.members.len())?),
         item_kind: None,
         condition: None,
+        shares_space: None,
+        shared_counted_item: None,
         unread: None,
         type_slices,
     };

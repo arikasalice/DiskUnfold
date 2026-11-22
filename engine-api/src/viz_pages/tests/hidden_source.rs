@@ -44,6 +44,7 @@ fn a_sample_model_is_refused_for_external_channels_before_any_read() -> Result<(
         pages
             .register(ModelInput {
                 version: version.clone(),
+                size_basis: du_core_contracts::SizeBasis::Logical,
                 condition_fingerprint: fingerprint.into(),
                 rows: vec![],
                 groups: HashMap::new(),

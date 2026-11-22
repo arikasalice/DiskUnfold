@@ -165,6 +165,8 @@ fn link_group(links: Option<HardlinkSummary>) -> BrowseValue<SpaceLinkGroup> {
         value: SpaceLinkGroup {
             reported_link_count: links.observed_link_count.map(|count| count.to_string()),
             in_scope_paths: paths,
+            shares_space: links.counted.as_ref().map(|_| true),
+            counted_item: links.counted,
             has_outside_links: links.outside_scope,
         },
     }

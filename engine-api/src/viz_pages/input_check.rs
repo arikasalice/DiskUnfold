@@ -28,6 +28,9 @@ pub(super) fn validate_rows_cancellable(
         }
         row.validate_revision(input.version.version_id())
             .map_err(|_| Error::InvalidModel)?;
+        if row.size.basis != input.size_basis {
+            return Err(Error::InvalidModel);
+        }
         if let Some(item) = &row.item_ref
             && input
                 .version

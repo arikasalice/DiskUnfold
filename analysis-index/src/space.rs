@@ -171,6 +171,7 @@ pub(crate) struct SpaceAggregates {
     source_completeness: ResultCompleteness,
     promoted: Option<Vec<u64>>,
     file_gaps: Vec<(u32, u64)>,
+    shared_files: Vec<u32>,
 }
 
 impl SpaceAggregates {
@@ -214,7 +215,18 @@ impl SpaceAggregates {
             source_completeness: completeness,
             promoted,
             file_gaps: Vec::new(),
+            shared_files: Vec::new(),
         }
+    }
+
+    /// Records the files whose identity belongs to another file of the same build, in
+    /// ascending item number (#359). Only these can share an allocation in scope.
+    pub(crate) fn set_shared_files(&mut self, files: Vec<u32>) {
+        self.shared_files = files;
+    }
+
+    pub(crate) fn is_shared_file(&self, item_no: u32) -> bool {
+        self.shared_files.binary_search(&item_no).is_ok()
     }
 
     pub(crate) fn slot(&self, item_no: u32) -> Option<usize> {

@@ -204,6 +204,8 @@ mod tests {
             member_count: None,
             item_kind: None,
             condition: None,
+            shares_space: None,
+            shared_counted_item: None,
             unread: None,
             type_slices: None,
         };

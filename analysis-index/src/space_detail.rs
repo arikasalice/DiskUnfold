@@ -21,6 +21,10 @@ pub struct HardlinkSummary {
     pub facts_consistent: Option<bool>,
     /// True or false only when the observed facts establish that conclusion.
     pub outside_scope: Option<bool>,
+    /// The one in-scope path whose allocation a total counts (#359), set when this
+    /// identity has two or more in-scope paths. It is the first path in scope root
+    /// order, then path component order, so enumeration order never changes it.
+    pub counted: Option<ItemRef>,
 }
 
 /// First applicable item-level exclusivity decision, not a reclaimable-space claim.
@@ -91,13 +95,36 @@ impl ResultVersion {
     }
 
     fn valid_identity(&self, index: usize, volume: &[u8], file: &[u8]) -> bool {
+        self.identity_on_root_volume(index, volume, file, true)
+    }
+
+    /// An identity usable for counting one path of a shared file (#359). It matches the
+    /// reading of the allocation totals: a root without a verified volume id does not
+    /// reject the identity, a root with one must carry the same volume.
+    fn countable_identity(&self, index: usize, volume: &[u8], file: &[u8]) -> bool {
+        self.identity_on_root_volume(index, volume, file, false)
+    }
+
+    fn identity_on_root_volume(
+        &self,
+        index: usize,
+        volume: &[u8],
+        file: &[u8],
+        verified: bool,
+    ) -> bool {
         !volume.is_empty()
             && !file.is_empty()
             && self
                 .root_indices
                 .get(index)
                 .and_then(|root| self.roots.get(*root as usize))
-                .is_some_and(|root| !root.volume_id.is_empty() && root.volume_id == volume)
+                .map_or(!verified, |root| {
+                    if verified {
+                        !root.volume_id.is_empty() && root.volume_id == volume
+                    } else {
+                        root.volume_id.is_empty() || root.volume_id == volume
+                    }
+                })
     }
 
     fn hardlinks(
@@ -113,6 +140,7 @@ impl ResultVersion {
             counts_consistent: None,
             facts_consistent: None,
             outside_scope: None,
+            counted: None,
         };
         let Some(identity) = observation
             .and_then(|value| value.identity.as_ref())
@@ -125,7 +153,7 @@ impl ResultVersion {
         };
         let groups = match self
             .identity_groups
-            .get_or_init(|| build_groups(self, self.shared_table_limit))
+            .get_or_init(|| build_groups(self, self.shared_table_limit, false))
         {
             Ok(groups) => groups,
             Err(()) => {
@@ -133,9 +161,10 @@ impl ResultVersion {
                 return summary;
             }
         };
-        let Some(members) = groups.0.get(identity) else {
+        let Some(group) = groups.0.get(identity) else {
             return summary;
         };
+        let members = &group.members;
         let mut paths = Vec::with_capacity(members.len());
         let mut counts = Vec::with_capacity(members.len());
         let mut facts_consistent = true;
@@ -190,8 +219,62 @@ impl ResultVersion {
                 summary.outside_scope = Some(true);
             }
         }
+        if paths.len() > 1 {
+            summary.counted = group.counted.map(|index| ItemRef {
+                result_version: self.version_id.clone(),
+                item_no: self.items[index].item_no,
+            });
+        }
         summary.in_scope = Some(paths);
         summary
+    }
+
+    /// Returns the deterministic counted path when an in-scope identity group is shared.
+    ///
+    /// The group index is lazy and bounded with the same table as `space.detail`.
+    /// `None` means no multi-path group was established; lookup exhaustion is an error.
+    pub fn shared_counted_item(&self, reference: &ItemRef) -> Result<Option<ItemRef>, QueryError> {
+        if reference.result_version != self.version_id {
+            return Err(QueryError::StaleVersion);
+        }
+        let item = self
+            .items
+            .get(reference.item_no as usize)
+            .ok_or(QueryError::NotFound)?;
+        if item.kind != ResultItemKind::File {
+            return Ok(None);
+        }
+        if !self.aggregates.is_shared_file(item.item_no) {
+            return Ok(None);
+        }
+        let Some(identity) = self
+            .physical
+            .as_ref()
+            .and_then(|observations| observations.get(item.item_no))
+            .and_then(|observation| observation.identity())
+            .filter(|id| self.countable_identity(reference.item_no as usize, id.volume, id.file))
+        else {
+            return Ok(None);
+        };
+        // Identities are matched by bytes, so a shared group needs no verified root.
+        let Ok(groups) = self
+            .shared_groups
+            .get_or_init(|| build_groups(self, usize::MAX, true))
+        else {
+            // A group that cannot be built leaves the file counted at its own path.
+            return Ok(None);
+        };
+        let identity = identity.to_owned();
+        let Some(group) = groups.0.get(&identity) else {
+            return Ok(None);
+        };
+        if group.members.len() < 2 {
+            return Ok(None);
+        }
+        Ok(group.counted.map(|index| ItemRef {
+            result_version: self.version_id.clone(),
+            item_no: self.items[index].item_no,
+        }))
     }
 }
 
@@ -238,20 +321,37 @@ fn decide(
     ExclusiveDecision::Confirmed
 }
 
-#[derive(Debug)]
-pub(crate) struct IdentityGroups(BTreeMap<FileIdentity, Vec<usize>>);
+#[derive(Debug, Default)]
+struct IdentityGroup {
+    members: Vec<usize>,
+    counted: Option<usize>,
+}
 
-fn build_groups(result: &ResultVersion, limit: usize) -> Result<IdentityGroups, ()> {
-    let mut groups = BTreeMap::<FileIdentity, Vec<usize>>::new();
+#[derive(Debug)]
+pub(crate) struct IdentityGroups(BTreeMap<FileIdentity, IdentityGroup>);
+
+fn build_groups(
+    result: &ResultVersion,
+    limit: usize,
+    shared_only: bool,
+) -> Result<IdentityGroups, ()> {
+    let mut groups = BTreeMap::<FileIdentity, IdentityGroup>::new();
     let mut entries = 0usize;
     if let Some(values) = &result.physical {
         for item in &result.items {
+            if shared_only && !result.aggregates.is_shared_file(item.item_no) {
+                continue;
+            }
             let index = item.item_no as usize;
             let Some(identity) = values.get(item.item_no).and_then(|value| value.identity()) else {
                 continue;
             };
             if item.kind != ResultItemKind::File
-                || !result.valid_identity(index, identity.volume, identity.file)
+                || !(if shared_only {
+                    result.countable_identity(index, identity.volume, identity.file)
+                } else {
+                    result.valid_identity(index, identity.volume, identity.file)
+                })
             {
                 continue;
             }
@@ -259,10 +359,42 @@ fn build_groups(result: &ResultVersion, limit: usize) -> Result<IdentityGroups, 
                 return Err(());
             }
             entries += 1;
-            groups.entry(identity.to_owned()).or_default().push(index);
+            groups
+                .entry(identity.to_owned())
+                .or_default()
+                .members
+                .push(index);
         }
     }
+    for group in groups.values_mut() {
+        let mut counted = None;
+        for &candidate in &group.members {
+            if let Some(best) = counted {
+                if path_order(result, candidate, best)?.is_lt() {
+                    counted = Some(candidate);
+                }
+            } else {
+                counted = Some(candidate);
+            }
+        }
+        group.counted = counted;
+    }
     Ok(IdentityGroups(groups))
+}
+
+fn path_order(result: &ResultVersion, left: usize, right: usize) -> Result<std::cmp::Ordering, ()> {
+    let key = |index: usize| -> Result<(u32, Vec<&[u8]>), ()> {
+        let mut parts = Vec::new();
+        let mut entry = result.items.get(index).ok_or(())?;
+        while let Some(parent) = entry.parent {
+            parts.push(entry.name.as_slice());
+            entry = result.items.get(parent as usize).ok_or(())?;
+        }
+        parts.reverse();
+        let root = result.root_indices.get(index).copied().unwrap_or(0);
+        Ok((root, parts))
+    };
+    Ok(key(left)?.cmp(&key(right)?))
 }
 
 fn shared_space(observation: Option<&SpaceObservation>) -> SharedSpace {
