@@ -118,6 +118,7 @@ pub enum PlanOriginChannel {
 #[serde(rename_all = "snake_case")]
 pub enum PlanReadiness {
     ExperiencePlan,
+    SourceNotCurrent,
     NeedsConfirmation,
     NoExecutableItems,
     ApprovalPossible,

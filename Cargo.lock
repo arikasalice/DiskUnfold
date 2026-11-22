@@ -236,6 +236,7 @@ version = "0.0.1"
 dependencies = [
  "blake3",
  "du-core-contracts",
+ "serde",
 ]
 
 [[package]]
@@ -278,6 +279,7 @@ version = "0.0.1"
 dependencies = [
  "blake3",
  "du-analysis-index",
+ "du-change-planner",
  "du-core-contracts",
  "du-duplicate-engine",
  "du-job-runtime",

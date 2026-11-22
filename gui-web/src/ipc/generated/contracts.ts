@@ -2028,7 +2028,7 @@ dataSource?: DataSource, groups: Array<GroupTotalRow>, union: GroupTotal, overla
 export type ChangeAction = "trash" | "move" | "delete";
 export type PlanSourceKind = "manual" | "goal_alternative" | "duplicate_keep" | "scenario";
 export type PlanOriginChannel = "gui" | "cli" | "mcp";
-export type PlanReadiness = "experience_plan" | "needs_confirmation" | "no_executable_items" | "approval_possible";
+export type PlanReadiness = "experience_plan" | "source_not_current" | "needs_confirmation" | "no_executable_items" | "approval_possible";
 export type PlanSection = "executable" | "held" | "needs_confirmation" | "absorbed";
 export type PlanItemDisposition = "included" | "held" | "rejected";
 export type PlanHash = string;

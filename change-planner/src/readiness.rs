@@ -4,9 +4,11 @@
 
 use crate::ports::{PlanItem, PlanItemState};
 use du_core_contracts::data_source::DataSource;
+use serde::{Deserialize, Serialize};
 
 /// Readiness outcome produced by a row of the F10 readiness table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanReadiness {
     /// The plan was built from sample data and can only be reviewed, never approved.
     SamplePlan,
