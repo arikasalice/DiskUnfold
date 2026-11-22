@@ -26,6 +26,8 @@ import type {
 import { CopyPath, OwedCopyStatus, owedCopyFailure } from "./CopyPath";
 import type { CopyContinuation } from "./CopyPath";
 import { isSampleSource } from "../../state/sample-session";
+import { useLocaleOsFamily } from "../../state/use-locale";
+import { defaultSizeDisplay } from "../../state/size-display";
 import { ItemSpaceDetails } from "./ItemSpaceDetails";
 import { InspectionName } from "./inspection-name";
 import {
@@ -34,7 +36,6 @@ import {
   displaySizeParts,
   isZeroLowerBound,
   displaySpaceReason,
-  windowsSizeDisplay,
 } from "./space-format";
 import "./file-inspection.css";
 import type { SizeDisplay } from "./space-format";
@@ -343,7 +344,7 @@ export function FileInspection({
   groupVolumeRole,
   navigateItem,
   focusCountedAtItem = false,
-  display = windowsSizeDisplay,
+  display,
   actionsDisabledReason,
   onStale,
   copy,
@@ -385,6 +386,8 @@ export function FileInspection({
    */
   unreadNote?: string | undefined;
 }) {
+  const osFamily = useLocaleOsFamily();
+  const effectiveDisplay = display ?? defaultSizeDisplay(osFamily);
   const [detail, setDetail] = useState<BrowseDetail>();
   const [problem, setProblem] = useState<
     "mismatch" | "stale" | "unavailable"
@@ -485,7 +488,7 @@ export function FileInspection({
                   detail,
                   itemKind,
                   alreadyCounted,
-                  display,
+                  effectiveDisplay,
                   client,
                   item,
                   text,
@@ -537,7 +540,7 @@ export function FileInspection({
       <ItemSpaceDetails
         client={client}
         item={item}
-        display={display}
+        display={effectiveDisplay}
         onStale={onStale}
         countedZero={countedZero}
       />

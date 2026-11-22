@@ -479,6 +479,8 @@
     ["ui.analysis.space_unique_physical","Unique physical size",[]],
     ["ui.analysis.space_exclusive","Exclusive space",[]],
     ["ui.analysis.space_shared","Shared space",[]],
+    ["ui.analysis.shared_space_counted_per_file","Counted per file",[]],
+    ["ui.analysis.allocated_may_include_shared","Cloned files share space, so this can be larger than the actual disk usage.",[]],
     ["ui.analysis.space_exclusive_confirmed","Exclusive space confirmed",[]],
     ["ui.analysis.space_confirmed","Confirmed",[]],
     ["ui.analysis.space_not_confirmed","Not confirmed",[]],

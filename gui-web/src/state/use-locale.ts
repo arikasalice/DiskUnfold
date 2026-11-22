@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { AnalysisError, NativeIpcTransportError } from "../ipc";
 import type {
   AnalysisClient,
@@ -6,6 +12,7 @@ import type {
   LocaleBundleBody,
   LocaleProfile,
   LocaleProfileChanges,
+  SupportOsFamily,
 } from "../ipc";
 
 type BundleEntry = { revision: string; body: LocaleBundleBody };
@@ -15,6 +22,15 @@ export type LocaleView = {
   selected: LocaleBundleBody;
   language: string;
 };
+
+/** Host family used for GUI fallbacks while display preferences are unavailable. */
+export const LocaleOsFamilyContext = createContext<SupportOsFamily | undefined>(
+  undefined,
+);
+
+export function useLocaleOsFamily() {
+  return useContext(LocaleOsFamilyContext);
+}
 
 type LocaleState = {
   view?: LocaleView;

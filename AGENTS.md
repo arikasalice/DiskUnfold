@@ -112,7 +112,8 @@ business components and adapters -> core-contracts (shared types and ports)
 
 Work from the repository root. Read `rust-toolchain.toml` and `.node-version` for the pinned versions. Follow the [README](README.md) for the native platform prerequisites. Use a permitted development environment for native toolchains. If Windows Application Control blocks generated binaries or native modules, record the failed native check and use the applicable GitHub-hosted Actions runner for supported checks.
 
-Use GitHub-hosted runners only. PR and merge build and test evidence comes from GitHub-hosted Actions runners; do not use or configure self-hosted runners or runner overrides.
+GitHub-hosted runners are the default. Only the macOS native quality targets (`macos-x64` and `macos-arm64` in `release-packaging/quality/targets.json`) may run on the repository's self-hosted macOS runners, and only when the `prepare` job finds an eligible runner online and idle; otherwise they fall back to GitHub-hosted runners. Release and fuzz workflows, static checks, Windows UI smoke and coverage use GitHub-hosted runners only. No other runner override is allowed.
+Report runner evidence with the runner kind shown in the job name, such as `native (macos-arm64, self-hosted)` or `native (macos-arm64, github-hosted)`.
 
 1. Install web dependencies from the lockfile with lifecycle scripts disabled.
 2. Generate TypeScript bindings from Rust when shared contracts change. Review and commit the resulting diff.

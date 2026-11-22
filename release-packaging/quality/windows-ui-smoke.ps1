@@ -10,12 +10,15 @@
 # look for intermittent failures.
 # -ScreenSize switches the display to a mode at least that large first, for window sizes the
 # default CI screen cannot hold. Exits 1 when any scenario failed.
+# -Shard and -ShardCount partition the filtered scenarios into deterministic shards.
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$Binary,
   [Parameter(Mandatory)][string]$OutputDirectory,
   [string]$ScenarioFile = (Join-Path $PSScriptRoot 'windows-ui-smoke.json'),
   [string[]]$Only = @(),
+  [ValidateRange(1, 20)][int]$ShardCount = 1,
+  [ValidateRange(1, 20)][int]$Shard = 1,
   [ValidateRange(1, 20)][int]$Repeat = 1,
   [string]$ScreenSize
 )
@@ -97,6 +100,13 @@ if ($Only.Count) {
   $scenarios = @($scenarios | Where-Object { $Only -contains $_.name })
   if (-not $scenarios.Count) { throw "No scenario matches: $($Only -join ', ')" }
 }
+if ($Shard -gt $ShardCount) { throw "Shard $Shard exceeds shard count $ShardCount" }
+$scenarios = @(
+  for ($index = 0; $index -lt $scenarios.Count; $index++) {
+    if (($index % $ShardCount) -eq ($Shard - 1)) { $scenarios[$index] }
+  }
+)
+if (-not $scenarios.Count) { throw "No scenarios assigned to shard $Shard of $ShardCount" }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $out = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $runs = foreach ($scenario in $scenarios) {
