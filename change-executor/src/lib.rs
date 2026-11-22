@@ -155,7 +155,7 @@ impl ApprovalCheckFailure {
 
     /// Returns the stable audit value required by app-db.
     pub const fn as_str(self) -> &'static str {
-        self.audit_result().as_str()
+        self.audit_result().as_db_value()
     }
 }
 

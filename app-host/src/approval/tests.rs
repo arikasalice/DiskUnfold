@@ -291,6 +291,44 @@ fn review_reads_a_stored_plan_and_sample_is_denied_at_the_ipc_entry()
 }
 
 #[test]
+fn snapshot_plans_are_denied_before_review_or_grant_checks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let snapshot = plan(id(92), id(93), PlanAction::Trash, DataSource::Snapshot)?;
+    let (engine, _, _) = make_engine(
+        snapshot.clone(),
+        MemoryPlans(vec![record(&snapshot, 1)]),
+        false,
+    )?;
+
+    let reviewed = call(
+        &engine,
+        APPROVAL_REVIEW,
+        serde_json::to_value(ApprovalReviewRequest {
+            request_version_id: snapshot.version_id.clone(),
+            request_kind: RequestKind::Plan,
+        })?,
+    )?;
+    assert_eq!(
+        reviewed.error.map(|error| error.reason_key).as_deref(),
+        Some("plan.source_not_current")
+    );
+
+    let granted = call(
+        &engine,
+        APPROVAL_GRANT,
+        json!({
+            "requestVersionId": snapshot.version_id,
+            "presentedPlanHash": "0".repeat(64)
+        }),
+    )?;
+    assert_eq!(
+        granted.error.map(|error| error.reason_key).as_deref(),
+        Some("plan.source_not_current")
+    );
+    Ok(())
+}
+
+#[test]
 fn delete_grant_requires_proofs_and_revoke_emits_after_state_commit()
 -> Result<(), Box<dyn std::error::Error>> {
     let version = plan(id(5), id(6), PlanAction::Delete, DataSource::Real)?;
