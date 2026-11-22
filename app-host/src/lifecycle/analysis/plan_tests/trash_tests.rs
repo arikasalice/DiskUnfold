@@ -62,9 +62,12 @@ fn approved_trash_records_each_item_through_f21_and_registers_session_undo() -> 
             .collect::<Result<_, _>>()?
     };
     assert_eq!(rows, [(0, "completed".into()), (1, "completed".into())]);
-    let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
-    assert_eq!(history_page["itemRecording"], "recorded");
-    assert_eq!(history_page["counts"]["recorded"], "2");
+    #[cfg(windows)]
+    {
+        let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
+        assert_eq!(history_page["itemRecording"], "recorded");
+        assert_eq!(history_page["counts"]["recorded"], "2");
+    }
     let finish_state: String = database.query_row(
         "SELECT end_state FROM job_runtime_approval_check
          WHERE job_id=?1 AND record_kind='finish'",
@@ -312,9 +315,12 @@ fn cancellation_records_remaining_items_and_history_failure_stops_the_job() -> T
     assert_eq!(page["counts"]["unprocessed"], 1);
     assert_eq!(page["items"][2]["state"], "unprocessed");
     assert_eq!(history_item_count(&app, &job_ref)?, 1);
-    let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
-    assert_eq!(history_page["itemRecording"], "recorded");
-    assert_eq!(history_page["counts"]["recorded"], "1");
+    #[cfg(windows)]
+    {
+        let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
+        assert_eq!(history_page["itemRecording"], "recorded");
+        assert_eq!(history_page["counts"]["recorded"], "1");
+    }
     Ok(())
 }
 
@@ -360,9 +366,12 @@ fn failed_first_item_history_still_reports_recorded_with_zero_rows() -> TestResu
     )?;
     assert_eq!(page["itemRecording"], "recorded");
     assert_eq!(history_item_count(&app, &job_ref)?, 0);
-    let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
-    assert_eq!(history_page["itemRecording"], "recorded");
-    assert_eq!(history_page["counts"]["recorded"], "0");
+    #[cfg(windows)]
+    {
+        let history_page = ok(&app.engine, "history.items", json!({"jobRef":job_ref}))?;
+        assert_eq!(history_page["itemRecording"], "recorded");
+        assert_eq!(history_page["counts"]["recorded"], "0");
+    }
     Ok(())
 }
 

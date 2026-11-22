@@ -93,13 +93,18 @@ fn assemble_with_ports(
             ops: change_ops,
         },
     )?;
-    let history_reader = crate::history::HistoryReader::open(profile.path(), database.clone())?;
-    du_engine_api::history::items::register(
-        &mut builder,
-        history_reader,
-        &du_platform_os::entropy::OsRandom,
-    )
-    .map_err(|error| format!("history items registration failed: {error:?}"))?;
+    // The history reader module is Windows-only, so the history.items command is registered
+    // only there; the per-item rows are asserted from SQLite on every platform.
+    #[cfg(windows)]
+    {
+        let history_reader = crate::history::HistoryReader::open(profile.path(), database.clone())?;
+        du_engine_api::history::items::register(
+            &mut builder,
+            history_reader,
+            &du_platform_os::entropy::OsRandom,
+        )
+        .map_err(|error| format!("history items registration failed: {error:?}"))?;
+    }
     services.events.mark_document_ready();
     let events = services.events.clone();
     let engine = builder.build()?;
