@@ -1,6 +1,7 @@
 import { GeometryRenderer } from "./geometry-renderer";
 import type { GeometryRendererProps } from "./geometry-renderer";
-import { shorten } from "./ranked-renderers";
+import { shorten, textWidth } from "./ranked-renderers";
+import { graphemes } from "../graphemes";
 import { SANKEY_COLUMNS } from "./sankey-links";
 
 /** The engine's unit coordinate range (geometry v1). */
@@ -249,11 +250,10 @@ function labels(
     const y = Math.min(box.top + LABEL_LINE / 2, at.height - LABEL_LINE / 2);
     const previous = lastLine[column];
     if (previous !== undefined && y - previous < LABEL_LINE) return null;
-    const words = labelWords(shape, column);
     const x = box.right + LABEL_GAP;
     const room = at.labelEnd[column] - x;
-    const text = words === "" ? "" : shorten(words, room);
-    if (text === "" || room <= 0) return null;
+    const text = room > 0 ? fitLabel(shape, column, room) : "";
+    if (text === "") return null;
     lastLine[column] = y;
     return (
       <text
@@ -268,12 +268,35 @@ function labels(
   });
 }
 
-function labelWords(shape: Shape, column: Column) {
+/**
+ * A node's label in `room` px, its value never cut (as #375): "name · value ·
+ * share" whole, else with the name shortened in the middle, else without the
+ * share, the name shortened again, else the value alone. A scope root shows its
+ * name only, shortened if need be.
+ */
+export function fitLabel(shape: Shape, column: Column, room: number) {
   const name = shape.displayName ?? shape.displayLabel ?? "";
-  if (name === "" || column === "scope") return name;
-  const parts = [name, shape.displayValue];
-  if (column === "type") parts.push(shape.displayShare);
-  return parts.filter((part) => part !== undefined && part !== "").join(" · ");
+  const value = shape.displayValue ?? "";
+  if (column === "scope" || name === "" || value === "")
+    return shortName(name, room) ?? "";
+  const share = column === "type" ? (shape.displayShare ?? "") : "";
+  for (const after of share ? [[value, share], [value]] : [[value]]) {
+    const rest = after.map((part) => " · " + part).join("");
+    const fitted = shortName(name, room - textWidth(rest));
+    if (fitted !== null) return fitted + rest;
+  }
+  return textWidth(value) <= room ? value : "";
+}
+
+/**
+ * The name whole, or shortened in the middle keeping at least two of its
+ * characters, within `room` px; null when even that does not fit.
+ */
+function shortName(name: string, room: number) {
+  if (textWidth(name) <= room) return name;
+  const short = shorten(name, room);
+  const kept = graphemes(short).length - 1;
+  return kept >= 2 && textWidth(short) <= room ? short : null;
 }
 
 function pixels(

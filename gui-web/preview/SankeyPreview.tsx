@@ -22,11 +22,22 @@ const text: VizText = createProductionVizText(
   (key, values) =>
     Object.entries(values ?? {}).reduce(
       (message, [name, value]) =>
-        message.replace("{" + name + "}", String(value)),
+        message.replace("{" + name + "}", countText(name, value)),
       visualizationMessage("ko", key),
     ),
   { system: "iec", unit: "auto" },
 );
+
+/**
+ * A count parameter in digit groups ("100,663,296"), as the product's locale
+ * bundle writes a parameter typed count; any other value as it is.
+ */
+function countText(name: string, value: string | bigint) {
+  const digits = String(value);
+  return name === "count" && /^[0-9]+$/.test(digits)
+    ? BigInt(digits).toLocaleString("ko-KR")
+    : digits;
+}
 const MiB = 1024n * 1024n;
 const quantity = (mib: number): VizQuantity => ({
   state: "exact",

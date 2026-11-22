@@ -8,7 +8,10 @@ import {
 import { afterEach, expect, test, vi } from "vitest";
 import { fixtureText, modelFixture } from "../preview/model-fixture";
 import { ModelRows } from "../src/features/visualization/VisualizationModelPresenter";
-import { SankeyRenderer } from "../src/components/charts/sankey-renderer";
+import {
+  SankeyRenderer,
+  fitLabel,
+} from "../src/components/charts/sankey-renderer";
 import { columnStep, keptLinks } from "../src/components/charts/sankey-links";
 import type { GeometryRendererProps } from "../src/components/charts/geometry-renderer";
 import { sankeyLinkWords, withParticle } from "../src/viz/sankey-text";
@@ -25,6 +28,19 @@ const rect = (left: number, top: number, right: number, bottom: number) => ({
     { x: left, y: top },
     { x: right, y: bottom },
   ],
+});
+
+test("a label keeps its value whole: the name shortens, then the share goes, then the name", () => {
+  const shape = node("t", "type", "그 밖의 유형", rect(0, 0, 1, 1), {
+    displayValue: "48.0 MiB",
+    displayShare: "21.1%",
+  });
+  expect(fitLabel(shape, "type", 207)).toBe("그 밖의 유형 · 48.0 MiB · 21.1%");
+  const narrower = fitLabel(shape, "type", 150);
+  expect(narrower).toMatch(/….* · 48\.0 MiB$/);
+  expect(narrower).not.toContain("%");
+  expect(fitLabel(shape, "type", 60)).toBe("48.0 MiB");
+  expect(fitLabel(shape, "type", 40)).toBe("");
 });
 const band = (x1: number, y1: number, x2: number, y2: number, h: number) => ({
   primitive: "polygon",

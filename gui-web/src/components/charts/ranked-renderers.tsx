@@ -55,7 +55,7 @@ function advance(part: string) {
 }
 
 /** The approximate drawn width of a text in the chart's 12 px font. */
-function textWidth(text: string) {
+export function textWidth(text: string) {
   return graphemes(text).reduce((sum, part) => sum + advance(part), 0);
 }
 
