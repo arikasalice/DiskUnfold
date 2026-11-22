@@ -49,7 +49,7 @@ fn complete_subtree_copies_f03_evidence_and_does_not_sum_directories() -> Result
     let summary = statistics_summary::summarize(&version, &root(&version), &mut || false)
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!((summary.counts.files, summary.counts.directories), (2, 1));
-    assert_eq!(summary.aggregate, *version.space(0).ok_or("no aggregate")?);
+    assert_eq!(summary.aggregate, version.space(0).ok_or("no aggregate")?);
     assert_eq!(
         summary.aggregate.logical.amount,
         SizeAmount::Exact {

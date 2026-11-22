@@ -5,7 +5,6 @@ fn observation(kind: ResultItemKind) -> StoredObservation {
     StoredObservation {
         size: None,
         kind,
-        physical: None,
         modified_at: None,
         native_modified_at: None,
         enumerated_inode: None,

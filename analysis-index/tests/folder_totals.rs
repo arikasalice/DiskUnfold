@@ -73,7 +73,7 @@ enum Variant {
 
 fn totals(version: &ResultVersion) -> Vec<du_core_contracts::result::SpaceAggregate> {
     let mut all: Vec<_> = (0..version.items().len() as u32)
-        .filter_map(|item_no| version.space(item_no).cloned())
+        .filter_map(|item_no| version.space(item_no))
         .collect();
     all.push(version.scope_total().clone());
     all

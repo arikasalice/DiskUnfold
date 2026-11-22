@@ -109,10 +109,10 @@ pub struct ResultVersion {
     completeness: ResultCompleteness,
     size_rule: BoundSizeRule,
     items: Vec<ResultItem>,
-    aggregates: Vec<SpaceAggregate>,
+    aggregates: space::SpaceAggregates,
     observation_ranges: Vec<observation_range::RangeIndices>,
     scope_observation_range: observation_range::RangeIndices,
-    physical: Option<Vec<Option<Arc<SpaceObservation>>>>,
+    physical: Option<physical::PhysicalObservations>,
     identity_groups: std::sync::OnceLock<Result<space_detail::IdentityGroups, ()>>,
     shared_table_limit: usize,
     roots: Vec<ResultScopeRoot>,
@@ -121,7 +121,7 @@ pub struct ResultVersion {
     exact_gaps: BTreeMap<u32, Vec<usize>>,
     directory_case: BTreeMap<u32, du_core_contracts::scan_observation::DirectoryCaseEvidence>,
     folder_marks: folder_marks::FolderMarks,
-    scope_total: Option<SpaceAggregate>,
+    scope_total: SpaceAggregate,
     volume_reports: Vec<VolumeReport>,
     observed_at: Option<Timestamp>,
     modified_times: Option<Vec<Option<Timestamp>>>,
@@ -321,9 +321,10 @@ impl BuildHandle {
             return Err(BuildError::Unavailable);
         }
         let built = match tree::build_items(
-            &self.observations,
+            &mut self.observations,
             self.roots.len().max(1),
             self.roots.len() > 1,
+            finish,
             &mut self.numbered_nodes,
         ) {
             Ok(items) => items,
@@ -373,8 +374,18 @@ impl BuildHandle {
             }
             Some(total)
         };
+        let scope_total = match scope_total {
+            Some(total) => total,
+            None => match aggregates.get(0) {
+                Some(root) => root.clone(),
+                None => {
+                    self.abort();
+                    return Err(BuildError::InvalidTree);
+                }
+            },
+        };
         let (observation_ranges, scope_observation_range) =
-            observation_range::build(&built, &aggregates, completeness, proven.as_ref());
+            observation_range::build(&built, &aggregates, completeness);
         let directory_case = directory_case::bind(&built, &self.directory_case);
         let folder_marks = folder_marks::FolderMarks::bind(
             &built,

@@ -23,7 +23,7 @@ pub enum QueryError {
 /// Original observations for one item in a pinned result, without inferring missing values.
 pub struct ItemDetail<'a> {
     pub item: &'a ResultItem,
-    pub physical: Option<&'a SpaceObservation>,
+    pub physical: Option<SpaceObservation>,
 }
 
 impl ResultVersion {
@@ -172,7 +172,7 @@ impl ResultVersion {
 
     /// The scope-wide aggregate, deduplicated across all observed roots.
     pub fn scope_total(&self) -> &SpaceAggregate {
-        self.scope_total.as_ref().unwrap_or(&self.aggregates[0])
+        &self.scope_total
     }
 
     /// Actual scope-root items, in the producer's root order.
@@ -224,8 +224,19 @@ impl ResultVersion {
     }
 
     /// Returns the aggregate for an item in this pinned version, or `None` for an invalid number.
-    pub fn space(&self, item_no: u32) -> Option<&SpaceAggregate> {
-        self.aggregates.get(item_no as usize)
+    pub fn space(&self, item_no: u32) -> Option<SpaceAggregate> {
+        let index = item_no as usize;
+        let item = self.items.get(index)?;
+        if let Some(aggregate) = self.aggregates.get(item.item_no) {
+            return Some(aggregate.clone());
+        }
+        let source = self.aggregates.source(item.item_no);
+        let mut aggregate = crate::space::aggregate_item(item, source);
+        crate::physical::apply_item(self, index, source, &mut aggregate);
+        if let Some(count) = self.aggregates.file_gap_count(item.item_no) {
+            crate::space::mark_inaccessible(&mut aggregate, count, self.physical.is_some());
+        }
+        Some(aggregate)
     }
 
     /// Reads a file size or folder aggregate only when its recorded basis matches `basis`.
@@ -235,7 +246,7 @@ impl ResultVersion {
     pub fn item_size(&self, item_no: u32, basis: SizeBasis) -> Option<&SizeValue> {
         let item = self.items.get(item_no as usize)?;
         let size = if item.kind == ResultItemKind::Directory {
-            let aggregate = self.space(item.item_no)?;
+            let aggregate = self.aggregates.get(item.item_no)?;
             match &basis {
                 SizeBasis::Logical => &aggregate.logical,
                 SizeBasis::Allocated => &aggregate.allocated,
@@ -244,27 +255,39 @@ impl ResultVersion {
         } else {
             match &basis {
                 SizeBasis::Logical => item.size.as_ref(),
-                SizeBasis::Allocated => self
-                    .physical
-                    .as_ref()?
-                    .get(item.item_no as usize)?
-                    .as_ref()?
-                    .allocated
-                    .as_ref(),
+                SizeBasis::Allocated => {
+                    Some(self.physical.as_ref()?.get(item.item_no)?.allocated()?)
+                }
                 SizeBasis::UniquePhysical => None,
             }?
         };
         (size.basis == basis).then_some(size)
     }
 
+    /// Reads one basis from the same aggregate returned by [`Self::space`].
+    pub fn item_space_size(&self, item_no: u32, basis: SizeBasis) -> Option<SizeValue> {
+        let aggregate = self.space(item_no)?;
+        Some(match basis {
+            SizeBasis::Logical => aggregate.logical,
+            SizeBasis::Allocated => aggregate.allocated,
+            SizeBasis::UniquePhysical => aggregate.unique_physical,
+        })
+    }
+
     /// The file identity recorded for an item, when its space evidence carries one.
-    pub fn file_identity(&self, item_no: u32) -> Option<&crate::FileIdentity> {
-        self.physical
-            .as_ref()?
-            .get(item_no as usize)?
-            .as_ref()?
-            .identity
-            .as_ref()
+    pub fn file_identity(&self, item_no: u32) -> Option<crate::FileIdentity> {
+        Some(self.physical.as_ref()?.get(item_no)?.identity()?.to_owned())
+    }
+
+    /// The volume and file identity bytes recorded for an item, borrowed from this version.
+    pub fn file_identity_bytes(&self, item_no: u32) -> Option<(&[u8], &[u8])> {
+        let identity = self.physical.as_ref()?.get(item_no)?.identity()?;
+        Some((identity.volume, identity.file))
+    }
+
+    /// The observed total link count recorded for an item, when its space evidence carries one.
+    pub fn file_link_count(&self, item_no: u32) -> Option<u64> {
+        self.physical.as_ref()?.get(item_no)?.link_count()
     }
 
     /// Resolves an item reference against this snapshot, including an older snapshot held open.
@@ -277,8 +300,8 @@ impl ResultVersion {
         let physical = self
             .physical
             .as_ref()
-            .and_then(|values| values.get(index))
-            .and_then(|value| value.as_deref());
+            .and_then(|values| values.get(item.item_no))
+            .map(|value| value.to_owned());
         Ok(ItemDetail { item, physical })
     }
 
@@ -340,7 +363,9 @@ impl ResultVersion {
             index = children[offset].item_no as usize;
         }
         ensure_directory(self.items[index].kind)?;
-        self.aggregates.get(index).ok_or(QueryError::NotFound)
+        self.aggregates
+            .get(index as u32)
+            .ok_or(QueryError::NotFound)
     }
 }
 

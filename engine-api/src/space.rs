@@ -148,7 +148,7 @@ fn query_error(error: QueryError) -> EngineError {
 fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTotal, EngineError> {
     let (aggregate, cancelled_unread_folders, range) = match request.target {
         SpaceTarget::ScopeRoot {} => (
-            version.scope_total(),
+            version.scope_total().clone(),
             version.cancelled_unread_folders_in_scope(),
             version.scope_observation_range(),
         ),
@@ -175,7 +175,7 @@ fn total(version: &ResultVersion, request: SpaceTotalRequest) -> Result<SpaceTot
     Ok(SpaceTotal {
         cancelled_unread_folders,
         observation_range: Some(wire_range(range)?),
-        ..response(version, request.request_seq, aggregate)
+        ..response(version, request.request_seq, &aggregate)
     })
 }
 
@@ -363,7 +363,7 @@ mod tests {
             .seal(Id::from_v7_bytes([2; 16]), ResultCompleteness::Complete)
             .map_err(|e| debug(&e))?;
         let aggregate = version.space(0).ok_or("no aggregate")?;
-        let total = response(&version, 1, aggregate);
+        let total = response(&version, 1, &aggregate);
         for size in &total.sizes {
             let limits = item_limits(&version, 0, &size.size.basis).unwrap_or_default();
             assert_eq!(limits, size.measurement_limits, "{:?}", size.size.basis);

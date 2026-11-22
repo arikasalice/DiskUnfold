@@ -72,7 +72,7 @@ fn folder_with_file() -> Result<BuildHandle, String> {
         .map_err(e)?;
     Ok(build)
 }
-fn folder(result: &ResultVersion) -> Result<&SpaceAggregate, String> {
+fn folder(result: &ResultVersion) -> Result<SpaceAggregate, String> {
     let item = result
         .items()
         .iter()
@@ -98,7 +98,7 @@ fn an_observed_link_adds_its_own_size_and_its_target_keeps_the_folder_exact() ->
         .seal(id(2)?, ResultCompleteness::Complete)
         .map_err(e)?;
 
-    for aggregate in [folder(&result)?, result.scope_total()] {
+    for aggregate in [folder(&result)?, result.scope_total().clone()] {
         assert_eq!(aggregate.logical.amount, exact(15));
         assert_eq!(aggregate.completeness, ResultCompleteness::Complete);
         assert_eq!(aggregate.allocated.amount, exact(15));
@@ -125,7 +125,7 @@ fn a_link_whose_own_size_is_unknown_is_not_filled_with_zero() -> Test {
         .seal(id(2)?, ResultCompleteness::Complete)
         .map_err(e)?;
 
-    for aggregate in [folder(&result)?, result.scope_total()] {
+    for aggregate in [folder(&result)?, result.scope_total().clone()] {
         assert_eq!(
             aggregate.logical.amount,
             SizeAmount::LowerBound {

@@ -1,4 +1,3 @@
-use crate::SpaceObservation;
 use du_core_contracts::{
     SizeValue, Timestamp, result::ResultItemKind, scan_observation::NativeModifiedTime,
 };
@@ -10,7 +9,6 @@ pub use attribute_reasons::ObservedAttribute;
 pub(crate) struct StoredObservation {
     pub(crate) size: Option<SizeValue>,
     pub(crate) kind: ResultItemKind,
-    pub(crate) physical: Option<std::sync::Arc<SpaceObservation>>,
     pub(crate) modified_at: Option<Timestamp>,
     pub(crate) native_modified_at: Option<NativeModifiedTime>,
     pub(crate) enumerated_inode: Option<std::num::NonZeroU64>,

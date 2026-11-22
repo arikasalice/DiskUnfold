@@ -62,7 +62,7 @@ impl BoundSizeRule {
         completeness: ResultCompleteness,
         proven: Option<&crate::folder_completion::ProvenFolders>,
         limit: usize,
-    ) -> Vec<SpaceAggregate> {
+    ) -> space::SpaceAggregates {
         self.rule.aggregate(built, completeness, proven, limit)
     }
 
@@ -123,7 +123,7 @@ impl RegisteredRule {
         completeness: ResultCompleteness,
         proven: Option<&crate::folder_completion::ProvenFolders>,
         limit: usize,
-    ) -> Vec<SpaceAggregate> {
+    ) -> space::SpaceAggregates {
         match self {
             Self::SubtreeUnique => {
                 let mut aggregates =
@@ -132,8 +132,6 @@ impl RegisteredRule {
                     &built.items,
                     built.file_evidence(),
                     &built.sparse.boundary,
-                    completeness,
-                    proven,
                     limit,
                     &mut aggregates,
                 );

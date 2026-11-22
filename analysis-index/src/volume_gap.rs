@@ -280,7 +280,7 @@ impl crate::ResultVersion {
         };
         let mut aggregate = self
             .aggregates
-            .get(roots[0] as usize)
+            .get(roots[0])
             .ok_or(crate::QueryError::PathUnavailable)?
             .clone();
         let dedup = crate::physical::selected_scope(self, &roots, completeness, &mut aggregate);

@@ -41,7 +41,7 @@ pub(crate) fn rows(
             .filter(|item| item.parent == Some(folder.item_no))
             .ok_or(Error::SourceMismatch)?;
         if shape.item.result_version != model.result_revision
-            || original_size(version, item.item_no, &model.basis) != Some(&shape.size)
+            || original_size(version, item.item_no, &model.basis) != Some(shape.size.clone())
         {
             return Err(Error::SourceMismatch);
         }

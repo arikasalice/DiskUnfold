@@ -5,6 +5,7 @@
 use super::*;
 use crate::space;
 use du_core_contracts::result::ResultItemKind;
+use std::sync::Arc;
 
 const FORESTS: u64 = 300;
 const COMPLETENESS: [ResultCompleteness; 4] = [
@@ -45,6 +46,34 @@ impl Rng {
 struct Forest {
     items: Vec<ResultItem>,
     observations: Option<Vec<Option<Arc<SpaceObservation>>>>,
+}
+
+fn values_from_index(
+    items: &[ResultItem],
+    indexed: &space::SpaceAggregates,
+    observations: Option<&PhysicalObservations>,
+    completeness: ResultCompleteness,
+    limit: usize,
+) -> Result<Vec<SpaceAggregate>, String> {
+    items
+        .iter()
+        .map(|item| {
+            if expected_is_structure(item.kind) {
+                return indexed
+                    .get(item.item_no)
+                    .cloned()
+                    .ok_or_else(|| "missing structural item aggregate".to_owned());
+            }
+            let mut aggregate = space::aggregate_item(item, completeness);
+            let observation = observations.and_then(|values| values.get(item.item_no));
+            let reading = Observed::read(observation);
+            let mut own = Physical::with_limit(limit);
+            own.note_placeholder(&reading, false);
+            let _ = own.record(&reading, false);
+            own.finish(completeness, &mut aggregate);
+            Ok(aggregate)
+        })
+        .collect()
 }
 
 /// Test oracle for the established result-kind boundary, independent of production code.
@@ -252,9 +281,9 @@ fn reference(
     let mut expected: Vec<_> = (0..forest.items.len())
         .map(|index| expected_logical(&forest.items, index, completeness))
         .collect();
-    let repeated = forest
-        .observations
-        .as_deref()
+    let compact = observations::compact_test_observations(forest.observations.as_deref());
+    let repeated = compact
+        .as_ref()
         .map(|observations| subtree::repeated_identities(&forest.items, observations));
     for (index, output) in expected.iter_mut().enumerate() {
         let mut sum = Physical::with_limit(limit);
@@ -270,10 +299,9 @@ fn reference(
             Box::new(files.iter())
         };
         for file in order {
-            let input = forest
-                .observations
+            let input = compact
                 .as_ref()
-                .and_then(|values| values[*file].as_deref());
+                .and_then(|values| values.get(u32::try_from(*file).unwrap_or_default()));
             // A file that is its own scope has no other file to share with.
             let tabled =
                 *file != index && repeated.as_deref().is_none_or(|repeated| repeated[*file]);
@@ -285,7 +313,7 @@ fn reference(
 }
 
 #[test]
-fn every_result_kind_keeps_its_subtree_propagation() {
+fn every_result_kind_keeps_its_subtree_propagation() -> Result<(), String> {
     let items: Vec<_> = RESULT_KINDS
         .into_iter()
         .enumerate()
@@ -326,19 +354,25 @@ fn every_result_kind_keeps_its_subtree_propagation() {
     };
     let expected = reference(&forest, ResultCompleteness::Complete, 3, false);
     let mut actual = space::aggregate(&forest.items, &[], ResultCompleteness::Complete, None);
+    let compact = observations::compact_test_observations(forest.observations.as_deref());
     apply(
         &forest.items,
         FileEvidence {
-            observations: forest.observations.as_deref(),
+            observations: compact.as_ref(),
             placeholders: None,
         },
         &[],
-        ResultCompleteness::Complete,
-        None,
         3,
         &mut actual,
     );
 
+    let actual = values_from_index(
+        &forest.items,
+        &actual,
+        compact.as_ref(),
+        ResultCompleteness::Complete,
+        3,
+    )?;
     assert_eq!(actual, expected);
     assert_eq!(expected[0].missing_items, 2);
     assert_eq!(expected[0].untraversed_links, 1);
@@ -363,6 +397,7 @@ fn every_result_kind_keeps_its_subtree_propagation() {
             "item {index}"
         );
     }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -404,18 +439,24 @@ fn whole_build_totals_equal_one_table_per_subtree() -> Result<(), String> {
         for completeness in COMPLETENESS {
             let expected = reference(&forest, completeness, limit, seed % 2 == 0);
             let mut actual = space::aggregate(&forest.items, &[], completeness, None);
+            let compact = observations::compact_test_observations(forest.observations.as_deref());
             apply(
                 &forest.items,
                 FileEvidence {
-                    observations: forest.observations.as_deref(),
+                    observations: compact.as_ref(),
                     placeholders: None,
                 },
                 &[],
-                completeness,
-                None,
                 limit,
                 &mut actual,
             );
+            let actual = values_from_index(
+                &forest.items,
+                &actual,
+                compact.as_ref(),
+                completeness,
+                limit,
+            )?;
             for (index, (want, got)) in expected.iter().zip(&actual).enumerate() {
                 if want != got {
                     return Err(format!(

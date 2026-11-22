@@ -18,17 +18,12 @@ pub(super) const AVAILABILITY_BASIS: SizeBasis = SizeBasis::Logical;
 /// Reads the F03 value an F06 row shows for `item_no` in `basis`.
 ///
 /// This is the aggregate the row projection uses; no basis is converted.
-pub(super) fn row_size<'a>(
-    version: &'a du_analysis_index::ResultVersion,
+pub(super) fn row_size(
+    version: &du_analysis_index::ResultVersion,
     item_no: u32,
     basis: &SizeBasis,
-) -> Option<&'a SizeValue> {
-    let scope = version.space(item_no)?;
-    Some(match basis {
-        SizeBasis::Logical => &scope.logical,
-        SizeBasis::Allocated => &scope.allocated,
-        SizeBasis::UniquePhysical => &scope.unique_physical,
-    })
+) -> Option<SizeValue> {
+    version.item_space_size(item_no, basis.clone())
 }
 
 /// A size value that states an amount with evidence, as F03 reports it.
@@ -166,7 +161,7 @@ fn child_sizes(
     if children.is_empty()
         || children
             .iter()
-            .any(|child| has_value(row_size(version, child.item_no, basis)))
+            .any(|child| has_value(row_size(version, child.item_no, basis).as_ref()))
     {
         Evidence::Known(())
     } else {

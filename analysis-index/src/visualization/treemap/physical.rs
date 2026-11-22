@@ -42,9 +42,8 @@ pub(super) fn link_bytes(
     let allocated = version
         .physical
         .as_ref()
-        .and_then(|v| v.get(no as usize))
-        .and_then(Option::as_ref)
-        .and_then(|observation| observation.allocated.as_ref())
+        .and_then(|v| v.get(no))
+        .and_then(|observation| observation.allocated())
         .is_some_and(|v| v.evidence == SizeEvidence::OsReported);
     if !allocated {
         return Ok(None);
@@ -84,7 +83,8 @@ pub(super) fn physical_file(
         return Err(AdmissionError::NoAttribution);
     }
     let count = file.link_count;
-    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(file.identity) {
+    let identity = file.identity.to_owned();
+    if let Some((owner, previous, links, seen)) = identities.owners.get_mut(&identity) {
         if *owner != sibling
             || *previous != file.bytes
             || *links != count
@@ -102,7 +102,7 @@ pub(super) fn physical_file(
     } else {
         identities
             .owners
-            .insert(file.identity.clone(), (sibling, file.bytes, count, 1));
+            .insert(identity, (sibling, file.bytes, count, 1));
         Ok(FileBytes {
             bytes: file.bytes,
             unmeasured: file.lower,

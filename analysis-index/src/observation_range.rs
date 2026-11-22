@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use du_core_contracts::{
     Timestamp,
-    result::{ResultCompleteness, ResultItemKind, SpaceAggregate},
+    result::{ResultCompleteness, ResultItemKind},
 };
 
 /// Bounds of the timestamps actually present, and whether they cover the entire scope.
@@ -90,9 +90,8 @@ fn compare(a: &Timestamp, b: &Timestamp) -> Ordering {
 
 pub(crate) fn build(
     built: &crate::tree::BuiltItems,
-    aggregates: &[SpaceAggregate],
+    aggregates: &crate::space::SpaceAggregates,
     completeness: ResultCompleteness,
-    proven: Option<&crate::folder_completion::ProvenFolders>,
 ) -> (Vec<RangeIndices>, RangeIndices) {
     let items = &built.items;
     let times = built.item_observed_times.as_deref();
@@ -141,15 +140,13 @@ pub(crate) fn build(
     }
     // The aggregator uses None for no recorded gap; Some(count) is set only by
     // the gap marking pass. It is not a general proof of external scan coverage.
-    for (index, (range, aggregate)) in ranges.iter_mut().zip(aggregates).enumerate() {
-        let source = crate::folder_completion::ProvenFolders::source(proven, index, completeness);
-        range.complete &= source == ResultCompleteness::Complete
-            && aggregate.inaccessible_ranges.is_none_or(|count| count == 0);
+    for (index, range) in ranges.iter_mut().enumerate() {
+        let item_no = items[index].item_no;
+        range.complete &= aggregates.source(item_no) == ResultCompleteness::Complete
+            && !aggregates.item_inaccessible(item_no);
     }
     let mut scope = scope.unwrap_or_default();
-    scope.complete &= completeness == ResultCompleteness::Complete
-        && aggregates
-            .iter()
-            .all(|a| a.inaccessible_ranges.is_none_or(|count| count == 0));
+    scope.complete &=
+        completeness == ResultCompleteness::Complete && !aggregates.has_inaccessible();
     (ranges, scope)
 }

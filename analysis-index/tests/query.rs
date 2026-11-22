@@ -77,7 +77,7 @@ fn directories_files_links_unknowns_and_item_evidence_are_distinct()
         .map_err(|e| format!("{e:?}"))?;
     assert_eq!(detail.item.kind, ResultItemKind::File);
     assert_eq!(detail.item.size, Some(value(SizeBasis::Logical, 12)));
-    assert_eq!(detail.physical, Some(&physical));
+    assert_eq!(detail.physical, Some(physical.clone()));
     let previous_file = previous
         .items()
         .iter()
@@ -88,7 +88,7 @@ fn directories_files_links_unknowns_and_item_evidence_are_distinct()
             .detail(&reference(id(4)?, previous_file.item_no))
             .map_err(|e| format!("{e:?}"))?
             .physical,
-        Some(&physical)
+        Some(physical.clone())
     );
     assert_eq!(
         version

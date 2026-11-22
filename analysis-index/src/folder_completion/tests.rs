@@ -195,7 +195,7 @@ fn tree(sink: &IngestSink, case: Case) -> Result<BuildHandle, String> {
     Ok(build)
 }
 
-fn space<'a>(version: &'a ResultVersion, name: &str) -> Result<&'a SpaceAggregate, String> {
+fn space(version: &ResultVersion, name: &str) -> Result<SpaceAggregate, String> {
     let item = if name.is_empty() {
         0
     } else {
@@ -210,7 +210,7 @@ fn space<'a>(version: &'a ResultVersion, name: &str) -> Result<&'a SpaceAggregat
         .space(item)
         .ok_or_else(|| "missing aggregate".into())
 }
-fn promoted(aggregate: &SpaceAggregate, bytes: u64) -> bool {
+fn promoted(aggregate: SpaceAggregate, bytes: u64) -> bool {
     aggregate.completeness == ResultCompleteness::Complete
         && aggregate.logical.amount == exact(bytes)
 }

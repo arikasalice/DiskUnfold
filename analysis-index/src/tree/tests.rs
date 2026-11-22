@@ -68,7 +68,7 @@ fn populated_forest() -> Result<BuildHandle, String> {
 }
 
 #[test]
-fn two_partial_versions_of_one_build_share_each_files_evidence() -> Result<(), String> {
+fn partial_versions_share_file_evidence_and_seal_compactly() -> Result<(), String> {
     let failed = |e: crate::BuildError| format!("{e:?}");
     let sink = IngestSink::default();
     let mut build = sink.open(id(1)?).map_err(failed)?;
@@ -90,19 +90,71 @@ fn two_partial_versions_of_one_build_share_each_files_evidence() -> Result<(), S
         path: vec![b"file".to_vec()],
         size: None,
     };
-    build.add_with_space(file, space).map_err(failed)?;
+    build.add_with_space(file, space.clone()).map_err(failed)?;
     let first = build.publish_partial(id(2)?).map_err(failed)?;
     let second = build.publish_partial(id(3)?).map_err(failed)?;
-    let find = |version: &crate::ResultVersion| {
-        version
+    let a = first
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(1))
+        .ok_or("first version lost the file evidence")?;
+    let b = second
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(1))
+        .ok_or("second version lost the file evidence")?;
+    assert_eq!(a.to_owned(), space);
+    assert_eq!(b.to_owned(), space);
+    assert!(
+        first
             .physical
             .as_ref()
-            .and_then(|values| values.iter().flatten().next().cloned())
+            .zip(second.physical.as_ref())
+            .is_some_and(|(a, b)| a.shares_storage_with(b))
+    );
+    let next_space = SpaceObservation {
+        allocated: None,
+        identity: Some(FileIdentity {
+            volume: vec![2],
+            file: vec![8],
+        }),
+        link_count: Some(1),
+        sharing: SharingEvidence::Unknown,
     };
-    let (Some(a), Some(b)) = (find(&first), find(&second)) else {
-        return Err("both versions must keep the file evidence".into());
-    };
-    assert!(Arc::ptr_eq(&a, &b));
+    build
+        .add_with_space(
+            Observation {
+                path: vec![b"file-next".to_vec()],
+                size: None,
+            },
+            next_space.clone(),
+        )
+        .map_err(failed)?;
+    let third = build.publish_partial(id(5)?).map_err(failed)?;
+    assert!(
+        first
+            .physical
+            .as_ref()
+            .and_then(|values| values.get(2))
+            .is_none()
+    );
+    assert_eq!(
+        third
+            .physical
+            .as_ref()
+            .and_then(|values| values.get(2))
+            .map(crate::physical::PhysicalObservationRef::to_owned),
+        Some(next_space)
+    );
+    let sealed = build
+        .seal(id(6)?, ResultCompleteness::Complete)
+        .map_err(failed)?;
+    assert!(
+        sealed
+            .physical
+            .as_ref()
+            .is_some_and(crate::physical::PhysicalObservations::is_compact)
+    );
     Ok(())
 }
 
@@ -242,9 +294,7 @@ fn physical_identity(version: &ResultVersion, item: usize) -> Option<&[u8]> {
     version
         .physical
         .as_ref()?
-        .get(item)?
-        .as_ref()?
-        .identity
-        .as_ref()
-        .map(|identity| identity.file.as_slice())
+        .get(u32::try_from(item).ok()?)?
+        .identity()
+        .map(|identity| identity.file)
 }

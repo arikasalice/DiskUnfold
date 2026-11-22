@@ -74,7 +74,7 @@ fn scan(collected: bool) -> Result<Arc<ResultVersion>, String> {
     build.seal(id(2)?, ResultCompleteness::Missing).map_err(e)
 }
 
-fn bad(version: &ResultVersion) -> Result<&SpaceAggregate, String> {
+fn bad(version: &ResultVersion) -> Result<SpaceAggregate, String> {
     let item = version
         .items()
         .iter()

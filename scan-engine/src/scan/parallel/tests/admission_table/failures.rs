@@ -78,7 +78,7 @@ fn pinned(outcome: JobOutcome, sink: &IngestSink) -> Result<Collected, String> {
     let published = outcome.result_version_id.is_some();
     let version = sink.pin().map_err(|e| format!("{e:?}"))?.ok_or("missing")?;
     Ok(Collected {
-        root: version.space(0).cloned(),
+        root: version.space(0),
         run: Run {
             outcome,
             summary: summary(&version),

@@ -1,12 +1,16 @@
 use crate::item_kind::is_structure;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 mod finish;
+mod observations;
 mod observed;
+mod record;
 mod subtree;
 
 use finish::amount;
+pub(crate) use observations::{
+    FileIdentityRef, PhysicalObservationRef, PhysicalObservationStore, PhysicalObservations,
+};
 use observed::Observed;
 pub(crate) use subtree::apply;
 
@@ -23,17 +27,8 @@ pub(crate) type Placeholders<'a> = Option<&'a [Option<PlaceholderObservation>]>;
 /// The per-item file evidence of a build: space observations and placeholder flags.
 #[derive(Clone, Copy)]
 pub(crate) struct FileEvidence<'a> {
-    pub(crate) observations: Option<&'a [Option<Arc<SpaceObservation>>]>,
+    pub(crate) observations: Option<&'a PhysicalObservations>,
     pub(crate) placeholders: Placeholders<'a>,
-}
-
-impl crate::tree::BuiltItems {
-    pub(crate) fn file_evidence(&self) -> FileEvidence<'_> {
-        FileEvidence {
-            observations: self.physical.as_deref(),
-            placeholders: self.placeholder_observations.as_deref(),
-        }
-    }
 }
 
 /// Whether item `index` is a placeholder whose local occupancy the OS does not report.
@@ -41,6 +36,11 @@ pub(crate) fn local_unknown(placeholders: Placeholders<'_>, index: usize) -> boo
     placeholders
         .and_then(|values| values.get(index).copied().flatten())
         .is_some_and(PlaceholderObservation::local_occupancy_unknown)
+}
+
+#[cfg(test)]
+pub(crate) fn physical_record_size_bytes() -> usize {
+    std::mem::size_of::<observations::PhysicalRecord>()
 }
 
 /// An OS-observed volume and file identity, scoped to the current observation.
@@ -165,7 +165,7 @@ impl Physical {
             }
             Observed::Known(identity, value) => {
                 if tabled {
-                    self.insert((*identity).clone(), Some(value.clone()));
+                    self.insert((*identity).to_owned(), Some(value.clone()));
                 } else {
                     self.add_known(value);
                     self.untabled.add(value);
@@ -322,7 +322,7 @@ pub(crate) fn scope_total(
             let observed = Observed::read(
                 evidence
                     .observations
-                    .and_then(|values| values[index].as_deref()),
+                    .and_then(|values| values.get(item.item_no)),
             );
             sum.note_placeholder(&observed, local_unknown(evidence.placeholders, index));
             let tabled = repeated.as_deref().is_none_or(|repeated| repeated[index]);
@@ -330,6 +330,27 @@ pub(crate) fn scope_total(
         }
     }
     sum.finish(completeness, output);
+}
+
+/// Computes a non-structural item's physical contribution when its aggregate is requested.
+pub(crate) fn apply_item(
+    result: &crate::ResultVersion,
+    index: usize,
+    source: ResultCompleteness,
+    output: &mut SpaceAggregate,
+) {
+    let observed = result
+        .physical
+        .as_ref()
+        .and_then(|values| values.get(index as u32));
+    let reading = Observed::read(observed);
+    let mut sum = Physical::with_limit(result.shared_table_limit);
+    sum.note_placeholder(
+        &reading,
+        local_unknown(result.placeholder_observations.as_deref(), index),
+    );
+    let _ = sum.record(&reading, false);
+    sum.finish(source, output);
 }
 
 /// Reuses the same identity table for a sorted set of root observations and
@@ -360,15 +381,17 @@ pub(crate) fn selected_scope(
 
 /// One file's space observation, or none when its identity disagrees with the volume of
 /// its root, which F03 then treats as missing.
-fn pinned_observation(result: &crate::ResultVersion, index: usize) -> Option<&SpaceObservation> {
+fn pinned_observation(
+    result: &crate::ResultVersion,
+    index: usize,
+) -> Option<PhysicalObservationRef<'_>> {
     let observed = result
         .physical
         .as_ref()
-        .and_then(|values| values.get(index))
-        .and_then(|value| value.as_deref());
+        .and_then(|values| values.get(index as u32));
     let root = result.roots.get(result.root_indices[index] as usize);
     let consistent = observed.is_none_or(|value| {
-        value.identity.as_ref().is_none_or(|identity| {
+        value.identity().is_none_or(|identity| {
             root.is_none_or(|root| root.volume_id.is_empty() || identity.volume == root.volume_id)
         })
     });
@@ -377,7 +400,7 @@ fn pinned_observation(result: &crate::ResultVersion, index: usize) -> Option<&Sp
 
 /// One file's allocation as F03 counts it in an allocated total.
 pub(crate) struct FileAllocation<'a> {
-    pub(crate) identity: &'a FileIdentity,
+    pub(crate) identity: FileIdentityRef<'a>,
     pub(crate) bytes: u64,
     /// The allocation is itself a lower bound, so every total above it is one.
     pub(crate) lower: bool,
@@ -400,7 +423,7 @@ pub(crate) fn pinned_allocation(
             bytes: known.bytes,
             lower: known.lower,
             sharing: known.sharing,
-            link_count: observation.link_count,
+            link_count: observation.link_count(),
         }),
         Observed::Missing | Observed::IdentityMissing => None,
     }

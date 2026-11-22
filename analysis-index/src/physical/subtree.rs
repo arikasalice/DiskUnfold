@@ -13,7 +13,6 @@
 //! untabled identities, which does not depend on the order of observations.
 
 use super::*;
-use crate::folder_completion::ProvenFolders;
 use crate::item_kind::is_structure;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -21,7 +20,7 @@ use std::hash::{Hash, Hasher};
 
 /// An identity compared by its bytes. `FileIdentity` is a public type and does
 /// not implement `Hash`; this key does so only for the counting pass.
-struct IdentityKey<'a>(&'a FileIdentity);
+struct IdentityKey<'a>(FileIdentityRef<'a>);
 
 impl Hash for IdentityKey<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -32,7 +31,7 @@ impl Hash for IdentityKey<'_> {
 
 impl PartialEq for IdentityKey<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.0.volume == other.0.volume && self.0.file == other.0.file
     }
 }
 
@@ -43,17 +42,17 @@ impl Eq for IdentityKey<'_> {}
 /// Only files that `Physical::record` would put in an identity table count.
 pub(super) fn repeated_identities(
     items: &[ResultItem],
-    observations: &[Option<Arc<SpaceObservation>>],
+    observations: &PhysicalObservations,
 ) -> Vec<bool> {
     let mut repeated = vec![false; items.len()];
-    let files = observations.iter().flatten().count();
-    let mut first: HashMap<IdentityKey<'_>, usize> = HashMap::with_capacity(files);
+    let mut first: HashMap<IdentityKey<'_>, usize> =
+        HashMap::with_capacity(observations.present_count());
     for item in items {
         let index = item.item_no as usize;
         if is_structure(item.kind) {
             continue;
         }
-        let Observed::Known(identity, _) = Observed::read(observations[index].as_deref()) else {
+        let Observed::Known(identity, _) = Observed::read(observations.get(item.item_no)) else {
             continue;
         };
         match first.entry(IdentityKey(identity)) {
@@ -74,14 +73,11 @@ pub(crate) fn apply(
     items: &[ResultItem],
     evidence: FileEvidence<'_>,
     boundary: &[u32],
-    completeness: ResultCompleteness,
-    proven: Option<&ProvenFolders>,
     limit: usize,
-    output: &mut [SpaceAggregate],
+    output: &mut crate::space::SpaceAggregates,
 ) {
-    let source = |index| ProvenFolders::source(proven, index, completeness);
     let Some(observations) = evidence.observations else {
-        apply_unobserved(items, boundary, &source, limit, output);
+        apply_unobserved(items, boundary, limit, output);
         return;
     };
     let repeated = repeated_identities(items, observations);
@@ -90,7 +86,7 @@ pub(crate) fn apply(
     for item in items.iter().rev() {
         let index = item.item_no as usize;
         let observed =
-            (!is_structure(item.kind)).then(|| Observed::read(observations[index].as_deref()));
+            (!is_structure(item.kind)).then(|| Observed::read(observations.get(item.item_no)));
         let placeholder = local_unknown(evidence.placeholders, index);
         let tabled = repeated[index];
         if let Some(mut sum) = sums[index].take() {
@@ -98,7 +94,10 @@ pub(crate) fn apply(
                 sum.note_placeholder(observed, placeholder);
                 let _ = sum.record(observed, tabled);
             }
-            sum.finish(source(index), &mut output[index]);
+            let source = output.source(item.item_no);
+            if let Some(aggregate) = output.get_mut(item.item_no) {
+                sum.finish(source, aggregate);
+            }
             if let Some(parent) = item.parent {
                 let slot = &mut sums[parent as usize];
                 match slot {
@@ -115,7 +114,10 @@ pub(crate) fn apply(
             own.note_placeholder(observed, placeholder);
             let _ = own.record(observed, false);
         }
-        own.finish(source(index), &mut output[index]);
+        let source = output.source(item.item_no);
+        if let Some(aggregate) = output.get_mut(item.item_no) {
+            own.finish(source, aggregate);
+        }
         // A file outside the boundary keeps its own totals and adds nothing above it.
         let counts_above = boundary.binary_search(&item.item_no).is_err();
         if let (Some(parent), Some(observed), true) = (item.parent, &observed, counts_above) {
@@ -131,19 +133,21 @@ pub(crate) fn apply(
 fn apply_unobserved(
     items: &[ResultItem],
     boundary: &[u32],
-    source: &dyn Fn(usize) -> ResultCompleteness,
     limit: usize,
-    output: &mut [SpaceAggregate],
+    output: &mut crate::space::SpaceAggregates,
 ) {
     let mut missing = vec![false; items.len()];
     for item in items.iter().rev() {
         let index = item.item_no as usize;
         missing[index] |= !is_structure(item.kind);
-        Physical {
-            missing: missing[index],
-            ..Physical::with_limit(limit)
+        let source = output.source(item.item_no);
+        if let Some(aggregate) = output.get_mut(item.item_no) {
+            Physical {
+                missing: missing[index],
+                ..Physical::with_limit(limit)
+            }
+            .finish(source, aggregate);
         }
-        .finish(source(index), &mut output[index]);
         if let Some(parent) = item
             .parent
             .filter(|_| boundary.binary_search(&item.item_no).is_err())

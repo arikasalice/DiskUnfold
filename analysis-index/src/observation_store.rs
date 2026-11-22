@@ -5,10 +5,13 @@
 //! grow with its depth. Lookups walk the path from its root through a hash
 //! index of `(parent, name)`; a short list of recently used directories lets
 //! consecutive entries of one directory skip that walk.
-use crate::StoredObservation;
+use crate::physical::{PhysicalObservationRef, PhysicalObservationStore, PhysicalObservations};
+use crate::{BuildError, SpaceObservation, StoredObservation};
+use du_core_contracts::result::ResultItemKind;
 use std::hash::{BuildHasher, RandomState};
+use std::sync::Arc;
 
-const CHUNK_BITS: u32 = 12;
+pub(crate) const CHUNK_BITS: u32 = 12;
 const CHUNK_MASK: u32 = (1 << CHUNK_BITS) - 1;
 const NO_NODE: u32 = u32::MAX;
 const RECENT_DIRECTORIES: usize = 8;
@@ -60,6 +63,8 @@ pub(crate) struct ObservationStore {
     boundary: Vec<u32>,
     /// Unknown attribute reasons as (node, attribute and reason code), in record order.
     attribute_reasons: Vec<(u32, u8)>,
+    /// Compressed file-space evidence, indexed by store node until final ordering is known.
+    physical: PhysicalObservationStore,
 }
 
 impl Default for ObservationStore {
@@ -85,6 +90,42 @@ impl ObservationStore {
             limit: limit.min(MAX_NODES),
             boundary: Vec::new(),
             attribute_reasons: Vec::new(),
+            physical: PhysicalObservationStore::default(),
+        }
+    }
+
+    pub(crate) fn last_node(&self) -> Option<u32> {
+        (self.last != NO_NODE).then_some(self.last)
+    }
+
+    pub(crate) fn record_physical(
+        &mut self,
+        node: u32,
+        observation: SpaceObservation,
+    ) -> Result<(), BuildError> {
+        let kind = self
+            .observation(node)
+            .map(|stored| stored.kind)
+            .ok_or(BuildError::InvalidTree)?;
+        if !matches!(kind, ResultItemKind::File | ResultItemKind::UntraversedLink) {
+            return Err(BuildError::InvalidTree);
+        }
+        self.physical.record(node, &observation)
+    }
+
+    pub(crate) fn physical_observation(&self, node: u32) -> Option<PhysicalObservationRef<'_>> {
+        self.physical.get(node)
+    }
+
+    pub(crate) fn publish_physical(
+        &mut self,
+        order: Arc<Vec<u32>>,
+        finish: bool,
+    ) -> Option<PhysicalObservations> {
+        if finish {
+            self.physical.finish(order)
+        } else {
+            self.physical.snapshot(order)
         }
     }
 
@@ -377,4 +418,12 @@ impl ObservationStore {
 }
 
 #[cfg(test)]
+pub(crate) fn node_size_bytes() -> usize {
+    std::mem::size_of::<Node>()
+}
+
+#[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod memory_layout_measure;

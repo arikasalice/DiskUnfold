@@ -2,7 +2,7 @@ use super::{Error, PathSeparator, SnapshotIdentity, SourceMetadata};
 use crate::records::{NameEncoding, item, volume};
 use du_analysis_index::{ResultVersion, VolumeReport, VolumeReportPoint};
 use du_core_contracts::{
-    ItemRef, PathEncoding, SizeAmount, Timestamp,
+    PathEncoding, SizeAmount, Timestamp,
     ports::PortErrorKind,
     result::{ResultItem, ResultItemKind, ResultScopeRoot, ResultVersionRead},
     scan_observation::VolumeSpace,
@@ -227,23 +227,15 @@ pub(super) fn item_record<'a>(
         ResultItemKind::Unknown | ResultItemKind::UnknownStructure => item::Kind::Other,
     };
     let space = version.space(source.item_no).ok_or(Error::InvalidResult)?;
-    let reference = ItemRef {
-        result_version: version.version_id().clone(),
-        item_no: source.item_no,
-    };
-    let detail = version
-        .detail(&reference)
-        .map_err(|_| Error::InvalidResult)?;
     let identity = if source.parent.is_none() {
         root.file_id.as_slice()
     } else {
-        detail
-            .physical
-            .and_then(|physical| physical.identity.as_ref())
-            .filter(|identity| !root.volume_id.is_empty() && identity.volume == root.volume_id)
-            .map_or(&[][..], |identity| identity.file.as_slice())
+        version
+            .file_identity_bytes(source.item_no)
+            .filter(|(volume, _)| !root.volume_id.is_empty() && *volume == root.volume_id)
+            .map_or(&[][..], |(_, file)| file)
     };
-    let link_count = match detail.physical.and_then(|physical| physical.link_count) {
+    let link_count = match version.file_link_count(source.item_no) {
         Some(count) => u32::try_from(count).map_err(|_| Error::InvalidResult)?,
         None => 0,
     };

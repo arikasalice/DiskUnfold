@@ -99,7 +99,7 @@ fn item(result: &ResultVersion, name: &str) -> Result<u32, String> {
         .map(|item| item.item_no)
         .ok_or_else(|| format!("no item {name}"))
 }
-fn space<'a>(result: &'a ResultVersion, name: &str) -> Result<&'a SpaceAggregate, String> {
+fn space(result: &ResultVersion, name: &str) -> Result<SpaceAggregate, String> {
     result
         .space(item(result, name)?)
         .ok_or("no aggregate".into())
@@ -144,14 +144,14 @@ fn one_unreadable_folder_does_not_prove_its_siblings_complete() -> Test {
     gap(&mut b, 0, &["a", "bad"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
-    assert_unproven(space(&result, "s")?);
+    assert_unproven(&space(&result, "s")?);
     assert_eq!(space(&result, "s")?.logical.amount, lower(20));
-    assert_unproven(space(&result, "sf")?);
+    assert_unproven(&space(&result, "sf")?);
     assert_eq!(space(&result, "sf")?.logical.amount, lower(20));
-    assert_unproven(space(&result, "af")?);
+    assert_unproven(&space(&result, "af")?);
     assert_eq!(space(&result, "af")?.logical.amount, lower(10));
     let bad = space(&result, "bad")?;
-    assert_lowered(bad, 1);
+    assert_lowered(&bad, 1);
     // The unreadable folder is at least zero bytes, not unknown (#341); its unique
     // physical size stays unknown without bytes.
     assert_eq!(bad.logical.amount, lower(0));
@@ -160,14 +160,14 @@ fn one_unreadable_folder_does_not_prove_its_siblings_complete() -> Test {
     // allocated bytes too.
     assert_eq!(bad.allocated.amount, lower(0));
     let a = space(&result, "a")?;
-    assert_lowered(a, 1);
+    assert_lowered(&a, 1);
     assert_eq!(a.logical.amount, lower(10));
     assert_eq!(a.allocated.amount, lower(10));
     assert_eq!(a.unique_physical.amount, lower(10));
     let top = result.space(0).ok_or("root")?;
-    assert_lowered(top, 1);
+    assert_lowered(&top, 1);
     assert_eq!(top.logical.amount, lower(30));
-    assert_eq!(result.scope_total(), top);
+    assert_eq!(result.scope_total(), &top);
     Ok(())
 }
 
@@ -203,12 +203,12 @@ fn a_located_gap_does_not_prove_unrelated_folders_complete() -> Test {
     file(&mut b, 0, &["s", "y"], 7, Some(2))?;
     gap(&mut b, 0, &["a", "ghost"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
-    assert_unproven(space(&result, "sub")?);
+    assert_unproven(&space(&result, "sub")?);
     assert_eq!(space(&result, "sub")?.logical.amount, lower(5));
-    assert_unproven(space(&result, "s")?);
+    assert_unproven(&space(&result, "s")?);
     assert_eq!(space(&result, "s")?.logical.amount, lower(7));
-    assert_lowered(space(&result, "a")?, 1);
-    assert_lowered(result.space(0).ok_or("root")?, 1);
+    assert_lowered(&space(&result, "a")?, 1);
+    assert_lowered(&result.space(0).ok_or("root")?, 1);
     Ok(())
 }
 
@@ -230,7 +230,7 @@ fn missing_item_evidence_does_not_make_an_unrelated_folder_exact() -> Test {
     file(&mut b, 0, &["s", "sf"], 20, Some(2))?;
     gap(&mut b, 0, &["g"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
-    assert_unproven(space(&result, "s")?);
+    assert_unproven(&space(&result, "s")?);
     assert_eq!(space(&result, "s")?.logical.amount, lower(20));
     let u = space(&result, "u")?;
     assert_eq!(u.logical.amount, lower(10));
@@ -255,10 +255,10 @@ fn a_root_without_a_gap_still_stays_missing() -> Test {
     assert_eq!(result.completeness(), ResultCompleteness::Missing);
     let roots: Vec<u32> = result.scope_roots().iter().map(|r| r.item_no).collect();
     let first = result.space(roots[0]).ok_or("root a")?;
-    assert_unproven(first);
+    assert_unproven(&first);
     assert_eq!(first.logical.amount, lower(10));
     let second = result.space(roots[1]).ok_or("root b")?;
-    assert_lowered(second, 1);
+    assert_lowered(&second, 1);
     assert_eq!(second.logical.amount, lower(5));
     let total = result.scope_total();
     assert_lowered(total, 1);
@@ -276,7 +276,7 @@ fn sealed_missing_without_a_gap_keeps_every_folder_missing() -> Test {
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
     for name in ["s", "empty"] {
         let a = space(&result, name)?;
-        assert_eq!(completeness(a), [ResultCompleteness::Missing; 3], "{name}");
+        assert_eq!(completeness(&a), [ResultCompleteness::Missing; 3], "{name}");
         assert!(
             !matches!(a.logical.amount, SizeAmount::Exact { .. }),
             "{name}"
@@ -371,10 +371,10 @@ fn shared_identities_and_missing_evidence_stay_lower_bounds() -> Test {
     gap(&mut b, 0, &["a", "bad"])?;
     let result = b.seal(id(2)?, ResultCompleteness::Missing).map_err(e)?;
     // The sibling shares an identity with a file under the gap but counts it once itself.
-    assert_unproven(space(&result, "s")?);
+    assert_unproven(&space(&result, "s")?);
     assert_eq!(space(&result, "s")?.logical.amount, lower(10));
     let a = space(&result, "a")?;
-    assert_lowered(a, 1);
+    assert_lowered(&a, 1);
     assert_eq!(a.allocated.amount, lower(10));
     // A file without a usable identity keeps its folder's physical bases inexact.
     let m = space(&result, "m")?;
