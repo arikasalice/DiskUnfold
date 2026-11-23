@@ -197,7 +197,7 @@ fn race(
     started: Instant,
     ready: std::sync::mpsc::Sender<()>,
 ) -> Result<Raced, String> {
-    let mut signalled = false;
+    let mut ready = Some(ready);
     let mut raced = Raced::default();
     loop {
         if started.elapsed() >= RACE_LIMIT {
@@ -213,11 +213,10 @@ fn race(
         match handle.prioritize(pick % 2, path, test_item_ref(pick)) {
             Ok(_) => {
                 raced.live += 1;
-                if !signalled {
+                if let Some(ready) = ready.take() {
                     ready
                         .send(())
                         .map_err(|_| "race observer stopped".to_owned())?;
-                    signalled = true;
                 }
             }
             Err(ScanControlError::NotActive) => raced.early += 1,
@@ -229,6 +228,52 @@ fn race(
         }
         thread::yield_now();
     }
+}
+
+/// Waits for each racer independently, including early disconnects.
+fn wait_for_racers(
+    receivers: Vec<std::sync::mpsc::Receiver<()>>,
+    started: Instant,
+    round: u32,
+) -> Result<(), String> {
+    let mut pending = receivers;
+    while !pending.is_empty() {
+        let mut index = 0;
+        while index < pending.len() {
+            match pending[index].try_recv() {
+                Ok(()) => {
+                    pending.swap_remove(index);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(format!(
+                        "{}: racer ended before active request",
+                        race_point(round, started)
+                    ));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => index += 1,
+            }
+        }
+        if started.elapsed() >= RACE_LIMIT {
+            return Err(format!(
+                "{}: active request timed out",
+                race_point(round, started)
+            ));
+        }
+        if !pending.is_empty() {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn racer_failure_is_reported_while_another_racer_is_pending() {
+    let (_still_pending, pending) = std::sync::mpsc::channel();
+    let (failed, disconnected) = std::sync::mpsc::channel();
+    drop(failed);
+    let started = Instant::now();
+    let error = wait_for_racers(vec![pending, disconnected], started, 0).unwrap_err();
+    assert!(error.contains("racer ended before active request"));
 }
 
 /// Joins `thread` once it finishes, failing when the shared limit runs out.
@@ -260,7 +305,7 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         files: 2,
         batch: 2,
     };
-    let (started, mut live_rounds, mut total) = (Instant::now(), 0, Raced::default());
+    let started = Instant::now();
     for round in 0..RACE_ROUNDS {
         let gate = Arc::new(Gate::default());
         let _release_on_drop = Opened(gate.clone());
@@ -281,31 +326,21 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         });
         let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, 1, context);
         gate.until(|state| state.waiting > 0)?;
-        let (ready, observed) = std::sync::mpsc::channel();
+        let mut receivers = Vec::new();
         let racers: Vec<_> = (0..2_u32)
             .map(|racer| {
                 let handle = handle.clone();
-                let ready = ready.clone();
+                let (ready, observed) = std::sync::mpsc::channel();
+                receivers.push(observed);
                 thread::spawn(move || race(&handle, round, racer, started, ready))
             })
             .collect();
-        for _ in 0..2 {
-            observed
-                .recv_timeout(RACE_LIMIT.saturating_sub(started.elapsed()))
-                .map_err(|error| {
-                    format!("{}: active request: {error}", race_point(round, started))
-                })?;
-        }
+        wait_for_racers(receivers, started, round)?;
         gate.release();
         let run = join_in_time(collector, "collector", round, started)??;
-        let mut live = 0;
         for racer in racers {
-            let raced = join_in_time(racer, "racer", round, started)??;
-            live += raced.live;
-            total.live += raced.live;
-            total.early += raced.early;
+            join_in_time(racer, "racer", round, started)??;
         }
-        live_rounds += usize::from(live > 0);
         let point = || race_point(round, started);
         assert!(run.outcome.completed_scope, "{}", point());
         assert_eq!(
@@ -323,13 +358,5 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
             point()
         );
     }
-    // Both racers observed the live scheduler before the gate was released.
-    assert!(
-        live_rounds > 0,
-        "{RACE_TEST}: no round raced the end after {:?}: {} live and {} early requests",
-        started.elapsed(),
-        total.live,
-        total.early
-    );
     Ok(())
 }
