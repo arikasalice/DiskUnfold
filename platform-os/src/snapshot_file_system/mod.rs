@@ -1,6 +1,8 @@
 //! Native handle-relative storage for snapshot files.
 
-use du_core_contracts::snapshot_file::{SnapshotFileDirectory, SnapshotFileError};
+#[cfg(windows)]
+use du_core_contracts::snapshot_file::SnapshotFileDirectory;
+use du_core_contracts::snapshot_file::SnapshotFileError;
 #[cfg(all(test, any(windows, target_os = "linux", target_os = "macos")))]
 use std::path::Path;
 use std::path::PathBuf;

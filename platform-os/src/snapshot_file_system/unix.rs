@@ -15,7 +15,7 @@ use rustix::{
 };
 use std::{
     fs::File,
-    io::{self, Write},
+    io::{self, Seek, Write},
     os::fd::AsRawFd,
     sync::atomic::{AtomicU64, Ordering},
 };
