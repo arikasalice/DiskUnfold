@@ -325,8 +325,34 @@ fn finish_round<T, U>(
     Ok((collector, results))
 }
 
+/// The same setup and bounded cleanup path used by each scan race round.
+fn run_racers<T, U>(
+    gate: &Gate,
+    collector: thread::JoinHandle<T>,
+    racers: Vec<thread::JoinHandle<U>>,
+    receivers: Vec<std::sync::mpsc::Receiver<()>>,
+    round: u32,
+    started: Instant,
+) -> Result<(T, Vec<U>), String> {
+    let setup = wait_for_racers(receivers, started, round);
+    let join_started = if setup.is_ok() {
+        started
+    } else {
+        Instant::now()
+    };
+    let joined = finish_round(gate, collector, racers, round, join_started);
+    if let Err(error) = setup {
+        return Err(match joined {
+            Ok(_) => error,
+            Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
+        });
+    }
+    joined
+}
+
 #[test]
 fn cleanup_releases_gate_and_joins_all_workers_after_setup_failure() -> Result<(), TestError> {
+    let guard = worker_test_lock();
     let gate = Arc::new(Gate::default());
     let _release = Opened(gate.clone());
     let completed = Arc::new(AtomicUsize::new(0));
@@ -343,11 +369,20 @@ fn cleanup_releases_gate_and_joins_all_workers_after_setup_failure() -> Result<(
         .collect();
     gate.until(|state| state.waiting == 2)?;
     let collector = thread::spawn(|| ());
-    let (_, results) = finish_round(&gate, collector, handles, 0, Instant::now())?;
-    for result in results {
-        result?;
-    }
+    let (failed, disconnected) = std::sync::mpsc::channel();
+    drop(failed);
+    let result = run_racers(
+        &gate,
+        collector,
+        handles,
+        vec![disconnected],
+        0,
+        Instant::now(),
+    );
+    assert!(matches!(result, Err(error) if error.contains("racer ended before active request")));
     assert_eq!(completed.load(Ordering::SeqCst), 2);
+    assert!(super::super::WORKER_TEST_LOCK.try_lock().is_err());
+    drop(guard);
     Ok(())
 }
 
@@ -403,22 +438,7 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
                 thread::spawn(move || race(&handle, round, racer, started, ready))
             })
             .collect();
-        let setup = wait_for_racers(receivers, started, round);
-        // Give failure cleanup a bounded interval even when the shared test limit expired.
-        let join_started = if setup.is_ok() {
-            started
-        } else {
-            Instant::now()
-        };
-        let joined = finish_round(&gate, collector, racers, round, join_started);
-        if let Err(error) = setup {
-            return Err(match joined {
-                Ok(_) => error,
-                Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
-            }
-            .into());
-        }
-        let (run, raced) = joined?;
+        let (run, raced) = run_racers(&gate, collector, racers, receivers, round, started)?;
         let run = run?;
         for result in raced {
             result?;
