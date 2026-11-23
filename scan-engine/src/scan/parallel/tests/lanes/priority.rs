@@ -195,7 +195,9 @@ fn race(
     round: u32,
     racer: u32,
     started: Instant,
+    ready: std::sync::mpsc::Sender<()>,
 ) -> Result<Raced, String> {
+    let mut ready = Some(ready);
     let mut raced = Raced::default();
     loop {
         if started.elapsed() >= RACE_LIMIT {
@@ -209,7 +211,14 @@ fn race(
             d(&format!("d{pick}"))
         };
         match handle.prioritize(pick % 2, path, test_item_ref(pick)) {
-            Ok(_) => raced.live += 1,
+            Ok(_) => {
+                raced.live += 1;
+                if let Some(ready) = ready.take() {
+                    ready
+                        .send(())
+                        .map_err(|_| "race observer stopped".to_owned())?;
+                }
+            }
             Err(ScanControlError::NotActive) => raced.early += 1,
             Err(ScanControlError::AlreadyTerminal) => return Ok(raced),
             Err(error) => {
@@ -219,6 +228,54 @@ fn race(
         }
         thread::yield_now();
     }
+}
+
+/// Waits for each racer independently, including early disconnects.
+fn wait_for_racers(
+    receivers: Vec<std::sync::mpsc::Receiver<()>>,
+    started: Instant,
+    round: u32,
+) -> Result<(), String> {
+    let mut pending = receivers;
+    while !pending.is_empty() {
+        let mut index = 0;
+        while index < pending.len() {
+            match pending[index].try_recv() {
+                Ok(()) => {
+                    pending.swap_remove(index);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(format!(
+                        "{}: racer ended before active request",
+                        race_point(round, started)
+                    ));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => index += 1,
+            }
+        }
+        if started.elapsed() >= RACE_LIMIT {
+            return Err(format!(
+                "{}: active request timed out",
+                race_point(round, started)
+            ));
+        }
+        if !pending.is_empty() {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn racer_failure_is_reported_while_another_racer_is_pending() {
+    let (_still_pending, pending) = std::sync::mpsc::channel();
+    let (failed, disconnected) = std::sync::mpsc::channel();
+    drop(failed);
+    let started = Instant::now();
+    assert!(matches!(
+        wait_for_racers(vec![pending, disconnected], started, 0),
+        Err(error) if error.contains("racer ended before active request")
+    ));
 }
 
 /// Joins `thread` once it finishes, failing when the shared limit runs out.
@@ -241,6 +298,94 @@ fn join_in_time<T>(
     joined.map_err(|_| format!("{}: {what} panicked", race_point(round, started)))
 }
 
+/// Releases blocked workers and attempts to join every thread even after an error.
+fn finish_round<T, U>(
+    gate: &Gate,
+    collector: thread::JoinHandle<T>,
+    racers: Vec<thread::JoinHandle<U>>,
+    round: u32,
+    started: Instant,
+) -> Result<(T, Vec<U>), String> {
+    gate.release();
+    let collector = join_in_time(collector, "collector", round, started);
+    let mut results = Vec::new();
+    let mut failure = None;
+    for racer in racers {
+        match join_in_time(racer, "racer", round, started) {
+            Ok(value) => results.push(value),
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    let collector = collector?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok((collector, results))
+}
+
+/// The same setup and bounded cleanup path used by each scan race round.
+fn run_racers<T, U>(
+    gate: &Gate,
+    collector: thread::JoinHandle<T>,
+    racers: Vec<thread::JoinHandle<U>>,
+    receivers: Vec<std::sync::mpsc::Receiver<()>>,
+    round: u32,
+    started: Instant,
+) -> Result<(T, Vec<U>), String> {
+    let setup = wait_for_racers(receivers, started, round);
+    let join_started = if setup.is_ok() {
+        started
+    } else {
+        Instant::now()
+    };
+    let joined = finish_round(gate, collector, racers, round, join_started);
+    if let Err(error) = setup {
+        return Err(match joined {
+            Ok(_) => error,
+            Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
+        });
+    }
+    joined
+}
+
+#[test]
+fn cleanup_releases_gate_and_joins_all_workers_after_setup_failure() -> Result<(), TestError> {
+    let guard = worker_test_lock();
+    let gate = Arc::new(Gate::default());
+    let _release = Opened(gate.clone());
+    let completed = Arc::new(AtomicUsize::new(0));
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let gate = gate.clone();
+            let completed = completed.clone();
+            thread::spawn(move || {
+                gate.wait().map_err(|_| "gate failed")?;
+                completed.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), &str>(())
+            })
+        })
+        .collect();
+    gate.until(|state| state.waiting == 2)?;
+    let collector = thread::spawn(|| ());
+    let (failed, disconnected) = std::sync::mpsc::channel();
+    drop(failed);
+    let result = run_racers(
+        &gate,
+        collector,
+        handles,
+        vec![disconnected],
+        0,
+        Instant::now(),
+    );
+    assert!(matches!(result, Err(error) if error.contains("racer ended before active request")));
+    assert_eq!(completed.load(Ordering::SeqCst), 2);
+    assert!(super::super::WORKER_TEST_LOCK.try_lock().is_err());
+    drop(guard);
+    Ok(())
+}
+
 #[test]
 fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Result<(), TestError> {
     let _guard = worker_test_lock();
@@ -250,29 +395,54 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
         files: 2,
         batch: 2,
     };
-    let (started, mut live_rounds, mut total) = (Instant::now(), 0, Raced::default());
+    let started = Instant::now();
     for round in 0..RACE_ROUNDS {
-        let probe = Probe::quiet(shape, 2);
+        let gate = Arc::new(Gate::default());
+        let _release_on_drop = Opened(gate.clone());
+        let hold = gate.clone();
+        let probe = Probe::new(
+            shape,
+            2,
+            Box::new(move |_, path, call| {
+                if call == Call::Open && path == [b"d0".to_vec()] {
+                    hold.wait()?;
+                }
+                Ok(())
+            }),
+        );
         let context = Arc::new(Context {
             completed: Arc::new(AtomicUsize::new(0)),
             abandoned: Arc::new(AtomicUsize::new(0)),
         });
         let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, 1, context);
+        if let Err(error) = gate.until(|state| state.waiting > 0) {
+            let cleanup = finish_round(
+                &gate,
+                collector,
+                Vec::<thread::JoinHandle<()>>::new(),
+                round,
+                Instant::now(),
+            );
+            return Err(match cleanup {
+                Ok(_) => error.to_string(),
+                Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
+            }
+            .into());
+        }
+        let mut receivers = Vec::new();
         let racers: Vec<_> = (0..2_u32)
             .map(|racer| {
                 let handle = handle.clone();
-                thread::spawn(move || race(&handle, round, racer, started))
+                let (ready, observed) = std::sync::mpsc::channel();
+                receivers.push(observed);
+                thread::spawn(move || race(&handle, round, racer, started, ready))
             })
             .collect();
-        let run = join_in_time(collector, "collector", round, started)??;
-        let mut live = 0;
-        for racer in racers {
-            let raced = join_in_time(racer, "racer", round, started)??;
-            live += raced.live;
-            total.live += raced.live;
-            total.early += raced.early;
+        let (run, raced) = run_racers(&gate, collector, racers, receivers, round, started)?;
+        let run = run?;
+        for result in raced {
+            result?;
         }
-        live_rounds += usize::from(live > 0);
         let point = || race_point(round, started);
         assert!(run.outcome.completed_scope, "{}", point());
         assert_eq!(
@@ -290,15 +460,5 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
             point()
         );
     }
-    // Every racer saw the end. A round raced it only if the attached scheduler
-    // answered a request first; a loaded runner can start both racers of a
-    // round late, so the test requires at least one such round.
-    assert!(
-        live_rounds > 0,
-        "{RACE_TEST}: no round raced the end after {:?}: {} live and {} early requests",
-        started.elapsed(),
-        total.live,
-        total.early
-    );
     Ok(())
 }
