@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { AnalysisClient, VizModel, VizRow } from "../../ipc";
-import { RowName, vizMessage } from "../../viz";
+import { useLocaleText } from "../../i18n/presentation";
+import { RowName } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
 
 /** Looks up the counted path only when its shared row is focused or hovered. */
@@ -9,16 +10,15 @@ export function SharedCountedRowName({
   name,
   folder,
   client,
-  text,
   enabled,
 }: {
   row: VizRow;
   name: string;
   folder: boolean;
   client: AnalysisClient | undefined;
-  text: VizText;
   enabled: boolean;
 }) {
+  const localeText = useLocaleText();
   const counted = enabled ? row.sharedCountedItem : undefined;
   const key = counted
     ? JSON.stringify([counted.resultVersion, counted.itemNo])
@@ -82,7 +82,15 @@ export function SharedCountedRowName({
       folder={folder}
       {...(path === undefined
         ? {}
-        : { title: vizMessage(text, "countedAtPath", { path }) })}
+        : {
+            title: localeText(
+              "ui.browse.counted_at_path",
+              "Counted at {path}",
+              {
+                path,
+              },
+            ),
+          })}
       {...(client && counted
         ? { tabIndex: 0, onPointerEnter: loadPath, onFocus: loadPath }
         : {})}

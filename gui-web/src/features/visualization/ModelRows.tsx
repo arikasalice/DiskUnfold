@@ -147,7 +147,6 @@ export function ModelRows({
           name={nameOf(row)}
           folder={row.itemKind === "folder"}
           client={client}
-          text={text}
           enabled={sharedShown}
         />
       ),
