@@ -1,8 +1,8 @@
 use super::*;
 use du_core_contracts::{Id, snapshot_file::SnapshotFileSystem};
-use std::{fs, io::Write};
 #[cfg(windows)]
 use std::io::Read;
+use std::{fs, io::Write};
 
 fn id(value: u32) -> Result<Id, String> {
     Id::parse(&format!("018f0000-0000-7000-8000-{value:012x}"))
