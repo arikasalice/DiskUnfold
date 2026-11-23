@@ -227,6 +227,32 @@ fn index_body_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
         .map_err(|_| "snapshot footer digest has an invalid length".into())
 }
 
+fn assert_saved_file_rejected(bytes: Vec<u8>, snapshot_id: &Id) -> Result<(), String> {
+    let port = FakePort::new(Some(bytes.clone()), Some(1_000_000));
+    let discarded = Arc::new(AtomicBool::new(false));
+    let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let error = du_snapshot_store::load_saved(
+        &port,
+        snapshot_id,
+        size,
+        index_body_hash(&bytes)?,
+        TrackedStage::new(discarded.clone()),
+        || false,
+    )
+    .err()
+    .ok_or("malformed registered snapshot unexpectedly loaded")?;
+
+    assert_eq!(
+        error.kind(),
+        du_snapshot_store::LoadSavedErrorKind::FormatInvalid
+    );
+    assert_eq!(error.reason_key(), Some("snapshot.format_invalid"));
+    assert!(discarded.load(Ordering::SeqCst));
+    assert!(!port.state().capture_open);
+    assert_eq!(port.state().registered, Some(bytes));
+    Ok(())
+}
+
 #[test]
 fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), String> {
     use du_core_contracts::{data_source::DataSource, result::ResultVersionRead};
@@ -258,6 +284,57 @@ fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), S
     assert!(!state.capture_open);
     assert_eq!(state.registered, Some(bytes));
     Ok(())
+}
+
+#[test]
+fn registered_file_requires_complete_metadata_after_identity_precheck() -> Result<(), String> {
+    let (_, snapshot_id, bytes) = sample_file()?;
+    let (metadata, record_count, decoded) = stream(&bytes)?;
+    let mut metadata: serde_json::Value =
+        serde_json::from_str(&metadata).map_err(|error| error.to_string())?;
+    metadata
+        .as_object_mut()
+        .ok_or("snapshot metadata is not an object")?
+        .remove("appVersion");
+    let metadata = serde_json::to_string(&metadata).map_err(|error| error.to_string())?;
+    let compressed = envelope::verify_v1(&bytes)
+        .map_err(|error| format!("{error:?}"))?
+        .compressed
+        .to_vec();
+    let forged = wrap(&metadata, &compressed, record_count, decoded.len() as u64);
+
+    assert_saved_file_rejected(forged, &snapshot_id)
+}
+
+#[test]
+fn registered_file_rejects_invalid_volume_item_and_gap_references() -> Result<(), String> {
+    let (_, snapshot_id, bytes) = sample_file()?;
+    let (metadata, _, decoded) = stream(&bytes)?;
+    let base_records = records(&decoded)?;
+
+    let mut bad_volume = base_records.clone();
+    bad_volume
+        .first_mut()
+        .ok_or("Volume record missing from fixture")?
+        .1[7..11]
+        .copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_saved_file_rejected(wrap_records(&metadata, &bad_volume)?, &snapshot_id)?;
+
+    let mut bad_item = base_records.clone();
+    let item = bad_item
+        .iter_mut()
+        .find(|(kind, _)| *kind == 2)
+        .ok_or("Item record missing from fixture")?;
+    item.1[4..8].copy_from_slice(&1_u32.to_le_bytes());
+    assert_saved_file_rejected(wrap_records(&metadata, &bad_item)?, &snapshot_id)?;
+
+    let mut bad_gap = base_records;
+    let gap = bad_gap
+        .iter_mut()
+        .find(|(kind, _)| *kind == 3)
+        .ok_or("Gap record missing from fixture")?;
+    gap.1[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_saved_file_rejected(wrap_records(&metadata, &bad_gap)?, &snapshot_id)
 }
 
 #[test]

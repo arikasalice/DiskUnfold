@@ -101,8 +101,10 @@ impl<S: SealedSpool> Read for CompressedReader<'_, S> {
 
 /// Sequentially copies the source once, seals the destination, and verifies it.
 ///
-/// `validate_metadata` is a trusted metadata parser that must validate JSON,
-/// required fields, and agreement with the header without selecting a codec.
+/// `validate_metadata` is a capture-time predicate for JSON and header
+/// agreement; its result is not evidence that a snapshot is fully openable.
+/// The open coordinator must validate complete metadata and decoded records
+/// from the returned sealed spool before exposing a result.
 /// `index_digest` is required by the caller for catalog-owned snapshots and is
 /// absent for external inputs. The copy is capped at 4 GiB by bytes actually
 /// read, with an additional read to detect growth past the limit. Cancellation

@@ -104,6 +104,11 @@ impl std::error::Error for LoadSavedError {}
 /// reconciliation must not report or auto-delete a leftover capture as
 /// `snapshot.orphan_file`.
 ///
+/// The capture-time metadata predicate only binds the file to the requested
+/// catalog identity. `open::open` is the authoritative owner validator: it
+/// verifies required metadata and Volume/Item/Gap references from that same
+/// sealed capture before `load::load` can produce a result.
+///
 /// The returned `Arc<ResultVersion>` has `DataSource::Snapshot`. Native Windows
 /// behavior is covered by the platform adapter test; Linux and macOS native
 /// behavior is unverified on hosts that do not run those operating systems.
@@ -134,7 +139,7 @@ where
         &mut source,
         capture,
         Some(expected_body_hash),
-        |metadata, version| metadata_matches(metadata, version, snapshot_id),
+        |metadata, version| requested_identity_matches(metadata, version, snapshot_id),
         &mut cancelled,
     ) {
         Ok(verified) => verified,
@@ -161,6 +166,9 @@ where
         Ok(opened) => opened,
         Err(error) => return Err(open_error(error)),
     };
+    if opened.metadata().get("snapshotId").and_then(Value::as_str) != Some(snapshot_id.as_str()) {
+        return Err(discard_opened(opened, LoadSavedErrorKind::FormatInvalid));
+    }
     load::load(opened, &mut cancelled).map_err(load_error)
 }
 
@@ -202,7 +210,7 @@ impl Read for CountingReader<'_> {
     }
 }
 
-fn metadata_matches(metadata: &str, version: u16, requested_id: &Id) -> bool {
+fn requested_identity_matches(metadata: &str, version: u16, requested_id: &Id) -> bool {
     version == crate::envelope::DUSNAP_FORMAT_VERSION
         && serde_json::from_str::<Value>(metadata).is_ok_and(|value| {
             value.get("formatId").and_then(Value::as_str) == Some("dusnap")
@@ -301,6 +309,19 @@ fn file_error(error: SnapshotFileError) -> LoadSavedErrorKind {
         SnapshotFileError::StoreUnavailable | SnapshotFileError::Unsupported => {
             LoadSavedErrorKind::StoreUnavailable
         }
+    }
+}
+
+fn discard_opened<W>(
+    snapshot: open::VerifiedSnapshot<W>,
+    kind: LoadSavedErrorKind,
+) -> LoadSavedError
+where
+    W: StagingSink + Read + Seek,
+{
+    LoadSavedError {
+        kind,
+        cleanup_failed: snapshot.discard_records().is_err(),
     }
 }
 
