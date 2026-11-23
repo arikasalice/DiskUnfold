@@ -298,6 +298,59 @@ fn join_in_time<T>(
     joined.map_err(|_| format!("{}: {what} panicked", race_point(round, started)))
 }
 
+/// Releases blocked workers and attempts to join every thread even after an error.
+fn finish_round<T, U>(
+    gate: &Gate,
+    collector: thread::JoinHandle<T>,
+    racers: Vec<thread::JoinHandle<U>>,
+    round: u32,
+    started: Instant,
+) -> Result<(T, Vec<U>), String> {
+    gate.release();
+    let collector = join_in_time(collector, "collector", round, started);
+    let mut results = Vec::new();
+    let mut failure = None;
+    for racer in racers {
+        match join_in_time(racer, "racer", round, started) {
+            Ok(value) => results.push(value),
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    let collector = collector?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok((collector, results))
+}
+
+#[test]
+fn cleanup_releases_gate_and_joins_all_workers_after_setup_failure() -> Result<(), TestError> {
+    let gate = Arc::new(Gate::default());
+    let _release = Opened(gate.clone());
+    let completed = Arc::new(AtomicUsize::new(0));
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let gate = gate.clone();
+            let completed = completed.clone();
+            thread::spawn(move || {
+                gate.wait().map_err(|_| "gate failed")?;
+                completed.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), &str>(())
+            })
+        })
+        .collect();
+    gate.until(|state| state.waiting == 2)?;
+    let collector = thread::spawn(|| ());
+    let (_, results) = finish_round(&gate, collector, handles, 0, Instant::now())?;
+    for result in results {
+        result?;
+    }
+    assert_eq!(completed.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
 #[test]
 fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Result<(), TestError> {
     let _guard = worker_test_lock();
@@ -327,7 +380,20 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
             abandoned: Arc::new(AtomicUsize::new(0)),
         });
         let (handle, collector) = spawn_scan(&probe, vec![0, 1], 4, 1, context);
-        gate.until(|state| state.waiting > 0)?;
+        if let Err(error) = gate.until(|state| state.waiting > 0) {
+            let cleanup = finish_round(
+                &gate,
+                collector,
+                Vec::<thread::JoinHandle<()>>::new(),
+                round,
+                Instant::now(),
+            );
+            return Err(match cleanup {
+                Ok(_) => error.to_string(),
+                Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
+            }
+            .into());
+        }
         let mut receivers = Vec::new();
         let racers: Vec<_> = (0..2_u32)
             .map(|racer| {
@@ -337,11 +403,25 @@ fn requests_racing_the_end_of_the_job_neither_panic_nor_block_nor_leak() -> Resu
                 thread::spawn(move || race(&handle, round, racer, started, ready))
             })
             .collect();
-        wait_for_racers(receivers, started, round)?;
-        gate.release();
-        let run = join_in_time(collector, "collector", round, started)??;
-        for racer in racers {
-            join_in_time(racer, "racer", round, started)??;
+        let setup = wait_for_racers(receivers, started, round);
+        // Give failure cleanup a bounded interval even when the shared test limit expired.
+        let join_started = if setup.is_ok() {
+            started
+        } else {
+            Instant::now()
+        };
+        let joined = finish_round(&gate, collector, racers, round, join_started);
+        if let Err(error) = setup {
+            return Err(match joined {
+                Ok(_) => error,
+                Err(cleanup) => format!("{error}; cleanup: {cleanup}"),
+            }
+            .into());
+        }
+        let (run, raced) = joined?;
+        let run = run?;
+        for result in raced {
+            result?;
         }
         let point = || race_point(round, started);
         assert!(run.outcome.completed_scope, "{}", point());
