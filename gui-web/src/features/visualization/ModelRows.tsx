@@ -8,9 +8,13 @@ import {
   StackedBar,
   Text,
 } from "../../components";
-import type { VizModel, VizRow, VizRowsRequest } from "../../ipc";
+import type {
+  AnalysisClient,
+  VizModel,
+  VizRow,
+  VizRowsRequest,
+} from "../../ipc";
 import {
-  RowName,
   classCell,
   legendClassName,
   plainRowName,
@@ -22,6 +26,11 @@ import {
 } from "../../viz";
 import type { ModelRowsPage, VizText } from "../../viz";
 import type { RowReveal } from "./UndrawnLine";
+import {
+  SharedCountedRowName,
+  sharedFieldsApply,
+  sharedReason,
+} from "./SharedSpaceRowName";
 
 /** Class keys that mean a row has no classification. */
 const UNCLASSIFIED = new Set([
@@ -56,6 +65,7 @@ function denominatorWords(row: VizRow, text: VizText) {
  * make, and a denominator every row shares is said once above the table.
  */
 export function ModelRows({
+  client,
   page,
   model,
   text,
@@ -66,6 +76,7 @@ export function ModelRows({
   expanded = false,
   reveal,
 }: {
+  client?: AnalysisClient | undefined;
   page: ModelRowsPage;
   /** Absent for a fallback table, which has no model of its own to look classes up in. */
   model?: VizModel | undefined;
@@ -131,10 +142,13 @@ export function ModelRows({
     {
       header: text.message("name"),
       cell: (row) => (
-        <RowName
+        <SharedCountedRowName
+          row={row}
           name={nameOf(row)}
-          item={row.itemRef !== null}
           folder={row.itemKind === "folder"}
+          client={client}
+          text={text}
+          enabled={sharedShown}
         />
       ),
     },
@@ -387,19 +401,6 @@ function unreadReason(row: VizRow, text: VizText) {
 }
 
 /**
- * Why a file row's allocated space is counted once for several paths (F03 #359): the
- * row that is not the counted path points to it, the counted one says so.
- */
-function sharedReason(row: VizRow, text: VizText, sharedShown: boolean) {
-  if (!sharedShown || row.sharesSpace !== true) return null;
-  return text.message(
-    row.sharedCountedItem === undefined
-      ? "sharesSpaceCountedHere"
-      : "sharesSpace",
-  );
-}
-
-/**
  * A group row whose items can be opened. An empty histogram interval has
  * nothing to open, so it gets no button (README 43).
  */
@@ -488,15 +489,5 @@ function OpenGroup({
     >
       {label}
     </Action>
-  );
-}
-/** Whether the page says it was computed on the allocated basis the model asked for. */
-function sharedFieldsApply(
-  response: ModelRowsPage["response"],
-  model: VizModel | undefined,
-) {
-  return (
-    response.sizeBasis === "allocated" &&
-    model?.representation.sizeBasis === "allocated"
   );
 }

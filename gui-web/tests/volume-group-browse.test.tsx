@@ -311,8 +311,12 @@ async function openAlreadyCountedDetails() {
   return { port, sourceDetails };
 }
 
-test("Previous restores the already-counted Users folder, details, and focus", async () => {
-  await openAlreadyCountedDetails();
+test("#333: Previous restores the counted-at folder details and focus", async () => {
+  const { port } = await openAlreadyCountedDetails();
+  expect(port.open).toHaveBeenLastCalledWith(
+    expect.objectContaining({ location: ref(2), resultVersion: version }),
+    expect.any(AbortSignal),
+  );
   const previous = screen.getByRole("button", {
     name: "Back to previous folder",
   });

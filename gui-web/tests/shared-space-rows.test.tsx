@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -71,6 +72,33 @@ const client = {
   }),
 } as unknown as AnalysisClient;
 
+function countedValue(
+  countedItem: { resultVersion: string; itemNo: number },
+  client: AnalysisClient,
+) {
+  const [row] = sharedSpaceRows(
+    detailWith({ sharesSpace: true, countedItem }),
+    client,
+    undefined,
+    fallbackText,
+  );
+  return row!.value;
+}
+
+function displayPath(value: string) {
+  return { displayPath: { state: "present", value } };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
 test("F03 #359: a path that is not counted says where it is counted and opens that folder", async () => {
   const navigate = vi.fn();
   const rows = sharedSpaceRows(
@@ -94,6 +122,71 @@ test("F03 #359: a path that is not counted says where it is counted and opens th
   );
   fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
   expect(navigate).toHaveBeenCalledWith(folder);
+});
+
+test.each([
+  { resultVersion: "r2", itemNo: 4 },
+  { resultVersion: "r1", itemNo: 5 },
+])(
+  "F03 #359: the old counted path disappears immediately when the item ref changes",
+  async (next) => {
+    const pending = deferred<ReturnType<typeof displayPath>>();
+    const browse = {
+      call: vi
+        .fn()
+        .mockResolvedValueOnce(displayPath("/Users/a/old.mp4"))
+        .mockReturnValueOnce(pending.promise),
+    } as unknown as AnalysisClient;
+    const view = render(<div>{countedValue(counted, browse)}</div>);
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("/Users/a/old.mp4"),
+    );
+
+    view.rerender(<div>{countedValue(next, browse)}</div>);
+    expect(document.body.textContent).not.toContain("/Users/a/old.mp4");
+    expect(document.body.textContent).toContain("Counted at");
+  },
+);
+
+test.each([
+  ["a failed detail lookup", () => Promise.reject(new Error("unavailable"))],
+  [
+    "a detail without a path",
+    () => Promise.resolve({ displayPath: { state: "absent" } }),
+  ],
+])("F03 #359: %s keeps the default counted-path text", async (_case, reply) => {
+  const browse = { call: vi.fn(reply) } as unknown as AnalysisClient;
+  render(<div>{countedValue(counted, browse)}</div>);
+  await waitFor(() => expect(browse.call).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(document.body.textContent).toContain("Counted at"),
+  );
+  expect(document.body.textContent).not.toContain("/Users/a/clip.mp4");
+});
+
+test("F03 #359: a late detail reply cannot restore the previous counted path", async () => {
+  const oldReply = deferred<ReturnType<typeof displayPath>>();
+  const currentReply = deferred<ReturnType<typeof displayPath>>();
+  const browse = {
+    call: vi
+      .fn()
+      .mockReturnValueOnce(oldReply.promise)
+      .mockReturnValueOnce(currentReply.promise),
+  } as unknown as AnalysisClient;
+  const view = render(<div>{countedValue(counted, browse)}</div>);
+  const next = { resultVersion: "r2", itemNo: 8 };
+  view.rerender(<div>{countedValue(next, browse)}</div>);
+  await waitFor(() => expect(browse.call).toHaveBeenCalledTimes(2));
+
+  await act(async () =>
+    currentReply.resolve(displayPath("/Users/a/current.mp4")),
+  );
+  await waitFor(() =>
+    expect(document.body.textContent).toContain("/Users/a/current.mp4"),
+  );
+  await act(async () => oldReply.resolve(displayPath("/Users/a/old.mp4")));
+  expect(document.body.textContent).toContain("/Users/a/current.mp4");
+  expect(document.body.textContent).not.toContain("/Users/a/old.mp4");
 });
 
 test("F03 #359: the counted path says so without a button, and an unmarked file shows nothing", () => {
@@ -129,3 +222,127 @@ test.each([["logical" as const], [undefined]])(
     expect(rows.join(" ")).not.toContain("another path");
   },
 );
+
+test("F03 #359: tooltip focus is accessible, focus and hover deduplicate, and failure can retry", async () => {
+  const input = modelFixture();
+  input.frame.model.representation.sizeBasis = "allocated";
+  input.page.response.sizeBasis = "allocated";
+  const countedItem = input.page.response.rows[0]!.itemRef!;
+  input.page.response.rows[1] = {
+    ...input.page.response.rows[1]!,
+    sharesSpace: true,
+    sharedCountedItem: countedItem,
+  };
+  const failed = deferred<ReturnType<typeof displayPath>>();
+  const browse = {
+    call: vi
+      .fn()
+      .mockReturnValueOnce(failed.promise)
+      .mockResolvedValueOnce(displayPath("/Users/a/clip.mp4")),
+  } as unknown as AnalysisClient;
+  render(
+    <ModelRows
+      client={browse}
+      page={input.page}
+      model={input.frame.model}
+      text={text}
+      expanded
+    />,
+  );
+  expect(browse.call).not.toHaveBeenCalled();
+  const trigger = document.querySelector<HTMLElement>(
+    "tbody tr:nth-child(2) td:first-child [tabindex='0']",
+  )!;
+  fireEvent.pointerEnter(trigger);
+  trigger.focus();
+  expect(document.activeElement).toBe(trigger);
+  expect(browse.call).toHaveBeenCalledOnce();
+  await act(async () => failed.reject(new Error("unavailable")));
+  trigger.blur();
+  trigger.focus();
+  await waitFor(() => expect(browse.call).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(trigger.getAttribute("title")).toBe("Counted at /Users/a/clip.mp4"),
+  );
+  expect(browse.call).toHaveBeenCalledWith("browse.detail", {
+    resultVersion: countedItem.resultVersion,
+    item: countedItem,
+  });
+});
+
+test("F03 #359: replacing the result page ignores its old tooltip reply", async () => {
+  const input = modelFixture();
+  input.frame.model.representation.sizeBasis = "allocated";
+  input.page.response.sizeBasis = "allocated";
+  input.page.response.rows[1] = {
+    ...input.page.response.rows[1]!,
+    sharesSpace: true,
+    sharedCountedItem: { resultVersion: "r1", itemNo: 80 },
+  };
+  const oldReply = deferred<ReturnType<typeof displayPath>>();
+  const newReply = deferred<ReturnType<typeof displayPath>>();
+  const browse = {
+    call: vi
+      .fn()
+      .mockReturnValueOnce(oldReply.promise)
+      .mockReturnValueOnce(newReply.promise),
+  } as unknown as AnalysisClient;
+  const view = render(
+    <ModelRows
+      client={browse}
+      page={input.page}
+      model={input.frame.model}
+      text={text}
+      expanded
+    />,
+  );
+  document
+    .querySelector<HTMLElement>(
+      "tbody tr:nth-child(2) td:first-child [tabindex='0']",
+    )!
+    .focus();
+  expect(browse.call).toHaveBeenCalledOnce();
+
+  const nextPage = {
+    ...input.page,
+    request: { ...input.page.request, resultRevision: "r2" },
+    response: {
+      ...input.page.response,
+      resultRevision: "r2",
+      rows: input.page.response.rows.map((row, index) => ({
+        ...row,
+        ...(row.itemRef
+          ? { itemRef: { ...row.itemRef, resultVersion: "r2" } }
+          : {}),
+        ...(index === 1
+          ? { sharedCountedItem: { resultVersion: "r2", itemNo: 81 } }
+          : {}),
+      })),
+    },
+  };
+  view.rerender(
+    <ModelRows
+      client={browse}
+      page={nextPage}
+      model={input.frame.model}
+      text={text}
+      expanded
+    />,
+  );
+  const currentTrigger = document.querySelector<HTMLElement>(
+    "tbody tr:nth-child(2) td:first-child [tabindex='0']",
+  )!;
+  expect(currentTrigger.getAttribute("title")).toBeNull();
+  currentTrigger.focus();
+  await waitFor(() => expect(browse.call).toHaveBeenCalledTimes(2));
+  await act(async () => newReply.resolve(displayPath("/Users/a/new.mp4")));
+  await waitFor(() =>
+    expect(currentTrigger.getAttribute("title")).toBe(
+      "Counted at /Users/a/new.mp4",
+    ),
+  );
+  await act(async () => oldReply.resolve(displayPath("/Users/a/old.mp4")));
+  expect(currentTrigger.getAttribute("title")).toBe(
+    "Counted at /Users/a/new.mp4",
+  );
+});

@@ -15,21 +15,37 @@ function CountedPath({
   counted: ItemRef;
   text: LocaleText;
 }) {
-  const [path, setPath] = useState<string>();
   const { resultVersion, itemNo } = counted;
+  const identity = JSON.stringify([resultVersion, itemNo]);
+  const [loaded, setLoaded] = useState<{
+    client: AnalysisClient;
+    identity: string;
+    path: string;
+  }>();
+  const path =
+    loaded?.client === client && loaded.identity === identity
+      ? loaded.path
+      : undefined;
   useEffect(() => {
     let active = true;
+    setLoaded(undefined);
     void client
       .call("browse.detail", { resultVersion, item: { resultVersion, itemNo } })
       .then((detail) => {
-        if (active && detail.displayPath.state === "present")
-          setPath(detail.displayPath.value);
+        if (!active) return;
+        setLoaded(
+          detail.displayPath.state === "present"
+            ? { client, identity, path: detail.displayPath.value }
+            : undefined,
+        );
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setLoaded(undefined);
+      });
     return () => {
       active = false;
     };
-  }, [client, resultVersion, itemNo]);
+  }, [client, resultVersion, itemNo, identity]);
   return path === undefined ? (
     text("ui.browse.counted_at", "Counted at")
   ) : (

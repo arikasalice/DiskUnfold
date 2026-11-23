@@ -10,6 +10,7 @@ import {
   Text,
 } from "../../components";
 import type {
+  AnalysisClient,
   ItemRef,
   VizRenderRequest,
   VizRow,
@@ -48,6 +49,7 @@ const defaultChartRenderer = createChartRenderers([
   ["sankey", SankeyRenderer],
 ]);
 type ModelViewProps = {
+  client?: AnalysisClient | undefined;
   resolveRenderer?: ReturnType<typeof createChartRenderers> | undefined;
   frame: ModelResponse;
   page?: ModelRowsPage;
@@ -148,6 +150,7 @@ export function VisualizationModelPresenter(props: ModelViewProps) {
   const rowsContent =
     adapted.rowsMatch && page ? (
       <ModelRows
+        client={props.client}
         page={page}
         model={frame.model}
         text={text}
