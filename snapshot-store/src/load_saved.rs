@@ -15,7 +15,7 @@ use du_core_contracts::{
 use serde_json::Value;
 use std::{
     fmt,
-    io::{self, ErrorKind, Read, Seek},
+    io::{self, ErrorKind, Read, Seek, SeekFrom},
     sync::Arc,
 };
 
@@ -96,12 +96,13 @@ impl std::error::Error for LoadSavedError {}
 /// Opens a registered file, copies it into a private locked spool, verifies that
 /// copy, and loads it as an immutable snapshot result.
 ///
-/// `expected_size`, when supplied from the index row, is compared with the full
-/// number of bytes copied. The provided staging sink must bound decoded output
-/// without retaining a potentially multi-gigabyte stream in memory. The source
-/// file is opened read-only and never modified. The private capture is removed
-/// on success, cancellation, and every failure; reconciliation must not report
-/// or auto-delete a leftover capture as `snapshot.orphan_file`.
+/// The required index size is compared with the full number of bytes copied and
+/// its digest is checked against the same locked capture. The provided staging
+/// sink must bound decoded output without retaining a potentially multi-gigabyte
+/// stream in memory. The source file is opened read-only and never modified. The
+/// private capture is removed on success, cancellation, and every failure;
+/// reconciliation must not report or auto-delete a leftover capture as
+/// `snapshot.orphan_file`.
 ///
 /// The returned `Arc<ResultVersion>` has `DataSource::Snapshot`. Native Windows
 /// behavior is covered by the platform adapter test; Linux and macOS native
@@ -109,7 +110,8 @@ impl std::error::Error for LoadSavedError {}
 pub fn load_saved<W>(
     port: &dyn SnapshotFilePort,
     snapshot_id: &Id,
-    expected_size: Option<u64>,
+    expected_size: u64,
+    expected_body_hash: [u8; 32],
     staging: W,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<Arc<ResultVersion>, LoadSavedError>
@@ -123,15 +125,15 @@ where
         Ok(source) => source,
         Err(error) => return Err(discard(staging, file_error(error))),
     };
-    let capture = match port.create_capture(expected_size) {
+    let capture = match port.create_capture(Some(expected_size)) {
         Ok(capture) => capture,
         Err(error) => return Err(discard(staging, file_error(error))),
     };
     let mut source = CountingReader::new(source);
-    let verified = match spool::capture_v1(
+    let mut verified = match spool::capture_v1(
         &mut source,
         capture,
-        None,
+        Some(expected_body_hash),
         |metadata, version| metadata_matches(metadata, version, snapshot_id),
         &mut cancelled,
     ) {
@@ -141,7 +143,17 @@ where
             return Err(discard(staging, kind));
         }
     };
-    if expected_size.is_some_and(|expected| expected != source.bytes_read()) {
+    let captured_size = match verified.seek(SeekFrom::End(0)) {
+        Ok(size) => size,
+        Err(error) => {
+            drop(verified);
+            return Err(discard(
+                staging,
+                LoadSavedErrorKind::ReadFailed(error.kind()),
+            ));
+        }
+    };
+    if expected_size != captured_size || expected_size != source.bytes_read() {
         drop(verified);
         return Err(discard(staging, LoadSavedErrorKind::IntegrityFailed));
     }

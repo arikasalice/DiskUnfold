@@ -217,6 +217,16 @@ fn sample_file() -> Result<(Arc<du_analysis_index::ResultVersion>, Id, Vec<u8>),
     Ok((source, snapshot_id, bytes))
 }
 
+fn index_body_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
+    let digest_start = bytes
+        .len()
+        .checked_sub(32)
+        .ok_or("snapshot footer digest is missing")?;
+    bytes[digest_start..]
+        .try_into()
+        .map_err(|_| "snapshot footer digest has an invalid length".into())
+}
+
 #[test]
 fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), String> {
     use du_core_contracts::{data_source::DataSource, result::ResultVersionRead};
@@ -225,10 +235,12 @@ fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), S
     let port = FakePort::new(Some(bytes.clone()), Some(1_000_000));
     let discarded = Arc::new(AtomicBool::new(false));
     let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let body_hash = index_body_hash(&bytes)?;
     let loaded = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        Some(size),
+        size,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || false,
     )
@@ -250,13 +262,16 @@ fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), S
 
 #[test]
 fn missing_snapshot_is_not_found_and_discards_staging() -> Result<(), String> {
-    let (_, snapshot_id, _) = sample_file()?;
+    let (_, snapshot_id, bytes) = sample_file()?;
     let port = FakePort::new(None, Some(1_000_000));
     let discarded = Arc::new(AtomicBool::new(false));
+    let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let body_hash = index_body_hash(&bytes)?;
     let error = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        None,
+        size,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || false,
     )
@@ -276,13 +291,16 @@ fn missing_snapshot_is_not_found_and_discards_staging() -> Result<(), String> {
 fn corrupted_snapshot_and_wrong_index_size_discard_the_capture() -> Result<(), String> {
     let (_, snapshot_id, mut bytes) = sample_file()?;
     let original = bytes.clone();
+    let body_hash = index_body_hash(&original)?;
+    let size = u64::try_from(original.len()).map_err(|error| error.to_string())?;
     *bytes.last_mut().ok_or("snapshot unexpectedly empty")? ^= 1;
     let port = FakePort::new(Some(bytes), Some(1_000_000));
     let discarded = Arc::new(AtomicBool::new(false));
     let error = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        None,
+        size,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || false,
     )
@@ -294,11 +312,11 @@ fn corrupted_snapshot_and_wrong_index_size_discard_the_capture() -> Result<(), S
 
     let port = FakePort::new(Some(original.clone()), Some(1_000_000));
     let discarded = Arc::new(AtomicBool::new(false));
-    let size = u64::try_from(original.len()).map_err(|error| error.to_string())?;
     let error = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        Some(size + 1),
+        size + 1,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || false,
     )
@@ -312,16 +330,70 @@ fn corrupted_snapshot_and_wrong_index_size_discard_the_capture() -> Result<(), S
 }
 
 #[test]
+fn resealed_snapshot_still_must_match_index_body_hash() -> Result<(), String> {
+    let (_, snapshot_id, mut bytes) = sample_file()?;
+    let expected_body_hash = index_body_hash(&bytes)?;
+    let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+
+    let metadata_len = usize::try_from(u32::from_le_bytes(
+        bytes[12..16]
+            .try_into()
+            .map_err(|_| "snapshot header is truncated")?,
+    ))
+    .map_err(|error| error.to_string())?;
+    let metadata_end = 16_usize
+        .checked_add(metadata_len)
+        .ok_or("snapshot metadata length overflowed")?;
+    let app_version = b"\"appVersion\":\"";
+    let version_offset = bytes[16..metadata_end]
+        .windows(app_version.len())
+        .position(|window| window == app_version)
+        .ok_or("snapshot app version metadata is missing")?
+        + 16
+        + app_version.len();
+    bytes[version_offset] = if bytes[version_offset] == b'9' {
+        b'8'
+    } else {
+        b'9'
+    };
+
+    let footer_start = bytes.len() - 32;
+    let resealed_hash = blake3::hash(&bytes[..footer_start]);
+    bytes[footer_start..].copy_from_slice(resealed_hash.as_bytes());
+    assert_ne!(resealed_hash.as_bytes(), &expected_body_hash);
+
+    let port = FakePort::new(Some(bytes), Some(1_000_000));
+    let discarded = Arc::new(AtomicBool::new(false));
+    let error = du_snapshot_store::load_saved(
+        &port,
+        &snapshot_id,
+        size,
+        expected_body_hash,
+        TrackedStage::new(discarded.clone()),
+        || false,
+    )
+    .err()
+    .ok_or("snapshot with a regenerated footer bypassed the index digest")?;
+
+    assert_eq!(error.reason_key(), Some("snapshot.integrity_failed"));
+    assert!(discarded.load(Ordering::SeqCst));
+    assert!(!port.state().capture_open);
+    Ok(())
+}
+
+#[test]
 fn cancellation_and_insufficient_space_leave_no_capture() -> Result<(), String> {
     let (_, snapshot_id, bytes) = sample_file()?;
     let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let body_hash = index_body_hash(&bytes)?;
     let port = FakePort::new(Some(bytes.clone()), Some(1_000_000));
     let discarded = Arc::new(AtomicBool::new(false));
     let mut polls = 0;
     let error = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        Some(size),
+        size,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || {
             polls += 1;
@@ -344,7 +416,8 @@ fn cancellation_and_insufficient_space_leave_no_capture() -> Result<(), String> 
     let error = du_snapshot_store::load_saved(
         &port,
         &snapshot_id,
-        Some(size),
+        size,
+        body_hash,
         TrackedStage::new(discarded.clone()),
         || false,
     )
