@@ -535,6 +535,7 @@ export function FileInspection({
         item={item}
         display={effectiveDisplay}
         onStale={onStale}
+        navigateItem={navigateItem}
       />
     </>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { LegendControls, TypeNarrowing } from "./ModelLegend";
 import { LiveStatus, Notice, Text, Toast } from "../../components";
+import type { AnalysisClient } from "../../ipc";
 import { VisualizationModelPresenter } from "./VisualizationModelPresenter";
 import type {
   VisualizationController,
@@ -34,6 +35,7 @@ import type { IntervalListing } from "./interval-list";
 
 /** Injectable entry point. Visual design and product assembly remain with the host. */
 export function ControlledVisualization({
+  client,
   controller,
   text,
   onApplyRevision,
@@ -50,6 +52,7 @@ export function ControlledVisualization({
   legendSide,
   onOpenList,
 }: {
+  client?: AnalysisClient | undefined;
   controller: VisualizationController;
   text: VizText;
   onApplyRevision?: (revision: string) => void;
@@ -165,6 +168,7 @@ export function ControlledVisualization({
       )}
       {!unavailable && graph && (
         <VisualizationModelPresenter
+          client={client}
           frame={graph.frame}
           resolveRenderer={resolveRenderer}
           view={graph.view}
@@ -294,6 +298,7 @@ export function ControlledVisualization({
         newer={!!graph && !currentTable}
       />
       <SeparateModelTable
+        client={client}
         state={state}
         controller={controller}
         text={text}

@@ -47,6 +47,7 @@ import { TargetPickerPreview } from "./TargetPickerPreview";
 import { ScanIssuesPreview } from "./ScanIssuesPreview";
 import { TypeSlicesPreview } from "./TypeSlicesPreview";
 import { SankeyPreview } from "./SankeyPreview";
+import { SharedSpacePreview } from "./SharedSpacePreview";
 
 const presenters = {
   workspace: WorkspacePresenter,
@@ -90,7 +91,8 @@ type GallerySurface =
   | "target-picker"
   | "scan-issues"
   | "type-slices"
-  | "sankey";
+  | "sankey"
+  | "shared-space";
 
 /** The surface and theme named in the address, for a capture that opens on them. */
 function requested(): {
@@ -109,7 +111,8 @@ function requested(): {
       surface === "target-picker" ||
       surface === "scan-issues" ||
       surface === "type-slices" ||
-      surface === "sankey"
+      surface === "sankey" ||
+      surface === "shared-space"
         ? surface
         : surface !== null && Object.hasOwn(fixtures, surface)
           ? (surface as SurfaceId)
@@ -172,6 +175,9 @@ export function Gallery() {
   }
   if (surface === "scan-issues") {
     return <ScanIssuesPreview />;
+  }
+  if (surface === "shared-space") {
+    return <SharedSpacePreview scene={scene} />;
   }
   if (surface === "job-center") {
     return <JobCenterPreview scene={scene} />;

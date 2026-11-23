@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import { Action, Heading, Progress, Text } from "../../components";
+import type { AnalysisClient } from "../../ipc";
 import { ModelRows } from "./VisualizationModelPresenter";
 import type {
   VisualizationController,
@@ -50,6 +51,7 @@ export function useFirstRows(
 }
 
 export function SeparateModelTable({
+  client,
   state,
   controller,
   text,
@@ -57,6 +59,7 @@ export function SeparateModelTable({
   onOpenGroup,
   returnTargetRef,
 }: {
+  client?: AnalysisClient | undefined;
   state: VisualizationSnapshot;
   controller: VisualizationController;
   text: VizText;
@@ -132,6 +135,7 @@ export function SeparateModelTable({
             )}
           {state.tablePage && (
             <ModelRows
+              client={client}
               page={state.tablePage}
               {...(alone ? {} : { title: text.message("newerTitle") })}
               model={table.model}

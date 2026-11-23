@@ -63,6 +63,15 @@ pub struct SpaceLinkGroup {
     )]
     #[cfg_attr(feature = "typescript", ts(optional))]
     pub counted_item: Option<ItemRef>,
+    /// The folder that holds `counted_item`, for opening it. Present only with
+    /// `counted_item`, in the same result version; `null` is rejected.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::folder_flags::non_null"
+    )]
+    #[cfg_attr(feature = "typescript", ts(optional))]
+    pub counted_folder: Option<ItemRef>,
     pub has_outside_links: Option<bool>,
 }
 

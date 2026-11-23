@@ -178,6 +178,7 @@ export function VisualizationSession({
           <Notice tone="error">{localizedText.message("updateFailed")}</Notice>
         )}
         <ControlledVisualization
+          client={client}
           controller={session.controller}
           groupController={session.groups}
           text={localizedText}

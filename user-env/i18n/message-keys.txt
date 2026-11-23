@@ -468,6 +468,9 @@ ui.analysis.space_exclusive_confirmed
 ui.analysis.space_confirmed
 ui.analysis.space_not_confirmed
 ui.analysis.space_file_links
+ui.analysis.space_counted_at
+ui.analysis.space_counted_this_path
+ui.analysis.space_counted_once_note
 ui.analysis.space_total_unavailable
 ui.analysis.space_link_count_reported count:count
 ui.analysis.space_outside_links_unknown
@@ -1194,6 +1197,8 @@ ui.visualization.unreadFoldersAtLeast count:count
 ui.visualization.unreadInside count:count
 ui.visualization.unreadInsideSome
 ui.visualization.unreadItself
+ui.visualization.sharesSpace
+ui.visualization.sharesSpaceCountedHere
 ui.visualization.unreadTooltip
 ui.visualization.formatChoice
 ui.visualization.formatNoData
