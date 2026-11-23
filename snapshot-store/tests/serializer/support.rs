@@ -302,8 +302,8 @@ impl Write for MemorySpool {
 impl CaptureSpool for MemorySpool {
     type Sealed = Self;
 
-    fn seal(self) -> io::Result<Self::Sealed> {
-        Ok(self)
+    fn seal(self: Box<Self>) -> io::Result<Self::Sealed> {
+        Ok(*self)
     }
 }
 

@@ -17,17 +17,18 @@ use windows::{
     Wdk::{
         Foundation::OBJECT_ATTRIBUTES,
         Storage::FileSystem::{
-            FILE_CREATE, FILE_DELETE_ON_CLOSE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
-            FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_0, FILE_SYNCHRONOUS_IO_NONALERT,
-            FileRenameInformation, NTCREATEFILE_CREATE_OPTIONS, NtCreateFile, NtSetInformationFile,
+            FILE_CREATE, FILE_DELETE_ON_CLOSE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+            FILE_OPEN_REPARSE_POINT, FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_0,
+            FILE_SYNCHRONOUS_IO_NONALERT, FileRenameInformation, NTCREATEFILE_CREATE_OPTIONS,
+            NtCreateFile, NtSetInformationFile,
         },
     },
     Win32::{
         Foundation::{HANDLE, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING},
         Storage::FileSystem::{
-            DELETE, FILE_ATTRIBUTE_NORMAL, FILE_DISPOSITION_INFO, FILE_GENERIC_READ,
-            FILE_GENERIC_WRITE, FILE_SHARE_MODE, FileDispositionInfo, SYNCHRONIZE,
-            SetFileInformationByHandle,
+            DELETE, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DISPOSITION_INFO,
+            FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_DELETE, FILE_SHARE_MODE,
+            FILE_SHARE_READ, FileDispositionInfo, SYNCHRONIZE, SetFileInformationByHandle,
         },
         System::IO::IO_STATUS_BLOCK,
     },
@@ -57,17 +58,82 @@ impl SnapshotDirectory {
     /// Creates a private capture that the OS removes when the last handle closes.
     ///
     /// The caller must bound the bytes written and validate the sealed contents.
-    pub fn capture(&self, temporary_id: &Id) -> io::Result<SnapshotCapture<'_>> {
-        let file = self.create_file(temporary_id, FILE_DELETE_ON_CLOSE)?;
+    pub fn capture(&self, temporary_id: &Id) -> io::Result<SnapshotCapture> {
+        let file = self.create_named_file(
+            &format!(".capture-{}.part", temporary_id.as_str()),
+            FILE_DELETE_ON_CLOSE,
+        )?;
         file.try_lock().map_err(io::Error::from)?;
         Ok(SnapshotCapture {
-            directory: self,
+            _directory: Arc::clone(&self.0),
             file,
         })
     }
 
+    /// Opens the registered final filename relative to the verified directory handle.
+    pub fn open_final(&self, snapshot_id: &Id) -> io::Result<File> {
+        use std::os::windows::fs::MetadataExt;
+
+        let wide: Vec<u16> = format!("{}.dusnap", snapshot_id.as_str())
+            .encode_utf16()
+            .collect();
+        let length = u16::try_from(wide.len() * 2).map_err(|_| io::ErrorKind::InvalidInput)?;
+        let object_name = UNICODE_STRING {
+            Length: length,
+            MaximumLength: length,
+            Buffer: PWSTR(wide.as_ptr().cast_mut()),
+        };
+        let attributes = OBJECT_ATTRIBUTES {
+            Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: HANDLE(self.0.storage_handle().as_raw_handle()),
+            ObjectName: &object_name,
+            Attributes: OBJ_CASE_INSENSITIVE,
+            SecurityDescriptor: std::ptr::null(),
+            SecurityQualityOfService: std::ptr::null(),
+        };
+        let mut status = IO_STATUS_BLOCK::default();
+        let mut handle = HANDLE::default();
+        // SAFETY: the verified directory handle, UTF-16 name and output structures remain valid.
+        // Read-only access with delete sharing pins this file identity while allowing replacement.
+        let result = unsafe {
+            NtCreateFile(
+                &mut handle,
+                FILE_GENERIC_READ | SYNCHRONIZE,
+                &attributes,
+                &mut status,
+                None,
+                FILE_ATTRIBUTE_NORMAL,
+                FILE_SHARE_MODE(FILE_SHARE_READ.0 | FILE_SHARE_DELETE.0),
+                FILE_OPEN,
+                FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+                None,
+                0,
+            )
+        };
+        if result.0 < 0 {
+            // SAFETY: translating a status value does not access memory or filesystem state.
+            return Err(io::Error::from_raw_os_error(
+                unsafe { RtlNtStatusToDosError(result) } as i32,
+            ));
+        }
+        // SAFETY: successful open transfers ownership of a valid file handle.
+        let file = unsafe { File::from_raw_handle(handle.0) };
+        if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Ok(file)
+    }
+
     fn create_file(&self, id: &Id, options: NTCREATEFILE_CREATE_OPTIONS) -> io::Result<File> {
         let name = format!(".tmp-{}.dusnap.part", id.as_str());
+        self.create_named_file(&name, options)
+    }
+
+    fn create_named_file(
+        &self,
+        name: &str,
+        options: NTCREATEFILE_CREATE_OPTIONS,
+    ) -> io::Result<File> {
         let wide: Vec<u16> = name.encode_utf16().collect();
         let length = u16::try_from(wide.len() * 2).map_err(|_| io::ErrorKind::InvalidInput)?;
         let object_name = UNICODE_STRING {
@@ -233,26 +299,26 @@ impl Drop for TemporarySnapshot {
 }
 
 /// A write-only capture retained under a verified directory with exclusive access.
-pub struct SnapshotCapture<'a> {
+pub struct SnapshotCapture {
     file: File,
-    directory: &'a SnapshotDirectory,
+    _directory: Arc<WindowsDirectory>,
 }
 
-impl<'a> CaptureSpool for SnapshotCapture<'a> {
-    type Sealed = SealedSnapshot<'a>;
+impl CaptureSpool for SnapshotCapture {
+    type Sealed = Box<dyn SealedSpool>;
 
     /// Consumes the writer and rewinds the same locked handle for read-only access.
-    fn seal(mut self) -> io::Result<Self::Sealed> {
+    fn seal(mut self: Box<Self>) -> io::Result<Self::Sealed> {
         self.file.flush()?;
         self.file.rewind()?;
-        Ok(SealedSnapshot {
+        Ok(Box::new(SealedSnapshot {
             file: self.file,
-            _directory: self.directory,
-        })
+            _directory: self._directory,
+        }))
     }
 }
 
-impl Write for SnapshotCapture<'_> {
+impl Write for SnapshotCapture {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.file.write(bytes)
     }
@@ -263,24 +329,24 @@ impl Write for SnapshotCapture<'_> {
 }
 
 /// Read-only access to the exact captured bytes, locked until automatic removal.
-pub struct SealedSnapshot<'a> {
+pub struct SealedSnapshot {
     file: File,
-    _directory: &'a SnapshotDirectory,
+    _directory: Arc<WindowsDirectory>,
 }
 
-impl Read for SealedSnapshot<'_> {
+impl Read for SealedSnapshot {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         self.file.read(bytes)
     }
 }
 
-impl Seek for SealedSnapshot<'_> {
+impl Seek for SealedSnapshot {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
         self.file.seek(position)
     }
 }
 
-impl SealedSpool for SealedSnapshot<'_> {}
+impl SealedSpool for SealedSnapshot {}
 
 #[cfg(test)]
 mod tests {

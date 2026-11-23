@@ -133,6 +133,7 @@ fn open_bytes(bytes: Vec<u8>) -> Result<(VerifiedSnapshot<Stage>, Arc<Mutex<Stag
     }
 }
 
+mod load_saved_tests;
 mod load_tests;
 
 fn open_error(bytes: Vec<u8>) -> Result<OpenError, String> {

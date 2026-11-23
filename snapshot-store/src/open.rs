@@ -89,6 +89,10 @@ impl OpenError {
     pub fn cleanup_failed(&self) -> bool {
         self.cleanup.is_some()
     }
+
+    pub(crate) fn io_error_kind(&self) -> Option<io::ErrorKind> {
+        self.source.as_ref().map(io::Error::kind)
+    }
 }
 
 impl fmt::Display for OpenError {
@@ -164,6 +168,10 @@ impl<W: zstd_stream::StagingSink + Read + Seek> VerifiedSnapshot<W> {
     pub fn records(&mut self) -> impl Read + Seek + '_ {
         &mut self.records
     }
+
+    pub(crate) fn discard_records(self) -> io::Result<()> {
+        self.records.discard()
+    }
 }
 
 /// Opens one already locked sealed copy and returns a move-only verified token.
@@ -234,6 +242,7 @@ fn discard<W: zstd_stream::StagingSink>(sink: W, mut failure: OpenError) -> Open
 fn map_spool_error(error: envelope::spool::Error) -> OpenError {
     match error {
         envelope::spool::Error::Io(error) => OpenError::caused_by(OpenErrorKind::Io, error),
+        envelope::spool::Error::Read(error) => OpenError::caused_by(OpenErrorKind::Io, error),
         envelope::spool::Error::Cancelled => OpenError::new(OpenErrorKind::Cancelled),
         envelope::spool::Error::Format(error) => map_envelope_error(error),
         envelope::spool::Error::Frame(error) => map_frame_error(error),

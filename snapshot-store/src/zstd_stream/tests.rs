@@ -173,7 +173,7 @@ impl Write for MemoryCapture {
 }
 impl crate::envelope::spool::CaptureSpool for MemoryCapture {
     type Sealed = MemorySealed;
-    fn seal(self) -> io::Result<Self::Sealed> {
+    fn seal(self: Box<Self>) -> io::Result<Self::Sealed> {
         Ok(MemorySealed(std::io::Cursor::new(self.0)))
     }
 }
