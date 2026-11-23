@@ -272,8 +272,10 @@ fn racer_failure_is_reported_while_another_racer_is_pending() {
     let (failed, disconnected) = std::sync::mpsc::channel();
     drop(failed);
     let started = Instant::now();
-    let error = wait_for_racers(vec![pending, disconnected], started, 0).unwrap_err();
-    assert!(error.contains("racer ended before active request"));
+    assert!(matches!(
+        wait_for_racers(vec![pending, disconnected], started, 0),
+        Err(error) if error.contains("racer ended before active request")
+    ));
 }
 
 /// Joins `thread` once it finishes, failing when the shared limit runs out.
