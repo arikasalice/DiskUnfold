@@ -335,7 +335,7 @@ fn the_rest_of_a_scope_is_drawn_whole_beside_a_link() {
 }
 
 #[test]
-fn a_shared_file_stays_unattributed_beside_a_sibling_above_a_link() {
+fn a_shared_file_is_counted_once_beside_a_sibling_above_a_link() {
     // a and c contain one 10-byte file (two links); b has a file and a link.
     let version = scan(
         &[
@@ -352,19 +352,24 @@ fn a_shared_file_stays_unattributed_beside_a_sibling_above_a_link() {
     );
     let lower = is_lower_bound(&value_of(&version, "b", &SizeBasis::Allocated));
     let model = project_at(&version, "", SizeBasis::Allocated, 16).unwrap();
-    assert_eq!(model.shapes.len(), 1);
-    assert_eq!(model.detail.unknown_items, 2);
-    for name in ["a", "c"] {
-        assert_eq!(
-            row_of(&model, &version, name).omission,
-            Some(NoArea::Unknown),
-            "{name}"
-        );
-    }
+    assert_eq!(model.shapes.len(), 2);
+    assert_eq!(model.detail.unknown_items, 0);
+    assert!(
+        model
+            .shapes
+            .iter()
+            .any(|shape| { model.rows[shape.row_index].item == find(&version, "a") })
+    );
+    assert!(
+        !model
+            .shapes
+            .iter()
+            .any(|shape| { model.rows[shape.row_index].item == find(&version, "c") })
+    );
     assert_eq!(is_lower_bound(&row_of(&model, &version, "b").size), lower);
-    // The shared file is in the scope once, and in no total.
+    // The shared file is attributed to a once; b keeps its lower-bound area.
     assert_eq!(bytes_of(&model.totals.scope), 30);
-    assert_eq!(model.totals.drawn_bytes, 20);
+    assert_eq!(model.totals.drawn_bytes, 30);
 }
 
 #[test]

@@ -44,6 +44,7 @@ fn a_group_row_carries_its_member_count_and_an_old_row_is_still_read()
     let page = json!({
         "rows": [group],
         "totalCount": 1,
+        "sizeBasis": "logical",
         "resultRevision": ID,
         "observedAt": null,
         "completeness": "complete"

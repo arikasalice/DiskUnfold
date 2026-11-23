@@ -28,6 +28,7 @@ use du_core_contracts::{
     Id, ItemRef, SizeAmount, SizeBasis, SizeEvidence, SizeValue,
     result::{ResultCompleteness, ResultVersionRead},
 };
+use scan_fixture::Entry;
 use std::sync::Arc;
 
 pub fn id(n: u8) -> Id {
@@ -292,49 +293,78 @@ fn shared(folders: &[(&str, u8, u64)]) -> Arc<ResultVersion> {
 }
 
 #[test]
-fn siblings_sharing_a_file_are_unattributed_whichever_is_read_first() {
+fn siblings_sharing_a_file_count_the_same_path_whichever_is_read_first() {
     for folders in [
         [("a", 7, 2), ("b", 8, 1), ("c", 7, 2)],
         [("a", 8, 1), ("b", 7, 2), ("c", 7, 2)],
     ] {
         let version = shared(&folders);
         let model = project(&version, SizeBasis::Allocated, 16).unwrap();
-        assert_eq!(model.detail.unknown_items, 2);
-        assert_eq!(model.shapes.len(), 1);
-        let unattributed: Vec<_> = model
-            .rows
-            .iter()
-            .filter(|row| row.omission == Some(NoArea::Unknown))
-            .map(|row| version.items()[row.item.item_no as usize].name.clone())
-            .collect();
-        let sharing: Vec<_> = folders
+        assert_eq!(model.detail.unknown_items, 0);
+        assert_eq!(model.shapes.len(), 2);
+        let counted = folders
             .iter()
             .filter(|f| f.1 == 7)
-            .map(|f| f.0.as_bytes().to_vec())
-            .collect();
-        assert_eq!(unattributed, sharing);
-        // The scope keeps its F03 value; the attributed sibling gets its own share only.
+            .map(|f| f.0)
+            .min()
+            .unwrap();
+        let uncounted = folders
+            .iter()
+            .filter(|f| f.1 == 7 && f.0 != counted)
+            .map(|f| f.0)
+            .next()
+            .unwrap();
+        assert!(
+            model
+                .shapes
+                .iter()
+                .any(|shape| { model.rows[shape.row_index].item == find(&version, counted) })
+        );
+        assert!(
+            !model
+                .shapes
+                .iter()
+                .any(|shape| { model.rows[shape.row_index].item == find(&version, uncounted) })
+        );
+        // The scope and drawn totals both count the shared identity once.
         assert_eq!(model.totals.scope, version.space(0).unwrap().allocated);
-        assert_eq!(model.totals.drawn_bytes, 10);
+        assert_eq!(model.totals.drawn_bytes, 20);
         assert_eq!(bytes_of(&model.totals.scope), 20);
-        // The unattributed share is not reserved (F06 README 51.2): the attributed
-        // sibling fills the chart, and the scope keeps the whole value.
-        assert_eq!(area(&model.shapes[0].geometry), 1_000_000_000_000);
+        assert_eq!(
+            model
+                .shapes
+                .iter()
+                .map(|shape| area(&shape.geometry))
+                .sum::<u64>(),
+            1_000_000_000_000
+        );
     }
 }
 
 #[test]
-fn a_folder_of_only_unattributed_children_is_a_model_without_shapes() {
-    let version = shared(&[("a", 7, 2), ("b", 7, 2)]);
+fn a_folder_of_only_unread_children_is_a_model_without_shapes() {
+    let version = scan_fixture::scan(
+        &[
+            Entry::Unread("a"),
+            Entry::Unread("b"),
+            Entry::File("zero", 0),
+        ],
+        ResultCompleteness::Complete,
+        &[],
+    );
     let model = project(&version, SizeBasis::Allocated, 16).unwrap();
     assert!(model.shapes.is_empty() && model.detail.groups.is_empty());
     assert_eq!(model.detail.unknown_items, 2);
     assert_eq!(model.totals.drawn_bytes, 0);
-    assert_eq!(bytes_of(&model.totals.scope), 10);
-    assert!(model.rows.iter().all(|row| {
-        row.size.amount == size(SizeBasis::Allocated, 10).amount && row.lod == Lod::Drawn
-    }));
-    assert_eq!(model.omissions.len(), 2);
+    assert_eq!(bytes_of(&model.totals.scope), 0);
+    assert_eq!(
+        model
+            .rows
+            .iter()
+            .filter(|row| row.omission == Some(NoArea::Unknown))
+            .count(),
+        2
+    );
 }
 
 #[test]

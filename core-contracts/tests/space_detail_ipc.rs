@@ -17,7 +17,12 @@ fn preserves_zero_unknown_and_uncollected_detail_evidence() -> Result<(), serde_
         "shared":missing,
         "linkGroup":{"state":"present","value":{
             "reportedLinkCount":"18446744073709551615",
-            "inScopePaths":[{"resultVersion":version,"itemNo":3}],
+            "inScopePaths":[
+                {"resultVersion":version,"itemNo":3},
+                {"resultVersion":version,"itemNo":4}
+            ],
+            "sharesSpace":true,
+            "countedItem":{"resultVersion":version,"itemNo":3},
             "hasOutsideLinks":null
         }},
         "auxiliary":{"state":"unknown","reasonKey":"space.aux_not_included"},
@@ -27,5 +32,21 @@ fn preserves_zero_unknown_and_uncollected_detail_evidence() -> Result<(), serde_
     });
     let detail: SpaceDetail = serde_json::from_value(wire.clone())?;
     assert_eq!(serde_json::to_value(detail)?, wire);
+
+    let mut old = wire.clone();
+    if let Some(group) = old["linkGroup"]["value"].as_object_mut() {
+        group.remove("countedItem");
+        group.remove("sharesSpace");
+    }
+    let decoded: SpaceDetail = serde_json::from_value(old.clone())?;
+    assert_eq!(serde_json::to_value(decoded)?, old);
+
+    let mut null = wire;
+    null["linkGroup"]["value"]["countedItem"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<SpaceDetail>(null).is_err());
+
+    let mut null = old;
+    null["linkGroup"]["value"]["sharesSpace"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<SpaceDetail>(null).is_err());
     Ok(())
 }

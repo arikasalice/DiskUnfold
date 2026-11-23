@@ -32,6 +32,7 @@ fn retirement_keeps_source_alive_after_the_session_lock() -> Result<(), String> 
     let reference = pages
         .register(ModelInput {
             version: old.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "old".into(),
             rows: vec![],
             groups: HashMap::new(),
@@ -99,6 +100,7 @@ fn another_lineage_can_publish_while_rows_are_being_prepared() -> Result<(), Str
             pages.register_after_prepare(
                 ModelInput {
                     version,
+                    size_basis: du_core_contracts::SizeBasis::Logical,
                     condition_fingerprint: "first".into(),
                     rows: vec![],
                     groups: HashMap::new(),
@@ -140,6 +142,7 @@ fn replacement_before_registration_cannot_commit_old_model() -> Result<(), Strin
     ));
     let input = ModelInput {
         version: old,
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: "old".into(),
         rows: vec![],
         groups: HashMap::new(),
@@ -172,6 +175,7 @@ fn replacement_before_registration_cannot_commit_old_model() -> Result<(), Strin
     let reference = pages
         .register(ModelInput {
             version: current.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "new".into(),
             rows: vec![],
             groups: HashMap::new(),
@@ -216,6 +220,7 @@ fn admitted_page_survives_model_eviction_and_source_replacement() -> Result<(), 
     let model = pages
         .register(ModelInput {
             version: a.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "a".into(),
             rows: vec![expected.clone()],
             groups: Default::default(),
@@ -301,6 +306,7 @@ fn admitted_group_page_survives_eviction_and_replacement() -> Result<(), String>
     let model = pages
         .register(ModelInput {
             version: a.clone(),
+            size_basis: du_core_contracts::SizeBasis::Logical,
             condition_fingerprint: "a".into(),
             rows: vec![],
             groups: HashMap::from([("g".into(), group)]),
@@ -362,6 +368,7 @@ fn deferred_cache_keeps_strategy_metadata_bound_to_its_rows() -> Result<(), Stri
     let pages = ModelPages::new(source, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(20))));
     let input = || ModelInput {
         version: version.clone(),
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: "same-condition".into(),
         rows: vec![],
         groups: HashMap::new(),
@@ -407,6 +414,7 @@ fn deferred_rollback_keeps_inserted_rows_until_after_the_transaction() -> Result
     let pages = ModelPages::new(source, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(20))));
     let input = |fingerprint: &str| ModelInput {
         version: version.clone(),
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: fingerprint.into(),
         rows: vec![],
         groups: HashMap::new(),

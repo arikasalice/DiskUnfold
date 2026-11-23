@@ -82,10 +82,17 @@ pub(super) fn physical_file(
     if *basis == SizeBasis::UniquePhysical && file.sharing != SharingEvidence::None {
         return Err(AdmissionError::NoAttribution);
     }
+    let counted = if *basis == SizeBasis::Allocated {
+        version
+            .shared_counted_item(&super::super::reference(version, no))
+            .map_err(|_| AdmissionError::NoAttribution)?
+    } else {
+        None
+    };
     let count = file.link_count;
     let identity = file.identity.to_owned();
     if let Some((owner, previous, links, seen)) = identities.owners.get_mut(&identity) {
-        if *owner != sibling
+        if (*owner != sibling && counted.is_none())
             || *previous != file.bytes
             || *links != count
             || count.is_some_and(|links| *seen >= links)
@@ -96,7 +103,11 @@ pub(super) fn physical_file(
         }
         *seen += 1;
         Ok(FileBytes {
-            bytes: 0,
+            bytes: if counted.as_ref().is_none_or(|item| item.item_no == no) {
+                file.bytes
+            } else {
+                0
+            },
             unmeasured: file.lower,
         })
     } else {
@@ -104,7 +115,11 @@ pub(super) fn physical_file(
             .owners
             .insert(identity, (sibling, file.bytes, count, 1));
         Ok(FileBytes {
-            bytes: file.bytes,
+            bytes: if counted.as_ref().is_none_or(|item| item.item_no == no) {
+                file.bytes
+            } else {
+                0
+            },
             unmeasured: file.lower,
         })
     }

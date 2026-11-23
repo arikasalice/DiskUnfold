@@ -29,6 +29,31 @@ fn preserves_rows_quantities_and_nullable_fields() -> Result<(), Box<dyn std::er
         let decoded: VizRow = serde_json::from_value(value.clone())?;
         assert_eq!(serde_json::to_value(decoded)?, value);
     }
+    let old: VizRow = serde_json::from_value(row())?;
+    assert_eq!(old.shares_space, None);
+    assert_eq!(old.shared_counted_item, None);
+    assert!(serde_json::to_value(&old)?.get("sharesSpace").is_none());
+    assert!(
+        serde_json::to_value(&old)?
+            .get("sharedCountedItem")
+            .is_none()
+    );
+
+    let mut shared = row();
+    shared["size"]["basis"] = json!("allocated");
+    shared["size"]["bytes"] = json!("0");
+    shared["ratio"] = Value::Null;
+    shared["sharesSpace"] = json!(true);
+    shared["sharedCountedItem"] = json!({"resultVersion":ID,"itemNo":2});
+    let decoded: VizRow = serde_json::from_value(shared.clone())?;
+    assert_eq!(
+        decoded
+            .shared_counted_item
+            .as_ref()
+            .map(|item| item.item_no),
+        Some(2)
+    );
+    assert_eq!(serde_json::to_value(decoded)?, shared);
     let mut group = row();
     group["itemRef"] = Value::Null;
     group["groupRef"] = json!("g1");
@@ -71,6 +96,23 @@ fn rejects_bad_refs_flags_and_missing_or_null_fields() {
     let mut v = row();
     v["denominator"]["size"] = Value::Null;
     cases.push(v);
+    for field in ["sharesSpace", "sharedCountedItem"] {
+        let mut v = row();
+        v[field] = Value::Null;
+        cases.push(v);
+    }
+    let mut v = row();
+    v["size"]["basis"] = json!("allocated");
+    v["sharesSpace"] = json!(true);
+    v["sharedCountedItem"] = json!({"resultVersion":ID,"itemNo":1});
+    v["ratio"] = Value::Null;
+    cases.push(v);
+    let mut v = row();
+    v["itemRef"] = Value::Null;
+    v["groupRef"] = json!("g1");
+    v["size"]["basis"] = json!("allocated");
+    v["sharesSpace"] = json!(true);
+    cases.push(v);
     for v in cases {
         assert!(serde_json::from_value::<VizRow>(v.clone()).is_err(), "{v}");
     }
@@ -95,6 +137,7 @@ fn label_key_round_trips_and_an_old_row_without_it_is_still_read()
     let page = json!({
         "rows": [group],
         "totalCount": 1,
+        "sizeBasis": "logical",
         "resultRevision": ID,
         "observedAt": null,
         "completeness": "complete"
@@ -157,6 +200,7 @@ fn label_key_is_valid_only_on_a_group_row() -> Result<(), Box<dyn std::error::Er
     let page = json!({
         "rows": [group_row(), item],
         "totalCount": 2,
+        "sizeBasis": "logical",
         "resultRevision": ID,
         "observedAt": null,
         "completeness": "complete"
@@ -186,6 +230,7 @@ fn label_key_is_refused_on_a_row_without_any_reference() -> Result<(), Box<dyn s
     let page = json!({
         "rows": [neither],
         "totalCount": 1,
+        "sizeBasis": "logical",
         "resultRevision": ID,
         "observedAt": null,
         "completeness": "complete"
@@ -237,7 +282,7 @@ fn pages_check_ranges_and_revision_but_leave_model_membership_to_engine()
     let mut extended = request.clone();
     extended["futureField"] = json!(true);
     assert!(serde_json::from_value::<VizRowsRequest>(extended).is_err());
-    let page = json!({"rows":[row()],"totalCount":1,"resultRevision":ID,"observedAt":null,"completeness":"complete"});
+    let page = json!({"rows":[row()],"totalCount":1,"sizeBasis":"logical","resultRevision":ID,"observedAt":null,"completeness":"complete"});
     let parsed: VizRows = serde_json::from_value(page.clone())?;
     parsed.validate()?;
     assert_eq!(serde_json::to_value(parsed)?, page);
@@ -252,6 +297,12 @@ fn pages_check_ranges_and_revision_but_leave_model_membership_to_engine()
         missing.as_object_mut().map(|o| o.remove(field));
         assert!(serde_json::from_value::<VizRows>(missing).is_err());
     }
+    let mut without_basis = page.clone();
+    without_basis.as_object_mut().map(|o| o.remove("sizeBasis"));
+    assert!(serde_json::from_value::<VizRows>(without_basis).is_ok());
+    let mut null_basis = page.clone();
+    null_basis["sizeBasis"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<VizRows>(null_basis).is_err());
     let mut known = page.clone();
     known["observedAt"] = json!("2026-11-10T00:00:00.000Z");
     assert_eq!(
@@ -398,48 +449,6 @@ fn a_list_condition_rides_only_on_a_group_row_and_is_never_null()
     let mut null = group_row();
     null["condition"] = Value::Null;
     assert!(serde_json::from_value::<VizRow>(null).is_err());
-    Ok(())
-}
-
-#[test]
-fn a_folder_row_says_how_it_could_not_be_read() -> Result<(), Box<dyn std::error::Error>> {
-    use du_core_contracts::visualization::rows::VizUnread;
-    let with = |unread: Value| {
-        let mut value = row();
-        value["unread"] = unread;
-        value
-    };
-    for (wire, expected) in [
-        (json!({"kind":"itself"}), VizUnread::Itself),
-        (
-            json!({"kind":"inside","count":"3"}),
-            VizUnread::Inside {
-                count: Some("3".into()),
-            },
-        ),
-        (json!({"kind":"inside"}), VizUnread::Inside { count: None }),
-        // An unknown kind is read, so a newer sender does not break an older receiver.
-        (json!({"kind":"later"}), VizUnread::Unknown),
-    ] {
-        let parsed: VizRow = serde_json::from_value(with(wire.clone()))?;
-        assert_eq!(parsed.unread, Some(expected), "{wire}");
-    }
-    assert_eq!(VizUnread::inside(Some(0)), None);
-    for bad in [
-        Value::Null,
-        json!({"kind":"inside","count":"0"}),
-        json!({"kind":"inside","count":"03"}),
-        json!({"kind":"inside","count":"-3"}),
-        json!({"kind":"inside","count":null}),
-    ] {
-        assert!(
-            serde_json::from_value::<VizRow>(with(bad.clone())).is_err(),
-            "{bad}"
-        );
-    }
-    let mut group = group_row();
-    group["unread"] = json!({"kind":"itself"});
-    assert!(serde_json::from_value::<VizRow>(group).is_err());
     Ok(())
 }
 

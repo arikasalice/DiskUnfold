@@ -2,8 +2,10 @@
 //!
 //! This internal composition does not implement the public `viz.render` wire
 //! contract. The caller supplies trusted evidence from the pinned result.
+mod evidence;
 pub(crate) mod expansion;
 mod ranked_group;
+use evidence::collect_evidence;
 pub(crate) use expansion::Policy as ExpansionPolicy;
 
 use std::{
@@ -19,7 +21,7 @@ use du_analysis_index::{
     },
 };
 use du_core_contracts::{
-    Id, ItemRef,
+    Id, ItemRef, SizeBasis,
     result::{ResultItem, ResultVersionRead},
     visualization::rows::{VizRow, VizRows, VizRowsRequest},
 };
@@ -289,44 +291,11 @@ impl Session {
     }
 }
 
-fn collect_evidence(
-    source: &CurrentAnalysis,
-    parent: &ItemRef,
-    mut evidence: impl FnMut(
-        &CurrentAnalysis,
-        &ResultItem,
-        &mut dyn FnMut() -> bool,
-    ) -> Result<ChildPolicyEvidence, render::Error>,
-    cancelled: &mut dyn FnMut() -> bool,
-) -> Result<Vec<render::ChildEvidence>, render::Error> {
-    let folder = du_analysis_index::browse::open(source.version(), Some(parent))
-        .map_err(|_| render::Error::Projection(projection::Error::InvalidSource))?;
-    let mut children = Vec::with_capacity(folder.children.len());
-    for item in folder.children {
-        if cancelled() {
-            return Err(render::Error::Cancelled);
-        }
-        let policy = evidence(source, item, cancelled)?;
-        children.push(render::ChildEvidence {
-            item: ItemRef {
-                result_version: source.result_version().clone(),
-                item_no: item.item_no,
-            },
-            path_compare_key: policy.path_compare_key,
-            legend_class_key: policy.legend_class_key,
-            display_flags: policy.display_flags,
-        });
-    }
-    if cancelled() {
-        return Err(render::Error::Cancelled);
-    }
-    Ok(children)
-}
-
 struct PinnedModel {
     reference: String,
     source: Arc<ResultVersion>,
     rows: Arc<[VizRow]>,
+    size_basis: SizeBasis,
     layout: Option<Arc<projection::Model>>,
     scope: Option<ItemRef>,
 }
@@ -357,12 +326,14 @@ impl Session {
             return Err(Error::StaleVersion);
         }
         let layout = entry.layout.clone();
+        let size_basis = entry.size_basis.clone();
         let scope = entry.scope.clone();
         let rows = source.pin_viz_rows(model_ref).map_err(super::model_error)?;
         *slot = Some(PinnedModel {
             reference: model_ref.to_owned(),
             source,
             rows,
+            size_basis,
             layout,
             scope,
         });
@@ -394,6 +365,7 @@ impl Session {
         }
         let source = pin.source.clone();
         let rows = pin.rows.clone();
+        let size_basis = pin.size_basis.clone();
         let layout = pin.layout.clone();
         let reference = pin.reference.clone();
         drop(slot);
@@ -411,6 +383,7 @@ impl Session {
         Ok(VizRows {
             rows: rows[start..end].to_vec(),
             total_count: rows.len() as u64,
+            size_basis: Some(size_basis),
             result_revision: source.version_id().clone(),
             observed_at: source.observed_at().cloned(),
             completeness: source.completeness(),

@@ -18,6 +18,7 @@ fn cancellation_while_waiting_for_source_preserves_the_existing_cache() -> Resul
     ));
     let input = |fingerprint: &str| ModelInput {
         version: version.clone(),
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: fingerprint.into(),
         rows: vec![],
         groups: HashMap::new(),
@@ -277,6 +278,7 @@ fn cancellation_during_group_preparation_does_not_publish() -> Result<(), String
     let pages = ModelPages::new(source, NonZeroUsize::MIN, Arc::new(Ids(AtomicU64::new(1))));
     let input = ModelInput {
         version,
+        size_basis: du_core_contracts::SizeBasis::Logical,
         condition_fingerprint: "cancelled".into(),
         rows: vec![],
         groups: HashMap::from([("g".into(), group)]),

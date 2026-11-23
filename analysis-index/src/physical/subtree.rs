@@ -81,6 +81,13 @@ pub(crate) fn apply(
         return;
     };
     let repeated = repeated_identities(items, observations);
+    output.set_shared_files(
+        items
+            .iter()
+            .filter(|item| repeated[item.item_no as usize])
+            .map(|item| item.item_no)
+            .collect(),
+    );
     // Only a folder with observed descendants holds an accumulator.
     let mut sums: Vec<Option<Box<Physical>>> = (0..items.len()).map(|_| None).collect();
     for item in items.iter().rev() {

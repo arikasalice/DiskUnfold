@@ -21,7 +21,7 @@ use du_analysis_index::{
     visualization::{group_page, live_models, projection},
 };
 use du_core_contracts::{
-    Id, ItemRef,
+    Id, ItemRef, SizeBasis,
     result::ResultVersionRead,
     visualization::rows::{MAX_PAGE_COUNT, VizRow, VizRows, VizRowsRequest},
 };
@@ -52,12 +52,14 @@ pub enum Error {
 /// An already computed model from a pinned live result and normalized condition.
 pub struct ModelInput {
     pub version: Arc<ResultVersion>,
+    pub size_basis: SizeBasis,
     pub condition_fingerprint: String,
     pub rows: Vec<VizRow>,
     pub groups: HashMap<String, live_models::GroupRows>,
 }
 struct PreparedModelInput {
     version: Arc<ResultVersion>,
+    size_basis: SizeBasis,
     condition_fingerprint: String,
     rows: Option<live_models::PreparedRows>,
     scope: Option<ItemRef>,
@@ -76,6 +78,7 @@ fn prepare_model_input_cancellable(
         .map_err(|_| Error::Cancelled)?;
     Ok(PreparedModelInput {
         version: input.version,
+        size_basis: input.size_basis,
         condition_fingerprint: input.condition_fingerprint,
         rows: Some(rows),
         scope: None,
@@ -94,6 +97,7 @@ struct Entry {
     source: Weak<ResultVersion>,
     revision: Id,
     fingerprint: String,
+    size_basis: SizeBasis,
     layout: Option<Arc<projection::Model>>,
     metadata: Option<LayoutMetadata>,
     scope: Option<ItemRef>,
@@ -178,6 +182,7 @@ impl ModelPages {
     ) -> Result<(String, Option<Arc<projection::Model>>), Error> {
         let PreparedModelInput {
             version,
+            size_basis,
             condition_fingerprint,
             rows,
             scope,
@@ -210,7 +215,10 @@ impl ModelPages {
                     if layout.is_some() && entry.layout.is_none() {
                         return Err(Error::InvalidModel);
                     }
-                    if entry.scope != scope || entry.metadata.is_some() {
+                    if entry.scope != scope
+                        || entry.metadata.is_some()
+                        || entry.size_basis != size_basis
+                    {
                         return Err(Error::InvalidModel);
                     }
                     let layout = entry.layout.clone();
@@ -265,6 +273,7 @@ impl ModelPages {
                         source: Arc::downgrade(current),
                         revision: key.0.clone(),
                         fingerprint: key.1.clone(),
+                        size_basis: size_basis.clone(),
                         layout: layout.clone(),
                         metadata: None,
                         scope: scope.clone(),
@@ -308,6 +317,7 @@ impl ModelPages {
         if !Arc::ptr_eq(&pinned, &current) {
             return Err(Error::StaleVersion);
         }
+        let size_basis = entry.size_basis.clone();
         let rows = folder_rows::read(&current, request, entry.layout.as_deref())?;
         let start = request.start as usize;
         if start > rows.len() {
@@ -320,6 +330,7 @@ impl ModelPages {
         Ok(VizRows {
             rows: rows[start..end].to_vec(),
             total_count: rows.len() as u64,
+            size_basis: Some(size_basis),
             result_revision: current.version_id().clone(),
             observed_at: current.observed_at().cloned(),
             completeness: current.completeness(),
