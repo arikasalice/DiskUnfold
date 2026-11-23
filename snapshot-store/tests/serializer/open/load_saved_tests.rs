@@ -161,6 +161,8 @@ impl Drop for FakeSealed {
 struct TrackedStage {
     bytes: Cursor<Vec<u8>>,
     discarded: Arc<AtomicBool>,
+    fail_discard: bool,
+    cancel_on_rewind: Option<Arc<AtomicBool>>,
 }
 
 impl TrackedStage {
@@ -168,7 +170,19 @@ impl TrackedStage {
         Self {
             bytes: Cursor::new(Vec::new()),
             discarded,
+            fail_discard: false,
+            cancel_on_rewind: None,
         }
+    }
+
+    fn with_discard_failure(mut self) -> Self {
+        self.fail_discard = true;
+        self
+    }
+
+    fn cancel_after_open_rewind(mut self, cancelled: Arc<AtomicBool>) -> Self {
+        self.cancel_on_rewind = Some(cancelled);
+        self
     }
 }
 
@@ -180,7 +194,13 @@ impl Read for TrackedStage {
 
 impl Seek for TrackedStage {
     fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        self.bytes.seek(position)
+        let position = self.bytes.seek(position)?;
+        if position == 0
+            && let Some(cancelled) = &self.cancel_on_rewind
+        {
+            cancelled.store(true, Ordering::Release);
+        }
+        Ok(position)
     }
 }
 
@@ -204,6 +224,9 @@ impl Write for TrackedStage {
 
 impl du_snapshot_store::zstd_stream::StagingSink for TrackedStage {
     fn discard(self) -> io::Result<()> {
+        if self.fail_discard {
+            return Err(io::Error::other("test staging discard failure"));
+        }
         self.discarded.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -283,6 +306,64 @@ fn registered_file_round_trips_as_an_immutable_snapshot_result() -> Result<(), S
     let state = port.state();
     assert!(!state.capture_open);
     assert_eq!(state.registered, Some(bytes));
+    Ok(())
+}
+
+#[test]
+fn successful_load_is_rejected_when_record_cleanup_fails() -> Result<(), String> {
+    let (_, snapshot_id, bytes) = sample_file()?;
+    let port = FakePort::new(Some(bytes.clone()), Some(1_000_000));
+    let discarded = Arc::new(AtomicBool::new(false));
+    let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let error = du_snapshot_store::load_saved(
+        &port,
+        &snapshot_id,
+        size,
+        index_body_hash(&bytes)?,
+        TrackedStage::new(discarded.clone()).with_discard_failure(),
+        || false,
+    )
+    .err()
+    .ok_or("load returned a result despite record cleanup failure")?;
+
+    assert_eq!(error.kind(), du_snapshot_store::LoadSavedErrorKind::Staging);
+    assert_eq!(error.reason_key(), None);
+    assert!(error.cleanup_failed());
+    assert!(!discarded.load(Ordering::SeqCst));
+    assert!(!port.state().capture_open);
+    assert_eq!(port.state().registered, Some(bytes));
+    Ok(())
+}
+
+#[test]
+fn load_failure_and_record_cleanup_failure_preserve_both_states() -> Result<(), String> {
+    let (_, snapshot_id, bytes) = sample_file()?;
+    let port = FakePort::new(Some(bytes.clone()), Some(1_000_000));
+    let discarded = Arc::new(AtomicBool::new(false));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let size = u64::try_from(bytes.len()).map_err(|error| error.to_string())?;
+    let error = du_snapshot_store::load_saved(
+        &port,
+        &snapshot_id,
+        size,
+        index_body_hash(&bytes)?,
+        TrackedStage::new(discarded.clone())
+            .cancel_after_open_rewind(cancelled.clone())
+            .with_discard_failure(),
+        || cancelled.load(Ordering::Acquire),
+    )
+    .err()
+    .ok_or("cancelled load returned a result")?;
+
+    assert_eq!(
+        error.kind(),
+        du_snapshot_store::LoadSavedErrorKind::Cancelled
+    );
+    assert_eq!(error.reason_key(), None);
+    assert!(error.cleanup_failed());
+    assert!(!discarded.load(Ordering::SeqCst));
+    assert!(!port.state().capture_open);
+    assert_eq!(port.state().registered, Some(bytes));
     Ok(())
 }
 
